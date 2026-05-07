@@ -102,6 +102,18 @@ describe("sanitizeHtml", () => {
     expect(result).toContain('<a href="https://example.com">Link</a>');
   });
 
+  it("preserves cid: in img src (RFC 2392 inline images)", () => {
+    const html = '<img src="cid:part123@local" alt="Photo" />';
+    const result = sanitizeHtml(html);
+    expect(result).toContain('src="cid:part123@local"');
+  });
+
+  it("strips javascript: href even with unknown protocols allowed", () => {
+    const html = '<a href="javascript:alert(1)">click</a>';
+    const result = sanitizeHtml(html);
+    expect(result).not.toContain("javascript:");
+  });
+
   it("handles empty string", () => {
     expect(sanitizeHtml("")).toBe("");
   });

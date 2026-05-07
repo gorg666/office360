@@ -132,4 +132,25 @@ describe("parseGmailMessage", () => {
       "Label_123",
     ]);
   });
+
+  it("decodes RFC 2047 subject (UTF-8 Q)", () => {
+    const base = createMockGmailMessage();
+    const msg = {
+      ...base,
+      payload: {
+        ...base.payload,
+        headers: [
+          { name: "From", value: "john@example.com" },
+          { name: "To", value: "me@example.com" },
+          {
+            name: "Subject",
+            value: "=?UTF-8?Q?=D0=BA=D0=B5=D0=BA_=D1=87=D0=B5=D0=BA?=",
+          },
+        ],
+      },
+    };
+
+    const parsed = parseGmailMessage(msg);
+    expect(parsed.subject).toBe("кек чек");
+  });
 });

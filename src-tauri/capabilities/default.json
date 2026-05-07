@@ -41,7 +41,15 @@
       "identifier": "fs:scope",
       "allow": [
         { "path": "$APPDATA" },
-        { "path": "$APPDATA/**" }
+        { "path": "$APPDATA/**" },
+        { "path": "$HOME" },
+        { "path": "$HOME/**" },
+        { "path": "$DOWNLOAD" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$DESKTOP" },
+        { "path": "$DESKTOP/**" },
+        { "path": "$DOCUMENT" },
+        { "path": "$DOCUMENT/**" }
       ]
     },
     "core:window:allow-minimize",

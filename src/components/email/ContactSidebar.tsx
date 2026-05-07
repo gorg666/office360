@@ -10,7 +10,6 @@ import {
   type ContactStats, type DbContact, type ContactAttachment, type SameDomainContact,
 } from "@/services/db/contacts";
 import { isVipSender, addVipSender, removeVipSender } from "@/services/db/notificationVips";
-import { fetchAndCacheGravatarUrl } from "@/services/contacts/gravatar";
 import { useThreadStore } from "@/stores/threadStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { getThreadById, getThreadLabelIds } from "@/services/db/threads";
@@ -18,6 +17,7 @@ import { navigateToThread } from "@/router/navigate";
 import { formatRelativeDate } from "@/utils/date";
 import { formatFileSize, getFileIcon } from "@/utils/fileTypeHelpers";
 import { AuthBadge } from "./AuthBadge";
+import { ContactAvatar } from "@/components/ui/ContactAvatar";
 
 interface ContactSidebarProps {
   email: string;
@@ -27,7 +27,6 @@ interface ContactSidebarProps {
 }
 
 export function ContactSidebar({ email, name, accountId, onClose }: ContactSidebarProps) {
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [stats, setStats] = useState<ContactStats | null>(null);
   const [recentThreads, setRecentThreads] = useState<{ thread_id: string; subject: string | null; last_message_at: number | null }[]>([]);
   const [contact, setContact] = useState<DbContact | null>(null);
@@ -80,18 +79,11 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
     loadedRef.current = email;
     let cancelled = false;
 
-    // Load contact + avatar
+    // Load contact
     getContactByEmail(email).then((c) => {
       if (cancelled) return;
       setContact(c);
       setNotes(c?.notes ?? "");
-      if (c?.avatar_url) {
-        setAvatarUrl(c.avatar_url);
-      } else {
-        fetchAndCacheGravatarUrl(email).then((url) => {
-          if (!cancelled) setAvatarUrl(url);
-        });
-      }
     });
 
     // Load stats
@@ -186,7 +178,6 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
   }, []);
 
   const displayName = contact?.display_name ?? name ?? email.split("@")[0];
-  const initial = (displayName?.[0] ?? "?").toUpperCase();
   const domain = email.includes("@") ? email.split("@")[1] : null;
 
   return (
@@ -205,17 +196,12 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
 
         {/* Avatar */}
         <div className="flex flex-col items-center text-center mb-4">
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={displayName}
-              className="w-16 h-16 rounded-full mb-2"
-            />
-          ) : (
-            <div className="w-16 h-16 rounded-full bg-accent/20 text-accent flex items-center justify-center text-xl font-semibold mb-2">
-              {initial}
-            </div>
-          )}
+          <ContactAvatar
+            email={email}
+            name={displayName}
+            className="w-16 h-16 rounded-full mb-2"
+            textClassName="text-xl"
+          />
 
           {/* Name + Auth Badge */}
           {editingName ? (

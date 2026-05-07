@@ -17,6 +17,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { isImage, isPdf, isDocument, isSpreadsheet, isArchive } from "@/utils/fileTypeHelpers";
 import { navigateToLabel } from "@/router/navigate";
 import { useUIStore } from "@/stores/uiStore";
+import { base64UrlToUint8Array } from "@/utils/base64url";
 
 type TypeFilter = "all" | "images" | "pdfs" | "documents" | "spreadsheets" | "archives" | "other";
 type DateFilter = "all" | "today" | "week" | "month" | "year";
@@ -115,7 +116,8 @@ function matchesSize(att: AttachmentWithContext, filter: SizeFilter): boolean {
 
 export function AttachmentLibrary() {
   const accounts = useAccountStore((s) => s.accounts);
-  const activeAccount = accounts.find((a) => a.isActive);
+  const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const activeAccount = accounts.find((a) => a.id === activeAccountId);
   const accountId = activeAccount?.id ?? null;
   const locale = useUIStore((state) => state.locale);
 
@@ -195,12 +197,7 @@ export function AttachmentLibrary() {
 
       const provider = await getEmailProvider(accountId);
       const response = await provider.fetchAttachment(att.message_id, att.gmail_attachment_id);
-      const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
-      const binaryStr = atob(base64);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
+      const bytes = base64UrlToUint8Array(response.data);
       await writeFile(filePath, bytes);
     } catch (err) {
       console.error("Download failed:", err);
@@ -247,6 +244,7 @@ export function AttachmentLibrary() {
           {/* Filters */}
           <select
             value={typeFilter}
+            title={locale === "ru" ? "Тип файла" : "File type"}
             onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
             className="text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent"
           >
@@ -257,6 +255,7 @@ export function AttachmentLibrary() {
 
           <select
             value={senderFilter}
+            title={locale === "ru" ? "Отправитель" : "Sender"}
             onChange={(e) => setSenderFilter(e.target.value)}
             className="text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent max-w-40"
           >
@@ -270,6 +269,7 @@ export function AttachmentLibrary() {
 
           <select
             value={dateFilter}
+            title={locale === "ru" ? "Период" : "Time range"}
             onChange={(e) => setDateFilter(e.target.value as DateFilter)}
             className="text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent"
           >
@@ -280,6 +280,7 @@ export function AttachmentLibrary() {
 
           <select
             value={sizeFilter}
+            title={locale === "ru" ? "Размер" : "Size"}
             onChange={(e) => setSizeFilter(e.target.value as SizeFilter)}
             className="text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent"
           >

@@ -67,13 +67,17 @@ export function ThreadView({ thread }: ThreadViewProps) {
   const [messages, setMessages] = useState<DbMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const markedReadRef = useRef<string | null>(null);
-  // null = not yet loaded; defer iframe rendering until setting is known
-  const [blockImages, setBlockImages] = useState<boolean | null>(null);
+  // null = not yet loaded; avoids flashing the wrong privacy mode on first paint
+  const [blockRemoteImages, setBlockRemoteImages] = useState<boolean | null>(null);
   const [allowlistedSenders, setAllowlistedSenders] = useState<Set<string>>(new Set());
+
+  const isSpamThread = thread.labelIds.includes("SPAM");
+  const effectiveBlockImages =
+    blockRemoteImages === null ? null : isSpamThread || blockRemoteImages;
 
   // Preload settings eagerly on mount (parallel with message loading)
   useEffect(() => {
-    getSetting("block_remote_images").then((val) => setBlockImages(val !== "false"));
+    getSetting("block_remote_images").then((val) => setBlockRemoteImages(val !== "false"));
   }, []);
 
   // Load messages
@@ -432,9 +436,9 @@ export function ThreadView({ thread }: ThreadViewProps) {
                 message={msg}
                 isLast={i === messages.length - 1}
                 focused={i === focusedMsgIdx}
-                blockImages={blockImages}
+                blockImages={effectiveBlockImages}
                 senderAllowlisted={msg.from_address ? allowlistedSenders.has(msg.from_address) : false}
-                isSpam={thread.labelIds.includes("SPAM")}
+                isSpam={isSpamThread}
                 onContextMenu={(e) => handleMessageContextMenu(e, msg)}
               />
             ))}

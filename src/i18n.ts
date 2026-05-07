@@ -55,7 +55,7 @@ const ru: Record<string, string> = {
   "Start Office360 automatically when you log in (minimized to tray)": "Запускать Офис360 автоматически при входе в систему (свёрнутым в трей)",
   "Privacy & Security": "Конфиденциальность и безопасность",
   "Block remote images": "Блокировать удалённые изображения",
-  "Hides tracking pixels and remote images until you choose to load them": "Скрывает трекеры и удалённые изображения, пока вы не разрешите их загрузку",
+  "Hides tracking pixels and remote images until you choose to load them (Spam always blocks remote images)": "Скрывает трекеры и удалённые изображения, пока вы не разрешите их загрузку (в «Спаме» удалённые изображения всегда блокируются)",
   "Phishing link detection": "Проверка фишинговых ссылок",
   "Scan message links for phishing indicators and show warnings": "Проверять ссылки в письмах на признаки фишинга и показывать предупреждения",
   "Detection sensitivity": "Чувствительность проверки",

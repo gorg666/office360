@@ -6,6 +6,7 @@ import { addToAllowlist } from "@/services/db/imageAllowlist";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 import { useUIStore } from "@/stores/uiStore";
 import type { DbAttachment } from "@/services/db/attachments";
+import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
 
 interface EmailRendererProps {
   html: string | null;
@@ -14,6 +15,8 @@ interface EmailRendererProps {
   senderAddress?: string | null;
   accountId?: string | null;
   senderAllowlisted?: boolean;
+  /** When true, per-sender allowlist must not bypass remote-image blocking (Spam). */
+  isSpam?: boolean;
   messageId?: string | null;
   inlineAttachments?: DbAttachment[];
 }
@@ -25,6 +28,7 @@ export function EmailRenderer({
   senderAddress,
   accountId,
   senderAllowlisted = false,
+  isSpam = false,
   messageId,
   inlineAttachments,
 }: EmailRendererProps) {
@@ -38,7 +42,10 @@ export function EmailRenderer({
   const isDark = theme === "dark"
     || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 
-  const shouldBlock = blockImages && !senderAllowlisted && !overrideShow;
+  const shouldBlock =
+    blockImages &&
+    !overrideShow &&
+    !(senderAllowlisted && !isSpam);
 
   // Resolve cid: references by fetching inline attachment data
   useEffect(() => {
@@ -64,7 +71,9 @@ export function EmailRenderer({
                 messageId,
                 att.gmail_attachment_id!,
               );
-              const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
+              const raw = String(response.data ?? "").replace(/\s/g, "");
+              if (!raw) return;
+              const base64 = normalizeBase64UrlToStandardBase64(raw);
               const dataUri = `data:${getEffectiveInlineMimeType(att)};base64,${base64}`;
               for (const key of getContentIdKeys(att.content_id)) {
                 resolved.set(key, dataUri);
@@ -117,9 +126,10 @@ export function EmailRenderer({
       );
     }
 
+    // Hide images whose cid: was not resolved (quoted, single-quoted, or unquoted src).
     body = body.replace(
-      /(<img\b[^>]*?)(\ssrc\s*=\s*)(["'])cid:[^"']*\3/gi,
-      '$1 data-unresolved-cid="true"',
+      /(<img\b[^>]*?)(\ssrc\s*=\s*)(?:"cid:[^"]*"|'cid:[^']*'|cid:[^\s>)]+)/gi,
+      "$1 data-unresolved-cid=\"true\"",
     );
 
     return body;

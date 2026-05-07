@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { setSetting, setSecureSetting } from "@/services/db/settings";
 import { Modal } from "@/components/ui/Modal";
+import { useUIStore } from "@/stores/uiStore";
+import { isValidGoogleOAuthClientIdFormat } from "@/utils/googleCredentials";
 
 interface SetupClientIdProps {
   onComplete: () => void;
@@ -8,14 +10,26 @@ interface SetupClientIdProps {
 }
 
 export function SetupClientId({ onComplete, onCancel }: SetupClientIdProps) {
+  const locale = useUIStore((s) => s.locale);
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSave = async () => {
     const trimmedId = clientId.trim();
     const trimmedSecret = clientSecret.trim();
     if (!trimmedId) return;
+
+    if (!isValidGoogleOAuthClientIdFormat(trimmedId)) {
+      setError(
+        locale === "ru"
+          ? "Неверный формат Client ID. Скопируйте его из Google Cloud Console → Учётные данные (тип «Компьютерное приложение»)."
+          : "Invalid Client ID format. Copy it from Google Cloud Console → Credentials (Desktop app).",
+      );
+      return;
+    }
+    setError(null);
 
     setSaving(true);
     try {
@@ -58,10 +72,15 @@ export function SetupClientId({ onComplete, onCancel }: SetupClientIdProps) {
         <input
           type="text"
           value={clientId}
-          onChange={(e) => setClientId(e.target.value)}
+          onChange={(e) => {
+            setError(null);
+            setClientId(e.target.value);
+          }}
           placeholder="Paste your Client ID here..."
           className="w-full px-3 py-2 bg-bg-secondary border border-border-primary rounded-lg text-sm mb-3 outline-none focus:border-accent"
         />
+
+        {error && <p className="text-xs text-danger mb-2">{error}</p>}
 
         <input
           type="password"

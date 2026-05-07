@@ -8,6 +8,7 @@ import type { DbAttachment } from "@/services/db/attachments";
 import { MailMinus } from "lucide-react";
 import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
+import { ContactAvatar } from "@/components/ui/ContactAvatar";
 
 interface MessageItemProps {
   message: DbMessage;
@@ -86,9 +87,12 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-full bg-accent/20 text-accent flex items-center justify-center shrink-0 text-xs font-medium">
-              {fromDisplay[0]?.toUpperCase()}
-            </div>
+            <ContactAvatar
+              email={message.from_address}
+              name={message.from_name}
+              className="w-7 h-7 rounded-full shrink-0"
+              textClassName="text-xs"
+            />
             <div className="min-w-0">
               <span className="text-sm font-medium text-text-primary truncate flex items-center gap-1">
                 {fromDisplay}
@@ -144,6 +148,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
               senderAddress={message.from_address}
               accountId={message.account_id}
               senderAllowlisted={senderAllowlisted}
+              isSpam={!!isSpam}
               messageId={message.id}
               inlineAttachments={attachments.filter((a) => a.content_id)}
             />

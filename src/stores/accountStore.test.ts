@@ -50,7 +50,10 @@ describe("accountStore", () => {
     useAccountStore.getState().addAccount(mockAccount);
     useAccountStore.getState().addAccount(mockAccount2);
     useAccountStore.getState().setActiveAccount("acc-2");
-    expect(useAccountStore.getState().activeAccountId).toBe("acc-2");
+    const state = useAccountStore.getState();
+    expect(state.activeAccountId).toBe("acc-2");
+    expect(state.accounts.find((a) => a.id === "acc-1")?.isActive).toBe(false);
+    expect(state.accounts.find((a) => a.id === "acc-2")?.isActive).toBe(true);
   });
 
   it("should remove account and update active if needed", () => {
@@ -77,5 +80,15 @@ describe("accountStore", () => {
     const state = useAccountStore.getState();
     expect(state.accounts).toHaveLength(2);
     expect(state.activeAccountId).toBe("acc-1");
+    expect(state.accounts.find((a) => a.id === "acc-1")?.isActive).toBe(true);
+    expect(state.accounts.find((a) => a.id === "acc-2")?.isActive).toBe(false);
+  });
+
+  it("should restore active account and normalize account flags", () => {
+    useAccountStore.getState().setAccounts([mockAccount, mockAccount2], "acc-2");
+    const state = useAccountStore.getState();
+    expect(state.activeAccountId).toBe("acc-2");
+    expect(state.accounts.find((a) => a.id === "acc-1")?.isActive).toBe(false);
+    expect(state.accounts.find((a) => a.id === "acc-2")?.isActive).toBe(true);
   });
 });

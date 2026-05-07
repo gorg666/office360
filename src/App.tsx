@@ -493,7 +493,7 @@ export default function App() {
     }
   }, [colorTheme, theme]);
 
-  const handleAddAccountSuccess = useCallback(async () => {
+  const handleAddAccountSuccess = useCallback(async (newAccountId: string) => {
     setShowAddAccount(false);
     const dbAccounts = await getAllAccounts();
     const mapped = dbAccounts.map((a) => ({
@@ -504,27 +504,29 @@ export default function App() {
       isActive: a.is_active === 1,
       provider: a.provider,
     }));
-    useAccountStore.getState().setAccounts(mapped);
+
+    useAccountStore.getState().setAccounts(mapped, newAccountId);
 
     // Re-initialize clients for the new account
     await initializeClients();
 
-    const newest = mapped[mapped.length - 1];
-    if (newest) {
-      // Sync the new account immediately — before restarting the background
-      // timer so it doesn't queue behind delta syncs for existing accounts.
-      syncAccount(newest.id);
+    if (newAccountId) {
+      try {
+        await syncAccount(newAccountId);
+      } catch (err) {
+        console.error("Initial sync failed for new account:", err);
+      }
 
-      // Fetch send-as aliases in the background (non-blocking, skip CalDAV-only accounts)
-      if (newest.provider !== "caldav") {
-        getGmailClient(newest.id)
-          .then((client) => fetchSendAsAliases(client, newest.id))
+      const added = mapped.find((a) => a.id === newAccountId);
+      if (added && added.provider !== "caldav") {
+        getGmailClient(added.id)
+          .then((client) => fetchSendAsAliases(client, added.id))
           .catch((err) => console.warn(`Failed to fetch send-as aliases for new account:`, err));
       }
     }
 
     // Restart background sync for all accounts, but skip the immediate run
-    // since we already triggered the new account's sync above.
+    // since we already awaited the new account's sync above.
     const activeIds = mapped.filter((a) => a.isActive).map((a) => a.id);
     startBackgroundSync(activeIds, true);
   }, []);

@@ -3,6 +3,7 @@ import type { DbAttachment } from "@/services/db/attachments";
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { FileText } from "lucide-react";
 import { formatFileSize, isImage, isPdf } from "@/utils/fileTypeHelpers";
+import { base64UrlToUint8Array, uint8ArrayToBase64DataUrl } from "@/utils/base64url";
 
 /** Dedup attachments by filename+size (content-based) */
 function dedup(attachments: DbAttachment[]): DbAttachment[] {
@@ -131,18 +132,12 @@ function ImageThumbnail({
       const provider = await getEmailProvider(accountId);
       const response = await provider.fetchAttachment(messageId, attachment.gmail_attachment_id);
 
-      // Normalize URL-safe base64 (Gmail API) to standard base64
-      const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
-      const binaryStr = atob(base64);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
+      const raw = String(response.data ?? "").replace(/\s/g, "");
+      if (!raw) return;
 
-      const blob = new Blob([bytes.buffer as ArrayBuffer], {
-        type: getEffectiveImageMimeType(attachment),
-      });
-      setThumbnailUrl(URL.createObjectURL(blob));
+      const bytes = base64UrlToUint8Array(raw);
+      const mime = getEffectiveImageMimeType(attachment);
+      setThumbnailUrl(uint8ArrayToBase64DataUrl(mime, bytes));
     } catch (err) {
       console.error("Failed to load thumbnail:", err);
     } finally {
@@ -168,13 +163,6 @@ function ImageThumbnail({
     observer.observe(el);
     return () => observer.disconnect();
   }, [loadThumbnail]);
-
-  // Cleanup blob URL
-  useEffect(() => {
-    return () => {
-      if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
-    };
-  }, [thumbnailUrl]);
 
   return (
     <div ref={observerRef}>

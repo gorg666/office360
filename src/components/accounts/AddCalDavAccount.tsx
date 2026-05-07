@@ -15,7 +15,7 @@ import { discoverCalDavSettings, testCalDavConnection } from "@/services/calenda
 
 interface AddCalDavAccountProps {
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (accountId: string) => void;
   onBack: () => void;
 }
 
@@ -41,6 +41,7 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
 
   // Creating account
   const [creating, setCreating] = useState(false);
+  const [createdAccountId, setCreatedAccountId] = useState<string | null>(null);
 
   const handleDiscoverAndNext = useCallback(async () => {
     if (!email.trim()) return;
@@ -86,6 +87,7 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
         isActive: true,
       });
 
+      setCreatedAccountId(id);
       setStep("done");
     } catch (err) {
       console.error("Failed to create CalDAV account:", err);
@@ -275,7 +277,10 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
               Your calendars will sync automatically.
             </p>
             <button
-              onClick={onSuccess}
+              onClick={() => {
+                if (createdAccountId) onSuccess(createdAccountId);
+                else onClose();
+              }}
               className="mt-4 px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors"
             >
               Done

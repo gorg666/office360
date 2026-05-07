@@ -1,5 +1,7 @@
 import type { GmailMessage, GmailMessagePart, GmailHeader } from "./client";
 import { parseAuthenticationResults } from "./authParser";
+import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
+import { decodeMimeWords } from "@/utils/mimeHeaderDecode";
 
 export interface ParsedAttachment {
   filename: string;
@@ -38,7 +40,7 @@ export interface ParsedMessage {
 
 export function parseGmailMessage(msg: GmailMessage): ParsedMessage {
   const headers = msg.payload.headers;
-  const from = getHeader(headers, "From");
+  const from = decodeHeaderValue(getHeader(headers, "From"));
   const { name: fromName, address: fromAddress } = parseEmailAddress(from);
 
   const bodyHtml = extractBody(msg.payload, "text/html");
@@ -51,11 +53,11 @@ export function parseGmailMessage(msg: GmailMessage): ParsedMessage {
     threadId: msg.threadId,
     fromAddress: fromAddress,
     fromName: fromName,
-    toAddresses: getHeader(headers, "To"),
-    ccAddresses: getHeader(headers, "Cc"),
-    bccAddresses: getHeader(headers, "Bcc"),
-    replyTo: getHeader(headers, "Reply-To"),
-    subject: getHeader(headers, "Subject"),
+    toAddresses: decodeHeaderValue(getHeader(headers, "To")),
+    ccAddresses: decodeHeaderValue(getHeader(headers, "Cc")),
+    bccAddresses: decodeHeaderValue(getHeader(headers, "Bcc")),
+    replyTo: decodeHeaderValue(getHeader(headers, "Reply-To")),
+    subject: decodeHeaderValue(getHeader(headers, "Subject")),
     snippet: msg.snippet,
     date: parseInt(msg.internalDate, 10),
     isRead: !msg.labelIds.includes("UNREAD"),
@@ -67,8 +69,8 @@ export function parseGmailMessage(msg: GmailMessage): ParsedMessage {
     labelIds: msg.labelIds,
     hasAttachments: attachments.length > 0,
     attachments,
-    listUnsubscribe: getHeader(headers, "List-Unsubscribe"),
-    listUnsubscribePost: getHeader(headers, "List-Unsubscribe-Post"),
+    listUnsubscribe: decodeHeaderValue(getHeader(headers, "List-Unsubscribe")),
+    listUnsubscribePost: decodeHeaderValue(getHeader(headers, "List-Unsubscribe-Post")),
     authResults: authResult ? JSON.stringify(authResult) : null,
   };
 }
@@ -78,6 +80,10 @@ function getHeader(headers: GmailHeader[], name: string): string | null {
     (h) => h.name.toLowerCase() === name.toLowerCase(),
   );
   return header?.value ?? null;
+}
+
+function decodeHeaderValue(value: string | null): string | null {
+  return decodeMimeWords(value);
 }
 
 function parseEmailAddress(raw: string | null): {
@@ -155,8 +161,8 @@ function collectAttachments(part: GmailMessagePart, results: ParsedAttachment[])
 }
 
 function decodeBase64Url(data: string): string {
-  // Gmail uses URL-safe base64
-  const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
+  // Gmail uses URL-safe base64 (often without padding)
+  const base64 = normalizeBase64UrlToStandardBase64(data);
   try {
     return decodeURIComponent(
       atob(base64)

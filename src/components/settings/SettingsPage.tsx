@@ -61,6 +61,7 @@ import type { SidebarNavItem } from "@/stores/uiStore";
 import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
 import appIcon from "@/assets/icon.png";
+import { isValidGoogleOAuthClientIdFormat } from "@/utils/googleCredentials";
 
 type SettingsTab = "general" | "notifications" | "composing" | "mail-rules" | "people" | "accounts" | "shortcuts" | "ai" | "about";
 
@@ -109,9 +110,10 @@ export function SettingsPage() {
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [apiSettingsSaved, setApiSettingsSaved] = useState(false);
+  const [apiSettingsError, setApiSettingsError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncPeriodDays, setSyncPeriodDays] = useState("365");
-  const [blockRemoteImages, setBlockRemoteImages] = useState(true);
+  const [blockRemoteImages, setBlockRemoteImages] = useState(false);
   const [phishingDetectionEnabled, setPhishingDetectionEnabled] = useState(true);
   const [phishingSensitivity, setPhishingSensitivity] = useState<"low" | "default" | "high">("default");
   const [autostartEnabled, setAutostartEnabled] = useState(false);
@@ -264,6 +266,15 @@ export function SettingsPage() {
 
   const handleSaveApiSettings = useCallback(async () => {
     const trimmedId = clientId.trim();
+    if (trimmedId && !isValidGoogleOAuthClientIdFormat(trimmedId)) {
+      setApiSettingsError(
+        locale === "ru"
+          ? "Неверный формат Client ID. Скопируйте значение из Google Cloud Console → Учётные данные → OAuth 2.0 (тип «Компьютерное приложение»). Оно выглядит как 123456789012-xxx.apps.googleusercontent.com"
+          : "Invalid Client ID format. Copy it from Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID (Desktop). It should look like 123456789012-xxx.apps.googleusercontent.com",
+      );
+      return;
+    }
+    setApiSettingsError(null);
     if (trimmedId) {
       await setSetting("google_client_id", trimmedId);
     }
@@ -273,7 +284,7 @@ export function SettingsPage() {
     }
     setApiSettingsSaved(true);
     setTimeout(() => setApiSettingsSaved(false), 2000);
-  }, [clientId, clientSecret]);
+  }, [clientId, clientSecret, locale]);
 
   const handleManualSync = useCallback(async () => {
     const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
@@ -550,7 +561,7 @@ export function SettingsPage() {
                   <Section title="Privacy & Security">
                     <ToggleRow
                       label="Block remote images"
-                      description="Hides tracking pixels and remote images until you choose to load them"
+                      description="Hides tracking pixels and remote images until you choose to load them (Spam always blocks remote images)"
                       checked={blockRemoteImages}
                       onToggle={async () => {
                         const newVal = !blockRemoteImages;
@@ -976,7 +987,10 @@ export function SettingsPage() {
                         size="md"
                         type="text"
                         value={clientId}
-                        onChange={(e) => setClientId(e.target.value)}
+                        onChange={(e) => {
+                          setApiSettingsError(null);
+                          setClientId(e.target.value);
+                        }}
                         placeholder="Google OAuth Client ID"
                       />
                       <TextField
@@ -987,6 +1001,14 @@ export function SettingsPage() {
                         onChange={(e) => setClientSecret(e.target.value)}
                         placeholder="Google OAuth Client Secret"
                       />
+                      <p className="text-xs text-text-tertiary">
+                        {locale === "ru"
+                          ? "Нужен идентификатор клиента типа «Компьютерное приложение», не код из адресной строки после входа."
+                          : "Use a Desktop OAuth client ID from Google Cloud — not a code from the browser URL after login."}
+                      </p>
+                      {apiSettingsError && (
+                        <p className="text-xs text-danger">{apiSettingsError}</p>
+                      )}
                       <Button
                         variant="primary"
                         size="md"

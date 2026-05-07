@@ -14,7 +14,8 @@ import { useUIStore } from "@/stores/uiStore";
 
 interface AddAccountProps {
   onClose: () => void;
-  onSuccess: () => void;
+  /** New account id in DB (for immediate targeted sync). */
+  onSuccess: (accountId: string) => void;
 }
 
 type View = "select-provider" | "gmail" | "imap" | "caldav";
@@ -61,7 +62,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
         isActive: true,
       });
 
-      onSuccess();
+      onSuccess(accountId);
     } catch (err) {
       console.error("Add account error:", err);
       const message =

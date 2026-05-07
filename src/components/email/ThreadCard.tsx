@@ -7,6 +7,7 @@ import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { formatRelativeDate } from "@/utils/date";
 import { Paperclip, Star, Check, Pin, BellRing, VolumeX } from "lucide-react";
 import type { DragData } from "@/components/dnd/DndProvider";
+import { ContactAvatar } from "@/components/ui/ContactAvatar";
 
 const CATEGORY_COLORS: Record<string, string> = {
   Updates: "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400",
@@ -64,11 +65,12 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
   const handleContextMenu = onContextMenu
     ? (e: React.MouseEvent) => onContextMenu(e, thread.id)
     : undefined;
-  const initial = (
-    thread.fromName?.[0] ??
-    thread.fromAddress?.[0] ??
-    "?"
-  ).toUpperCase();
+  const avatarClassName = emailDensity === "compact"
+    ? "w-7 h-7 rounded-full shrink-0"
+    : emailDensity === "spacious"
+      ? "w-10 h-10 rounded-full shrink-0"
+      : "w-9 h-9 rounded-full shrink-0";
+  const avatarTextClassName = emailDensity === "compact" ? "text-xs" : "text-sm";
 
   return (
     <button
@@ -93,15 +95,19 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
     >
       <div className="flex items-start gap-3">
         {/* Avatar */}
-        <div
-          className={`rounded-full flex items-center justify-center shrink-0 font-medium text-white ${
-            emailDensity === "compact" ? "w-7 h-7 text-xs" : emailDensity === "spacious" ? "w-10 h-10 text-sm" : "w-9 h-9 text-sm"
-          } ${
-            isMultiSelected ? "bg-accent" : thread.isRead ? "bg-text-tertiary" : "bg-accent"
-          }`}
-        >
-          {isMultiSelected ? <Check size={emailDensity === "compact" ? 14 : 16} /> : initial}
-        </div>
+        {isMultiSelected ? (
+          <div className={`${avatarClassName} bg-accent text-white flex items-center justify-center`}>
+            <Check size={emailDensity === "compact" ? 14 : 16} />
+          </div>
+        ) : (
+          <ContactAvatar
+            email={thread.fromAddress}
+            name={thread.fromName}
+            className={avatarClassName}
+            textClassName={avatarTextClassName}
+            fallbackClassName={thread.isRead ? "bg-text-tertiary text-white" : "bg-accent text-white"}
+          />
+        )}
 
         {/* Content */}
         <div className="flex-1 min-w-0">

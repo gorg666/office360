@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { OAuthProviderConfig } from "./providers";
+import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
 
 const OAUTH_CALLBACK_PORT = 17248;
 
@@ -161,7 +162,7 @@ export async function refreshProviderToken(
 function parseIdToken(idToken: string): Record<string, unknown> {
   const payload = idToken.split(".")[1];
   if (!payload) throw new Error("Invalid ID token format");
-  const decoded = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+  const decoded = atob(normalizeBase64UrlToStandardBase64(payload));
   return JSON.parse(decoded);
 }
 

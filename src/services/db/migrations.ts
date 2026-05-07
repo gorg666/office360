@@ -259,7 +259,7 @@ const MIGRATIONS = [
       );
       CREATE INDEX IF NOT EXISTS idx_image_allowlist_sender ON image_allowlist(account_id, sender_address);
 
-      INSERT OR IGNORE INTO settings (key, value) VALUES ('block_remote_images', 'true');
+      INSERT OR IGNORE INTO settings (key, value) VALUES ('block_remote_images', 'false');
     `,
   },
   {
@@ -774,6 +774,14 @@ const MIGRATIONS = [
     version: 23,
     description: "Accept self-signed certificates for IMAP/SMTP",
     sql: `ALTER TABLE accounts ADD COLUMN accept_invalid_certs INTEGER DEFAULT 0;`,
+  },
+  {
+    version: 24,
+    description: "Default remote images to load (non-spam); spam still blocks in UI",
+    sql: `
+      INSERT OR IGNORE INTO settings (key, value) VALUES ('block_remote_images', 'false');
+      UPDATE settings SET value = 'false' WHERE key = 'block_remote_images' AND value = 'true';
+    `,
   },
 ];
 

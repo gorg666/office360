@@ -26,7 +26,7 @@ import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
 
 interface AddImapAccountProps {
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (accountId: string) => void;
   onBack: () => void;
 }
 
@@ -404,7 +404,7 @@ export function AddImapAccount({
         isActive: true,
       });
 
-      onSuccess();
+      onSuccess(accountId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setSaveError(message);
