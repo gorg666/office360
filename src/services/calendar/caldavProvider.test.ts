@@ -1,4 +1,6 @@
 import { CalDAVProvider } from "./caldavProvider";
+import { getAccount } from "@/services/db/accounts";
+import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
 
 const MOCK_ICAL_DATA =
   "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:test-uid\r\nSUMMARY:Test Event\r\nDTSTART:20240101T100000Z\r\nDTEND:20240101T110000Z\r\nEND:VEVENT\r\nEND:VCALENDAR";
@@ -29,10 +31,17 @@ vi.mock("@/services/db/accounts", () => ({
   getAccount: vi.fn().mockResolvedValue({
     id: "acc-1",
     email: "user@example.com",
+    provider: "imap",
+    auth_method: "password",
+    oauth_provider: null,
     caldav_url: "https://caldav.example.com",
     caldav_username: "user@example.com",
     caldav_password: "secret",
   }),
+}));
+
+vi.mock("@/services/oauth/oauthTokenManager", () => ({
+  ensureFreshToken: vi.fn().mockResolvedValue("oauth-token"),
 }));
 
 describe("CalDAVProvider", () => {
@@ -276,6 +285,50 @@ describe("CalDAVProvider", () => {
         success: false,
         message: "Connection failed",
       });
+    });
+
+    it("uses the stored Yandex OAuth token instead of a CalDAV app password", async () => {
+      vi.mocked(getAccount).mockResolvedValueOnce({
+        id: "acc-yandex",
+        email: "user@yandex.ru",
+        display_name: null,
+        avatar_url: null,
+        access_token: "old-token",
+        refresh_token: "refresh-token",
+        token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+        history_id: null,
+        last_sync_at: null,
+        is_active: 1,
+        created_at: 0,
+        updated_at: 0,
+        provider: "imap",
+        imap_host: "imap.yandex.ru",
+        imap_port: 993,
+        imap_security: "ssl",
+        smtp_host: "smtp.yandex.ru",
+        smtp_port: 465,
+        smtp_security: "ssl",
+        auth_method: "oauth2",
+        imap_password: null,
+        oauth_provider: "yandex",
+        oauth_client_id: "client-id",
+        oauth_client_secret: null,
+        imap_username: null,
+        caldav_url: "https://caldav.yandex.ru/",
+        caldav_username: "user@yandex.ru",
+        caldav_password: null,
+        caldav_principal_url: null,
+        caldav_home_url: null,
+        calendar_provider: "caldav",
+        accept_invalid_certs: 0,
+      });
+      mockFetchCalendars.mockResolvedValue([{ url: "/cal/main/", displayName: "Main" }]);
+
+      const result = await new CalDAVProvider("acc-yandex").testConnection();
+
+      expect(result.success).toBe(true);
+      expect(ensureFreshToken).toHaveBeenCalledWith(expect.objectContaining({ id: "acc-yandex" }));
+      expect(mockLogin).toHaveBeenCalled();
     });
   });
 });

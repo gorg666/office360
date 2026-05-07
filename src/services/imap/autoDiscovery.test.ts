@@ -71,8 +71,8 @@ describe("findWellKnownProvider", () => {
   it("returns OAuth-first settings for yandex.ru", () => {
     const result = findWellKnownProvider("yandex.ru");
     expect(result).not.toBeNull();
-    expect(result!.settings.imapHost).toBe("imap.yandex.com");
-    expect(result!.settings.smtpHost).toBe("smtp.yandex.com");
+    expect(result!.settings.imapHost).toBe("imap.yandex.ru");
+    expect(result!.settings.smtpHost).toBe("smtp.yandex.ru");
     expect(result!.settings.smtpPort).toBe(465);
     expect(result!.authMethods).toEqual(["oauth2", "password"]);
     expect(result!.oauthProviderId).toBe("yandex");

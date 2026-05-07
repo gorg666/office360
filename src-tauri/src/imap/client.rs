@@ -50,6 +50,11 @@ impl XOAuth2 {
             response: s.into_bytes(),
         }
     }
+
+    fn initial_response(user: &str, access_token: &str) -> String {
+        let s = format!("user={}\x01auth=Bearer {}\x01\x01", user, access_token);
+        base64::engine::general_purpose::STANDARD.encode(s.as_bytes())
+    }
 }
 
 impl Authenticator for XOAuth2 {
@@ -1948,9 +1953,11 @@ async fn authenticate(
 ) -> Result<ImapSession, String> {
     match config.auth_method.as_str() {
         "oauth2" => {
+            let initial_response = XOAuth2::initial_response(&config.username, &config.password);
+            let auth_type = format!("XOAUTH2 {initial_response}");
             let auth = XOAuth2::new(&config.username, &config.password);
             client
-                .authenticate("XOAUTH2", auth)
+                .authenticate(auth_type, auth)
                 .await
                 .map_err(|(e, _)| format!("XOAUTH2 authentication failed: {e}"))
         }

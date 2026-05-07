@@ -10,6 +10,8 @@ import type {
 } from "./types";
 import { generateVEvent, parseVEvent } from "./icalHelper";
 import { getAccount } from "@/services/db/accounts";
+import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
+import { isYandexOAuthCalendarAccount, YANDEX_CALDAV_URL } from "./yandex";
 
 export class CalDAVProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "caldav";
@@ -23,20 +25,36 @@ export class CalDAVProvider implements CalendarProvider {
     const account = await getAccount(this.accountId);
     if (!account) throw new Error("Account not found");
 
-    const serverUrl = account.caldav_url;
+    const usesYandexOAuth = isYandexOAuthCalendarAccount(account);
+    const serverUrl = account.caldav_url ?? (usesYandexOAuth ? YANDEX_CALDAV_URL : null);
     const username = account.caldav_username ?? account.email;
     const password = account.caldav_password;
 
-    if (!serverUrl || !password) {
+    if (!serverUrl) {
       throw new Error("CalDAV credentials not configured");
     }
 
-    this.client = new DAVClient({
-      serverUrl,
-      credentials: { username, password },
-      authMethod: "Basic",
-      defaultAccountType: "caldav",
-    });
+    if (usesYandexOAuth) {
+      const accessToken = await ensureFreshToken(account);
+      this.client = new DAVClient({
+        serverUrl,
+        credentials: { accessToken },
+        authMethod: "Custom",
+        authFunction: async () => ({ authorization: `OAuth ${accessToken}` }),
+        defaultAccountType: "caldav",
+      });
+    } else {
+      if (!password) {
+        throw new Error("CalDAV credentials not configured");
+      }
+
+      this.client = new DAVClient({
+        serverUrl,
+        credentials: { username, password },
+        authMethod: "Basic",
+        defaultAccountType: "caldav",
+      });
+    }
 
     await this.client.login();
     return this.client;

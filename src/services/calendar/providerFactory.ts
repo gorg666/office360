@@ -2,6 +2,7 @@ import type { CalendarProvider } from "./types";
 import { GoogleCalendarProvider } from "./googleCalendarProvider";
 import { CalDAVProvider } from "./caldavProvider";
 import { getAccount } from "@/services/db/accounts";
+import { isYandexOAuthCalendarAccount } from "./yandex";
 
 const providerCache = new Map<string, CalendarProvider>();
 
@@ -24,6 +25,10 @@ export async function getCalendarProvider(accountId: string): Promise<CalendarPr
   }
   // IMAP account with CalDAV configured
   else if (account.calendar_provider === "caldav" && account.caldav_url) {
+    provider = new CalDAVProvider(accountId);
+  }
+  // Yandex OAuth IMAP accounts can reuse the mail token for CalDAV.
+  else if (isYandexOAuthCalendarAccount(account)) {
     provider = new CalDAVProvider(accountId);
   }
   // Gmail API account
@@ -51,6 +56,7 @@ export async function hasCalendarSupport(accountId: string): Promise<boolean> {
   if (account.provider === "caldav") return true;
   if (account.provider === "gmail_api") return true;
   if (account.calendar_provider === "caldav" && account.caldav_url) return true;
+  if (isYandexOAuthCalendarAccount(account)) return true;
   return false;
 }
 

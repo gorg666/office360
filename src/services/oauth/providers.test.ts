@@ -9,6 +9,7 @@ describe("OAuth providers", () => {
     expect(provider!.authUrl).toBe("https://oauth.yandex.ru/authorize");
     expect(provider!.tokenUrl).toBe("https://oauth.yandex.ru/token");
     expect(provider!.userInfoAuthScheme).toBe("OAuth");
+    expect(provider!.publicClientId).toBe("3a2cf9ad4e854c5ab83fc126d1a89ad4");
     expect(provider!.scopes).toContain("mail:imap_full");
     expect(provider!.scopes).toContain("mail:smtp");
     expect(provider!.scopes).toContain("login:email");

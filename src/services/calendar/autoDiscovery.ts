@@ -1,3 +1,6 @@
+import type { DbAccount } from "@/services/db/accounts";
+import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
+
 interface CalDavPreset {
   name: string;
   domains: string[];
@@ -156,6 +159,39 @@ export async function testCalDavConnection(
       serverUrl: url,
       credentials: { username, password },
       authMethod: "Basic",
+      defaultAccountType: "caldav",
+    });
+
+    await client.login();
+    const calendars = await client.fetchCalendars();
+
+    return {
+      success: true,
+      message: `Connected — found ${calendars.length} calendar${calendars.length !== 1 ? "s" : ""}`,
+      calendarCount: calendars.length,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Connection failed";
+    return { success: false, message };
+  }
+}
+
+/**
+ * Test CalDAV using the OAuth token already stored on an IMAP account.
+ * Yandex uses the `OAuth <token>` authorization scheme for token-backed APIs.
+ */
+export async function testCalDavOAuthConnection(
+  account: DbAccount,
+  url: string,
+): Promise<{ success: boolean; message: string; calendarCount?: number }> {
+  try {
+    const { DAVClient } = await import("tsdav");
+    const accessToken = await ensureFreshToken(account);
+    const client = new DAVClient({
+      serverUrl: url,
+      credentials: { accessToken },
+      authMethod: "Custom",
+      authFunction: async () => ({ authorization: `OAuth ${accessToken}` }),
       defaultAccountType: "caldav",
     });
 

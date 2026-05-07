@@ -88,19 +88,21 @@ export function formatSyncError(rawError: string): string {
   const lower = rawError.toLowerCase();
 
   if (AUTH_PATTERNS.some((p) => lower.includes(p))) {
-    return "Authentication failed \u2014 check your password";
+    return lower.includes("oauth") || lower.includes("token")
+      ? "Ошибка авторизации OAuth — войдите в аккаунт заново"
+      : "Ошибка авторизации — проверьте пароль или пароль приложения";
   }
   if (lower.includes("timed out") || lower.includes("timeout")) {
-    return "Connection timed out \u2014 check your internet or server settings";
+    return "Сервер не ответил вовремя — проверьте интернет и настройки почты";
   }
   if (lower.includes("tls") || lower.includes("ssl") || lower.includes("certificate")) {
-    return "Secure connection failed \u2014 check security settings";
+    return "Не удалось установить защищённое соединение — проверьте тип защиты";
   }
   if (lower.includes("econnrefused") || lower.includes("connection refused")) {
-    return "Could not reach mail server \u2014 check address and port";
+    return "Почтовый сервер недоступен — проверьте адрес и порт";
   }
   if (lower.includes("dns") || lower.includes("enotfound") || lower.includes("server not found")) {
-    return "Server not found \u2014 check hostname";
+    return "Сервер не найден — проверьте имя хоста";
   }
 
   // Fallback: truncate long technical errors

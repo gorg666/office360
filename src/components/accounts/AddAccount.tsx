@@ -127,8 +127,8 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
           title: locale === "ru" ? "Подключить через Яндекс ID" : "Connect with Yandex ID",
           defaultEmail: "user@yandex.ru",
           description: locale === "ru"
-            ? "Подключите Яндекс Почту через OAuth IMAP/SMTP и сохраните токен для почты и профиля аккаунта."
-            : "Connect Yandex Mail via OAuth IMAP/SMTP and keep a token for mail and account profile access.",
+            ? "Подключите Яндекс Почту и Календарь через один OAuth-вход. IMAP/SMTP и CalDAV будут использовать один сохраненный токен."
+            : "Connect Yandex Mail and Calendar with one OAuth sign-in. IMAP/SMTP and CalDAV will share the stored token.",
         }}
       />
     );
@@ -201,8 +201,8 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
       ? "Выберите способ подключения почтового аккаунта."
       : "Choose how you want to connect your email account.",
     yandexDescription: locale === "ru"
-      ? "Яндекс Почта через OAuth и доступ к Яндекс 360 API"
-      : "Yandex Mail via OAuth with Yandex 360 API access",
+      ? "Яндекс Почта и Календарь через один OAuth-вход"
+      : "Yandex Mail and Calendar via one OAuth sign-in",
     gmailDescription: locale === "ru"
       ? "Подключение через OAuth с полной поддержкой Gmail API"
       : "Connect via OAuth with full Gmail API support",

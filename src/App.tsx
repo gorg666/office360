@@ -71,6 +71,7 @@ import { OfflineBanner } from "./components/ui/OfflineBanner";
 import { UpdateToast } from "./components/ui/UpdateToast";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { formatSyncError } from "./utils/networkErrors";
+import { getAccountAvatarUrl } from "./utils/accountAvatar";
 import { getThemeById, COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import { normalizeLocale } from "./i18n";
@@ -304,7 +305,7 @@ export default function App() {
           id: a.id,
           email: a.email,
           displayName: a.display_name,
-          avatarUrl: a.avatar_url,
+          avatarUrl: getAccountAvatarUrl(a.email, a.avatar_url),
           isActive: a.is_active === 1,
           provider: a.provider,
         }));
@@ -314,21 +315,23 @@ export default function App() {
         // Initialize Gmail clients for existing accounts
         await initializeClients();
 
-        // Fetch send-as aliases for each active email account (skip CalDAV-only)
-        const activeIds = mapped.filter((a) => a.isActive).map((a) => a.id);
-        const emailAccountIds = mapped.filter((a) => a.isActive && a.provider !== "caldav").map((a) => a.id);
-        for (const accountId of emailAccountIds) {
+        // Fetch Gmail send-as aliases only for the restored active Gmail account.
+        const activeAccountId = useAccountStore.getState().activeAccountId;
+        const activeAccount = mapped.find((account) => account.id === activeAccountId);
+        if (activeAccount?.provider === "gmail_api") {
           try {
-            const client = await getGmailClient(accountId);
-            await fetchSendAsAliases(client, accountId);
+            const client = await getGmailClient(activeAccount.id);
+            await fetchSendAsAliases(client, activeAccount.id);
           } catch (err) {
-            console.warn(`Failed to fetch send-as aliases for ${accountId}:`, err);
+            console.warn(`Failed to fetch send-as aliases for ${activeAccount.id}:`, err);
           }
         }
 
-        // Start background sync for active accounts
-        if (activeIds.length > 0) {
-          startBackgroundSync(activeIds);
+        // Start background sync for the restored active account only.
+        // The DB `is_active` flag can be stale after account upserts; the store
+        // is the source of truth because it applies `active_account_id`.
+        if (activeAccountId) {
+          startBackgroundSync([activeAccountId]);
         }
 
         // Start snooze, scheduled send, follow-up, bundle, and queue checkers
@@ -388,6 +391,10 @@ export default function App() {
   const backfillDoneRef = useRef(false);
   useEffect(() => {
     const unsub = onSyncStatus((accountId, status, progress, error) => {
+      if (accountId !== useAccountStore.getState().activeAccountId) {
+        return;
+      }
+
       if (status === "syncing") {
         if (progress) {
           if (progress.phase === "messages") {
@@ -502,7 +509,7 @@ export default function App() {
         id: a.id,
         email: a.email,
         displayName: a.display_name,
-        avatarUrl: a.avatar_url,
+        avatarUrl: getAccountAvatarUrl(a.email, a.avatar_url),
         isActive: a.is_active === 1,
         provider: a.provider,
       }));
@@ -518,7 +525,7 @@ export default function App() {
         });
 
         const added = mapped.find((a) => a.id === newAccountId);
-        if (added && added.provider !== "caldav") {
+        if (added?.provider === "gmail_api") {
           getGmailClient(added.id)
             .then((client) => fetchSendAsAliases(client, added.id))
             .catch((err) => console.warn(`Failed to fetch send-as aliases for new account:`, err));
@@ -527,8 +534,7 @@ export default function App() {
 
       // Restart background sync for all accounts, but skip the immediate run
       // since the new account's sync was already started above.
-      const activeIds = mapped.filter((a) => a.isActive).map((a) => a.id);
-      startBackgroundSync(activeIds, true);
+      startBackgroundSync([newAccountId], true);
     })();
   }, []);
 

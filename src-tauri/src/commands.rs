@@ -10,7 +10,20 @@ use crate::smtp::types::{SmtpConfig, SmtpSendResult};
 
 #[tauri::command]
 pub async fn imap_test_connection(config: ImapConfig) -> Result<String, String> {
-    imap_client::test_connection(&config).await
+    log::info!(
+        "IMAP test connection: host={}:{} security={} auth_method={} username={}",
+        config.host,
+        config.port,
+        config.security,
+        config.auth_method,
+        config.username
+    );
+    let result = imap_client::test_connection(&config).await;
+    match &result {
+        Ok(message) => log::info!("IMAP test connection succeeded: {message}"),
+        Err(error) => log::warn!("IMAP test connection failed: {error}"),
+    }
+    result
 }
 
 #[tauri::command]

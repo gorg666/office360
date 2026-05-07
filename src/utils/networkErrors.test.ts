@@ -125,31 +125,31 @@ describe("classifyError", () => {
 describe("formatSyncError", () => {
   it("translates timeout errors", () => {
     expect(formatSyncError("TCP connect timed out (os error 60)")).toBe(
-      "Connection timed out \u2014 check your internet or server settings",
+      "Сервер не ответил вовремя — проверьте интернет и настройки почты",
     );
   });
 
   it("translates auth errors", () => {
     expect(formatSyncError("authentication failed for user@test.com")).toBe(
-      "Authentication failed \u2014 check your password",
+      "Ошибка авторизации — проверьте пароль или пароль приложения",
     );
   });
 
   it("translates TLS errors", () => {
     expect(formatSyncError("TLS handshake failed: certificate verify error")).toBe(
-      "Secure connection failed \u2014 check security settings",
+      "Не удалось установить защищённое соединение — проверьте тип защиты",
     );
   });
 
   it("translates connection refused", () => {
     expect(formatSyncError("connect ECONNREFUSED 127.0.0.1:993")).toBe(
-      "Could not reach mail server \u2014 check address and port",
+      "Почтовый сервер недоступен — проверьте адрес и порт",
     );
   });
 
   it("translates DNS errors", () => {
     expect(formatSyncError("DNS resolution failed for imap.bad.host")).toBe(
-      "Server not found \u2014 check hostname",
+      "Сервер не найден — проверьте имя хоста",
     );
   });
 

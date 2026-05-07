@@ -8,18 +8,32 @@ const YANDEX_ACCOUNT_DOMAINS = new Set([
   "yandex.ua",
 ]);
 
-export function getYandexAccountAvatarUrl(email: string | null | undefined): string | null {
-  if (!email) return null;
+function isGuessedYandexAvatarUrl(
+  email: string | null | undefined,
+  avatarUrl: string,
+): boolean {
+  if (!email) return false;
 
   const [login, domain] = email.trim().toLowerCase().split("@");
-  if (!login || !domain || !YANDEX_ACCOUNT_DOMAINS.has(domain)) return null;
+  if (!login || !domain || !YANDEX_ACCOUNT_DOMAINS.has(domain)) return false;
 
-  return `https://avatars.yandex.net/get-yapic/${encodeURIComponent(login)}/islands-200`;
+  try {
+    const url = new URL(avatarUrl);
+    if (url.hostname !== "avatars.yandex.net") return false;
+    const [, service, avatarId] = url.pathname.split("/");
+    return service === "get-yapic" && avatarId?.toLowerCase() === login;
+  } catch {
+    return false;
+  }
 }
 
 export function getAccountAvatarUrl(
   email: string | null | undefined,
   savedAvatarUrl: string | null | undefined,
 ): string | null {
-  return savedAvatarUrl ?? getYandexAccountAvatarUrl(email);
+  if (savedAvatarUrl && isGuessedYandexAvatarUrl(email, savedAvatarUrl)) {
+    return null;
+  }
+
+  return savedAvatarUrl ?? null;
 }

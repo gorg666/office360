@@ -13,7 +13,12 @@ import {
   KeyRound,
 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
-import { insertImapAccount, insertOAuthImapAccount } from "@/services/db/accounts";
+import {
+  getAccountByEmail,
+  insertImapAccount,
+  insertOAuthImapAccount,
+  updateOAuthImapAccount,
+} from "@/services/db/accounts";
 import { useAccountStore } from "@/stores/accountStore";
 import {
   discoverSettings,
@@ -23,7 +28,6 @@ import {
 } from "@/services/imap/autoDiscovery";
 import { getOAuthProvider } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
-import { getAccountAvatarUrl } from "@/utils/accountAvatar";
 
 interface AddImapAccountProps {
   onClose: () => void;
@@ -63,6 +67,7 @@ interface FormState {
   oauthRefreshToken: string | null;
   oauthExpiresAt: number | null;
   oauthEmail: string | null;
+  oauthPicture: string | null;
 }
 
 const initialFormState: FormState = {
@@ -87,9 +92,11 @@ const initialFormState: FormState = {
   oauthRefreshToken: null,
   oauthExpiresAt: null,
   oauthEmail: null,
+  oauthPicture: null,
 };
 
 const steps: Step[] = ["basic", "imap", "smtp", "test"];
+const managedOAuthSteps: Step[] = ["basic"];
 
 const stepLabels: Record<Step, string> = {
   basic: "Account",
@@ -115,6 +122,7 @@ const inputClass =
 const labelClass = "block text-xs font-medium text-text-secondary mb-1";
 const selectClass =
   "w-full px-3 py-2 bg-bg-secondary border border-border-primary rounded-lg text-sm text-text-primary outline-none focus:border-accent transition-colors appearance-none";
+const IMAP_TEST_TIMEOUT_MS = 35_000;
 
 /** Map UI security value ("ssl") to Rust config value ("tls") */
 function mapSecurity(security: string): string {
@@ -144,6 +152,15 @@ function formatSmtpTestError(err: unknown, host: string, port: number): string {
   return message;
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    }),
+  ]);
+}
+
 export function AddImapAccount({
   onClose,
   onSuccess,
@@ -157,7 +174,7 @@ export function AddImapAccount({
     const discovered = discoverSettings(oauthPreset.defaultEmail);
     return {
       ...initialFormState,
-      email: oauthPreset.defaultEmail,
+      email: "",
       imapHost: discovered?.settings.imapHost ?? "imap.yandex.com",
       imapPort: discovered?.settings.imapPort ?? 993,
       imapSecurity: discovered?.settings.imapSecurity ?? "ssl",
@@ -183,9 +200,13 @@ export function AddImapAccount({
     oauthPreset?.providerId ?? null,
   );
 
+  const accounts = useAccountStore((s) => s.accounts);
   const addAccount = useAccountStore((s) => s.addAccount);
+  const setActiveAccount = useAccountStore((s) => s.setActiveAccount);
 
-  const currentStepIndex = steps.indexOf(currentStep);
+  const usesManagedOAuthFlow = oauthPreset?.providerId === "yandex";
+  const visibleSteps = usesManagedOAuthFlow ? managedOAuthSteps : steps;
+  const currentStepIndex = visibleSteps.indexOf(currentStep);
 
   const updateForm = useCallback(
     <K extends keyof FormState>(key: K, value: FormState[K]) => {
@@ -250,20 +271,20 @@ export function AddImapAccount({
   const bothTestsPassed = imapTest.state === "success" && smtpTest.state === "success";
 
   const goNext = useCallback(() => {
-    const idx = steps.indexOf(currentStep);
-    if (idx < steps.length - 1) {
-      setCurrentStep(steps[idx + 1]!);
+    const idx = visibleSteps.indexOf(currentStep);
+    if (idx < visibleSteps.length - 1) {
+      setCurrentStep(visibleSteps[idx + 1]!);
     }
-  }, [currentStep]);
+  }, [currentStep, visibleSteps]);
 
   const goPrev = useCallback(() => {
-    const idx = steps.indexOf(currentStep);
+    const idx = visibleSteps.indexOf(currentStep);
     if (idx > 0) {
-      setCurrentStep(steps[idx - 1]!);
+      setCurrentStep(visibleSteps[idx - 1]!);
     } else {
       onBack();
     }
-  }, [currentStep, onBack]);
+  }, [currentStep, onBack, visibleSteps]);
 
   const canGoNext = (): boolean => {
     switch (currentStep) {
@@ -290,6 +311,91 @@ export function AddImapAccount({
     [currentStep, goNext, canGoNext],
   );
 
+  async function saveAccount(accountForm: FormState): Promise<void> {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const email = (accountForm.authMode === "oauth2" ? accountForm.oauthEmail : null) ?? accountForm.email.trim();
+      const existingAccount = await getAccountByEmail(email);
+      const accountId = existingAccount?.id ?? crypto.randomUUID();
+      const imapUsername = accountForm.imapUsername.trim() || null;
+      const accountIsOAuth = accountForm.authMode === "oauth2";
+
+      if (accountIsOAuth) {
+        const accountPayload = {
+          id: accountId,
+          email,
+          displayName: accountForm.displayName.trim() || null,
+          avatarUrl: accountForm.oauthPicture,
+          imapHost: accountForm.imapHost.trim(),
+          imapPort: normalizeKnownImapProviderPort(accountForm.imapHost, accountForm.imapPort),
+          imapSecurity: accountForm.imapSecurity,
+          smtpHost: accountForm.smtpHost.trim(),
+          smtpPort: normalizeKnownSmtpProviderPort(accountForm.smtpHost, accountForm.smtpPort),
+          smtpSecurity: accountForm.smtpSecurity,
+          accessToken: accountForm.oauthAccessToken!,
+          refreshToken: accountForm.oauthRefreshToken!,
+          tokenExpiresAt: accountForm.oauthExpiresAt!,
+          oauthProvider: accountForm.oauthProvider!,
+          oauthClientId: accountForm.oauthClientId.trim(),
+          oauthClientSecret: accountForm.oauthClientSecret.trim() || null,
+          imapUsername,
+          acceptInvalidCerts: accountForm.acceptInvalidCerts,
+        };
+
+        if (existingAccount) {
+          await updateOAuthImapAccount(accountPayload);
+        } else {
+          await insertOAuthImapAccount(accountPayload);
+        }
+      } else {
+        if (existingAccount) {
+          setSaveError("Аккаунт с таким email уже добавлен. Выберите его в переключателе аккаунтов или удалите старый перед повторным добавлением.");
+          setSaving(false);
+          return;
+        }
+        await insertImapAccount({
+          id: accountId,
+          email,
+          displayName: accountForm.displayName.trim() || null,
+          avatarUrl: null,
+          imapHost: accountForm.imapHost.trim(),
+          imapPort: normalizeKnownImapProviderPort(accountForm.imapHost, accountForm.imapPort),
+          imapSecurity: accountForm.imapSecurity,
+          smtpHost: accountForm.smtpHost.trim(),
+          smtpPort: normalizeKnownSmtpProviderPort(accountForm.smtpHost, accountForm.smtpPort),
+          smtpSecurity: accountForm.smtpSecurity,
+          authMethod: "password",
+          password: accountForm.samePassword ? accountForm.password : accountForm.password,
+          imapUsername,
+          acceptInvalidCerts: accountForm.acceptInvalidCerts,
+        });
+      }
+
+      const storeAccount = {
+        id: accountId,
+        email,
+        displayName: accountForm.displayName.trim() || (existingAccount?.display_name ?? null),
+        avatarUrl: accountForm.oauthPicture ?? existingAccount?.avatar_url ?? null,
+        isActive: true,
+        provider: "imap",
+      };
+
+      if (accounts.some((account) => account.id === accountId)) {
+        setActiveAccount(accountId);
+      } else {
+        addAccount(storeAccount);
+      }
+
+      onSuccess(accountId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSaveError(message);
+      setSaving(false);
+      throw err;
+    }
+  }
+
   const handleOAuthConnect = async (providerId: string) => {
     const provider = getOAuthProvider(providerId);
     if (!provider) {
@@ -297,8 +403,18 @@ export function AddImapAccount({
       return;
     }
 
-    if (!form.oauthClientId.trim()) {
-      setOauthError("Please enter a Client ID first.");
+    if (!form.email.trim().includes("@")) {
+      setOauthError("Введите email Яндекс Почты перед входом.");
+      return;
+    }
+
+    const clientId = provider.publicClientId ?? form.oauthClientId.trim();
+    if (!clientId) {
+      if (providerId === "yandex") {
+        setOauthError("В сборке приложения не настроен Yandex OAuth Client ID. Нужен зарегистрированный public client в Яндекс ID.");
+      } else {
+        setOauthError("Please enter a Client ID first.");
+      }
       return;
     }
 
@@ -308,22 +424,32 @@ export function AddImapAccount({
     try {
       const { tokens, userInfo } = await startProviderOAuthFlow(
         provider,
-        form.oauthClientId.trim(),
-        form.oauthClientSecret.trim() || undefined,
+        clientId,
+        provider.publicClientId ? undefined : form.oauthClientSecret.trim() || undefined,
       );
 
       const expiresAt = Math.floor(Date.now() / 1000) + tokens.expires_in;
 
-      setForm((prev) => ({
-        ...prev,
+      const nextForm: FormState = {
+        ...form,
         oauthAccessToken: tokens.access_token,
         oauthRefreshToken: tokens.refresh_token ?? null,
         oauthExpiresAt: expiresAt,
         oauthEmail: userInfo.email,
-        email: userInfo.email || prev.email,
-        displayName: userInfo.name || prev.displayName,
+        oauthPicture: userInfo.picture ?? null,
+        email: userInfo.email || form.email,
+        displayName: userInfo.name || form.displayName,
         oauthProvider: providerId,
-      }));
+        oauthClientId: clientId,
+        oauthClientSecret: provider.publicClientId ? "" : form.oauthClientSecret,
+      };
+
+      setForm(nextForm);
+      if (usesManagedOAuthFlow) {
+        await saveAccount(nextForm);
+      } else {
+        setCurrentStep("imap");
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setOauthError(message);
@@ -335,19 +461,25 @@ export function AddImapAccount({
   const testImapConnection = async () => {
     setImapTest({ state: "testing" });
     try {
-      const result = await invoke<string>(
-        "imap_test_connection",
-        {
-          config: {
-            host: form.imapHost,
-            port: normalizeKnownImapProviderPort(form.imapHost, form.imapPort),
-            security: mapSecurity(form.imapSecurity),
-            username: form.imapUsername || (isOAuth ? (form.oauthEmail ?? form.email) : form.email),
-            password: isOAuth ? (form.oauthAccessToken ?? "") : form.password,
-            auth_method: isOAuth ? "oauth2" : "password",
-            accept_invalid_certs: form.acceptInvalidCerts,
+      const imapHost = form.imapHost.trim();
+      const imapPort = normalizeKnownImapProviderPort(imapHost, form.imapPort);
+      const result = await withTimeout(
+        invoke<string>(
+          "imap_test_connection",
+          {
+            config: {
+              host: imapHost,
+              port: imapPort,
+              security: mapSecurity(form.imapSecurity),
+              username: form.imapUsername || (isOAuth ? (form.oauthEmail ?? form.email) : form.email),
+              password: isOAuth ? (form.oauthAccessToken ?? "") : form.password,
+              auth_method: isOAuth ? "oauth2" : "password",
+              accept_invalid_certs: form.acceptInvalidCerts,
+            },
           },
-        },
+        ),
+        IMAP_TEST_TIMEOUT_MS,
+        `IMAP-проверка ${imapHost}:${imapPort} не ответила за ${IMAP_TEST_TIMEOUT_MS / 1000} сек. Для Яндекса проверьте, что IMAP включен в настройках почты и используются host imap.yandex.ru, порт 993, SSL/TLS.`,
       );
       setImapTest({ state: "success", message: result });
     } catch (err) {
@@ -395,74 +527,12 @@ export function AddImapAccount({
   };
 
   const handleSave = async () => {
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const accountId = crypto.randomUUID();
-      const email = (isOAuth ? form.oauthEmail : null) ?? form.email.trim();
-
-      const imapUsername = form.imapUsername.trim() || null;
-
-      if (isOAuth) {
-        await insertOAuthImapAccount({
-          id: accountId,
-          email,
-          displayName: form.displayName.trim() || null,
-          avatarUrl: getAccountAvatarUrl(email, null),
-          imapHost: form.imapHost.trim(),
-          imapPort: normalizeKnownImapProviderPort(form.imapHost, form.imapPort),
-          imapSecurity: form.imapSecurity,
-          smtpHost: form.smtpHost.trim(),
-          smtpPort: normalizeKnownSmtpProviderPort(form.smtpHost, form.smtpPort),
-          smtpSecurity: form.smtpSecurity,
-          accessToken: form.oauthAccessToken!,
-          refreshToken: form.oauthRefreshToken!,
-          tokenExpiresAt: form.oauthExpiresAt!,
-          oauthProvider: form.oauthProvider!,
-          oauthClientId: form.oauthClientId.trim(),
-          oauthClientSecret: form.oauthClientSecret.trim() || null,
-          imapUsername,
-          acceptInvalidCerts: form.acceptInvalidCerts,
-        });
-      } else {
-        await insertImapAccount({
-          id: accountId,
-          email,
-          displayName: form.displayName.trim() || null,
-          avatarUrl: getAccountAvatarUrl(email, null),
-          imapHost: form.imapHost.trim(),
-          imapPort: normalizeKnownImapProviderPort(form.imapHost, form.imapPort),
-          imapSecurity: form.imapSecurity,
-          smtpHost: form.smtpHost.trim(),
-          smtpPort: normalizeKnownSmtpProviderPort(form.smtpHost, form.smtpPort),
-          smtpSecurity: form.smtpSecurity,
-          authMethod: "password",
-          password: form.samePassword ? form.password : form.password,
-          imapUsername,
-          acceptInvalidCerts: form.acceptInvalidCerts,
-        });
-      }
-
-      addAccount({
-        id: accountId,
-        email,
-        displayName: form.displayName.trim() || null,
-        avatarUrl: getAccountAvatarUrl(email, null),
-        isActive: true,
-        provider: "imap",
-      });
-
-      onSuccess(accountId);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setSaveError(message);
-      setSaving(false);
-    }
+    await saveAccount(form).catch(() => {});
   };
 
   const renderStepIndicator = () => (
     <div className="flex items-center justify-center gap-1 mb-6">
-      {steps.map((step, i) => {
+      {visibleSteps.map((step, i) => {
         const isActive = i === currentStepIndex;
         const isCompleted = i < currentStepIndex;
         return (
@@ -491,6 +561,8 @@ export function AddImapAccount({
   );
 
   const renderAuthModeSelector = () => {
+    if (usesManagedOAuthFlow) return null;
+
     const showOAuth = detectedAuthMethods.includes("oauth2") || form.authMode === "oauth2";
     if (!showOAuth) return null;
 
@@ -536,6 +608,11 @@ export function AddImapAccount({
 
   const renderOAuthSection = () => {
     const providerId = form.oauthProvider ?? detectedOAuthProviderId;
+    const provider = providerId ? getOAuthProvider(providerId) : null;
+    const usesManagedPublicClient = providerId === "yandex" || !!provider?.publicClientId;
+    const canStartOAuth =
+      form.email.trim().includes("@") &&
+      (usesManagedPublicClient ? !!provider?.publicClientId : !!form.oauthClientId.trim());
     const providerName =
       providerId === "microsoft"
         ? "Microsoft"
@@ -547,34 +624,38 @@ export function AddImapAccount({
 
     return (
       <div className="space-y-3">
-        <div>
-          <label htmlFor="oauth-client-id" className={labelClass}>
-            Client ID
-          </label>
-          <input
-            id="oauth-client-id"
-            type="text"
-            value={form.oauthClientId}
-            onChange={(e) => updateForm("oauthClientId", e.target.value)}
-            placeholder={`${providerName} app Client ID`}
-            className={inputClass}
-            disabled={hasOAuthTokens}
-          />
-        </div>
-        <div>
-          <label htmlFor="oauth-client-secret" className={labelClass}>
-            Client Secret (optional)
-          </label>
-          <input
-            id="oauth-client-secret"
-            type="password"
-            value={form.oauthClientSecret}
-            onChange={(e) => updateForm("oauthClientSecret", e.target.value)}
-            placeholder="Leave blank for public clients"
-            className={inputClass}
-            disabled={hasOAuthTokens}
-          />
-        </div>
+        {!usesManagedPublicClient && (
+          <>
+            <div>
+              <label htmlFor="oauth-client-id" className={labelClass}>
+                Client ID
+              </label>
+              <input
+                id="oauth-client-id"
+                type="text"
+                value={form.oauthClientId}
+                onChange={(e) => updateForm("oauthClientId", e.target.value)}
+                placeholder={`${providerName} app Client ID`}
+                className={inputClass}
+                disabled={hasOAuthTokens}
+              />
+            </div>
+            <div>
+              <label htmlFor="oauth-client-secret" className={labelClass}>
+                Client Secret (optional)
+              </label>
+              <input
+                id="oauth-client-secret"
+                type="password"
+                value={form.oauthClientSecret}
+                onChange={(e) => updateForm("oauthClientSecret", e.target.value)}
+                placeholder="Leave blank for public clients"
+                className={inputClass}
+                disabled={hasOAuthTokens}
+              />
+            </div>
+          </>
+        )}
 
         {hasOAuthTokens ? (
           <div className="flex items-center gap-2 p-3 rounded-lg bg-success/10 border border-success/20">
@@ -586,13 +667,13 @@ export function AddImapAccount({
         ) : (
           <button
             onClick={() => providerId && handleOAuthConnect(providerId)}
-            disabled={oauthConnecting || !form.oauthClientId.trim()}
+            disabled={oauthConnecting || saving || !canStartOAuth}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {oauthConnecting ? (
+            {oauthConnecting || saving ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Подключение...
+                {oauthConnecting ? "Подключение..." : "Сохранение..."}
               </>
             ) : (
               <>
@@ -609,16 +690,24 @@ export function AddImapAccount({
           </div>
         )}
 
+        {saveError && usesManagedOAuthFlow && (
+          <div className="bg-danger/10 border border-danger/20 rounded-lg p-3 text-sm text-danger">
+            {saveError}
+          </div>
+        )}
+
         <p className="text-xs text-text-tertiary">
-          Чтобы получить Client ID, зарегистрируйте приложение в {providerName}.{" "}
+          {usesManagedPublicClient
+            ? "Введите email и подтвердите вход в браузере. После успешной авторизации аккаунт и календарь будут добавлены автоматически."
+            : <>Чтобы получить Client ID, зарегистрируйте приложение в {providerName}.{" "}</>}
           {providerId === "microsoft" && (
             <>Register at the Azure Portal (App Registrations) with redirect URI <code className="text-accent">http://127.0.0.1:17248</code>.</>
           )}
           {providerId === "yahoo" && (
             <>Register at the Yahoo Developer Network with redirect URI <code className="text-accent">http://127.0.0.1:17248</code>.</>
           )}
-          {providerId === "yandex" && (
-            <>Создайте приложение на <code className="text-accent">oauth.yandex.ru</code>, добавьте redirect URI <code className="text-accent">http://localhost:17248</code> и права <code className="text-accent">mail:imap_full</code>, <code className="text-accent">mail:smtp</code>, <code className="text-accent">login:email</code>, <code className="text-accent">login:info</code>.</>
+          {providerId === "yandex" && !usesManagedPublicClient && (
+            <>Создайте приложение на <code className="text-accent">oauth.yandex.ru</code>, добавьте redirect URI <code className="text-accent">http://localhost:17248</code> и права <code className="text-accent">mail:imap_full</code>, <code className="text-accent">mail:smtp</code>, <code className="text-accent">login:email</code>, <code className="text-accent">login:info</code>, <code className="text-accent">calendar:all</code>.</>
           )}
         </p>
       </div>
@@ -994,7 +1083,7 @@ export function AddImapAccount({
               Cancel
             </button>
 
-            {currentStep === "test" ? (
+            {!usesManagedOAuthFlow && (currentStep === "test" ? (
               <button
                 onClick={handleSave}
                 disabled={!bothTestsPassed || saving}
@@ -1011,7 +1100,7 @@ export function AddImapAccount({
                 Next
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
-            )}
+            ))}
           </div>
         </div>
       </div>

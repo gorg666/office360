@@ -21,6 +21,7 @@ import { upsertThread, setThreadLabels, addThreadLabels, deleteThread } from "..
 import { upsertAttachment } from "../db/attachments";
 import { getAccount, updateAccountSyncState } from "../db/accounts";
 import { withTransaction } from "../db/connection";
+import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import {
   upsertFolderSyncState,
   getAllFolderSyncStates,
@@ -149,6 +150,19 @@ export interface ImapSyncProgress {
 }
 
 export type ImapSyncProgressCallback = (progress: ImapSyncProgress) => void;
+
+async function buildFreshImapConfig(accountId: string): Promise<ImapConfig> {
+  const account = await getAccount(accountId);
+  if (!account) {
+    throw new Error(`Account ${accountId} not found`);
+  }
+
+  if (account.auth_method === "oauth2") {
+    return buildImapConfig(account, await ensureFreshToken(account));
+  }
+
+  return buildImapConfig(account);
+}
 
 // ---------------------------------------------------------------------------
 // Message conversion
@@ -528,12 +542,7 @@ export async function imapInitialSync(
   daysBack = 365,
   onProgress?: ImapSyncProgressCallback,
 ): Promise<SyncResult> {
-  const account = await getAccount(accountId);
-  if (!account) {
-    throw new Error(`Account ${accountId} not found`);
-  }
-
-  const config = buildImapConfig(account);
+  const config = await buildFreshImapConfig(accountId);
 
   // Phase 1: List and sync folders
   onProgress?.({ phase: "folders", current: 0, total: 1 });
@@ -1010,12 +1019,7 @@ export async function imapInitialSync(
  * Fetches only new messages since the last sync using stored UID state.
  */
 export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<SyncResult> {
-  const account = await getAccount(accountId);
-  if (!account) {
-    throw new Error(`Account ${accountId} not found`);
-  }
-
-  const config = buildImapConfig(account);
+  const config = await buildFreshImapConfig(accountId);
 
   // Get all folders we've synced before
   const syncStates = await getAllFolderSyncStates(accountId);

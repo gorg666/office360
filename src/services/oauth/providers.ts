@@ -1,9 +1,13 @@
+import { YANDEX_CALENDAR_SCOPE } from "@/services/calendar/yandex";
+
 export interface OAuthProviderConfig {
   id: string;
   name: string;
   authUrl: string;
   tokenUrl: string;
   scopes: string[];
+  /** Public desktop/native client ID. Safe to ship; secret is not used with PKCE. */
+  publicClientId?: string;
   userInfoUrl?: string;
   userInfoAuthScheme?: "Bearer" | "OAuth";
   /** Whether PKCE is required (Microsoft requires it, Yahoo supports it) */
@@ -11,6 +15,10 @@ export interface OAuthProviderConfig {
 }
 
 const yandexMailScopes = ["mail:imap_full", "mail:smtp", "login:email", "login:info"];
+const yandexCalendarScopes = [YANDEX_CALENDAR_SCOPE];
+const DEFAULT_YANDEX_PUBLIC_CLIENT_ID = "3a2cf9ad4e854c5ab83fc126d1a89ad4";
+const YANDEX_PUBLIC_CLIENT_ID =
+  import.meta.env.VITE_YANDEX_OAUTH_CLIENT_ID?.trim() || DEFAULT_YANDEX_PUBLIC_CLIENT_ID;
 
 const providers: Record<string, OAuthProviderConfig> = {
   microsoft: {
@@ -45,7 +53,8 @@ const providers: Record<string, OAuthProviderConfig> = {
     name: "Яндекс ID",
     authUrl: "https://oauth.yandex.ru/authorize",
     tokenUrl: "https://oauth.yandex.ru/token",
-    scopes: yandexMailScopes,
+    scopes: [...yandexMailScopes, ...yandexCalendarScopes],
+    publicClientId: YANDEX_PUBLIC_CLIENT_ID,
     userInfoUrl: "https://login.yandex.ru/info?format=json",
     userInfoAuthScheme: "OAuth",
     usePkce: true,

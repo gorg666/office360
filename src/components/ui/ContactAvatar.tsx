@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchAndCacheGravatarUrl } from "@/services/contacts/gravatar";
 import { useAccountStore } from "@/stores/accountStore";
+import { getAccountAvatarUrl } from "@/utils/accountAvatar";
 import { normalizeEmail } from "@/utils/emailUtils";
 
 const CONSUMER_EMAIL_DOMAINS = new Set([
@@ -89,7 +90,7 @@ export function ContactAvatar({
   fallbackClassName = "bg-accent/20 text-accent",
   avatarUrl,
   showDomainFallback = true,
-  lookupExternalAvatar = true,
+  lookupExternalAvatar = false,
 }: ContactAvatarProps) {
   const accounts = useAccountStore((state) => state.accounts);
   const [avatarCandidates, setAvatarCandidates] = useState<string[]>([]);
@@ -101,7 +102,8 @@ export function ContactAvatar({
     if (avatarUrl !== undefined) return avatarUrl;
     if (!email) return null;
     const normalized = normalizeEmail(email);
-    return accounts.find((account) => normalizeEmail(account.email) === normalized)?.avatarUrl ?? null;
+    const account = accounts.find((item) => normalizeEmail(item.email) === normalized);
+    return getAccountAvatarUrl(email, account?.avatarUrl ?? null);
   }, [accounts, avatarUrl, email]);
 
   const domainFallbackUrl = useMemo(() => {
