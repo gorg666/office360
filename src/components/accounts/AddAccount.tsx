@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Mail, Calendar } from "lucide-react";
+import { Mail, Calendar, ShieldCheck } from "lucide-react";
 import { startOAuthFlow } from "@/services/gmail/auth";
 import { insertAccount } from "@/services/db/accounts";
 import { getClientId, getClientSecret } from "@/services/gmail/tokenManager";
@@ -18,7 +18,7 @@ interface AddAccountProps {
   onSuccess: (accountId: string) => void;
 }
 
-type View = "select-provider" | "gmail" | "imap" | "caldav";
+type View = "select-provider" | "yandex" | "gmail" | "imap" | "caldav";
 
 export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
   const [view, setView] = useState<View>("select-provider");
@@ -60,6 +60,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
         displayName: userInfo.name,
         avatarUrl: userInfo.picture,
         isActive: true,
+        provider: "gmail_api",
       });
 
       onSuccess(accountId);
@@ -111,6 +112,24 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
         onClose={onClose}
         onSuccess={onSuccess}
         onBack={() => setView("select-provider")}
+      />
+    );
+  }
+
+  if (view === "yandex") {
+    return (
+      <AddImapAccount
+        onClose={onClose}
+        onSuccess={onSuccess}
+        onBack={() => setView("select-provider")}
+        oauthPreset={{
+          providerId: "yandex",
+          title: locale === "ru" ? "Подключить через Яндекс ID" : "Connect with Yandex ID",
+          defaultEmail: "user@yandex.ru",
+          description: locale === "ru"
+            ? "Подключите Яндекс Почту через OAuth IMAP/SMTP и сохраните токен для почты и профиля аккаунта."
+            : "Connect Yandex Mail via OAuth IMAP/SMTP and keep a token for mail and account profile access.",
+        }}
       />
     );
   }
@@ -181,6 +200,9 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
     chooseProvider: locale === "ru"
       ? "Выберите способ подключения почтового аккаунта."
       : "Choose how you want to connect your email account.",
+    yandexDescription: locale === "ru"
+      ? "Яндекс Почта через OAuth и доступ к Яндекс 360 API"
+      : "Yandex Mail via OAuth with Yandex 360 API access",
     gmailDescription: locale === "ru"
       ? "Подключение через OAuth с полной поддержкой Gmail API"
       : "Connect via OAuth with full Gmail API support",
@@ -203,6 +225,24 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
         </p>
 
         <div className="space-y-3">
+          <button
+            onClick={() => setView("yandex")}
+            className="w-full flex items-center gap-4 p-4 rounded-lg border border-accent/30 bg-accent/5 hover:bg-accent/10 transition-colors text-left group"
+          >
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-[#fc3f1d] text-white flex items-center justify-center font-semibold">
+              Я
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors flex items-center gap-2">
+                Яндекс ID
+                <ShieldCheck className="w-3.5 h-3.5 text-accent" />
+              </div>
+              <div className="text-xs text-text-tertiary mt-0.5">
+                {providerCopy.yandexDescription}
+              </div>
+            </div>
+          </button>
+
           <button
             onClick={() => setView("gmail")}
             className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"

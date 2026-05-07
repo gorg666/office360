@@ -77,6 +77,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
   }, [message.body_html]);
 
   const fromDisplay = message.from_name ?? message.from_address ?? "Unknown";
+  const hasRenderableBody = Boolean((message.body_html ?? message.body_text ?? "").trim());
 
   return (
     <div ref={ref} className={`border-b border-border-secondary last:border-b-0 ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""} ${focused ? "ring-2 ring-inset ring-accent/50" : ""}`} onContextMenu={onContextMenu}>
@@ -140,7 +141,11 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
             />
           )}
 
-          {blockImages != null ? (
+          {!hasRenderableBody && message.imap_uid != null ? (
+            <div className="py-4 text-sm text-text-tertiary">
+              Загружаю тело письма...
+            </div>
+          ) : blockImages != null ? (
             <EmailRenderer
               html={message.body_html}
               text={message.body_text}
@@ -150,7 +155,9 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
               senderAllowlisted={senderAllowlisted}
               isSpam={!!isSpam}
               messageId={message.id}
-              inlineAttachments={attachments.filter((a) => a.content_id)}
+              inlineAttachments={attachments.filter((a) =>
+                a.content_id && getContentIdKeys(a.content_id).some((key) => referencedCids.has(key))
+              )}
             />
           ) : (
             <div className="py-8 text-center text-text-tertiary text-sm">Loading...</div>

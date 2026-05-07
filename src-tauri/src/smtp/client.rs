@@ -17,9 +17,7 @@ fn decode_base64url(input: &str) -> Result<Vec<u8>, String> {
 }
 
 /// Build an async SMTP transport from the given config.
-fn build_transport(
-    config: &SmtpConfig,
-) -> Result<AsyncSmtpTransport<Tokio1Executor>, String> {
+fn build_transport(config: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, String> {
     let credentials = Credentials::new(config.username.clone(), config.password.clone());
 
     // For OAuth2, force XOAUTH2 mechanism; for password, use default mechanisms

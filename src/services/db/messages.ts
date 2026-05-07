@@ -41,6 +41,42 @@ export async function getMessagesForThread(
   );
 }
 
+export interface UncachedImapMessageRef {
+  id: string;
+  thread_id: string;
+  imap_uid: number;
+  imap_folder: string;
+}
+
+export async function getUncachedImapMessageRefs(
+  accountId: string,
+  limit = 500,
+): Promise<UncachedImapMessageRef[]> {
+  const db = await getDb();
+  return db.select<UncachedImapMessageRef[]>(
+    `SELECT id, thread_id, imap_uid, imap_folder
+     FROM messages
+     WHERE account_id = $1
+       AND imap_uid IS NOT NULL
+       AND imap_folder IS NOT NULL
+       AND (
+         body_cached = 0
+         OR from_address IS NULL
+         OR from_address = 'unknown@example.com'
+         OR ((body_html IS NULL OR body_html = '') AND (body_text IS NULL OR body_text = ''))
+         OR body_text LIKE 'MIME-Version:%'
+         OR body_text LIKE 'Content-Type:%'
+         OR body_text LIKE 'Received:%'
+         OR body_html LIKE 'MIME-Version:%'
+         OR body_html LIKE 'Content-Type:%'
+         OR body_html LIKE 'Received:%'
+       )
+     ORDER BY date DESC
+     LIMIT $2`,
+    [accountId, limit],
+  );
+}
+
 export async function upsertMessage(msg: {
   id: string;
   accountId: string;
@@ -78,7 +114,7 @@ export async function upsertMessage(msg: {
        bcc_addresses = $8, reply_to = $9, subject = $10, snippet = $11,
        date = $12, is_read = $13, is_starred = $14,
        body_html = COALESCE($15, body_html), body_text = COALESCE($16, body_text),
-       body_cached = CASE WHEN $15 IS NOT NULL THEN 1 ELSE body_cached END,
+       body_cached = CASE WHEN $15 IS NOT NULL OR $16 IS NOT NULL THEN 1 ELSE body_cached END,
        raw_size = $18, internal_date = $19, list_unsubscribe = $20, list_unsubscribe_post = $21,
        auth_results = $22, message_id_header = COALESCE($23, message_id_header),
        references_header = COALESCE($24, references_header),
@@ -101,7 +137,7 @@ export async function upsertMessage(msg: {
       msg.isStarred ? 1 : 0,
       msg.bodyHtml,
       msg.bodyText,
-      msg.bodyHtml ? 1 : 0,
+      msg.bodyHtml || msg.bodyText ? 1 : 0,
       msg.rawSize,
       msg.internalDate,
       msg.listUnsubscribe ?? null,

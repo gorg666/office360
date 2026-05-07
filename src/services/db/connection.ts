@@ -5,8 +5,25 @@ let db: Database | null = null;
 export async function getDb(): Promise<Database> {
   if (!db) {
     db = await Database.load("sqlite:office360.db");
+    await configureSqlite(db);
   }
   return db;
+}
+
+async function configureSqlite(database: Database): Promise<void> {
+  const pragmas = [
+    "PRAGMA busy_timeout = 30000",
+    "PRAGMA journal_mode = WAL",
+    "PRAGMA foreign_keys = ON",
+  ];
+
+  for (const pragma of pragmas) {
+    try {
+      await database.execute(pragma, []);
+    } catch (err) {
+      console.warn(`Failed to apply SQLite setting "${pragma}":`, err);
+    }
+  }
 }
 
 /**
@@ -37,48 +54,101 @@ export function buildDynamicUpdate(
   };
 }
 
-/**
- * Simple async mutex to prevent concurrent SQLite transactions.
- * SQLite only supports one writer at a time; overlapping BEGIN/COMMIT/ROLLBACK
- * on the same connection causes "cannot start a transaction within a transaction"
- * or "database is locked" errors.
- */
-let txQueue: Promise<void> = Promise.resolve();
+let writeQueue: Promise<void> = Promise.resolve();
 
-export async function withTransaction(fn: (db: Database) => Promise<void>): Promise<void> {
-  // Queue this transaction behind any currently-running one.
-  // This serialises all transactions without blocking non-transactional reads.
-  const prev = txQueue;
+function getErrorText(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function isSqliteBusyError(err: unknown): boolean {
+  const message = getErrorText(err);
+  return /database is locked|database busy|SQLITE_BUSY|code["']?\s*[:=]\s*5|\(code:\s*5\)/i.test(message);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Queue write operations so account-level writes do not race with explicit
+ * transactions on the same WebView connection.
+ */
+async function withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = writeQueue;
   let resolve!: () => void;
-  txQueue = new Promise<void>((r) => {
+  writeQueue = new Promise<void>((r) => {
     resolve = r;
   });
 
   try {
-    await prev; // wait for previous transaction to finish
+    await prev;
   } catch {
-    // previous transaction errored — that's fine, we can still proceed
+    // Previous write failed; the queue must still continue.
   }
 
-  const database = await getDb();
   try {
-    await database.execute("BEGIN TRANSACTION", []);
-    try {
-      await fn(database);
-      await database.execute("COMMIT", []);
-    } catch (err) {
-      // SQLite may auto-rollback on certain errors — guard against
-      // "cannot rollback - no transaction is active"
-      try {
-        await database.execute("ROLLBACK", []);
-      } catch {
-        // ROLLBACK failed (already rolled back) — safe to ignore
-      }
-      throw err;
-    }
+    return await fn();
   } finally {
-    resolve(); // always unblock the next queued transaction
+    resolve();
   }
+}
+
+export async function executeWrite(
+  sql: string,
+  params: unknown[] = [],
+  maxAttempts = 12,
+): Promise<unknown> {
+  return withWriteLock(async () => {
+    const database = await getDb();
+    let delayMs = 200;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await database.execute(sql, params);
+      } catch (err) {
+        if (!isSqliteBusyError(err) || attempt === maxAttempts) {
+          throw err;
+        }
+        await sleep(delayMs);
+        delayMs = Math.min(delayMs * 2, 2_000);
+      }
+    }
+  });
+}
+
+export async function withTransaction(
+  fn: (db: Database) => Promise<void>,
+  maxAttempts = 12,
+): Promise<void> {
+  await withWriteLock(async () => {
+    const database = await getDb();
+
+    let delayMs = 200;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        // Tauri SQL uses a connection pool. A manual BEGIN/COMMIT can pin the
+        // transaction to one pooled connection while subsequent execute() calls
+        // are served by another connection, which self-locks SQLite for the
+        // full busy_timeout. The JS write queue gives us the ordering we need
+        // without holding a pooled SQLite transaction open.
+        await fn(database);
+        return;
+      } catch (err) {
+        if (!isSqliteBusyError(err) || attempt === maxAttempts) {
+          throw err;
+        }
+      }
+
+      await sleep(delayMs);
+      delayMs = Math.min(delayMs * 2, 2_000);
+    }
+  });
 }
 
 /**

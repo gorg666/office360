@@ -89,6 +89,9 @@ export async function startProviderOAuthFlow(
     params.prompt = "consent";
     params.response_mode = "query";
   }
+  if (provider.id === "yandex") {
+    params.force_confirm = "yes";
+  }
 
   const authUrl = `${provider.authUrl}?${new URLSearchParams(params).toString()}`;
 
@@ -188,8 +191,9 @@ async function fetchUserInfo(
     throw new Error(`Provider ${provider.id} has no user info endpoint`);
   }
 
+  const authScheme = provider.userInfoAuthScheme ?? "Bearer";
   const response = await fetch(provider.userInfoUrl, {
-    headers: { Authorization: `Bearer ${tokens.access_token}` },
+    headers: { Authorization: `${authScheme} ${tokens.access_token}` },
   });
 
   if (!response.ok) {
@@ -204,6 +208,18 @@ async function fetchUserInfo(
       email: data.email || "",
       name: data.name || data.nickname || "",
       picture: data.picture || undefined,
+    };
+  }
+
+  if (provider.id === "yandex") {
+    const email = data.default_email || data.email || "";
+    const name = data.real_name || data.display_name || data.login || email;
+    return {
+      email,
+      name,
+      picture: data.default_avatar_id
+        ? `https://avatars.yandex.net/get-yapic/${data.default_avatar_id}/islands-200`
+        : undefined,
     };
   }
 

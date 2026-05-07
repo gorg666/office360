@@ -12,6 +12,7 @@ import {
   imapTestConnection,
   imapListFolders,
   imapFetchMessages,
+  imapFetchMessageHeaders,
   imapFetchNewUids,
   imapFetchMessageBody,
   imapSetFlags,
@@ -96,6 +97,29 @@ describe('IMAP Tauri commands', () => {
     const result = await imapFetchMessages(testImapConfig, 'INBOX', [1, 2, 3]);
 
     expect(mockInvoke).toHaveBeenCalledWith('imap_fetch_messages', {
+      config: testImapConfig,
+      folder: 'INBOX',
+      uids: [1, 2, 3],
+    });
+    expect(result).toEqual(fetchResult);
+  });
+
+  it('imapFetchMessageHeaders invokes with correct command and params', async () => {
+    const fetchResult = {
+      messages: [],
+      folder_status: {
+        uidvalidity: 1,
+        uidnext: 100,
+        exists: 50,
+        unseen: 5,
+        highest_modseq: null,
+      },
+    };
+    mockInvoke.mockResolvedValue(fetchResult);
+
+    const result = await imapFetchMessageHeaders(testImapConfig, 'INBOX', [1, 2, 3]);
+
+    expect(mockInvoke).toHaveBeenCalledWith('imap_fetch_message_headers', {
       config: testImapConfig,
       folder: 'INBOX',
       uids: [1, 2, 3],

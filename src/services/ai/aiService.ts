@@ -135,7 +135,7 @@ export async function generateSmartReplies(
     .map((r) => r.replace(/<[^>]*>/g, "").slice(0, 200));
 
   // Ensure exactly 3 replies
-  while (replies.length < 3) replies.push("Thanks for the update.");
+  while (replies.length < 3) replies.push("Спасибо за информацию.");
   replies = replies.slice(0, 3);
 
   // Cache the result

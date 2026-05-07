@@ -1,4 +1,4 @@
-import { getDb, selectFirstBy } from "./connection";
+import { executeWrite, getDb, selectFirstBy } from "./connection";
 import { encryptValue, decryptValue, isEncrypted } from "@/utils/crypto";
 
 export interface DbAccount {
@@ -110,10 +110,9 @@ export async function insertAccount(account: {
   refreshToken: string;
   tokenExpiresAt: number;
 }): Promise<void> {
-  const db = await getDb();
   const encAccessToken = await encryptValue(account.accessToken);
   const encRefreshToken = await encryptValue(account.refreshToken);
-  await db.execute(
+  await executeWrite(
     `INSERT INTO accounts (id, email, display_name, avatar_url, access_token, refresh_token, token_expires_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [
@@ -133,9 +132,8 @@ export async function updateAccountTokens(
   accessToken: string,
   tokenExpiresAt: number,
 ): Promise<void> {
-  const db = await getDb();
   const encAccessToken = await encryptValue(accessToken);
-  await db.execute(
+  await executeWrite(
     "UPDATE accounts SET access_token = $1, token_expires_at = $2, updated_at = unixepoch() WHERE id = $3",
     [encAccessToken, tokenExpiresAt, id],
   );
@@ -145,16 +143,14 @@ export async function updateAccountSyncState(
   id: string,
   historyId: string,
 ): Promise<void> {
-  const db = await getDb();
-  await db.execute(
+  await executeWrite(
     "UPDATE accounts SET history_id = $1, last_sync_at = unixepoch(), updated_at = unixepoch() WHERE id = $2",
     [historyId, id],
   );
 }
 
 export async function clearAccountHistoryId(id: string): Promise<void> {
-  const db = await getDb();
-  await db.execute(
+  await executeWrite(
     "UPDATE accounts SET history_id = NULL, updated_at = unixepoch() WHERE id = $1",
     [id],
   );
@@ -166,18 +162,30 @@ export async function updateAccountAllTokens(
   refreshToken: string,
   tokenExpiresAt: number,
 ): Promise<void> {
-  const db = await getDb();
   const encAccessToken = await encryptValue(accessToken);
   const encRefreshToken = await encryptValue(refreshToken);
-  await db.execute(
+  await executeWrite(
     "UPDATE accounts SET access_token = $1, refresh_token = $2, token_expires_at = $3, updated_at = unixepoch() WHERE id = $4",
     [encAccessToken, encRefreshToken, tokenExpiresAt, id],
   );
 }
 
+export async function updateImapAccountPassword(
+  id: string,
+  password: string,
+  imapUsername?: string | null,
+): Promise<void> {
+  const encPassword = await encryptValue(password);
+  await executeWrite(
+    `UPDATE accounts
+     SET imap_password = $1, imap_username = COALESCE($2, imap_username), updated_at = unixepoch()
+     WHERE id = $3 AND provider = 'imap'`,
+    [encPassword, imapUsername ?? null, id],
+  );
+}
+
 export async function deleteAccount(id: string): Promise<void> {
-  const db = await getDb();
-  await db.execute("DELETE FROM accounts WHERE id = $1", [id]);
+  await executeWrite("DELETE FROM accounts WHERE id = $1", [id]);
 }
 
 export async function insertImapAccount(account: {
@@ -196,9 +204,8 @@ export async function insertImapAccount(account: {
   imapUsername?: string | null;
   acceptInvalidCerts?: boolean;
 }): Promise<void> {
-  const db = await getDb();
   const encPassword = await encryptValue(account.password);
-  await db.execute(
+  await executeWrite(
     `INSERT INTO accounts (id, email, display_name, avatar_url, access_token, refresh_token, provider, imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security, auth_method, imap_password, imap_username, accept_invalid_certs)
      VALUES ($1, $2, $3, $4, NULL, NULL, 'imap', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
     [
@@ -230,9 +237,8 @@ export async function insertCalDavAccount(account: {
   caldavPrincipalUrl?: string | null;
   caldavHomeUrl?: string | null;
 }): Promise<void> {
-  const db = await getDb();
   const encPassword = await encryptValue(account.caldavPassword);
-  await db.execute(
+  await executeWrite(
     `INSERT INTO accounts (id, email, display_name, avatar_url, access_token, refresh_token, provider, calendar_provider, caldav_url, caldav_username, caldav_password, caldav_principal_url, caldav_home_url)
      VALUES ($1, $2, $3, NULL, NULL, NULL, 'caldav', 'caldav', $4, $5, $6, $7, $8)`,
     [
@@ -259,9 +265,8 @@ export async function updateAccountCalDav(
     calendarProvider: string;
   },
 ): Promise<void> {
-  const db = await getDb();
   const encPassword = await encryptValue(fields.caldavPassword);
-  await db.execute(
+  await executeWrite(
     `UPDATE accounts SET caldav_url = $1, caldav_username = $2, caldav_password = $3,
        caldav_principal_url = $4, caldav_home_url = $5, calendar_provider = $6,
        updated_at = unixepoch() WHERE id = $7`,
@@ -297,13 +302,12 @@ export async function insertOAuthImapAccount(account: {
   imapUsername?: string | null;
   acceptInvalidCerts?: boolean;
 }): Promise<void> {
-  const db = await getDb();
   const encAccessToken = await encryptValue(account.accessToken);
   const encRefreshToken = await encryptValue(account.refreshToken);
   const encClientSecret = account.oauthClientSecret
     ? await encryptValue(account.oauthClientSecret)
     : null;
-  await db.execute(
+  await executeWrite(
     `INSERT INTO accounts (id, email, display_name, avatar_url, access_token, refresh_token, token_expires_at, provider, imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security, auth_method, imap_password, oauth_provider, oauth_client_id, oauth_client_secret, imap_username, accept_invalid_certs)
      VALUES ($1, $2, $3, $4, $5, $6, $7, 'imap', $8, $9, $10, $11, $12, $13, 'oauth2', NULL, $14, $15, $16, $17, $18)`,
     [

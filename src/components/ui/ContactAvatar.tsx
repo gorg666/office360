@@ -18,6 +18,18 @@ const CONSUMER_EMAIL_DOMAINS = new Set([
   "aol.com",
 ]);
 
+const KNOWN_BRAND_DOMAINS = [
+  "yandex.ru",
+  "yandex.com",
+  "microsoft.com",
+  "office.com",
+  "tbank.ru",
+  "kontur.ru",
+  "diadoc.ru",
+  "kaiten.ru",
+  "innopolis.ru",
+];
+
 const avatarRequestCache = new Map<string, Promise<string | null>>();
 const AVATAR_MISS_TTL_MS = 60_000;
 
@@ -36,13 +48,37 @@ function loadAvatar(email: string): Promise<string | null> {
   return request;
 }
 
+function getDomainForIcon(email: string): string | null {
+  const rawDomain = email.split("@")[1]?.trim().toLowerCase();
+  if (!rawDomain) return null;
+
+  for (const brandDomain of KNOWN_BRAND_DOMAINS) {
+    if (rawDomain === brandDomain || rawDomain.endsWith(`.${brandDomain}`)) {
+      return brandDomain;
+    }
+  }
+
+  const parts = rawDomain.split(".").filter(Boolean);
+  if (parts.length <= 2) return rawDomain;
+
+  const suffix = parts.slice(-2).join(".");
+  if (CONSUMER_EMAIL_DOMAINS.has(suffix)) return suffix;
+  return suffix;
+}
+
+function uniqueUrls(urls: (string | null)[]): string[] {
+  return [...new Set(urls.filter((url): url is string => Boolean(url)))];
+}
+
 interface ContactAvatarProps {
   email: string | null | undefined;
   name?: string | null;
   className: string;
   textClassName?: string;
   fallbackClassName?: string;
+  avatarUrl?: string | null;
   showDomainFallback?: boolean;
+  lookupExternalAvatar?: boolean;
 }
 
 export function ContactAvatar({
@@ -51,57 +87,58 @@ export function ContactAvatar({
   className,
   textClassName = "",
   fallbackClassName = "bg-accent/20 text-accent",
+  avatarUrl,
   showDomainFallback = true,
+  lookupExternalAvatar = true,
 }: ContactAvatarProps) {
   const accounts = useAccountStore((state) => state.accounts);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [imageFailed, setImageFailed] = useState(false);
+  const [avatarCandidates, setAvatarCandidates] = useState<string[]>([]);
+  const [candidateIndex, setCandidateIndex] = useState(0);
   const display = name || email || "Unknown";
   const initial = (display[0] ?? "?").toUpperCase();
 
   const accountAvatarUrl = useMemo(() => {
+    if (avatarUrl !== undefined) return avatarUrl;
     if (!email) return null;
     const normalized = normalizeEmail(email);
     return accounts.find((account) => normalizeEmail(account.email) === normalized)?.avatarUrl ?? null;
-  }, [accounts, email]);
+  }, [accounts, avatarUrl, email]);
 
   const domainFallbackUrl = useMemo(() => {
     if (!showDomainFallback || !email) return null;
-    const domain = email.split("@")[1]?.toLowerCase();
-    if (!domain || CONSUMER_EMAIL_DOMAINS.has(domain)) return null;
-    // DuckDuckGo returns 404 when it has no favicon, so onError falls back to initials
-    // instead of showing Google's generic globe placeholder.
+    const domain = getDomainForIcon(email);
+    if (!domain) return null;
     return `https://icons.duckduckgo.com/ip3/${encodeURIComponent(domain)}.ico`;
   }, [email, showDomainFallback]);
 
   useEffect(() => {
     let cancelled = false;
-    setAvatarUrl(null);
-    setImageFailed(false);
+    const initialCandidates = uniqueUrls([accountAvatarUrl, domainFallbackUrl]);
+    setAvatarCandidates(initialCandidates);
+    setCandidateIndex(0);
 
-    if (!email) return () => { cancelled = true; };
-    if (accountAvatarUrl) {
-      setAvatarUrl(accountAvatarUrl);
-      return () => { cancelled = true; };
-    }
+    if (!email || !lookupExternalAvatar) return () => { cancelled = true; };
 
     loadAvatar(email).then((url) => {
       if (cancelled) return;
-      setAvatarUrl(url ?? domainFallbackUrl);
+      setAvatarCandidates(uniqueUrls([accountAvatarUrl, url, domainFallbackUrl]));
+      setCandidateIndex(0);
     });
 
     return () => { cancelled = true; };
-  }, [email, accountAvatarUrl, domainFallbackUrl]);
+  }, [email, accountAvatarUrl, domainFallbackUrl, lookupExternalAvatar]);
 
-  if (avatarUrl && !imageFailed) {
+  const currentAvatarUrl = avatarCandidates[candidateIndex] ?? null;
+
+  if (currentAvatarUrl) {
     return (
       <img
-        src={avatarUrl}
+        src={currentAvatarUrl}
         alt={display}
         className={`${className} object-cover`}
         loading="lazy"
         referrerPolicy="no-referrer"
-        onError={() => setImageFailed(true)}
+        onError={() => setCandidateIndex((idx) => idx + 1)}
       />
     );
   }

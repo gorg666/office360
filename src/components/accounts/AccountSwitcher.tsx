@@ -2,6 +2,8 @@ import { useState, useRef, useCallback } from "react";
 import { useAccountStore, type Account } from "@/stores/accountStore";
 import { ChevronDown, Check, Plus, UserPlus, Calendar } from "lucide-react";
 import { useClickOutside } from "@/hooks/useClickOutside";
+import { ContactAvatar } from "@/components/ui/ContactAvatar";
+import { getAccountAvatarUrl } from "@/utils/accountAvatar";
 
 interface AccountSwitcherProps {
   collapsed: boolean;
@@ -142,29 +144,19 @@ export function AccountSwitcher({
 
 /** The main avatar shown in the trigger — slightly larger */
 function ActiveAvatar({ account }: { account: Account | undefined }) {
-  const [imgError, setImgError] = useState(false);
-
   if (!account) return null;
 
-  const initial = (
-    account.displayName?.[0] ?? account.email[0] ?? "?"
-  ).toUpperCase();
-  const showImg = account.avatarUrl && !imgError;
-
   return (
-    <div className="w-8 h-8 rounded-full bg-accent/15 text-accent flex items-center justify-center shrink-0 text-sm font-semibold overflow-hidden">
-      {showImg ? (
-        <img
-          key={account.avatarUrl}
-          src={account.avatarUrl!}
-          alt={account.email}
-          className="w-full h-full object-cover"
-          onError={() => setImgError(true)}
-        />
-      ) : (
-        initial
-      )}
-    </div>
+    <ContactAvatar
+      email={account.email}
+      name={account.displayName}
+      avatarUrl={getAccountAvatarUrl(account.email, account.avatarUrl)}
+      className="w-8 h-8 rounded-full shrink-0"
+      textClassName="text-sm"
+      fallbackClassName="bg-accent/15 text-accent"
+      showDomainFallback={false}
+      lookupExternalAvatar={false}
+    />
   );
 }
 
@@ -176,32 +168,20 @@ function AccountAvatarSmall({
   account: Account;
   isActive: boolean;
 }) {
-  const [imgError, setImgError] = useState(false);
-
-  const initial = (
-    account.displayName?.[0] ?? account.email[0] ?? "?"
-  ).toUpperCase();
-  const showImg = account.avatarUrl && !imgError;
-
   return (
-    <div
-      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-semibold overflow-hidden ${
+    <ContactAvatar
+      email={account.email}
+      name={account.displayName}
+      avatarUrl={getAccountAvatarUrl(account.email, account.avatarUrl)}
+      className="w-7 h-7 rounded-full shrink-0"
+      textClassName="text-xs"
+      fallbackClassName={
         isActive
           ? "bg-accent text-white"
           : "bg-accent/12 text-accent"
-      }`}
-    >
-      {showImg ? (
-        <img
-          key={account.avatarUrl}
-          src={account.avatarUrl!}
-          alt=""
-          className="w-full h-full object-cover"
-          onError={() => setImgError(true)}
-        />
-      ) : (
-        initial
-      )}
-    </div>
+      }
+      showDomainFallback={false}
+      lookupExternalAvatar={false}
+    />
   );
 }

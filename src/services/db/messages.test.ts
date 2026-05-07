@@ -9,7 +9,7 @@ vi.mock("@/services/db/connection", async (importOriginal) => {
 });
 
 import { getDb } from "@/services/db/connection";
-import { deleteAllMessagesForAccount, updateMessageThreadIds } from "./messages";
+import { deleteAllMessagesForAccount, updateMessageThreadIds, upsertMessage } from "./messages";
 import { createMockDb } from "@/test/mocks";
 
 const mockDb = createMockDb();
@@ -18,6 +18,34 @@ describe("messages service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getDb).mockResolvedValue(mockDb as unknown as Awaited<ReturnType<typeof getDb>>);
+  });
+
+  describe("upsertMessage", () => {
+    it("marks plain text IMAP messages as body cached", async () => {
+      await upsertMessage({
+        id: "msg-1",
+        accountId: "acc-1",
+        threadId: "thread-1",
+        fromAddress: "sender@example.com",
+        fromName: null,
+        toAddresses: "me@example.com",
+        ccAddresses: null,
+        bccAddresses: null,
+        replyTo: null,
+        subject: "Plain text",
+        snippet: "Plain body",
+        date: 1_700_000_000,
+        isRead: false,
+        isStarred: false,
+        bodyHtml: null,
+        bodyText: "Plain body",
+        rawSize: 123,
+        internalDate: 1_700_000_000,
+      });
+
+      const params = mockDb.execute.mock.calls[0]![1] as unknown[];
+      expect(params[16]).toBe(1);
+    });
   });
 
   describe("deleteAllMessagesForAccount", () => {

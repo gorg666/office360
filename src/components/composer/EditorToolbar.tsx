@@ -47,10 +47,10 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
 
   return (
     <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border-secondary bg-bg-secondary flex-wrap">
-      {btn("B", editor.isActive("bold"), () => editor.chain().focus().toggleBold().run(), "Bold (Ctrl+B)")}
-      {btn("I", editor.isActive("italic"), () => editor.chain().focus().toggleItalic().run(), "Italic (Ctrl+I)")}
-      {btn("U", editor.isActive("underline"), () => editor.chain().focus().toggleUnderline().run(), "Underline (Ctrl+U)")}
-      {btn("S̶", editor.isActive("strike"), () => editor.chain().focus().toggleStrike().run(), "Strikethrough")}
+      {btn("B", editor.isActive("bold"), () => editor.chain().focus().toggleBold().run(), "Жирный (Ctrl+B)")}
+      {btn("I", editor.isActive("italic"), () => editor.chain().focus().toggleItalic().run(), "Курсив (Ctrl+I)")}
+      {btn("U", editor.isActive("underline"), () => editor.chain().focus().toggleUnderline().run(), "Подчеркнутый (Ctrl+U)")}
+      {btn("S̶", editor.isActive("strike"), () => editor.chain().focus().toggleStrike().run(), "Зачеркнутый")}
 
       <div className="w-px h-4 bg-border-primary mx-1" />
 
@@ -60,15 +60,15 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
 
       <div className="w-px h-4 bg-border-primary mx-1" />
 
-      {btn("• List", editor.isActive("bulletList"), () => editor.chain().focus().toggleBulletList().run())}
-      {btn("1. List", editor.isActive("orderedList"), () => editor.chain().focus().toggleOrderedList().run())}
-      {btn("Quote", editor.isActive("blockquote"), () => editor.chain().focus().toggleBlockquote().run())}
-      {btn("< > Code", editor.isActive("codeBlock"), () => editor.chain().focus().toggleCodeBlock().run())}
+      {btn("• Список", editor.isActive("bulletList"), () => editor.chain().focus().toggleBulletList().run())}
+      {btn("1. Список", editor.isActive("orderedList"), () => editor.chain().focus().toggleOrderedList().run())}
+      {btn("Цитата", editor.isActive("blockquote"), () => editor.chain().focus().toggleBlockquote().run())}
+      {btn("< > Код", editor.isActive("codeBlock"), () => editor.chain().focus().toggleCodeBlock().run())}
 
       <div className="w-px h-4 bg-border-primary mx-1" />
 
-      {btn("— Rule", false, () => editor.chain().focus().setHorizontalRule().run())}
-      {btn("Link", editor.isActive("link"), () => {
+      {btn("— Линия", false, () => editor.chain().focus().setHorizontalRule().run())}
+      {btn("Ссылка", editor.isActive("link"), () => {
         if (editor.isActive("link")) {
           editor.chain().focus().unsetLink().run();
         } else {
@@ -80,9 +80,11 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
         type="file"
         accept="image/*"
         className="hidden"
+        aria-label="Выбрать изображение"
+        title="Выбрать изображение"
         onChange={handleImageSelect}
       />
-      {btn("Image", false, () => imageInputRef.current?.click(), "Insert image")}
+      {btn("Изображение", false, () => imageInputRef.current?.click(), "Вставить изображение")}
 
       <div className="flex-1" />
 
@@ -90,18 +92,18 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
         <button
           type="button"
           onClick={onToggleAiAssist}
-          title="AI Assist"
+          title="ИИ-помощник"
           className={`px-1.5 py-1 text-xs rounded hover:bg-bg-hover transition-colors flex items-center gap-1 ${
             aiAssistOpen ? "bg-accent/10 text-accent font-semibold" : "text-text-secondary"
           }`}
         >
           <Sparkles size={12} />
-          AI
+          ИИ
         </button>
       )}
 
-      {btn("Undo", false, () => editor.chain().focus().undo().run())}
-      {btn("Redo", false, () => editor.chain().focus().redo().run())}
+      {btn("Отменить", false, () => editor.chain().focus().undo().run())}
+      {btn("Повторить", false, () => editor.chain().focus().redo().run())}
       <InputDialog
         isOpen={showLinkDialog}
         onClose={() => setShowLinkDialog(false)}
@@ -110,9 +112,9 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
             editor.chain().focus().setLink({ href: values.url }).run();
           }
         }}
-        title="Insert Link"
+        title="Вставить ссылку"
         fields={[{ key: "url", label: "URL", placeholder: "https://..." }]}
-        submitLabel="Insert"
+        submitLabel="Вставить"
       />
     </div>
   );

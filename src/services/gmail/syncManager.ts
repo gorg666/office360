@@ -26,6 +26,12 @@ let syncTimer: ReturnType<typeof setInterval> | null = null;
 let syncPromise: Promise<void> | null = null;
 let pendingAccountIds: string[] | null = null;
 
+async function waitForSyncIdle(): Promise<void> {
+  while (syncPromise) {
+    await syncPromise;
+  }
+}
+
 export type SyncStatusCallback = (
   accountId: string,
   status: "syncing" | "done" | "error",
@@ -329,6 +335,7 @@ export async function triggerSync(accountIds: string[]): Promise<void> {
  * This re-downloads all threads from scratch.
  */
 export async function forceFullSync(accountIds: string[]): Promise<void> {
+  await waitForSyncIdle();
   for (const id of accountIds) {
     await clearAccountHistoryId(id);
   }
@@ -341,6 +348,7 @@ export async function forceFullSync(accountIds: string[]): Promise<void> {
  * then runs a fresh initial sync.
  */
 export async function resyncAccount(accountId: string): Promise<void> {
+  await waitForSyncIdle();
   await deleteAllThreadsForAccount(accountId);
   await deleteAllMessagesForAccount(accountId);
   await clearAccountHistoryId(accountId);

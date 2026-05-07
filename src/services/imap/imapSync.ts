@@ -1,4 +1,4 @@
-import type { ImapConfig, ImapMessage, DeltaCheckRequest, DeltaCheckResult } from "./tauriCommands";
+import type { ImapConfig, ImapFolder, ImapMessage, DeltaCheckRequest, DeltaCheckResult } from "./tauriCommands";
 import {
   imapListFolders,
   imapGetFolderStatus,
@@ -16,8 +16,8 @@ import {
 } from "./folderMapper";
 import type { ParsedMessage, ParsedAttachment } from "../gmail/messageParser";
 import type { SyncResult } from "../email/types";
-import { upsertMessage, updateMessageThreadIds } from "../db/messages";
-import { upsertThread, setThreadLabels, deleteThread } from "../db/threads";
+import { getUncachedImapMessageRefs, upsertMessage, updateMessageThreadIds } from "../db/messages";
+import { upsertThread, setThreadLabels, addThreadLabels, deleteThread } from "../db/threads";
 import { upsertAttachment } from "../db/attachments";
 import { getAccount, updateAccountSyncState } from "../db/accounts";
 import { withTransaction } from "../db/connection";
@@ -38,7 +38,9 @@ import { getPendingOpsForResource } from "../db/pendingOperations";
 
 const BATCH_SIZE = 50;
 /** Number of messages to fetch per IPC call during initial sync. */
-const CHUNK_SIZE = 200;
+const CHUNK_SIZE = 50;
+/** Smaller full-body repair batches keep IPC payloads predictable. */
+const BODY_REPAIR_BATCH_SIZE = 25;
 /** Number of thread groups to process per transaction in Phase 4. */
 const THREAD_BATCH_SIZE = 100;
 
@@ -54,6 +56,38 @@ const CIRCUIT_BREAKER_DELAY_MS = 15_000;
 const CIRCUIT_BREAKER_MAX_FAILURES = 5;
 /** Delay (ms) between folder syncs during initial sync to avoid connection bursts. */
 const INTER_FOLDER_DELAY_MS = 1_000;
+
+const FOLDER_SYNC_PRIORITY: Record<string, number> = {
+  INBOX: 0,
+  UNREAD: 1,
+  STARRED: 2,
+  SENT: 3,
+  DRAFT: 4,
+  archive: 5,
+  "all-mail": 6,
+  SPAM: 20,
+  TRASH: 21,
+};
+
+function sortFoldersForInitialSync(folders: ImapFolder[]): ImapFolder[] {
+  return [...folders].sort((a, b) => {
+    const aMapping = mapFolderToLabel(a);
+    const bMapping = mapFolderToLabel(b);
+    const aPriority = FOLDER_SYNC_PRIORITY[aMapping.labelId] ?? 10;
+    const bPriority = FOLDER_SYNC_PRIORITY[bMapping.labelId] ?? 10;
+    if (aPriority !== bPriority) return aPriority - bPriority;
+    return a.path.localeCompare(b.path);
+  });
+}
+
+function newestUidsFirst(uids: number[]): number[] {
+  return [...uids].sort((a, b) => b - a);
+}
+
+function notifyPartialSyncAvailable(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event("velo-sync-done"));
+}
 
 export function isConnectionError(err: unknown): boolean {
   const msg = String(err).toLowerCase();
@@ -379,6 +413,108 @@ async function fetchMessagesInBatches(
   return { messages: allMessages, lastUid, uidvalidity };
 }
 
+async function hydrateUncachedImapBodies(
+  accountId: string,
+  config: ImapConfig,
+  onProgress?: ImapSyncProgressCallback,
+): Promise<number> {
+  let hydrated = 0;
+
+  while (true) {
+    const refs = await getUncachedImapMessageRefs(accountId, BODY_REPAIR_BATCH_SIZE * 4);
+    if (refs.length === 0) break;
+
+    const refsByFolder = new Map<string, typeof refs>();
+    for (const ref of refs) {
+      const folderRefs = refsByFolder.get(ref.imap_folder) ?? [];
+      folderRefs.push(ref);
+      refsByFolder.set(ref.imap_folder, folderRefs);
+    }
+
+    let progressInBatch = 0;
+    for (const [folder, folderRefs] of refsByFolder) {
+      for (let i = 0; i < folderRefs.length; i += BODY_REPAIR_BATCH_SIZE) {
+        const chunk = folderRefs.slice(i, i + BODY_REPAIR_BATCH_SIZE);
+        const refsByUid = new Map(chunk.map((ref) => [ref.imap_uid, ref]));
+
+        try {
+          const result = await imapFetchMessages(
+            config,
+            folder,
+            chunk.map((ref) => ref.imap_uid),
+          );
+
+          await withTransaction(async () => {
+            for (const msg of result.messages) {
+              const existing = refsByUid.get(msg.uid);
+              if (!existing) continue;
+
+              const { parsed } = imapMessageToParsedMessage(msg, accountId, folder);
+              await upsertMessage({
+                id: existing.id,
+                accountId,
+                threadId: existing.thread_id,
+                fromAddress: parsed.fromAddress,
+                fromName: parsed.fromName,
+                toAddresses: parsed.toAddresses,
+                ccAddresses: parsed.ccAddresses,
+                bccAddresses: parsed.bccAddresses,
+                replyTo: parsed.replyTo,
+                subject: parsed.subject,
+                snippet: parsed.snippet,
+                date: parsed.date,
+                isRead: parsed.isRead,
+                isStarred: parsed.isStarred,
+                bodyHtml: parsed.bodyHtml,
+                bodyText: parsed.bodyText,
+                rawSize: parsed.rawSize,
+                internalDate: parsed.internalDate,
+                listUnsubscribe: parsed.listUnsubscribe,
+                listUnsubscribePost: parsed.listUnsubscribePost,
+                authResults: parsed.authResults,
+                messageIdHeader: msg.message_id ?? null,
+                referencesHeader: msg.references ?? null,
+                inReplyToHeader: msg.in_reply_to ?? null,
+                imapUid: msg.uid,
+                imapFolder: msg.folder,
+              });
+
+              for (const att of parsed.attachments) {
+                await upsertAttachment({
+                  id: `${existing.id}_${att.gmailAttachmentId}`,
+                  messageId: existing.id,
+                  accountId,
+                  filename: att.filename,
+                  mimeType: att.mimeType,
+                  size: att.size,
+                  gmailAttachmentId: att.gmailAttachmentId,
+                  contentId: att.contentId,
+                  isInline: att.isInline,
+                });
+              }
+            }
+          });
+
+          hydrated += result.messages.length;
+          progressInBatch += result.messages.length;
+          onProgress?.({ phase: "messages", current: hydrated, total: refs.length, folder });
+          notifyPartialSyncAvailable();
+        } catch (err) {
+          console.warn(`[imapSync] Failed to hydrate cached header-only messages in ${folder}:`, err);
+        }
+      }
+    }
+
+    if (progressInBatch === 0) break;
+  }
+
+  if (hydrated > 0) {
+    console.log(`[imapSync] Hydrated ${hydrated} legacy header-only IMAP messages`);
+  }
+
+  return hydrated;
+}
+
 // ---------------------------------------------------------------------------
 // Initial sync
 // ---------------------------------------------------------------------------
@@ -402,7 +538,7 @@ export async function imapInitialSync(
   // Phase 1: List and sync folders
   onProgress?.({ phase: "folders", current: 0, total: 1 });
   const allFolders = await imapListFolders(config);
-  const syncableFolders = getSyncableFolders(allFolders);
+  const syncableFolders = sortFoldersForInitialSync(getSyncableFolders(allFolders));
   await syncFoldersToLabels(accountId, syncableFolders);
   console.log(`[imapSync] Initial sync for account ${accountId}: ${syncableFolders.length} syncable folders`);
   onProgress?.({ phase: "folders", current: 1, total: 1 });
@@ -442,6 +578,7 @@ export async function imapInitialSync(
   }
 
   let fetchedTotal = 0;
+  let totalUidsMatched = 0;
   let totalMessagesFound = 0;
   let storedCount = 0;
   let consecutiveFailures = 0;
@@ -480,7 +617,8 @@ export async function imapInitialSync(
       // Phase 2a: Lightweight search — get UIDs only (no message bodies over IPC)
       const sinceDate = computeSinceDate(daysBack);
       const searchResult = await imapSearchFolder(config, folder.raw_path, sinceDate);
-      const uidsToFetch = searchResult.uids;
+      const uidsToFetch = newestUidsFirst(searchResult.uids);
+      totalUidsMatched += uidsToFetch.length;
 
       // Reset circuit breaker on success
       consecutiveFailures = 0;
@@ -494,12 +632,13 @@ export async function imapInitialSync(
       let folderFetchedCount = 0;
       let folderStoredCount = 0;
       let lastUid = 0;
+      let failedChunkCount = 0;
       const uidvalidity = searchResult.folder_status.uidvalidity;
 
       // Phase 2b: Fetch messages in small IPC-friendly chunks
       for (let chunkStart = 0; chunkStart < uidsToFetch.length; chunkStart += CHUNK_SIZE) {
         const chunkUids = uidsToFetch.slice(chunkStart, chunkStart + CHUNK_SIZE);
-        let chunkResult;
+        let chunkResult: Awaited<ReturnType<typeof imapFetchMessages>> | undefined;
         try {
           chunkResult = await imapFetchMessages(config, folder.raw_path, chunkUids);
         } catch (chunkErr) {
@@ -511,12 +650,41 @@ export async function imapInitialSync(
               chunkResult = await imapFetchMessages(config, folder.raw_path, chunkUids);
             } catch (retryErr) {
               console.error(`[imapSync] Chunk retry failed in ${folder.path}:`, retryErr);
-              continue;
             }
           } else {
             console.error(`[imapSync] Failed to fetch chunk ${chunkStart}-${chunkStart + chunkUids.length} in ${folder.path}:`, chunkErr);
-            continue;
           }
+        }
+
+        if (!chunkResult && chunkUids.length > 1) {
+          const recoveredMessages: ImapMessage[] = [];
+          let recoveredStatus = searchResult.folder_status;
+
+          console.warn(
+            `[imapSync] Falling back to per-message fetch in ${folder.path} for ${chunkUids.length} UIDs`,
+          );
+
+          for (const uid of chunkUids) {
+            try {
+              const singleResult = await imapFetchMessages(config, folder.raw_path, [uid]);
+              recoveredMessages.push(...singleResult.messages);
+              recoveredStatus = singleResult.folder_status;
+            } catch (singleErr) {
+              console.warn(`[imapSync] Failed to fetch UID ${uid} in ${folder.path}:`, singleErr);
+            }
+          }
+
+          if (recoveredMessages.length > 0) {
+            chunkResult = {
+              messages: recoveredMessages,
+              folder_status: recoveredStatus,
+            };
+          }
+        }
+
+        if (!chunkResult) {
+          failedChunkCount++;
+          continue;
         }
 
         // Collect parsed data for this chunk to write in a single transaction
@@ -560,6 +728,7 @@ export async function imapInitialSync(
                 isImportant: false,
                 hasAttachments: parsed.hasAttachments,
               });
+              await addThreadLabels(accountId, parsed.id, parsed.labelIds);
               await upsertMessage({
                 id: parsed.id,
                 accountId,
@@ -605,6 +774,7 @@ export async function imapInitialSync(
               }
             }
           });
+          notifyPartialSyncAvailable();
         }
 
         // Keep only lightweight data in memory for threading
@@ -659,6 +829,12 @@ export async function imapInitialSync(
         `[imapSync] Folder ${folder.path}: ${uidsToFetch.length} UIDs, ${folderFetchedCount} fetched, ${folderStoredCount} after date filter`,
       );
 
+      if (uidsToFetch.length > 0 && folderFetchedCount === 0 && failedChunkCount > 0) {
+        throw new Error(
+          `Found ${uidsToFetch.length} UIDs in ${folder.path}, but every fetch attempt failed`,
+        );
+      }
+
       // Update folder sync state
       await upsertFolderSyncState({
         account_id: accountId,
@@ -682,6 +858,13 @@ export async function imapInitialSync(
   // If no messages were stored and every folder failed, propagate the error
   if (storedCount === 0 && folderErrors.length > 0) {
     throw new Error(`All folders failed to sync: ${folderErrors[0]}`);
+  }
+
+  if (storedCount === 0 && totalUidsMatched > 0) {
+    throw new Error(
+      `IMAP sync found ${totalUidsMatched} message UIDs but stored 0 messages. ` +
+        "The sync was not marked complete so it can be retried.",
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -798,14 +981,16 @@ export async function imapInitialSync(
     `[imapSync] Stored ${storedCount} messages in ${threadGroups.length} threads (found ${totalMessagesFound} on server)`,
   );
 
-  // Only mark sync as complete if messages were stored OR no messages exist on server.
-  if (storedCount > 0 || totalMessagesFound === 0) {
+  // Only mark sync as complete if messages were stored OR no messages matched on the server.
+  if (storedCount > 0 || totalUidsMatched === 0) {
     await updateAccountSyncState(accountId, `imap-synced-${Date.now()}`);
   } else {
     console.warn(
-      `[imapSync] Found ${totalMessagesFound} messages on server but stored 0 — NOT marking sync as complete so it will be retried`,
+      `[imapSync] Found ${totalUidsMatched} UIDs on server but stored 0 — NOT marking sync as complete so it will be retried`,
     );
   }
+
+  await hydrateUncachedImapBodies(accountId, config, onProgress);
 
   onProgress?.({
     phase: "done",
@@ -837,7 +1022,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 
   // Also check for any new folders
   const allFolders = await imapListFolders(config);
-  const syncableFolders = getSyncableFolders(allFolders);
+  const syncableFolders = sortFoldersForInitialSync(getSyncableFolders(allFolders));
   await syncFoldersToLabels(accountId, syncableFolders);
 
   const syncStateMap = new Map(syncStates.map((s) => [s.folder_path, s]));
@@ -876,7 +1061,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
       const { messages, lastUid } = await fetchMessagesInBatches(
         config,
         folder.raw_path,
-        searchResult.uids,
+        newestUidsFirst(searchResult.uids),
       );
 
       for (const msg of messages) {
@@ -981,7 +1166,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
           const { messages, lastUid } = await fetchMessagesInBatches(
             config,
             folder.raw_path,
-            searchResult.uids,
+            newestUidsFirst(searchResult.uids),
           );
 
           for (const msg of messages) {
@@ -1012,7 +1197,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
         const { messages, lastUid, uidvalidity } = await fetchMessagesInBatches(
           config,
           folder.raw_path,
-          deltaResult.new_uids,
+          newestUidsFirst(deltaResult.new_uids),
         );
 
         for (const msg of messages) {
@@ -1048,6 +1233,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   }
 
   if (allThreadable.length === 0) {
+    await hydrateUncachedImapBodies(accountId, config);
     return { messages: [] };
   }
 
@@ -1080,6 +1266,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 
   // Update sync state timestamp
   await updateAccountSyncState(accountId, `imap-synced-${Date.now()}`);
+  await hydrateUncachedImapBodies(accountId, config);
 
   return { messages: storedMessages };
 }

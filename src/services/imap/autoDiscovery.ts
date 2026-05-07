@@ -131,14 +131,15 @@ const wellKnownProviders: WellKnownProvider[] = [
   {
     domains: ["yandex.ru", "ya.ru", "yandex.com", "yandex.by", "yandex.kz", "yandex.ua"],
     settings: {
-      imapHost: "imap.yandex.ru",
+      imapHost: "imap.yandex.com",
       imapPort: 993,
       imapSecurity: "ssl",
-      smtpHost: "smtp.yandex.ru",
+      smtpHost: "smtp.yandex.com",
       smtpPort: 465,
       smtpSecurity: "ssl",
     },
-    authMethods: ["password"],
+    authMethods: ["oauth2", "password"],
+    oauthProviderId: "yandex",
   },
   {
     domains: ["mail.ru", "inbox.ru", "list.ru", "bk.ru"],

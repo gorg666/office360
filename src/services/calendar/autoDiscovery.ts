@@ -19,6 +19,12 @@ const PRESETS: CalDavPreset[] = [
     authMethod: "basic",
   },
   {
+    name: "Yandex",
+    domains: ["yandex.ru", "ya.ru", "yandex.com", "yandex.by", "yandex.kz", "yandex.uz"],
+    caldavUrl: "https://caldav.yandex.ru/",
+    authMethod: "basic",
+  },
+  {
     name: "Fastmail",
     domains: ["fastmail.com", "fastmail.fm", "messagingengine.com"],
     caldavUrl: "https://caldav.fastmail.com/",

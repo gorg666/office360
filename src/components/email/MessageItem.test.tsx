@@ -25,6 +25,10 @@ vi.mock("./AuthWarningBanner", () => ({
   AuthWarningBanner: () => null,
 }));
 
+vi.mock("@/components/ui/ContactAvatar", () => ({
+  ContactAvatar: () => <div data-testid="contact-avatar" />,
+}));
+
 function makeMessage(overrides: Partial<DbMessage> = {}): DbMessage {
   return {
     id: "m1",

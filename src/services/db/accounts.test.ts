@@ -18,6 +18,7 @@ vi.mock("./connection", () => ({
     execute: (...args: unknown[]) => mockExecute(...args),
     select: (...args: unknown[]) => mockSelect(...args),
   })),
+  executeWrite: vi.fn((...args: unknown[]) => mockExecute(...args)),
   selectFirstBy: vi.fn(),
 }));
 

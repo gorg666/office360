@@ -54,6 +54,36 @@ pub async fn imap_fetch_messages(
 }
 
 #[tauri::command]
+pub async fn imap_fetch_message_headers(
+    config: ImapConfig,
+    folder: String,
+    uids: Vec<u32>,
+) -> Result<ImapFetchResult, String> {
+    if uids.is_empty() {
+        return Err("No UIDs provided".to_string());
+    }
+
+    let uid_set: String = uids
+        .iter()
+        .map(|u| u.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let mut session = imap_client::connect(&config).await?;
+    let result = imap_client::fetch_message_headers(&mut session, &folder, &uid_set).await;
+    let _ = session.logout().await;
+
+    match result {
+        Ok(r) => Ok(r),
+        Err(e) if e.starts_with("ASYNC_IMAP_EMPTY:") => {
+            log::info!("Falling back to raw TCP header fetch for folder {folder}");
+            imap_client::raw_fetch_message_headers(&config, &folder, &uid_set).await
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[tauri::command]
 pub async fn imap_fetch_new_uids(
     config: ImapConfig,
     folder: String,
@@ -66,10 +96,7 @@ pub async fn imap_fetch_new_uids(
 }
 
 #[tauri::command]
-pub async fn imap_search_all_uids(
-    config: ImapConfig,
-    folder: String,
-) -> Result<Vec<u32>, String> {
+pub async fn imap_search_all_uids(config: ImapConfig, folder: String) -> Result<Vec<u32>, String> {
     let mut session = imap_client::connect(&config).await?;
     let uids = imap_client::search_all_uids(&mut session, &folder).await?;
     let _ = session.logout().await;

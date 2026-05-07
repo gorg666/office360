@@ -46,6 +46,8 @@ import { SubscriptionManager } from "./SubscriptionManager";
 import { SmartFolderEditor } from "./SmartFolderEditor";
 import { QuickStepEditor } from "./QuickStepEditor";
 import { SmartLabelEditor } from "./SmartLabelEditor";
+import { ImapCredentialsEditor } from "./ImapCredentialsEditor";
+import { Yandex360AdminPanel } from "./yandex360/Yandex360AdminPanel";
 import { SHORTCUTS, getDefaultKeyMap } from "@/constants/shortcuts";
 import { useShortcutStore } from "@/stores/shortcutStore";
 import { COLOR_THEMES } from "@/constants/themes";
@@ -63,7 +65,7 @@ import { TextField } from "@/components/ui/TextField";
 import appIcon from "@/assets/icon.png";
 import { isValidGoogleOAuthClientIdFormat } from "@/utils/googleCredentials";
 
-type SettingsTab = "general" | "notifications" | "composing" | "mail-rules" | "people" | "accounts" | "shortcuts" | "ai" | "about";
+type SettingsTab = "general" | "notifications" | "composing" | "mail-rules" | "people" | "accounts" | "yandex360" | "shortcuts" | "ai" | "about";
 
 const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: "general", label: "General", icon: Settings },
@@ -72,6 +74,7 @@ const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: "mail-rules", label: "Mail Rules", icon: Filter },
   { id: "people", label: "People", icon: Users },
   { id: "accounts", label: "Accounts", icon: UserCircle },
+  { id: "yandex360", label: "Яндекс 360", icon: Globe },
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
   { id: "ai", label: "AI", icon: Sparkles },
   { id: "about", label: "About", icon: Info },
@@ -145,11 +148,13 @@ export function SettingsPage() {
   const [clearingCache, setClearingCache] = useState(false);
   const [reauthStatus, setReauthStatus] = useState<Record<string, "idle" | "authorizing" | "done" | "error">>({});
   const [resyncStatus, setResyncStatus] = useState<Record<string, "idle" | "syncing" | "done" | "error">>({});
+  const [editingImapAccountId, setEditingImapAccountId] = useState<string | null>(null);
   const [autoArchiveCategories, setAutoArchiveCategories] = useState<Set<string>>(() => new Set());
   const [smartNotifications, setSmartNotifications] = useState(true);
   const [notifyCategories, setNotifyCategories] = useState<Set<string>>(() => new Set(["Primary"]));
   const [vipSenders, setVipSenders] = useState<{ email_address: string; display_name: string | null }[]>([]);
   const [newVipEmail, setNewVipEmail] = useState("");
+  const activeMailAccount = accounts.find((a) => a.isActive && a.provider !== "caldav");
 
   // Load settings from DB
   useEffect(() => {
@@ -911,16 +916,27 @@ export function SettingsPage() {
                                 </div>
                               </div>
                               <div className="flex items-center gap-3">
-                                <button
-                                  onClick={() => handleReauthorizeAccount(account.id, account.email)}
-                                  disabled={reauthStatus[account.id] === "authorizing"}
-                                  className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50"
-                                >
-                                  {reauthStatus[account.id] === "authorizing" && "Waiting..."}
-                                  {reauthStatus[account.id] === "done" && "Done!"}
-                                  {reauthStatus[account.id] === "error" && "Failed"}
-                                  {(!reauthStatus[account.id] || reauthStatus[account.id] === "idle") && "Re-authorize"}
-                                </button>
+                                {account.provider === "imap" ? (
+                                  <button
+                                    onClick={() => setEditingImapAccountId(
+                                      editingImapAccountId === account.id ? null : account.id,
+                                    )}
+                                    className="text-xs text-accent hover:text-accent-hover transition-colors"
+                                  >
+                                    {locale === "ru" ? "Авторизовать заново" : "Re-authorize"}
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => handleReauthorizeAccount(account.id, account.email)}
+                                    disabled={reauthStatus[account.id] === "authorizing"}
+                                    className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50"
+                                  >
+                                    {reauthStatus[account.id] === "authorizing" && (locale === "ru" ? "Ожидание..." : "Waiting...")}
+                                    {reauthStatus[account.id] === "done" && (locale === "ru" ? "Готово!" : "Done!")}
+                                    {reauthStatus[account.id] === "error" && (locale === "ru" ? "Ошибка" : "Failed")}
+                                    {(!reauthStatus[account.id] || reauthStatus[account.id] === "idle") && (locale === "ru" ? "Авторизовать заново" : "Re-authorize")}
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => handleResyncAccount(account.id)}
                                   disabled={resyncStatus[account.id] === "syncing"}
@@ -944,6 +960,13 @@ export function SettingsPage() {
                       </div>
                     )}
                   </Section>
+
+                  {editingImapAccountId && (
+                    <ImapCredentialsEditor
+                      accountId={editingImapAccountId}
+                      onClose={() => setEditingImapAccountId(null)}
+                    />
+                  )}
 
                   {accounts.some((a) => a.provider === "caldav") && (
                     <Section title="Calendar Accounts">
@@ -980,45 +1003,47 @@ export function SettingsPage() {
 
                   <ImapCalDavSection />
 
-                  <Section title="Google API">
-                    <div className="space-y-3">
-                      <TextField
-                        label="Client ID"
-                        size="md"
-                        type="text"
-                        value={clientId}
-                        onChange={(e) => {
-                          setApiSettingsError(null);
-                          setClientId(e.target.value);
-                        }}
-                        placeholder="Google OAuth Client ID"
-                      />
-                      <TextField
-                        label="Client Secret"
-                        size="md"
-                        type="password"
-                        value={clientSecret}
-                        onChange={(e) => setClientSecret(e.target.value)}
-                        placeholder="Google OAuth Client Secret"
-                      />
-                      <p className="text-xs text-text-tertiary">
-                        {locale === "ru"
-                          ? "Нужен идентификатор клиента типа «Компьютерное приложение», не код из адресной строки после входа."
-                          : "Use a Desktop OAuth client ID from Google Cloud — not a code from the browser URL after login."}
-                      </p>
-                      {apiSettingsError && (
-                        <p className="text-xs text-danger">{apiSettingsError}</p>
-                      )}
-                      <Button
-                        variant="primary"
-                        size="md"
-                        onClick={handleSaveApiSettings}
-                        disabled={!clientId.trim()}
-                      >
-                        {apiSettingsSaved ? "Saved!" : "Save"}
-                      </Button>
-                    </div>
-                  </Section>
+                  {activeMailAccount?.provider !== "imap" && (
+                    <Section title="Google API">
+                      <div className="space-y-3">
+                        <TextField
+                          label="Client ID"
+                          size="md"
+                          type="text"
+                          value={clientId}
+                          onChange={(e) => {
+                            setApiSettingsError(null);
+                            setClientId(e.target.value);
+                          }}
+                          placeholder="Google OAuth Client ID"
+                        />
+                        <TextField
+                          label="Client Secret"
+                          size="md"
+                          type="password"
+                          value={clientSecret}
+                          onChange={(e) => setClientSecret(e.target.value)}
+                          placeholder="Google OAuth Client Secret"
+                        />
+                        <p className="text-xs text-text-tertiary">
+                          {locale === "ru"
+                            ? "Эти поля нужны только для Gmail OAuth и не относятся к IMAP/Яндекс-аккаунтам."
+                            : "These fields are only for Gmail OAuth and do not apply to IMAP/Yandex accounts."}
+                        </p>
+                        {apiSettingsError && (
+                          <p className="text-xs text-danger">{apiSettingsError}</p>
+                        )}
+                        <Button
+                          variant="primary"
+                          size="md"
+                          onClick={handleSaveApiSettings}
+                          disabled={!clientId.trim()}
+                        >
+                          {apiSettingsSaved ? (locale === "ru" ? "Сохранено!" : "Saved!") : (locale === "ru" ? "Сохранить" : "Save")}
+                        </Button>
+                      </div>
+                    </Section>
+                  )}
 
                   <Section title="Sync">
                     <div className="flex items-center justify-between">
@@ -1082,6 +1107,12 @@ export function SettingsPage() {
 
                   <SyncOfflineSection />
                 </>
+              )}
+
+              {activeTab === "yandex360" && (
+                <Section title="Яндекс 360 Admin API">
+                  <Yandex360AdminPanel />
+                </Section>
               )}
 
               {activeTab === "shortcuts" && (

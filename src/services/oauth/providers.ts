@@ -5,9 +5,12 @@ export interface OAuthProviderConfig {
   tokenUrl: string;
   scopes: string[];
   userInfoUrl?: string;
+  userInfoAuthScheme?: "Bearer" | "OAuth";
   /** Whether PKCE is required (Microsoft requires it, Yahoo supports it) */
   usePkce: boolean;
 }
+
+const yandexMailScopes = ["mail:imap_full", "mail:smtp", "login:email", "login:info"];
 
 const providers: Record<string, OAuthProviderConfig> = {
   microsoft: {
@@ -35,6 +38,16 @@ const providers: Record<string, OAuthProviderConfig> = {
     tokenUrl: "https://api.login.yahoo.com/oauth2/get_token",
     scopes: ["mail-r", "mail-w", "openid", "sdps-r"],
     userInfoUrl: "https://api.login.yahoo.com/openid/v1/userinfo",
+    usePkce: true,
+  },
+  yandex: {
+    id: "yandex",
+    name: "Яндекс ID",
+    authUrl: "https://oauth.yandex.ru/authorize",
+    tokenUrl: "https://oauth.yandex.ru/token",
+    scopes: yandexMailScopes,
+    userInfoUrl: "https://login.yandex.ru/info?format=json",
+    userInfoAuthScheme: "OAuth",
     usePkce: true,
   },
 };

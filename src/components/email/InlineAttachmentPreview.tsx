@@ -1,9 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
 import type { DbAttachment } from "@/services/db/attachments";
-import { getEmailProvider } from "@/services/email/providerFactory";
-import { FileText } from "lucide-react";
+import { FileText, Image as ImageIcon } from "lucide-react";
 import { formatFileSize, isImage, isPdf } from "@/utils/fileTypeHelpers";
-import { base64UrlToUint8Array, uint8ArrayToBase64DataUrl } from "@/utils/base64url";
 
 /** Dedup attachments by filename+size (content-based) */
 function dedup(attachments: DbAttachment[]): DbAttachment[] {
@@ -25,8 +22,6 @@ interface InlineAttachmentPreviewProps {
 }
 
 export function InlineAttachmentPreview({
-  accountId,
-  messageId,
   attachments,
   referencedCids,
   onAttachmentClick,
@@ -53,8 +48,6 @@ export function InlineAttachmentPreview({
             <ImageThumbnail
               key={att.id}
               attachment={att}
-              accountId={accountId}
-              messageId={messageId}
               onClick={() => onAttachmentClick(att)}
             />
           ))}
@@ -109,98 +102,29 @@ function getContentIdKeys(value: string | null | undefined): string[] {
 
 function ImageThumbnail({
   attachment,
-  accountId,
-  messageId,
   onClick,
 }: {
   attachment: DbAttachment;
-  accountId: string;
-  messageId: string;
   onClick: () => void;
 }) {
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const observerRef = useRef<HTMLDivElement | null>(null);
-  const loadedRef = useRef(false);
-
-  const loadThumbnail = useCallback(async () => {
-    if (loadedRef.current || !attachment.gmail_attachment_id) return;
-    loadedRef.current = true;
-    setLoading(true);
-
-    try {
-      const provider = await getEmailProvider(accountId);
-      const response = await provider.fetchAttachment(messageId, attachment.gmail_attachment_id);
-
-      const raw = String(response.data ?? "").replace(/\s/g, "");
-      if (!raw) return;
-
-      const bytes = base64UrlToUint8Array(raw);
-      const mime = getEffectiveImageMimeType(attachment);
-      setThumbnailUrl(uint8ArrayToBase64DataUrl(mime, bytes));
-    } catch (err) {
-      console.error("Failed to load thumbnail:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [accountId, messageId, attachment]);
-
-  // Lazy load via IntersectionObserver
-  useEffect(() => {
-    const el = observerRef.current;
-    if (!el) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          loadThumbnail();
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.1 },
-    );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [loadThumbnail]);
-
   return (
-    <div ref={observerRef}>
+    <div>
       <button
         onClick={onClick}
-        className="block rounded-md overflow-hidden border border-border-secondary hover:border-accent transition-colors"
+        className="w-[200px] h-[120px] rounded-md overflow-hidden border border-border-secondary hover:border-accent transition-colors bg-bg-tertiary flex flex-col items-center justify-center gap-2 px-3"
         title={attachment.filename ?? "Image"}
       >
-        {loading && (
-          <div className="w-[200px] h-[120px] bg-bg-tertiary animate-pulse flex items-center justify-center">
-            <span className="text-xs text-text-tertiary">Loading...</span>
-          </div>
-        )}
-        {thumbnailUrl && (
-          <img
-            src={thumbnailUrl}
-            alt={attachment.filename ?? "Image"}
-            className="max-w-[200px] max-h-[200px] object-cover"
-          />
-        )}
-        {!loading && !thumbnailUrl && (
-          <div className="w-[200px] h-[120px] bg-bg-tertiary flex items-center justify-center">
-            <span className="text-xs text-text-tertiary">Image</span>
-          </div>
+        <ImageIcon size={22} className="text-text-tertiary" />
+        <span className="text-xs text-text-primary truncate max-w-full">
+          {attachment.filename ?? "Image"}
+        </span>
+        {attachment.size != null && (
+          <span className="text-[0.625rem] text-text-tertiary">
+            {formatFileSize(attachment.size)}
+          </span>
         )}
       </button>
     </div>
   );
-}
-
-function getEffectiveImageMimeType(attachment: DbAttachment): string {
-  if (attachment.mime_type?.startsWith("image/")) return attachment.mime_type;
-  const filename = attachment.filename?.toLowerCase() ?? "";
-  if (filename.endsWith(".png")) return "image/png";
-  if (filename.endsWith(".gif")) return "image/gif";
-  if (filename.endsWith(".webp")) return "image/webp";
-  if (filename.endsWith(".svg")) return "image/svg+xml";
-  if (filename.endsWith(".bmp")) return "image/bmp";
-  return "image/jpeg";
 }
 

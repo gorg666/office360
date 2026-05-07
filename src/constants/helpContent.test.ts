@@ -8,7 +8,7 @@ import {
 
 const VALID_SETTINGS_TABS = [
   "general", "notifications", "composing", "mail-rules", "people",
-  "accounts", "shortcuts", "ai", "about",
+  "accounts", "yandex360", "shortcuts", "ai", "about",
 ];
 
 describe("helpContent", () => {
@@ -65,7 +65,7 @@ describe("helpContent", () => {
 
   it("getCategoryById returns correct category", () => {
     const cat = getCategoryById("composing");
-    expect(cat?.label).toBe("Composing & Sending");
+    expect(cat?.label).toBe("Написание и отправка");
   });
 
   it("getCategoryById returns undefined for unknown ID", () => {

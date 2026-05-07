@@ -23,11 +23,18 @@ import {
 } from "@/services/imap/autoDiscovery";
 import { getOAuthProvider } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
+import { getAccountAvatarUrl } from "@/utils/accountAvatar";
 
 interface AddImapAccountProps {
   onClose: () => void;
   onSuccess: (accountId: string) => void;
   onBack: () => void;
+  oauthPreset?: {
+    providerId: string;
+    title: string;
+    defaultEmail: string;
+    description: string;
+  };
 }
 
 type Step = "basic" | "imap" | "smtp" | "test";
@@ -115,28 +122,66 @@ function mapSecurity(security: string): string {
   return security;
 }
 
-function normalizeKnownProviderPort(host: string, port: number): number {
+function normalizeKnownImapProviderPort(host: string, port: number): number {
   const normalizedHost = host.trim().toLowerCase();
-  if (normalizedHost === "imap.yandex.ru" && port === 933) return 993;
+  if ((normalizedHost === "imap.yandex.ru" || normalizedHost === "imap.yandex.com") && port === 933) return 993;
   return port;
+}
+
+function normalizeKnownSmtpProviderPort(host: string, port: number): number {
+  const normalizedHost = host.trim().toLowerCase();
+  if ((normalizedHost === "smtp.yandex.ru" || normalizedHost === "smtp.yandex.com") && [25, 143, 933, 993].includes(port)) {
+    return 465;
+  }
+  return port;
+}
+
+function formatSmtpTestError(err: unknown, host: string, port: number): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/refused|отверг запрос|os error 10061/i.test(message)) {
+    return `SMTP-сервер ${host}:${port} отверг TCP-подключение. Проверьте порт и тип защиты: для Яндекса обычно smtp.yandex.ru, порт 465, SSL/TLS. Если настройки верные, порт блокируется сетью, VPN, прокси или антивирусом.`;
+  }
+  return message;
 }
 
 export function AddImapAccount({
   onClose,
   onSuccess,
   onBack,
+  oauthPreset,
 }: AddImapAccountProps) {
   const [currentStep, setCurrentStep] = useState<Step>("basic");
-  const [form, setForm] = useState<FormState>(initialFormState);
+  const [form, setForm] = useState<FormState>(() => {
+    if (!oauthPreset) return initialFormState;
+
+    const discovered = discoverSettings(oauthPreset.defaultEmail);
+    return {
+      ...initialFormState,
+      email: oauthPreset.defaultEmail,
+      imapHost: discovered?.settings.imapHost ?? "imap.yandex.com",
+      imapPort: discovered?.settings.imapPort ?? 993,
+      imapSecurity: discovered?.settings.imapSecurity ?? "ssl",
+      smtpHost: discovered?.settings.smtpHost ?? "smtp.yandex.com",
+      smtpPort: discovered?.settings.smtpPort ?? 465,
+      smtpSecurity: discovered?.settings.smtpSecurity ?? "ssl",
+      authMode: "oauth2",
+      oauthProvider: oauthPreset.providerId,
+      acceptInvalidCerts: discovered?.acceptInvalidCerts ?? false,
+    };
+  });
   const [imapTest, setImapTest] = useState<TestStatus>({ state: "idle" });
   const [smtpTest, setSmtpTest] = useState<TestStatus>({ state: "idle" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [discoveryApplied, setDiscoveryApplied] = useState(false);
+  const [discoveryApplied, setDiscoveryApplied] = useState(!!oauthPreset);
   const [oauthConnecting, setOauthConnecting] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
-  const [detectedAuthMethods, setDetectedAuthMethods] = useState<AuthMode[]>(["password"]);
-  const [detectedOAuthProviderId, setDetectedOAuthProviderId] = useState<string | null>(null);
+  const [detectedAuthMethods, setDetectedAuthMethods] = useState<AuthMode[]>(
+    oauthPreset ? ["oauth2", "password"] : ["password"],
+  );
+  const [detectedOAuthProviderId, setDetectedOAuthProviderId] = useState<string | null>(
+    oauthPreset?.providerId ?? null,
+  );
 
   const addAccount = useAccountStore((s) => s.addAccount);
 
@@ -295,7 +340,7 @@ export function AddImapAccount({
         {
           config: {
             host: form.imapHost,
-            port: normalizeKnownProviderPort(form.imapHost, form.imapPort),
+            port: normalizeKnownImapProviderPort(form.imapHost, form.imapPort),
             security: mapSecurity(form.imapSecurity),
             username: form.imapUsername || (isOAuth ? (form.oauthEmail ?? form.email) : form.email),
             password: isOAuth ? (form.oauthAccessToken ?? "") : form.password,
@@ -314,6 +359,7 @@ export function AddImapAccount({
   const testSmtpConnection = async () => {
     setSmtpTest({ state: "testing" });
     try {
+      const smtpPort = normalizeKnownSmtpProviderPort(form.smtpHost, form.smtpPort);
       const smtpPassword = isOAuth
         ? (form.oauthAccessToken ?? "")
         : form.samePassword
@@ -324,7 +370,7 @@ export function AddImapAccount({
         {
           config: {
             host: form.smtpHost,
-            port: form.smtpPort,
+            port: smtpPort,
             security: mapSecurity(form.smtpSecurity),
             username: form.imapUsername || (isOAuth ? (form.oauthEmail ?? form.email) : form.email),
             password: smtpPassword,
@@ -338,7 +384,8 @@ export function AddImapAccount({
         message: result.message,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const smtpPort = normalizeKnownSmtpProviderPort(form.smtpHost, form.smtpPort);
+      const message = formatSmtpTestError(err, form.smtpHost, smtpPort);
       setSmtpTest({ state: "error", message });
     }
   };
@@ -361,12 +408,12 @@ export function AddImapAccount({
           id: accountId,
           email,
           displayName: form.displayName.trim() || null,
-          avatarUrl: null,
+          avatarUrl: getAccountAvatarUrl(email, null),
           imapHost: form.imapHost.trim(),
-          imapPort: normalizeKnownProviderPort(form.imapHost, form.imapPort),
+          imapPort: normalizeKnownImapProviderPort(form.imapHost, form.imapPort),
           imapSecurity: form.imapSecurity,
           smtpHost: form.smtpHost.trim(),
-          smtpPort: form.smtpPort,
+          smtpPort: normalizeKnownSmtpProviderPort(form.smtpHost, form.smtpPort),
           smtpSecurity: form.smtpSecurity,
           accessToken: form.oauthAccessToken!,
           refreshToken: form.oauthRefreshToken!,
@@ -382,12 +429,12 @@ export function AddImapAccount({
           id: accountId,
           email,
           displayName: form.displayName.trim() || null,
-          avatarUrl: null,
+          avatarUrl: getAccountAvatarUrl(email, null),
           imapHost: form.imapHost.trim(),
-          imapPort: normalizeKnownProviderPort(form.imapHost, form.imapPort),
+          imapPort: normalizeKnownImapProviderPort(form.imapHost, form.imapPort),
           imapSecurity: form.imapSecurity,
           smtpHost: form.smtpHost.trim(),
-          smtpPort: form.smtpPort,
+          smtpPort: normalizeKnownSmtpProviderPort(form.smtpHost, form.smtpPort),
           smtpSecurity: form.smtpSecurity,
           authMethod: "password",
           password: form.samePassword ? form.password : form.password,
@@ -400,8 +447,9 @@ export function AddImapAccount({
         id: accountId,
         email,
         displayName: form.displayName.trim() || null,
-        avatarUrl: null,
+        avatarUrl: getAccountAvatarUrl(email, null),
         isActive: true,
+        provider: "imap",
       });
 
       onSuccess(accountId);
@@ -488,7 +536,14 @@ export function AddImapAccount({
 
   const renderOAuthSection = () => {
     const providerId = form.oauthProvider ?? detectedOAuthProviderId;
-    const providerName = providerId === "microsoft" ? "Microsoft" : providerId === "yahoo" ? "Yahoo" : "Provider";
+    const providerName =
+      providerId === "microsoft"
+        ? "Microsoft"
+        : providerId === "yahoo"
+          ? "Yahoo"
+          : providerId === "yandex"
+            ? "Яндекс ID"
+            : "Provider";
 
     return (
       <div className="space-y-3">
@@ -537,12 +592,12 @@ export function AddImapAccount({
             {oauthConnecting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Connecting...
+                Подключение...
               </>
             ) : (
               <>
                 <ShieldCheck className="w-4 h-4" />
-                Sign in with {providerName}
+                Войти через {providerName}
               </>
             )}
           </button>
@@ -555,12 +610,15 @@ export function AddImapAccount({
         )}
 
         <p className="text-xs text-text-tertiary">
-          You need to register an app with {providerName} to get a Client ID.{" "}
+          Чтобы получить Client ID, зарегистрируйте приложение в {providerName}.{" "}
           {providerId === "microsoft" && (
             <>Register at the Azure Portal (App Registrations) with redirect URI <code className="text-accent">http://127.0.0.1:17248</code>.</>
           )}
           {providerId === "yahoo" && (
             <>Register at the Yahoo Developer Network with redirect URI <code className="text-accent">http://127.0.0.1:17248</code>.</>
+          )}
+          {providerId === "yandex" && (
+            <>Создайте приложение на <code className="text-accent">oauth.yandex.ru</code>, добавьте redirect URI <code className="text-accent">http://localhost:17248</code> и права <code className="text-accent">mail:imap_full</code>, <code className="text-accent">mail:smtp</code>, <code className="text-accent">login:email</code>, <code className="text-accent">login:info</code>.</>
           )}
         </p>
       </div>
@@ -907,10 +965,15 @@ export function AddImapAccount({
     <Modal
       isOpen={true}
       onClose={onClose}
-      title="Add IMAP/SMTP Account"
+      title={oauthPreset?.title ?? "Add IMAP/SMTP Account"}
       width="w-full max-w-lg"
     >
       <div className="p-4" onKeyDown={handleKeyDown}>
+        {oauthPreset && (
+          <p className="text-sm text-text-secondary mb-4">
+            {oauthPreset.description}
+          </p>
+        )}
         {renderStepIndicator()}
         {renderStepContent()}
 

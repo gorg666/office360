@@ -96,6 +96,7 @@ pub fn run() {
             commands::imap_test_connection,
             commands::imap_list_folders,
             commands::imap_fetch_messages,
+            commands::imap_fetch_message_headers,
             commands::imap_fetch_new_uids,
             commands::imap_search_all_uids,
             commands::imap_fetch_message_body,
@@ -183,13 +184,14 @@ pub fn run() {
                 let app_handle = app.handle().clone();
 
                 std::thread::spawn(move || {
-                    let mut tray = match TrayItem::new("Office360", IconSource::Resource("mail-read")) {
-                        Ok(t) => t,
-                        Err(e) => {
-                            log::warn!("Failed to create system tray: {e}");
-                            return;
-                        }
-                    };
+                    let mut tray =
+                        match TrayItem::new("Office360", IconSource::Resource("mail-read")) {
+                            Ok(t) => t,
+                            Err(e) => {
+                                log::warn!("Failed to create system tray: {e}");
+                                return;
+                            }
+                        };
 
                     let app_handle_show = app_handle.clone();
                     if let Err(e) = tray.add_menu_item("Show Office360", move || {

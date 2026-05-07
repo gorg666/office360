@@ -1,12 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { InlineAttachmentPreview } from "./InlineAttachmentPreview";
 import type { DbAttachment } from "@/services/db/attachments";
-
-vi.mock("@/services/email/providerFactory", () => ({
-  getEmailProvider: vi.fn(),
-}));
-
-import { getEmailProvider } from "@/services/email/providerFactory";
 
 // Mock IntersectionObserver to trigger immediately
 beforeAll(() => {
@@ -42,14 +36,10 @@ const makeAttachment = (overrides: Partial<DbAttachment> = {}): DbAttachment => 
 });
 
 describe("InlineAttachmentPreview", () => {
-  const mockFetchAttachment = vi.fn();
   const onAttachmentClick = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getEmailProvider).mockResolvedValue({
-      fetchAttachment: mockFetchAttachment,
-    } as never);
     // Mock URL.createObjectURL
     global.URL.createObjectURL = vi.fn().mockReturnValue("blob:mock-url");
     global.URL.revokeObjectURL = vi.fn();
@@ -126,12 +116,7 @@ describe("InlineAttachmentPreview", () => {
     expect(screen.getByText("report.pdf")).toBeInTheDocument();
   });
 
-  it("uses getEmailProvider for thumbnail loading", async () => {
-    mockFetchAttachment.mockResolvedValue({
-      data: btoa("fake-image-bytes"),
-      size: 15,
-    });
-
+  it("does not fetch image bytes while rendering attachment placeholders", () => {
     render(
       <InlineAttachmentPreview
         accountId="acc-1"
@@ -141,18 +126,10 @@ describe("InlineAttachmentPreview", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(getEmailProvider).toHaveBeenCalledWith("acc-1");
-      expect(mockFetchAttachment).toHaveBeenCalledWith("msg-1", "gmail-att-1");
-    });
+    expect(screen.getByTitle("photo.png")).toBeInTheDocument();
   });
 
-  it("works with IMAP account attachments", async () => {
-    mockFetchAttachment.mockResolvedValue({
-      data: btoa("imap-image-data"),
-      size: 14,
-    });
-
+  it("renders IMAP account attachment placeholders without network fetches", () => {
     render(
       <InlineAttachmentPreview
         accountId="imap-acc"
@@ -166,18 +143,10 @@ describe("InlineAttachmentPreview", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(getEmailProvider).toHaveBeenCalledWith("imap-acc");
-      expect(mockFetchAttachment).toHaveBeenCalledWith("imap-inbox-42", "1.2");
-    });
+    expect(screen.getByTitle("photo.png")).toBeInTheDocument();
   });
 
-  it("calls onAttachmentClick when image thumbnail is clicked", async () => {
-    mockFetchAttachment.mockResolvedValue({
-      data: btoa("image-data"),
-      size: 10,
-    });
-
+  it("calls onAttachmentClick when image thumbnail is clicked", () => {
     const att = makeAttachment();
 
     render(
@@ -189,10 +158,8 @@ describe("InlineAttachmentPreview", () => {
       />,
     );
 
-    await waitFor(() => {
-      const thumbnail = screen.getByTitle("photo.png");
-      thumbnail.click();
-    });
+    const thumbnail = screen.getByTitle("photo.png");
+    thumbnail.click();
 
     expect(onAttachmentClick).toHaveBeenCalledWith(att);
   });

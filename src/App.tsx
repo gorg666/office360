@@ -493,42 +493,43 @@ export default function App() {
     }
   }, [colorTheme, theme]);
 
-  const handleAddAccountSuccess = useCallback(async (newAccountId: string) => {
+  const handleAddAccountSuccess = useCallback((newAccountId: string) => {
     setShowAddAccount(false);
-    const dbAccounts = await getAllAccounts();
-    const mapped = dbAccounts.map((a) => ({
-      id: a.id,
-      email: a.email,
-      displayName: a.display_name,
-      avatarUrl: a.avatar_url,
-      isActive: a.is_active === 1,
-      provider: a.provider,
-    }));
 
-    useAccountStore.getState().setAccounts(mapped, newAccountId);
+    void (async () => {
+      const dbAccounts = await getAllAccounts();
+      const mapped = dbAccounts.map((a) => ({
+        id: a.id,
+        email: a.email,
+        displayName: a.display_name,
+        avatarUrl: a.avatar_url,
+        isActive: a.is_active === 1,
+        provider: a.provider,
+      }));
 
-    // Re-initialize clients for the new account
-    await initializeClients();
+      useAccountStore.getState().setAccounts(mapped, newAccountId);
 
-    if (newAccountId) {
-      try {
-        await syncAccount(newAccountId);
-      } catch (err) {
-        console.error("Initial sync failed for new account:", err);
+      // Re-initialize clients for the new account
+      await initializeClients();
+
+      if (newAccountId) {
+        syncAccount(newAccountId).catch((err) => {
+          console.error("Initial sync failed for new account:", err);
+        });
+
+        const added = mapped.find((a) => a.id === newAccountId);
+        if (added && added.provider !== "caldav") {
+          getGmailClient(added.id)
+            .then((client) => fetchSendAsAliases(client, added.id))
+            .catch((err) => console.warn(`Failed to fetch send-as aliases for new account:`, err));
+        }
       }
 
-      const added = mapped.find((a) => a.id === newAccountId);
-      if (added && added.provider !== "caldav") {
-        getGmailClient(added.id)
-          .then((client) => fetchSendAsAliases(client, added.id))
-          .catch((err) => console.warn(`Failed to fetch send-as aliases for new account:`, err));
-      }
-    }
-
-    // Restart background sync for all accounts, but skip the immediate run
-    // since we already awaited the new account's sync above.
-    const activeIds = mapped.filter((a) => a.isActive).map((a) => a.id);
-    startBackgroundSync(activeIds, true);
+      // Restart background sync for all accounts, but skip the immediate run
+      // since the new account's sync was already started above.
+      const activeIds = mapped.filter((a) => a.isActive).map((a) => a.id);
+      startBackgroundSync(activeIds, true);
+    })();
   }, []);
 
   if (!initialized) {

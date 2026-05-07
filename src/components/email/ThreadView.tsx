@@ -1,7 +1,9 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { MessageItem } from "./MessageItem";
 import { ActionBar } from "./ActionBar";
-import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
+import { getMessagesForThread, upsertMessage, type DbMessage } from "@/services/db/messages";
+import { upsertAttachment } from "@/services/db/attachments";
+import { getEmailProvider } from "@/services/email/providerFactory";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore, type Thread } from "@/stores/threadStore";
@@ -57,6 +59,18 @@ async function handlePopOut(thread: Thread) {
   }
 }
 
+function needsImapHydration(msg: DbMessage): boolean {
+  if (msg.imap_uid == null || !msg.imap_folder) return false;
+  if (msg.body_cached === 0) return true;
+
+  const body = `${msg.body_html ?? ""}\n${msg.body_text ?? ""}`.slice(0, 1000);
+  const hasNoBody = body.trim().length === 0;
+  const looksLikeRawHeaders =
+    /\b(MIME-Version|Content-Type|DKIM-Signature|Received|Message-ID):/i.test(body);
+
+  return hasNoBody || !msg.from_address || msg.from_address === "unknown@example.com" || looksLikeRawHeaders;
+}
+
 export function ThreadView({ thread }: ThreadViewProps) {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const contactSidebarVisible = useUIStore((s) => s.contactSidebarVisible);
@@ -70,6 +84,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
   // null = not yet loaded; avoids flashing the wrong privacy mode on first paint
   const [blockRemoteImages, setBlockRemoteImages] = useState<boolean | null>(null);
   const [allowlistedSenders, setAllowlistedSenders] = useState<Set<string>>(new Set());
+  const hydrationAttemptedRef = useRef<Set<string>>(new Set());
 
   const isSpamThread = thread.labelIds.includes("SPAM");
   const effectiveBlockImages =
@@ -83,12 +98,112 @@ export function ThreadView({ thread }: ThreadViewProps) {
   // Load messages
   useEffect(() => {
     if (!activeAccountId) return;
+    hydrationAttemptedRef.current.clear();
     setLoading(true);
     getMessagesForThread(activeAccountId, thread.id)
       .then(setMessages)
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [activeAccountId, thread.id]);
+
+  // IMAP initial sync stores headers first for fast list rendering. Hydrate the
+  // opened thread body on demand and persist it so the next open is instant.
+  useEffect(() => {
+    if (!activeAccountId || messages.length === 0) return;
+    const missingBodies = messages.filter((msg) => (
+      needsImapHydration(msg) && !hydrationAttemptedRef.current.has(msg.id)
+    ));
+    if (missingBodies.length === 0) return;
+    for (const msg of missingBodies) {
+      hydrationAttemptedRef.current.add(msg.id);
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const provider = await getEmailProvider(activeAccountId);
+        for (const msg of missingBodies) {
+          if (cancelled) return;
+          const parsed = await provider.fetchMessage(msg.id);
+          await upsertMessage({
+            id: msg.id,
+            accountId: activeAccountId,
+            threadId: msg.thread_id,
+            fromAddress: parsed.fromAddress,
+            fromName: parsed.fromName,
+            toAddresses: parsed.toAddresses,
+            ccAddresses: parsed.ccAddresses,
+            bccAddresses: parsed.bccAddresses,
+            replyTo: parsed.replyTo,
+            subject: parsed.subject,
+            snippet: parsed.snippet,
+            date: parsed.date,
+            isRead: parsed.isRead,
+            isStarred: parsed.isStarred,
+            bodyHtml: parsed.bodyHtml,
+            bodyText: parsed.bodyText,
+            rawSize: parsed.rawSize,
+            internalDate: parsed.internalDate,
+            listUnsubscribe: parsed.listUnsubscribe,
+            listUnsubscribePost: parsed.listUnsubscribePost,
+            authResults: parsed.authResults,
+            imapUid: msg.imap_uid,
+            imapFolder: msg.imap_folder,
+          });
+
+          for (const att of parsed.attachments) {
+            await upsertAttachment({
+              id: `${msg.id}_${att.gmailAttachmentId}`,
+              messageId: msg.id,
+              accountId: activeAccountId,
+              filename: att.filename,
+              mimeType: att.mimeType,
+              size: att.size,
+              gmailAttachmentId: att.gmailAttachmentId,
+              contentId: att.contentId,
+              isInline: att.isInline,
+            });
+          }
+
+          if (!cancelled) {
+            setMessages((current) => current.map((currentMsg) => (
+              currentMsg.id === msg.id
+                ? {
+                    ...currentMsg,
+                    from_address: parsed.fromAddress,
+                    from_name: parsed.fromName,
+                    to_addresses: parsed.toAddresses,
+                    cc_addresses: parsed.ccAddresses,
+                    bcc_addresses: parsed.bccAddresses,
+                    reply_to: parsed.replyTo,
+                    subject: parsed.subject,
+                    snippet: parsed.snippet,
+                    date: parsed.date,
+                    is_read: parsed.isRead ? 1 : 0,
+                    is_starred: parsed.isStarred ? 1 : 0,
+                    body_html: parsed.bodyHtml,
+                    body_text: parsed.bodyText,
+                    body_cached: parsed.bodyHtml || parsed.bodyText ? 1 : 0,
+                    raw_size: parsed.rawSize,
+                    internal_date: parsed.internalDate,
+                    list_unsubscribe: parsed.listUnsubscribe,
+                    list_unsubscribe_post: parsed.listUnsubscribePost,
+                    auth_results: parsed.authResults,
+                  }
+                : currentMsg
+            )));
+          }
+        }
+      } catch (err) {
+        console.error("Failed to hydrate IMAP message body:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAccountId, messages, thread.id]);
 
   // Check per-sender allowlist (single batch query instead of N queries)
   useEffect(() => {

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 
 #[derive(Serialize)]
 pub struct OAuthResult {
@@ -14,34 +14,37 @@ pub struct OAuthResult {
 /// falls back to nearby ports if taken.
 #[tauri::command]
 pub async fn start_oauth_server(port: u16, state: String) -> Result<OAuthResult, String> {
-    // Try the requested port, then a few alternatives
-    let mut listener = None;
+    // Try the requested port, then a few alternatives. Bind both IPv4 and IPv6
+    // loopback where possible: browsers often resolve localhost to ::1 first.
+    let mut listeners = None;
     for p in [port, port + 1, port + 2, port + 3] {
-        match TcpListener::bind(format!("127.0.0.1:{}", p)).await {
-            Ok(l) => {
-                listener = Some(l);
+        let ipv4 = TcpListener::bind(format!("127.0.0.1:{}", p)).await.ok();
+        let ipv6 = TcpListener::bind(format!("[::1]:{}", p)).await.ok();
+        if ipv4.is_some() || ipv6.is_some() {
+            if let Some(listener) = ipv4.as_ref().or(ipv6.as_ref()) {
+                let actual_port = listener
+                    .local_addr()
+                    .map_err(|e| format!("Failed to get addr: {}", e))?
+                    .port();
+                listeners = Some((actual_port, ipv4, ipv6));
                 break;
             }
-            Err(_) => continue,
         }
     }
 
-    let listener = listener.ok_or("Failed to bind to any port")?;
-    let actual_port = listener
-        .local_addr()
-        .map_err(|e| format!("Failed to get addr: {}", e))?
-        .port();
+    let (actual_port, ipv4_listener, ipv6_listener) =
+        listeners.ok_or("Failed to bind to any localhost port")?;
 
     log::info!("OAuth callback server listening on port {}", actual_port);
 
     // Wait for exactly one connection (the redirect from Google) with 5-minute timeout
-    let (mut stream, _) = tokio::time::timeout(
+    let mut stream = tokio::time::timeout(
         Duration::from_secs(300),
-        listener.accept(),
+        accept_oauth_connection(ipv4_listener, ipv6_listener),
     )
-    .await
-    .map_err(|_| "OAuth timed out — please try again".to_string())?
-    .map_err(|e| format!("Failed to accept: {}", e))?;
+        .await
+        .map_err(|_| "OAuth timed out — please try again".to_string())?
+        .map_err(|e| format!("Failed to accept: {}", e))?;
 
     // Read the HTTP request
     let mut buf = vec![0u8; 4096];
@@ -80,9 +83,30 @@ pub async fn start_oauth_server(port: u16, state: String) -> Result<OAuthResult,
     let _ = stream.write_all(response.as_bytes()).await;
     let _ = stream.flush().await;
 
-    drop(listener);
+    Ok(OAuthResult {
+        code,
+        state: returned_state,
+    })
+}
 
-    Ok(OAuthResult { code, state: returned_state })
+async fn accept_oauth_connection(
+    ipv4_listener: Option<TcpListener>,
+    ipv6_listener: Option<TcpListener>,
+) -> std::io::Result<TcpStream> {
+    match (ipv4_listener, ipv6_listener) {
+        (Some(ipv4), Some(ipv6)) => {
+            tokio::select! {
+                result = ipv4.accept() => result.map(|(stream, _)| stream),
+                result = ipv6.accept() => result.map(|(stream, _)| stream),
+            }
+        }
+        (Some(ipv4), None) => ipv4.accept().await.map(|(stream, _)| stream),
+        (None, Some(ipv6)) => ipv6.accept().await.map(|(stream, _)| stream),
+        (None, None) => Err(std::io::Error::new(
+            std::io::ErrorKind::AddrNotAvailable,
+            "no localhost listener available",
+        )),
+    }
 }
 
 fn parse_auth_code_and_state(request: &str) -> Result<(String, String), String> {
@@ -130,10 +154,7 @@ fn urlencoding_decode(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(
-                &s[i + 1..i + 3],
-                16,
-            ) {
+            if let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
                 result.push(byte);
                 i += 3;
                 continue;

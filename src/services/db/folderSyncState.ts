@@ -1,4 +1,4 @@
-import { getDb, selectFirstBy } from "./connection";
+import { executeWrite, getDb, selectFirstBy } from "./connection";
 
 export interface FolderSyncState {
   account_id: string;
@@ -22,8 +22,7 @@ export async function getFolderSyncState(
 export async function upsertFolderSyncState(
   state: FolderSyncState,
 ): Promise<void> {
-  const db = await getDb();
-  await db.execute(
+  await executeWrite(
     `INSERT INTO folder_sync_state (account_id, folder_path, uidvalidity, last_uid, modseq, last_sync_at)
      VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT(account_id, folder_path) DO UPDATE SET
@@ -43,8 +42,7 @@ export async function deleteFolderSyncState(
   accountId: string,
   folderPath: string,
 ): Promise<void> {
-  const db = await getDb();
-  await db.execute(
+  await executeWrite(
     "DELETE FROM folder_sync_state WHERE account_id = $1 AND folder_path = $2",
     [accountId, folderPath],
   );
@@ -53,8 +51,7 @@ export async function deleteFolderSyncState(
 export async function clearAllFolderSyncStates(
   accountId: string,
 ): Promise<void> {
-  const db = await getDb();
-  await db.execute(
+  await executeWrite(
     "DELETE FROM folder_sync_state WHERE account_id = $1",
     [accountId],
   );

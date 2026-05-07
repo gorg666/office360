@@ -139,6 +139,20 @@ export async function setThreadLabels(
   }
 }
 
+export async function addThreadLabels(
+  accountId: string,
+  threadId: string,
+  labelIds: string[],
+): Promise<void> {
+  const db = await getDb();
+  for (const labelId of labelIds) {
+    await db.execute(
+      "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, $3)",
+      [accountId, threadId, labelId],
+    );
+  }
+}
+
 export async function getThreadLabelIds(
   accountId: string,
   threadId: string,

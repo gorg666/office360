@@ -6,6 +6,8 @@ import { discoverCalDavSettings, testCalDavConnection } from "@/services/calenda
 import { updateAccountCalDav, type DbAccount } from "@/services/db/accounts";
 import { removeCalendarProvider } from "@/services/calendar/providerFactory";
 
+const SAVED_PASSWORD_MASK = "••••••••";
+
 interface CalDavSettingsProps {
   account: DbAccount;
   onSaved: () => void;
@@ -14,11 +16,25 @@ interface CalDavSettingsProps {
 export function CalDavSettings({ account, onSaved }: CalDavSettingsProps) {
   const [caldavUrl, setCaldavUrl] = useState(account.caldav_url ?? "");
   const [username, setUsername] = useState(account.caldav_username ?? account.email);
-  const [password, setPassword] = useState(account.caldav_password ?? "");
+  const [password, setPassword] = useState(account.caldav_password ? SAVED_PASSWORD_MASK : "");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [discovered, setDiscovered] = useState(false);
+  const hasSavedPassword = !!account.caldav_password;
+  const passwordWasChanged = password !== "" && password !== SAVED_PASSWORD_MASK;
+  const effectivePassword =
+    password === SAVED_PASSWORD_MASK
+      ? (account.caldav_password ?? "")
+      : password;
+  const canSubmit = !!caldavUrl.trim() && !!username.trim() && !!effectivePassword;
+
+  useEffect(() => {
+    setCaldavUrl(account.caldav_url ?? "");
+    setUsername(account.caldav_username ?? account.email);
+    setPassword(account.caldav_password ? SAVED_PASSWORD_MASK : "");
+    setTestResult(null);
+  }, [account.id, account.email, account.caldav_url, account.caldav_username, account.caldav_password]);
 
   // Auto-discover on mount if not already configured
   useEffect(() => {
@@ -35,10 +51,10 @@ export function CalDavSettings({ account, onSaved }: CalDavSettingsProps) {
   const handleTest = useCallback(async () => {
     setTesting(true);
     setTestResult(null);
-    const result = await testCalDavConnection(caldavUrl, username, password);
+    const result = await testCalDavConnection(caldavUrl, username, effectivePassword);
     setTestResult(result);
     setTesting(false);
-  }, [caldavUrl, username, password]);
+  }, [caldavUrl, username, effectivePassword]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -46,7 +62,7 @@ export function CalDavSettings({ account, onSaved }: CalDavSettingsProps) {
       await updateAccountCalDav(account.id, {
         caldavUrl,
         caldavUsername: username,
-        caldavPassword: password,
+        caldavPassword: effectivePassword,
         calendarProvider: "caldav",
       });
       removeCalendarProvider(account.id);
@@ -56,7 +72,7 @@ export function CalDavSettings({ account, onSaved }: CalDavSettingsProps) {
     } finally {
       setSaving(false);
     }
-  }, [account.id, caldavUrl, username, password, onSaved]);
+  }, [account.id, caldavUrl, username, effectivePassword, onSaved]);
 
   const handleRemove = useCallback(async () => {
     setSaving(true);
@@ -113,8 +129,24 @@ export function CalDavSettings({ account, onSaved }: CalDavSettingsProps) {
         type="password"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
-        placeholder="App-specific password"
+        onFocus={() => {
+          if (password === SAVED_PASSWORD_MASK) setPassword("");
+        }}
+        onBlur={() => {
+          if (!password && hasSavedPassword) setPassword(SAVED_PASSWORD_MASK);
+        }}
+        placeholder={hasSavedPassword ? "Пароль сохранен. Введите новый, чтобы заменить" : "Пароль приложения"}
       />
+      {!caldavUrl.trim() && (
+        <p className="text-xs text-danger">
+          Укажите URL сервера CalDAV. Для Яндекса обычно используется https://caldav.yandex.ru/
+        </p>
+      )}
+      {hasSavedPassword && !passwordWasChanged && (
+        <p className="text-xs text-text-tertiary">
+          Пароль уже сохранен и показан маской. Чтобы заменить его, очистите поле и введите новый пароль приложения.
+        </p>
+      )}
 
       {testResult && (
         <div className={`flex items-center gap-2 text-xs ${testResult.success ? "text-success" : "text-danger"}`}>
@@ -128,7 +160,7 @@ export function CalDavSettings({ account, onSaved }: CalDavSettingsProps) {
           variant="secondary"
           size="sm"
           onClick={handleTest}
-          disabled={testing || !caldavUrl || !password}
+          disabled={testing || !canSubmit}
         >
           {testing && <Loader2 size={14} className="animate-spin" />}
           {testing ? "Testing..." : "Test Connection"}
@@ -138,7 +170,7 @@ export function CalDavSettings({ account, onSaved }: CalDavSettingsProps) {
           variant="primary"
           size="sm"
           onClick={handleSave}
-          disabled={saving || !caldavUrl || !password}
+          disabled={saving || !canSubmit}
         >
           {saving ? "Saving..." : "Save"}
         </Button>

@@ -56,11 +56,11 @@ export function HelpPage() {
         <button
           onClick={() => navigateToLabel("inbox")}
           className="p-1.5 -ml-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
-          title="Back to Inbox"
+          title="Назад во входящие"
         >
           <ArrowLeft size={18} />
         </button>
-        <h1 className="text-base font-semibold text-text-primary">Help</h1>
+        <h1 className="text-base font-semibold text-text-primary">Справка</h1>
       </div>
 
       {/* Body: sidebar nav + content */}
@@ -96,7 +96,7 @@ export function HelpPage() {
                 // Empty search state
                 <div className="flex flex-col items-center justify-center py-16 text-text-tertiary">
                   <Search size={32} className="mb-3 opacity-40" />
-                  <p className="text-sm">No results for &ldquo;{searchQuery}&rdquo;</p>
+                  <p className="text-sm">Ничего не найдено по запросу &ldquo;{searchQuery}&rdquo;</p>
                 </div>
               )
             ) : (
