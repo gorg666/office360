@@ -77,6 +77,7 @@ import type { ColorThemeId } from "./constants/themes";
 import { normalizeLocale } from "./i18n";
 import { router } from "./router";
 import { getSelectedThreadId } from "./router/navigate";
+import { Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 
 const LIGHTS_OUT_UNTIL_KEY = "velo_messenger_lights_out_until";
 const LIGHTS_OUT_CHANGED_EVENT = "velo-messenger-lights-out-changed";
@@ -122,6 +123,9 @@ export default function App() {
   const [showAskInbox, setShowAskInbox] = useState(false);
   const [moveToFolderState, setMoveToFolderState] = useState<{ open: boolean; threadIds: string[] }>({ open: false, threadIds: [] });
   const deepLinkCleanupRef = useRef<(() => void) | undefined>(undefined);
+  const isSyncingStatus = !!syncStatus && syncStatus.toLowerCase().startsWith("syncing");
+  const isSyncErrorStatus = !!syncStatus && syncStatus.toLowerCase().startsWith("sync failed");
+  const isSyncDoneStatus = !!syncStatus && syncStatus.toLowerCase().startsWith("sync complete");
 
   // Sync bridge: router state → Zustand stores (temporary)
   useRouterSyncBridge();
@@ -599,14 +603,28 @@ export default function App() {
         </DndProvider>
       </div>
 
-      {/* Sync status bar */}
+      {/* Runtime sync indicator (non-blocking desktop style) */}
       {syncStatus && (
         <div
-          className={`fixed bottom-0 left-0 right-0 glass-panel text-white text-xs px-4 py-1.5 text-center z-40 animate-[slideUp_200ms_ease-out,fadeIn_200ms_ease-out] ${
-            syncStatus.startsWith("Sync failed") ? "bg-danger/90" : "bg-accent/90"
+          className={`fixed bottom-3 right-3 z-40 pointer-events-none select-none rounded-xl border px-3 py-2 text-xs shadow-lg backdrop-blur-md transition-opacity duration-200 animate-[fadeIn_200ms_ease-out] ${
+            isSyncErrorStatus
+              ? "border-danger/40 bg-danger/25 text-red-100"
+              : isSyncDoneStatus
+                ? "border-success/30 bg-success/20 text-emerald-100"
+                : "border-white/10 bg-black/45 text-slate-100"
           }`}
+          aria-live="polite"
         >
-          {syncStatus}
+          <div className="flex items-center gap-2">
+            {isSyncingStatus ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin opacity-90" />
+            ) : isSyncErrorStatus ? (
+              <AlertTriangle className="h-3.5 w-3.5 opacity-90" />
+            ) : (
+              <CheckCircle2 className="h-3.5 w-3.5 opacity-90" />
+            )}
+            <span>{syncStatus}</span>
+          </div>
         </div>
       )}
 

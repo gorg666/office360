@@ -63,11 +63,11 @@ pub async fn start_oauth_server(port: u16, state: String) -> Result<OAuthResult,
     if callback.state != state {
         let html = r#"<!DOCTYPE html>
 <html>
-<head><title>Office360</title></head>
+<head><title>Office360 — Ошибка авторизации</title></head>
 <body style="font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #fecaca;">
 <div style="text-align: center; max-width: 540px;">
-<h1 style="margin-bottom: 8px;">OAuth Error</h1>
-<p style="opacity: 0.85;">State mismatch detected. Please close this tab and try again from Office360.</p>
+<h1 style="margin-bottom: 8px;">Ошибка авторизации</h1>
+<p style="opacity: 0.85;">Не удалось подтвердить состояние авторизации. Закройте вкладку и попробуйте снова из Office360.</p>
 </div>
 </body>
 </html>"#;
@@ -79,16 +79,16 @@ pub async fn start_oauth_server(port: u16, state: String) -> Result<OAuthResult,
         let description = callback
             .error_description
             .as_deref()
-            .unwrap_or("OAuth provider returned an authorization error.");
+            .unwrap_or("Провайдер OAuth вернул ошибку авторизации.");
         let html = format!(
             r#"<!DOCTYPE html>
 <html>
-<head><title>Office360</title></head>
+<head><title>Office360 — Ошибка авторизации</title></head>
 <body style="font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #fecaca;">
 <div style="text-align: center; max-width: 540px;">
-<h1 style="margin-bottom: 8px;">Authorization Failed</h1>
+<h1 style="margin-bottom: 8px;">Ошибка авторизации</h1>
 <p style="opacity: 0.9; margin-bottom: 6px;">{}</p>
-<p style="opacity: 0.72;">You can close this tab and return to Office360.</p>
+<p style="opacity: 0.72;">Закройте вкладку и вернитесь в Office360.</p>
 </div>
 </body>
 </html>"#,
@@ -110,11 +110,11 @@ pub async fn start_oauth_server(port: u16, state: String) -> Result<OAuthResult,
     // Send a success response to the browser
     let html = r#"<!DOCTYPE html>
 <html>
-<head><title>Office360</title></head>
+<head><title>Office360 — Аккаунт подключён</title></head>
 <body style="font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #e2e8f0;">
 <div style="text-align: center;">
-<h1 style="margin-bottom: 8px;">Account Connected!</h1>
-<p style="opacity: 0.7;">You can close this tab and return to Office360.</p>
+<h1 style="margin-bottom: 8px;">Аккаунт успешно подключён</h1>
+<p style="opacity: 0.7;">Теперь можно закрыть вкладку и вернуться в Office360.</p>
 </div>
 </body>
 </html>"#;
