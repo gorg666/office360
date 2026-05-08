@@ -5,6 +5,28 @@ use crate::imap::types::{
 };
 use crate::smtp::client as smtp_client;
 use crate::smtp::types::{SmtpConfig, SmtpSendResult};
+use std::backtrace::Backtrace;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+async fn connect_imap_with_diagnostic(origin: &str, config: &ImapConfig) -> Result<imap_client::ImapSession, String> {
+    let ts_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    log::warn!(
+        "[reconnect-diagnostic] ts_ms={} origin={} host={}:{} security={} auth_method={} username={}",
+        ts_ms,
+        origin,
+        config.host,
+        config.port,
+        config.security,
+        config.auth_method,
+        config.username
+    );
+    let backtrace = Backtrace::capture();
+    log::warn!("[reconnect-diagnostic] backend stack ({origin}): {backtrace}");
+    imap_client::connect(config).await
+}
 
 // ---------- IMAP commands ----------
 
@@ -51,7 +73,7 @@ pub async fn imap_fetch_messages(
         .collect::<Vec<_>>()
         .join(",");
 
-    let mut session = imap_client::connect(&config).await?;
+    let mut session = connect_imap_with_diagnostic("imap_fetch_messages", &config).await?;
     let result = imap_client::fetch_messages(&mut session, &folder, &uid_set).await;
     let _ = session.logout().await;
 
@@ -287,7 +309,7 @@ pub async fn imap_search_folder(
     folder: String,
     since_date: Option<String>,
 ) -> Result<ImapFolderSearchResult, String> {
-    let mut session = imap_client::connect(&config).await?;
+    let mut session = connect_imap_with_diagnostic("imap_search_folder", &config).await?;
     let result = imap_client::search_folder(&mut session, &folder, since_date).await;
     let _ = session.logout().await;
     result
@@ -320,7 +342,7 @@ pub async fn imap_delta_check(
     config: ImapConfig,
     folders: Vec<DeltaCheckRequest>,
 ) -> Result<Vec<DeltaCheckResult>, String> {
-    let mut session = imap_client::connect(&config).await?;
+    let mut session = connect_imap_with_diagnostic("imap_delta_check", &config).await?;
     let results = imap_client::delta_check_folders(&mut session, &folders).await?;
     let _ = session.logout().await;
     Ok(results)

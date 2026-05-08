@@ -1,5 +1,3 @@
-import { YANDEX_CALENDAR_SCOPE } from "@/services/calendar/yandex";
-
 export interface OAuthProviderConfig {
   id: string;
   name: string;
@@ -14,11 +12,27 @@ export interface OAuthProviderConfig {
   usePkce: boolean;
 }
 
-const yandexMailScopes = ["mail:imap_full", "mail:smtp", "login:email", "login:info"];
-const yandexCalendarScopes = [YANDEX_CALENDAR_SCOPE];
+const DEFAULT_YANDEX_SCOPES = ["login:email", "login:info", "login:avatar"];
 const DEFAULT_YANDEX_PUBLIC_CLIENT_ID = "3a2cf9ad4e854c5ab83fc126d1a89ad4";
+const ENV_YANDEX_PUBLIC_CLIENT_ID = import.meta.env.VITE_YANDEX_OAUTH_CLIENT_ID?.trim() ?? "";
 const YANDEX_PUBLIC_CLIENT_ID =
-  import.meta.env.VITE_YANDEX_OAUTH_CLIENT_ID?.trim() || DEFAULT_YANDEX_PUBLIC_CLIENT_ID;
+  ENV_YANDEX_PUBLIC_CLIENT_ID || DEFAULT_YANDEX_PUBLIC_CLIENT_ID;
+const YANDEX_SCOPES = import.meta.env.VITE_YANDEX_OAUTH_SCOPES
+  ? import.meta.env.VITE_YANDEX_OAUTH_SCOPES.split(/[,\s]+/)
+    .map((scope: string) => scope.trim())
+    .filter(Boolean)
+  : DEFAULT_YANDEX_SCOPES;
+
+export function getYandexOAuthConfigDiagnostics() {
+  return {
+    envClientId: ENV_YANDEX_PUBLIC_CLIENT_ID || null,
+    fallbackClientId: DEFAULT_YANDEX_PUBLIC_CLIENT_ID,
+    effectiveClientId: YANDEX_PUBLIC_CLIENT_ID,
+    clientIdSource: ENV_YANDEX_PUBLIC_CLIENT_ID ? "env:VITE_YANDEX_OAUTH_CLIENT_ID" : "fallback:DEFAULT_YANDEX_PUBLIC_CLIENT_ID",
+    envScopesRaw: import.meta.env.VITE_YANDEX_OAUTH_SCOPES?.trim() || null,
+    effectiveScopes: [...YANDEX_SCOPES],
+  };
+}
 
 const providers: Record<string, OAuthProviderConfig> = {
   microsoft: {
@@ -53,7 +67,7 @@ const providers: Record<string, OAuthProviderConfig> = {
     name: "Яндекс ID",
     authUrl: "https://oauth.yandex.ru/authorize",
     tokenUrl: "https://oauth.yandex.ru/token",
-    scopes: [...yandexMailScopes, ...yandexCalendarScopes],
+    scopes: YANDEX_SCOPES,
     publicClientId: YANDEX_PUBLIC_CLIENT_ID,
     userInfoUrl: "https://login.yandex.ru/info?format=json",
     userInfoAuthScheme: "OAuth",

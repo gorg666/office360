@@ -1,13 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { OAuthProviderConfig } from "./providers";
+import { getYandexOAuthConfigDiagnostics } from "./providers";
 import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
 
 const OAUTH_CALLBACK_PORT = 17248;
 
 interface OAuthServerResult {
-  code: string;
+  code?: string;
   state: string;
+  error?: string;
+  error_description?: string;
 }
 
 export interface TokenResponse {
@@ -61,6 +64,7 @@ export async function startProviderOAuthFlow(
   provider: OAuthProviderConfig,
   clientId: string,
   clientSecret?: string,
+  options?: { loginHint?: string },
 ): Promise<{ tokens: TokenResponse; userInfo: ProviderUserInfo }> {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
@@ -70,12 +74,12 @@ export async function startProviderOAuthFlow(
   const oauthState = base64UrlEncode(stateArray);
 
   const redirectUri = `http://localhost:${OAUTH_CALLBACK_PORT}`;
+  const scopeValue = provider.scopes.join(" ");
 
   const params: Record<string, string> = {
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: provider.scopes.join(" "),
     state: oauthState,
   };
 
@@ -91,9 +95,28 @@ export async function startProviderOAuthFlow(
   }
   if (provider.id === "yandex") {
     params.force_confirm = "yes";
+    if (options?.loginHint) {
+      params.login_hint = options.loginHint;
+    }
+    const yandexDiagnostics = getYandexOAuthConfigDiagnostics();
+    console.info("[oauth][yandex] client_id (effective):", clientId);
+    console.info("[oauth][yandex] client_id source:", yandexDiagnostics.clientIdSource);
+    console.info("[oauth][yandex] env client_id:", yandexDiagnostics.envClientId ?? "<empty>");
+    console.info("[oauth][yandex] fallback client_id:", yandexDiagnostics.fallbackClientId);
+    console.info("[oauth] Yandex OAuth scopes:", provider.scopes);
+    console.info("[oauth] Yandex OAuth scope string:", "omitted");
+    console.info("[oauth] Yandex redirect URI:", redirectUri);
+  } else {
+    params.scope = scopeValue;
   }
 
   const authUrl = `${provider.authUrl}?${new URLSearchParams(params).toString()}`;
+  if (provider.id === "yandex") {
+    const sentScope = new URL(authUrl).searchParams.get("scope");
+    console.info("[oauth] Yandex authorize URL scope query:", sentScope ?? "omitted");
+    console.info("[oauth][yandex] scope: omitted");
+    console.info("[oauth][yandex] authorize URL:", authUrl);
+  }
 
   const serverPromise = invoke<OAuthServerResult>("start_oauth_server", {
     port: OAUTH_CALLBACK_PORT,
@@ -108,6 +131,25 @@ export async function startProviderOAuthFlow(
   if (result.state !== oauthState) {
     throw new Error("OAuth state mismatch — possible CSRF attack. Please try again.");
   }
+  if (result.error) {
+    const description = result.error_description?.trim();
+    if (provider.id === "yandex") {
+      const requestedScopes = provider.scopes.join(" ");
+      throw new Error(
+        description
+          ? `Yandex OAuth error: ${result.error} (${description}) | requested_scopes="${requestedScopes}" | client_id="${clientId}" | redirect_uri="${redirectUri}"`
+          : `Yandex OAuth error: ${result.error} | requested_scopes="${requestedScopes}" | client_id="${clientId}" | redirect_uri="${redirectUri}"`,
+      );
+    }
+    throw new Error(
+      description
+        ? `Yandex OAuth error: ${result.error} (${description})`
+        : `Yandex OAuth error: ${result.error}`,
+    );
+  }
+  if (!result.code) {
+    throw new Error("OAuth callback missing authorization code.");
+  }
 
   const tokens = await exchangeCode(
     provider,
@@ -117,6 +159,9 @@ export async function startProviderOAuthFlow(
     codeVerifier,
     clientSecret,
   );
+  if (provider.id === "yandex") {
+    console.info("[oauth][yandex] token response scope:", tokens.scope ?? "<empty>");
+  }
 
   const userInfo = await fetchUserInfo(provider, tokens);
 

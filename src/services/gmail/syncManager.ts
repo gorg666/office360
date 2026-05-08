@@ -13,6 +13,26 @@ import { upsertCalendarEvent, deleteEventByRemoteId } from "../db/calendarEvents
 
 const SYNC_INTERVAL_MS = 60_000; // 60 seconds — delta syncs are lightweight (single API call when idle)
 
+interface ReconnectDiagnosticContext {
+  accountId?: string;
+  provider?: string | null;
+  reason?: string;
+  extra?: Record<string, unknown>;
+}
+
+function logReconnectDiagnostic(origin: string, context: ReconnectDiagnosticContext = {}): void {
+  const payload = {
+    ts: new Date().toISOString(),
+    origin,
+    accountId: context.accountId ?? null,
+    provider: context.provider ?? null,
+    reason: context.reason ?? null,
+    ...context.extra,
+  };
+  console.warn("[reconnect-diagnostic]", payload);
+  console.trace(`[reconnect-diagnostic] trace from ${origin}`);
+}
+
 /** Map IMAP sync phases to the SyncProgress phases the UI understands. */
 function mapImapPhase(phase: string): "labels" | "threads" | "messages" | "done" {
   if (phase === "folders") return "labels";
@@ -97,7 +117,17 @@ async function syncImapAccount(accountId: string): Promise<void> {
 
   // Refresh OAuth2 token before syncing (if applicable)
   if (account.auth_method === "oauth2") {
-    await ensureFreshToken(account);
+    try {
+      await ensureFreshToken(account);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err ?? "Unknown token refresh error");
+      logReconnectDiagnostic("syncImapAccount.ensureFreshToken", {
+        accountId,
+        provider: account.oauth_provider,
+        reason: message,
+      });
+      throw err;
+    }
   }
 
   const syncPeriodStr = await getSetting("sync_period_days");
@@ -262,6 +292,10 @@ async function runSync(accountIds: string[]): Promise<void> {
     const existing = new Set(pendingAccountIds ?? []);
     for (const id of accountIds) existing.add(id);
     pendingAccountIds = [...existing];
+    logReconnectDiagnostic("runSync.queueWhileBusy", {
+      reason: "syncPromise_in_progress",
+      extra: { queuedAccountIds: [...existing] },
+    });
     return syncPromise;
   }
 
@@ -303,11 +337,19 @@ export function startBackgroundSync(accountIds: string[], skipImmediateSync = fa
 
   if (!skipImmediateSync) {
     // Immediate sync
+    logReconnectDiagnostic("startBackgroundSync.immediateSync", {
+      reason: "startBackgroundSync",
+      extra: { accountIds },
+    });
     runSync(accountIds);
   }
 
   // Periodic sync
   syncTimer = setInterval(() => {
+    logReconnectDiagnostic("startBackgroundSync.intervalTick", {
+      reason: "periodic_sync_tick",
+      extra: { intervalMs: SYNC_INTERVAL_MS, accountIds },
+    });
     runSync(accountIds);
   }, SYNC_INTERVAL_MS);
 }

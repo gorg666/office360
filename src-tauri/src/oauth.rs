@@ -6,8 +6,10 @@ use tokio::net::{TcpListener, TcpStream};
 
 #[derive(Serialize)]
 pub struct OAuthResult {
-    pub code: String,
+    pub code: Option<String>,
     pub state: String,
+    pub error: Option<String>,
+    pub error_description: Option<String>,
 }
 
 /// Binds to a localhost port for OAuth callback. Tries the given port first,
@@ -54,13 +56,56 @@ pub async fn start_oauth_server(port: u16, state: String) -> Result<OAuthResult,
         .map_err(|e| format!("Failed to read: {}", e))?;
     let request = String::from_utf8_lossy(&buf[..n]);
 
-    // Extract query string from GET request line
-    let (code, returned_state) = parse_auth_code_and_state(&request)?;
+    // Extract callback payload from GET request line
+    let callback = parse_oauth_callback(&request)?;
 
     // Validate state parameter (CSRF protection)
-    if returned_state != state {
+    if callback.state != state {
+        let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Office360</title></head>
+<body style="font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #fecaca;">
+<div style="text-align: center; max-width: 540px;">
+<h1 style="margin-bottom: 8px;">OAuth Error</h1>
+<p style="opacity: 0.85;">State mismatch detected. Please close this tab and try again from Office360.</p>
+</div>
+</body>
+</html>"#;
+        let _ = write_browser_response(&mut stream, html).await;
         return Err("OAuth state mismatch — possible CSRF attack".to_string());
     }
+
+    if let Some(error) = callback.error.as_ref() {
+        let description = callback
+            .error_description
+            .as_deref()
+            .unwrap_or("OAuth provider returned an authorization error.");
+        let html = format!(
+            r#"<!DOCTYPE html>
+<html>
+<head><title>Office360</title></head>
+<body style="font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #fecaca;">
+<div style="text-align: center; max-width: 540px;">
+<h1 style="margin-bottom: 8px;">Authorization Failed</h1>
+<p style="opacity: 0.9; margin-bottom: 6px;">{}</p>
+<p style="opacity: 0.72;">You can close this tab and return to Office360.</p>
+</div>
+</body>
+</html>"#,
+            html_escape(description)
+        );
+        let _ = write_browser_response(&mut stream, &html).await;
+        return Ok(OAuthResult {
+            code: None,
+            state: callback.state,
+            error: Some(error.clone()),
+            error_description: callback.error_description,
+        });
+    }
+
+    let code = callback
+        .code
+        .ok_or_else(|| "No auth code in redirect".to_string())?;
 
     // Send a success response to the browser
     let html = r#"<!DOCTYPE html>
@@ -73,19 +118,13 @@ pub async fn start_oauth_server(port: u16, state: String) -> Result<OAuthResult,
 </div>
 </body>
 </html>"#;
-
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nConnection: close\r\n\r\n{}",
-        html.len(),
-        html
-    );
-
-    let _ = stream.write_all(response.as_bytes()).await;
-    let _ = stream.flush().await;
+    let _ = write_browser_response(&mut stream, html).await;
 
     Ok(OAuthResult {
-        code,
-        state: returned_state,
+        code: Some(code),
+        state: callback.state,
+        error: None,
+        error_description: None,
     })
 }
 
@@ -109,7 +148,14 @@ async fn accept_oauth_connection(
     }
 }
 
-fn parse_auth_code_and_state(request: &str) -> Result<(String, String), String> {
+struct OAuthCallbackPayload {
+    code: Option<String>,
+    state: String,
+    error: Option<String>,
+    error_description: Option<String>,
+}
+
+fn parse_oauth_callback(request: &str) -> Result<OAuthCallbackPayload, String> {
     let first_line = request.lines().next().ok_or("Empty request")?;
 
     let path = first_line
@@ -117,22 +163,17 @@ fn parse_auth_code_and_state(request: &str) -> Result<(String, String), String> 
         .nth(1)
         .ok_or("No path in request")?;
 
-    if path.contains("error=") {
-        let params = parse_query_string(path);
-        let error = params.get("error").cloned().unwrap_or_default();
-        return Err(format!("OAuth error: {}", error));
-    }
-
     let params = parse_query_string(path);
-    let code = params
-        .get("code")
-        .cloned()
-        .ok_or_else(|| "No auth code in redirect".to_string())?;
     let state = params
         .get("state")
         .cloned()
         .ok_or_else(|| "No state in redirect".to_string())?;
-    Ok((code, state))
+    Ok(OAuthCallbackPayload {
+        code: params.get("code").cloned(),
+        state,
+        error: params.get("error").cloned(),
+        error_description: params.get("error_description").cloned(),
+    })
 }
 
 fn parse_query_string(path: &str) -> HashMap<String, String> {
@@ -168,6 +209,25 @@ fn urlencoding_decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8(result).unwrap_or_else(|_| s.to_string())
+}
+
+fn html_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+async fn write_browser_response(stream: &mut TcpStream, html: &str) -> std::io::Result<()> {
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nConnection: close\r\n\r\n{}",
+        html.len(),
+        html
+    );
+    stream.write_all(response.as_bytes()).await?;
+    stream.flush().await
 }
 
 #[derive(Serialize, Deserialize)]

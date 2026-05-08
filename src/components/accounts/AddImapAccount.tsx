@@ -27,7 +27,9 @@ import {
   type SecurityType,
 } from "@/services/imap/autoDiscovery";
 import { getOAuthProvider } from "@/services/oauth/providers";
+import { getYandexOAuthConfigDiagnostics } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
+import { getSetting } from "@/services/db/settings";
 
 interface AddImapAccountProps {
   onClose: () => void;
@@ -123,6 +125,22 @@ const labelClass = "block text-xs font-medium text-text-secondary mb-1";
 const selectClass =
   "w-full px-3 py-2 bg-bg-secondary border border-border-primary rounded-lg text-sm text-text-primary outline-none focus:border-accent transition-colors appearance-none";
 const IMAP_TEST_TIMEOUT_MS = 35_000;
+const REQUIRED_YANDEX_MAIL_SCOPES = ["mail:imap_full", "mail:smtp"];
+
+function parseScopeSet(scopeValue: string | undefined): Set<string> {
+  if (!scopeValue) return new Set();
+  return new Set(
+    scopeValue
+      .split(/[,\s]+/)
+      .map((scope) => scope.trim())
+      .filter(Boolean),
+  );
+}
+
+function parseRequestedScopesFromError(message: string): string | null {
+  const match = message.match(/requested_scopes="([^"]*)"/i);
+  return match?.[1] ?? null;
+}
 
 /** Map UI security value ("ssl") to Rust config value ("tls") */
 function mapSecurity(security: string): string {
@@ -422,11 +440,35 @@ export function AddImapAccount({
     setOauthError(null);
 
     try {
+      if (providerId === "yandex") {
+        const yandexDiagnostics = getYandexOAuthConfigDiagnostics();
+        const dbClientId = await getSetting("yandex_oauth_client_id");
+        console.info("[oauth][yandex] DB client_id (settings:yandex_oauth_client_id):", dbClientId ?? "<empty>");
+        console.info("[oauth][yandex] env client_id:", yandexDiagnostics.envClientId ?? "<empty>");
+        console.info("[oauth][yandex] fallback client_id:", yandexDiagnostics.fallbackClientId);
+        console.info("[oauth][yandex] provider.publicClientId:", provider.publicClientId ?? "<empty>");
+        console.info("[oauth][yandex] selected client_id:", clientId);
+      }
+
       const { tokens, userInfo } = await startProviderOAuthFlow(
         provider,
         clientId,
         provider.publicClientId ? undefined : form.oauthClientSecret.trim() || undefined,
+        providerId === "yandex" ? { loginHint: form.email.trim() } : undefined,
       );
+      const grantedScopes = parseScopeSet(tokens.scope);
+
+      if (providerId === "yandex") {
+        console.info("[oauth] Yandex granted scopes:", [...grantedScopes].join(" "));
+        const hasYandexMailScopes = REQUIRED_YANDEX_MAIL_SCOPES.every((scope) =>
+          grantedScopes.has(scope),
+        );
+        if (!hasYandexMailScopes) {
+          console.warn(
+            "[oauth][yandex] mail scopes are not granted; keeping login-only mode active",
+          );
+        }
+      }
 
       const expiresAt = Math.floor(Date.now() / 1000) + tokens.expires_in;
 
@@ -452,7 +494,14 @@ export function AddImapAccount({
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setOauthError(message);
+      if (providerId === "yandex" && /invalid_scope/i.test(message)) {
+        const requestedScopes = parseRequestedScopesFromError(message) ?? provider.scopes.join(" ");
+        setOauthError(
+          `OAuth scopes не разрешены для этого client_id. Запрошенные scopes: ${requestedScopes}`,
+        );
+      } else {
+        setOauthError(message);
+      }
     } finally {
       setOauthConnecting(false);
     }
@@ -689,6 +738,11 @@ export function AddImapAccount({
             {oauthError}
           </div>
         )}
+        {providerId === "yandex" && (
+          <div className="text-xs text-text-tertiary">
+            client_id: <code className="text-accent">{(provider?.publicClientId ?? form.oauthClientId.trim()) || "<empty>"}</code>
+          </div>
+        )}
 
         {saveError && usesManagedOAuthFlow && (
           <div className="bg-danger/10 border border-danger/20 rounded-lg p-3 text-sm text-danger">
@@ -707,7 +761,7 @@ export function AddImapAccount({
             <>Register at the Yahoo Developer Network with redirect URI <code className="text-accent">http://127.0.0.1:17248</code>.</>
           )}
           {providerId === "yandex" && !usesManagedPublicClient && (
-            <>Создайте приложение на <code className="text-accent">oauth.yandex.ru</code>, добавьте redirect URI <code className="text-accent">http://localhost:17248</code> и права <code className="text-accent">mail:imap_full</code>, <code className="text-accent">mail:smtp</code>, <code className="text-accent">login:email</code>, <code className="text-accent">login:info</code>, <code className="text-accent">calendar:all</code>.</>
+            <>Создайте приложение на <code className="text-accent">oauth.yandex.ru</code>, добавьте redirect URI <code className="text-accent">http://localhost:17248</code> и выдайте scopes <code className="text-accent">mail:imap_full</code>, <code className="text-accent">mail:smtp</code>, <code className="text-accent">login:email</code>, <code className="text-accent">login:info</code>.</>
           )}
         </p>
       </div>
@@ -770,7 +824,7 @@ export function AddImapAccount({
           </div>
           <div>
             <label htmlFor="imap-password" className={labelClass}>
-              Password
+              Password / App Password
             </label>
             <input
               id="imap-password"
@@ -781,7 +835,7 @@ export function AddImapAccount({
               className={inputClass}
             />
             <p className="text-xs text-text-tertiary mt-1">
-              If your provider requires it, use an app-specific password.
+              For Yandex Mail, use an app password from Yandex ID settings.
             </p>
           </div>
         </>
@@ -1083,7 +1137,7 @@ export function AddImapAccount({
               Cancel
             </button>
 
-            {!usesManagedOAuthFlow && (currentStep === "test" ? (
+            {((usesManagedOAuthFlow && !isOAuth) || !usesManagedOAuthFlow) && (currentStep === "test" ? (
               <button
                 onClick={handleSave}
                 disabled={!bothTestsPassed || saving}
@@ -1093,12 +1147,12 @@ export function AddImapAccount({
               </button>
             ) : (
               <button
-                onClick={goNext}
-                disabled={!canGoNext()}
+                onClick={usesManagedOAuthFlow && !isOAuth ? handleSave : goNext}
+                disabled={usesManagedOAuthFlow && !isOAuth ? !canAdvanceFromBasic || saving : !canGoNext()}
                 className="flex items-center gap-1 px-4 py-2 text-sm bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Next
-                <ArrowRight className="w-3.5 h-3.5" />
+                {usesManagedOAuthFlow && !isOAuth ? (saving ? "Adding..." : "Add Account") : "Next"}
+                {!(usesManagedOAuthFlow && !isOAuth) && <ArrowRight className="w-3.5 h-3.5" />}
               </button>
             ))}
           </div>
