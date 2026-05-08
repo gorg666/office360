@@ -32,7 +32,7 @@ function matchesKey(binding: string, e: KeyboardEvent): boolean {
 
   // For single character keys, compare case-insensitively
   const keyMatch = key.length === 1
-    ? e.key === key || e.key === key.toLowerCase() || e.key === key.toUpperCase()
+    ? e.key === key || e.key === key.toLowerCase() || e.key === key.toUpperCase() || e.code === `Key${key.toUpperCase()}`
     : e.key === key;
 
   return ctrlMatch && shiftMatch && altMatch && keyMatch;
@@ -69,6 +69,11 @@ function buildReverseMap(keyMap: Record<string, string>): {
 // Cached reverse map to avoid rebuilding on every keypress
 let cachedKeyMap: Record<string, string> | null = null;
 let cachedReverseMap: ReturnType<typeof buildReverseMap> | null = null;
+
+function getCurrentSelectedThreadId(): string | null {
+  const state = useThreadStore.getState();
+  return [...state.selectedThreadIds][0] ?? getSelectedThreadId() ?? state.selectedThreadId;
+}
 
 function getCachedReverseMap(keyMap: Record<string, string>): ReturnType<typeof buildReverseMap> {
   if (cachedKeyMap === keyMap && cachedReverseMap) return cachedReverseMap;
@@ -170,7 +175,7 @@ export function useKeyboardShortcuts() {
       // Arrow keys navigate the thread list when no thread is open full-screen
       // (In split-pane mode or list-only view, arrows move between threads)
       if (key === "ArrowDown" || key === "ArrowUp") {
-        const selectedId = getSelectedThreadId();
+        const selectedId = getCurrentSelectedThreadId();
         const paneOff = useUIStore.getState().readingPanePosition === "hidden";
         // Only handle here if no thread is open in full-screen mode
         // (when pane is off and a thread is selected, ThreadView handles arrows for message nav)
@@ -200,7 +205,7 @@ export function useKeyboardShortcuts() {
 
 async function executeAction(actionId: string): Promise<void> {
   const threads = useThreadStore.getState().threads;
-  const selectedId = getSelectedThreadId();
+  const selectedId = getCurrentSelectedThreadId();
   const currentIdx = threads.findIndex((t) => t.id === selectedId);
   const activeAccountId = useAccountStore.getState().activeAccountId;
 

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
+import { EmailList } from "@/components/layout/EmailList";
+import { ReadingPane } from "@/components/layout/ReadingPane";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import { TaskSidebar } from "@/components/tasks/TaskSidebar";
 import {
   AlertTriangle,
   Bot,
@@ -9,7 +13,6 @@ import {
   File as FileIcon,
   Hash,
   Image,
-  Inbox,
   LogOut,
   MessageCircle,
   Moon,
@@ -52,6 +55,9 @@ import {
   getYandexUserLink,
   sendYandexMessage,
 } from "@/services/messengers/yandexBotApi";
+import { useAccountStore } from "@/stores/accountStore";
+import { useThreadStore, type Thread } from "@/stores/threadStore";
+import { useUIStore } from "@/stores/uiStore";
 
 const LIGHTS_OUT_UNTIL_KEY = "velo_messenger_lights_out_until";
 const LIGHTS_OUT_CHANGED_EVENT = "velo-messenger-lights-out-changed";
@@ -108,6 +114,42 @@ const PROVIDER_FILTERS: Array<{ id: MessengerProviderId; label: string }> = [
   { id: "telegram", label: "Telegram" },
 ];
 
+type PaneId = "messengerList" | "messengerChat" | "mailList" | "mailReader";
+
+const PANE_LABELS: Record<PaneId, string> = {
+  messengerList: "М",
+  messengerChat: "Ч",
+  mailList: "П",
+  mailReader: "О",
+};
+
+const DEFAULT_PANE_ORDER: PaneId[] = ["messengerList", "messengerChat", "mailList", "mailReader"];
+const COLUMN_BORDER_CLASS = "overflow-hidden border-l border-border-primary shadow-none";
+const COLUMN_DIVIDER_CLASS = "relative z-20 -mx-1.5 w-3 shrink-0 cursor-col-resize bg-transparent before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border-primary hover:before:bg-text-tertiary";
+
+const PANE_SIZE_LIMITS: Record<PaneId, { min: number; max: number }> = {
+  messengerList: { min: 220, max: 340 },
+  messengerChat: { min: 320, max: 520 },
+  mailList: { min: 260, max: 440 },
+  mailReader: { min: 500, max: 820 },
+};
+
+const TASK_PANE_SIZE_LIMITS = { min: 240, max: 420 };
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function nextVisiblePane(order: PaneId[], collapsed: PaneId[], paneId: PaneId): PaneId | null {
+  const startIndex = order.indexOf(paneId);
+  if (startIndex < 0) return null;
+  for (let index = startIndex + 1; index < order.length; index += 1) {
+    const candidate = order[index];
+    if (candidate && !collapsed.includes(candidate)) return candidate;
+  }
+  return null;
+}
+
 function isLightsOutActive() {
   try {
     const value = localStorage.getItem(LIGHTS_OUT_UNTIL_KEY);
@@ -159,6 +201,15 @@ function formatFileSize(size?: number): string {
   if (size < 1024) return `${size} Б`;
   if (size < 1024 * 1024) return `${Math.round(size / 1024)} КБ`;
   return `${(size / 1024 / 1024).toFixed(1)} МБ`;
+}
+
+function formatMessengerError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error || "Ошибка Messenger API.");
+  if (message.includes("CONNECTION_REFUSED") || message.includes("upload endpoint")) {
+    return "MAX сейчас не принял вложение. Попробуйте отправить файл ещё раз.";
+  }
+  if (message.length > 180) return `${message.slice(0, 180)}...`;
+  return message;
 }
 
 function renderMessageAttachments(message: MessengerMessage) {
@@ -243,9 +294,9 @@ function ProviderLogo({ provider }: { provider: ProviderView }) {
   const [failed, setFailed] = useState(false);
 
   return (
-    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white shadow-sm ${provider.accentClass}`}>
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border-primary bg-bg-tertiary text-text-primary shadow-sm">
       {!failed ? (
-        <img src={provider.iconSrc} alt="" className="h-5 w-5 object-contain" onError={() => setFailed(true)} />
+        <img src={provider.iconSrc} alt="" className="h-5 w-5 object-contain grayscale" onError={() => setFailed(true)} />
       ) : (
         <MessageCircle size={18} aria-hidden="true" />
       )}
@@ -280,12 +331,21 @@ export function MessengerPage() {
   const [pendingAttachments, setPendingAttachments] = useState<MessengerAttachmentUpload[]>([]);
   const [lightsOut, setLightsOut] = useState(() => isLightsOutActive());
   const [busy, setBusy] = useState(false);
-  const [info, setInfo] = useState<string | null>(null);
+  const [, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
-  const [conversationPanelWidth, setConversationPanelWidth] = useState(288);
-  const [chatPanelWidth, setChatPanelWidth] = useState(520);
+  const [paneWidths, setPaneWidths] = useState<Record<PaneId, number>>({
+    messengerList: 250,
+    messengerChat: 360,
+    mailList: 310,
+    mailReader: 560,
+  });
+  const [taskPaneWidth, setTaskPaneWidth] = useState(288);
+  const [paneOrder, setPaneOrder] = useState<PaneId[]>(DEFAULT_PANE_ORDER);
+  const [collapsedPaneIds, setCollapsedPaneIds] = useState<PaneId[]>([]);
+  const [mailThreadId, setMailThreadId] = useState<string | null>(null);
+  const [mailTaskExtractSignal, setMailTaskExtractSignal] = useState(0);
   const [maxCredentials, setMaxCredentials] = useState<MessengerCredentials | null>(() => loadMessengerCredentials("max"));
   const [yandexCredentials, setYandexCredentials] = useState<MessengerCredentials | null>(() => loadMessengerCredentials("yandex"));
   const [telegramCredentials, setTelegramCredentials] = useState<MessengerCredentials | null>(() => loadMessengerCredentials("telegram"));
@@ -316,7 +376,25 @@ export function MessengerPage() {
   const loadingHistoryRef = useRef(new Set<string>());
   const conversationPanelRef = useRef<HTMLElement | null>(null);
   const chatPanelRef = useRef<HTMLElement | null>(null);
-  const dragStateRef = useRef<{ startX: number; startConversationWidth: number; startChatWidth: number; target: "conversations" | "chat" } | null>(null);
+  const conversationDividerRef = useRef<HTMLButtonElement | null>(null);
+  const chatDividerRef = useRef<HTMLButtonElement | null>(null);
+  const mailListDividerRef = useRef<HTMLButtonElement | null>(null);
+  const mailReaderDividerRef = useRef<HTMLButtonElement | null>(null);
+  const mailListPaneRef = useRef<HTMLElement | null>(null);
+  const mailReaderPaneRef = useRef<HTMLElement | null>(null);
+  const taskPaneRef = useRef<HTMLElement | null>(null);
+  const draggedPaneRef = useRef<PaneId | null>(null);
+  const paneDragMovedRef = useRef(false);
+  const dragStateRef = useRef<{
+    startX: number;
+    leftPane: PaneId;
+    rightPane: PaneId | "taskSidebar";
+    startLeftWidth: number;
+    startRightWidth: number;
+  } | null>(null);
+  const selectMailThread = useThreadStore((state) => state.selectThread);
+  const activeAccountId = useAccountStore((state) => state.activeAccountId);
+  const taskSidebarVisible = useUIStore((state) => state.taskSidebarVisible);
 
   const selectedProvider = PROVIDERS.find((provider) => provider.id === selectedProviderId) ?? PROVIDERS[0]!;
   const credentials = selectedProviderId === "max" ? maxCredentials : selectedProviderId === "yandex" ? yandexCredentials : telegramCredentials;
@@ -382,15 +460,57 @@ export function MessengerPage() {
 
   useEffect(() => {
     if (conversationPanelRef.current) {
-      conversationPanelRef.current.style.width = `${conversationPanelWidth}px`;
+      conversationPanelRef.current.style.width = `${paneWidths.messengerList}px`;
     }
-  }, [conversationPanelWidth]);
+    if (chatPanelRef.current) {
+      chatPanelRef.current.style.width = `${paneWidths.messengerChat}px`;
+    }
+    if (mailListPaneRef.current) {
+      mailListPaneRef.current.style.width = `${paneWidths.mailList}px`;
+    }
+    if (mailReaderPaneRef.current) {
+      mailReaderPaneRef.current.style.width = `${paneWidths.mailReader}px`;
+    }
+  }, [paneWidths]);
 
   useEffect(() => {
-    if (chatPanelRef.current) {
-      chatPanelRef.current.style.width = `${chatPanelWidth}px`;
+    if (taskPaneRef.current) {
+      taskPaneRef.current.style.width = `${taskPaneWidth}px`;
     }
-  }, [chatPanelWidth]);
+  }, [taskPaneWidth]);
+
+  useEffect(() => {
+    const panes: Record<PaneId, HTMLElement | null> = {
+      messengerList: conversationPanelRef.current,
+      messengerChat: chatPanelRef.current,
+      mailList: mailListPaneRef.current,
+      mailReader: mailReaderPaneRef.current,
+    };
+
+    for (const paneId of DEFAULT_PANE_ORDER) {
+      const pane = panes[paneId];
+      if (!pane) continue;
+      pane.style.order = String(paneOrder.indexOf(paneId) * 2);
+      pane.style.display = collapsedPaneIds.includes(paneId) ? "none" : "";
+    }
+
+    if (conversationDividerRef.current) {
+      conversationDividerRef.current.style.order = String(paneOrder.indexOf("messengerList") * 2 + 1);
+      conversationDividerRef.current.style.display = collapsedPaneIds.includes("messengerList") || !nextVisiblePane(paneOrder, collapsedPaneIds, "messengerList") ? "none" : "";
+    }
+    if (chatDividerRef.current) {
+      chatDividerRef.current.style.order = String(paneOrder.indexOf("messengerChat") * 2 + 1);
+      chatDividerRef.current.style.display = collapsedPaneIds.includes("messengerChat") || !nextVisiblePane(paneOrder, collapsedPaneIds, "messengerChat") ? "none" : "";
+    }
+    if (mailListDividerRef.current) {
+      mailListDividerRef.current.style.order = String(paneOrder.indexOf("mailList") * 2 + 1);
+      mailListDividerRef.current.style.display = collapsedPaneIds.includes("mailList") || !nextVisiblePane(paneOrder, collapsedPaneIds, "mailList") ? "none" : "";
+    }
+    if (mailReaderDividerRef.current) {
+      mailReaderDividerRef.current.style.order = String(paneOrder.indexOf("mailReader") * 2 + 1);
+      mailReaderDividerRef.current.style.display = collapsedPaneIds.includes("mailReader") || !taskSidebarVisible || !activeAccountId || !mailThreadId ? "none" : "";
+    }
+  }, [activeAccountId, collapsedPaneIds, mailThreadId, paneOrder, taskSidebarVisible]);
 
   useEffect(() => {
     if (selectedConversation) {
@@ -455,28 +575,47 @@ export function MessengerPage() {
     try {
       await action();
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : String(actionError || "Ошибка Messenger API."));
+      setError(formatMessengerError(actionError));
     } finally {
       setBusy(false);
     }
   }, []);
 
-  const startDividerDrag = useCallback((target: "conversations" | "chat", clientX: number) => {
+  const startDividerDrag = useCallback((leftPane: PaneId, clientX: number) => {
+    const rightPane = leftPane === "mailReader"
+      ? (taskSidebarVisible && activeAccountId && mailThreadId ? "taskSidebar" : null)
+      : nextVisiblePane(paneOrder, collapsedPaneIds, leftPane);
+    if (!rightPane) return;
+
     dragStateRef.current = {
       startX: clientX,
-      startConversationWidth: conversationPanelWidth,
-      startChatWidth: chatPanelWidth,
-      target,
+      leftPane,
+      rightPane,
+      startLeftWidth: paneWidths[leftPane],
+      startRightWidth: rightPane === "taskSidebar" ? taskPaneWidth : paneWidths[rightPane],
     };
     const handlePointerMove = (event: PointerEvent) => {
       const dragState = dragStateRef.current;
       if (!dragState) return;
       const delta = event.clientX - dragState.startX;
-      if (dragState.target === "conversations") {
-        setConversationPanelWidth(Math.min(380, Math.max(230, dragState.startConversationWidth + delta)));
-        return;
+      const leftLimits = PANE_SIZE_LIMITS[dragState.leftPane];
+      const rightLimits = dragState.rightPane === "taskSidebar"
+        ? TASK_PANE_SIZE_LIMITS
+        : PANE_SIZE_LIMITS[dragState.rightPane];
+      const totalWidth = dragState.startLeftWidth + dragState.startRightWidth;
+      const minLeft = Math.max(leftLimits.min, totalWidth - rightLimits.max);
+      const maxLeft = Math.min(leftLimits.max, totalWidth - rightLimits.min);
+      const nextLeftWidth = clamp(dragState.startLeftWidth + delta, minLeft, maxLeft);
+      const nextRightWidth = totalWidth - nextLeftWidth;
+
+      setPaneWidths((current) => ({
+        ...current,
+        [dragState.leftPane]: nextLeftWidth,
+        ...(dragState.rightPane === "taskSidebar" ? {} : { [dragState.rightPane]: nextRightWidth }),
+      }));
+      if (dragState.rightPane === "taskSidebar") {
+        setTaskPaneWidth(nextRightWidth);
       }
-      setChatPanelWidth(Math.min(640, Math.max(380, dragState.startChatWidth + delta)));
     };
     const stopDrag = () => {
       dragStateRef.current = null;
@@ -485,7 +624,7 @@ export function MessengerPage() {
     };
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", stopDrag, { once: true });
-  }, [chatPanelWidth, conversationPanelWidth]);
+  }, [activeAccountId, collapsedPaneIds, mailThreadId, paneOrder, paneWidths, taskPaneWidth, taskSidebarVisible]);
 
   const pickAttachments = useCallback(() => {
     void runAction(async () => {
@@ -514,6 +653,59 @@ export function MessengerPage() {
   const removePendingAttachment = useCallback((path: string) => {
     setPendingAttachments((current) => current.filter((attachment) => attachment.path !== path));
   }, []);
+
+  const togglePaneCollapsed = useCallback((paneId: PaneId) => {
+    setCollapsedPaneIds((current) => {
+      if (current.includes(paneId)) return current.filter((id) => id !== paneId);
+      if (DEFAULT_PANE_ORDER.length - current.length <= 1) return current;
+      return [...current, paneId];
+    });
+  }, []);
+
+  const movePaneBefore = useCallback((source: PaneId, target: PaneId) => {
+    if (source === target) return;
+    setPaneOrder((current) => {
+      const withoutSource = current.filter((id) => id !== source);
+      const targetIndex = withoutSource.indexOf(target);
+      if (targetIndex < 0) return current;
+      return [
+        ...withoutSource.slice(0, targetIndex),
+        source,
+        ...withoutSource.slice(targetIndex),
+      ];
+    });
+  }, []);
+
+  const openMailThreadInPane = useCallback((thread: Thread) => {
+    setMailThreadId(thread.id);
+    selectMailThread(thread.id);
+  }, [selectMailThread]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isTaskShortcut = event.code === "KeyT" || event.key.toLowerCase() === "t";
+      if (!isTaskShortcut || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      const threadState = useThreadStore.getState();
+      const selectedFromList = [...threadState.selectedThreadIds][0] ?? null;
+      const selectedId = selectedFromList ?? mailThreadId ?? threadState.selectedThreadId;
+      if (!selectedId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setMailThreadId(selectedId);
+      setMailTaskExtractSignal((value) => value + 1);
+    };
+
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [mailThreadId]);
 
   const toggleProviderFilter = useCallback((providerId: MessengerProviderId) => {
     setActiveProviderIds((current) => {
@@ -772,15 +964,56 @@ export function MessengerPage() {
       }));
       setSelectedConversationKey(`${selectedProviderId}:${targetKind}:${target}`);
       setDraft("");
-      setInfo("Сообщение отправлено.");
     });
   }, [credentials, draft, pendingAttachments, runAction, selectedConversation?.subtitle, selectedConversation?.title, selectedProvider.targetHint, selectedProviderId, targetId, targetKind]);
 
   return (
-    <main className="flex flex-1 min-w-0 overflow-hidden bg-bg-primary/45">
+    <main className="relative flex flex-1 min-w-0 overflow-hidden bg-bg-primary/45">
+      <div className="fixed right-24 top-1.5 z-50 flex items-center gap-1 rounded-lg border border-border-primary bg-bg-secondary/95 px-1.5 py-1 shadow-sm">
+        {paneOrder.map((paneId) => {
+          const collapsed = collapsedPaneIds.includes(paneId);
+          return (
+            <button
+              key={paneId}
+              type="button"
+              draggable
+              onClick={() => {
+                if (paneDragMovedRef.current) {
+                  paneDragMovedRef.current = false;
+                  return;
+                }
+                togglePaneCollapsed(paneId);
+              }}
+              onDragStart={() => {
+                draggedPaneRef.current = paneId;
+                paneDragMovedRef.current = false;
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                const source = draggedPaneRef.current;
+                draggedPaneRef.current = null;
+                if (source && source !== paneId) {
+                  paneDragMovedRef.current = true;
+                  movePaneBefore(source, paneId);
+                }
+              }}
+              className={`h-5 min-w-5 rounded border px-1 text-[0.625rem] font-medium transition-colors ${
+                collapsed
+                  ? "border-border-secondary bg-bg-primary text-text-tertiary"
+                  : "border-border-primary bg-bg-tertiary text-text-primary"
+              }`}
+              title="Нажмите, чтобы свернуть окно. Перетащите, чтобы поменять порядок."
+              aria-label={`Окно ${PANE_LABELS[paneId]}`}
+            >
+              {PANE_LABELS[paneId]}
+            </button>
+          );
+        })}
+      </div>
       <section
         ref={conversationPanelRef}
-        className="messenger-slide-panel min-w-[230px] max-w-[380px] border-r border-border-primary bg-bg-secondary/85 glass-panel"
+        className="messenger-slide-panel min-w-[220px] max-w-[340px] overflow-hidden bg-bg-secondary/85 shadow-none"
       >
         <div className="flex h-full flex-col">
           <header className="border-b border-border-primary px-4 py-3">
@@ -808,7 +1041,7 @@ export function MessengerPage() {
                   type="button"
                   onClick={() => setShowContacts((value) => !value)}
                   className={`rounded-lg p-2 transition-colors ${
-                    showContacts ? "bg-accent text-white" : "text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
+                    showContacts ? "bg-bg-tertiary text-text-primary" : "text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
                   }`}
                   title="Записная книжка"
                   aria-label="Записная книжка"
@@ -819,7 +1052,7 @@ export function MessengerPage() {
                   type="button"
                   onClick={() => setShowSettings((value) => !value)}
                   className={`rounded-lg p-2 transition-colors ${
-                    showSettings ? "bg-accent text-white" : "text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
+                    showSettings ? "bg-bg-tertiary text-text-primary" : "text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
                   }`}
                   title="Настройки MAX"
                   aria-label="Настройки MAX"
@@ -830,7 +1063,7 @@ export function MessengerPage() {
                   type="button"
                   onClick={toggleLightsOut}
                   className={`rounded-lg p-2 transition-colors ${
-                    lightsOut ? "bg-accent text-white" : "text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
+                    lightsOut ? "bg-bg-tertiary text-text-primary" : "text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
                   }`}
                   title={lightsOut ? "Вернуть свет" : "Выключить свет до конца дня"}
                   aria-label={lightsOut ? "Вернуть свет" : "Выключить свет до конца дня"}
@@ -850,7 +1083,7 @@ export function MessengerPage() {
                     onClick={() => toggleProviderFilter(provider.id)}
                     className={`rounded-lg border px-2 py-1 text-[0.6875rem] font-medium transition-colors ${
                       isActive
-                        ? "border-accent bg-accent/10 text-accent"
+                        ? "border-border-primary bg-bg-tertiary text-text-primary"
                         : "border-border-primary bg-bg-primary/70 text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
                     }`}
                   >
@@ -874,7 +1107,7 @@ export function MessengerPage() {
                   }}
                   className={`rounded-lg border px-2 py-1 text-[0.6875rem] font-medium transition-all ${
                     selectedProviderId === provider.id
-                      ? "border-accent bg-accent/10 text-accent"
+                      ? "border-border-primary bg-bg-tertiary text-text-primary"
                       : "border-border-primary bg-bg-primary/70 text-text-secondary hover:bg-bg-hover"
                   }`}
                 >
@@ -929,7 +1162,7 @@ export function MessengerPage() {
                           type="button"
                           onClick={submitMaxCode}
                           disabled={busy || !maxAuthToken || !maxCodeInput.trim()}
-                          className="rounded-lg border border-border-primary px-3 py-2 text-xs text-text-secondary hover:border-accent hover:text-accent disabled:opacity-50"
+                          className="rounded-lg border border-border-primary px-3 py-2 text-xs text-text-secondary hover:border-border-primary hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
                         >
                           Войти
                         </button>
@@ -938,7 +1171,7 @@ export function MessengerPage() {
                         type="button"
                         onClick={startMaxLogin}
                         disabled={busy || !maxPhoneInput.trim()}
-                        className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                        className="rounded-lg border border-border-primary bg-bg-tertiary px-3 py-2 text-xs font-medium text-text-primary hover:bg-bg-hover disabled:opacity-50"
                       >
                         Получить код MAX
                       </button>
@@ -967,7 +1200,7 @@ export function MessengerPage() {
                             type="button"
                             onClick={submitMaxRegistration}
                             disabled={busy || !maxFirstNameInput.trim()}
-                            className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                            className="rounded-lg border border-border-primary bg-bg-tertiary px-3 py-2 text-xs font-medium text-text-primary hover:bg-bg-hover disabled:opacity-50"
                           >
                             Завершить регистрацию
                           </button>
@@ -992,7 +1225,7 @@ export function MessengerPage() {
                               type="button"
                               onClick={submitMaxPassword}
                               disabled={busy || !maxPasswordInput.trim()}
-                              className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                              className="rounded-lg border border-border-primary bg-bg-tertiary px-3 py-2 text-xs font-medium text-text-primary hover:bg-bg-hover disabled:opacity-50"
                             >
                               Подтвердить
                             </button>
@@ -1011,14 +1244,14 @@ export function MessengerPage() {
                   aria-label={selectedProvider.tokenLabel}
                 />
                 <div className="grid grid-cols-3 gap-2">
-                  <button type="button" onClick={saveToken} className="rounded-xl bg-accent px-3 py-2 text-xs font-medium text-white hover:bg-accent-hover">
+                  <button type="button" onClick={saveToken} className="rounded-xl border border-border-primary bg-bg-tertiary px-3 py-2 text-xs font-medium text-text-primary hover:bg-bg-hover">
                     Сохранить
                   </button>
                   <button
                     type="button"
                     onClick={verifyToken}
                     disabled={busy || !credentials}
-                    className="rounded-xl border border-border-primary px-3 py-2 text-xs text-text-secondary hover:border-accent hover:text-accent disabled:opacity-50"
+                    className="rounded-xl border border-border-primary px-3 py-2 text-xs text-text-secondary hover:border-border-primary hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
                   >
                     Проверить
                   </button>
@@ -1028,14 +1261,13 @@ export function MessengerPage() {
                     disabled={busy || !credentials}
                     title="Обновить диалоги"
                     aria-label="Обновить диалоги"
-                    className="rounded-xl border border-border-primary px-3 py-2 text-xs text-text-secondary hover:border-accent hover:text-accent disabled:opacity-50"
+                    className="rounded-xl border border-border-primary px-3 py-2 text-xs text-text-secondary hover:border-border-primary hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
                   >
                     <RefreshCw size={14} className={busy ? "mx-auto animate-spin" : "mx-auto"} />
                   </button>
                 </div>
               </div>
 
-              {info ? <div className="mt-3 rounded-xl border border-success/20 bg-success/10 p-2 text-xs text-success">{info}</div> : null}
               {error ? (
                 <div className="mt-3 flex gap-2 rounded-xl border border-danger/20 bg-danger/10 p-2 text-xs text-danger">
                   <AlertTriangle size={14} className="mt-0.5 shrink-0" />
@@ -1044,7 +1276,6 @@ export function MessengerPage() {
               ) : null}
             </div> : null}
 
-            {info && !showSettings ? <div className="mt-3 rounded-xl border border-success/20 bg-success/10 p-2 text-xs text-success">{info}</div> : null}
             {error && !showSettings ? (
               <div className="mt-3 flex gap-2 rounded-xl border border-danger/20 bg-danger/10 p-2 text-xs text-danger">
                 <AlertTriangle size={14} className="mt-0.5 shrink-0" />
@@ -1073,7 +1304,7 @@ export function MessengerPage() {
                   type="button"
                   onClick={() => selectConversation(conversation)}
                   className={`messenger-chat-row mb-1 flex w-full gap-2 rounded-xl px-2 py-1.5 text-left transition-colors ${
-                    isActive ? "bg-accent/10 text-accent" : "hover:bg-bg-hover text-text-primary"
+                    isActive ? "bg-bg-tertiary text-text-primary" : "hover:bg-bg-hover text-text-primary"
                   }`}
                 >
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-bg-tertiary text-text-secondary">
@@ -1100,17 +1331,21 @@ export function MessengerPage() {
       </section>
 
       <button
+        ref={conversationDividerRef}
         type="button"
-        onPointerDown={(event) => startDividerDrag("conversations", event.clientX)}
-        className="w-px cursor-col-resize bg-border-primary hover:bg-accent/60"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          startDividerDrag("messengerList", event.clientX);
+        }}
+        className={COLUMN_DIVIDER_CLASS}
         aria-label="Изменить ширину списка диалогов"
       />
 
       <section
         ref={chatPanelRef}
-        className="messenger-slide-panel messenger-slide-panel-delay flex min-w-[380px] max-w-[640px] flex-none flex-col bg-bg-primary/75"
+        className={`messenger-slide-panel messenger-slide-panel-delay flex min-w-[320px] max-w-[520px] flex-none flex-col bg-bg-primary/75 ${COLUMN_BORDER_CLASS}`}
       >
-        <header className="flex items-center justify-between gap-3 border-b border-border-primary bg-bg-secondary/70 px-4 py-2 glass-panel">
+        <header className="flex items-center justify-between gap-3 border-b border-border-primary bg-bg-secondary/70 px-4 py-2 shadow-none">
           <div className="flex min-w-0 items-center gap-2.5">
             <ProviderLogo provider={selectedProvider} />
             <div className="min-w-0">
@@ -1134,13 +1369,13 @@ export function MessengerPage() {
                 <div
                   className={`max-w-[70%] rounded-xl px-3 py-2 text-xs shadow-sm ${
                     message.direction === "outgoing"
-                      ? "rounded-br bg-accent text-white"
-                      : "rounded-bl border border-border-primary bg-bg-secondary text-text-primary"
+                      ? "rounded-br border border-border-primary bg-bg-tertiary text-text-primary"
+                      : "rounded-bl border border-border-primary bg-bg-primary text-text-primary"
                   }`}
                 >
                   {message.text ? <p className="leading-relaxed">{message.text}</p> : null}
                   {renderMessageAttachments(message)}
-                  <div className={`mt-0.5 flex items-center justify-end gap-1 text-[0.625rem] ${message.direction === "outgoing" ? "text-white/70" : "text-text-tertiary"}`}>
+                  <div className="mt-0.5 flex items-center justify-end gap-1 text-[0.625rem] text-text-tertiary">
                     {formatMessageTime(message.timestamp)}
                     {message.direction === "outgoing" ? <Check size={10} /> : null}
                   </div>
@@ -1154,7 +1389,7 @@ export function MessengerPage() {
           </div>
         </div>
 
-        <footer className="border-t border-border-primary bg-bg-secondary/80 px-4 py-2 glass-panel">
+        <footer className="border-t border-border-primary bg-bg-secondary/80 px-4 py-2 shadow-none">
           <div className="mx-auto max-w-full">
             {pendingAttachments.length ? (
               <div className="mb-1.5 flex flex-wrap gap-1.5">
@@ -1182,7 +1417,7 @@ export function MessengerPage() {
                 type="button"
                 onClick={pickAttachments}
                 disabled={busy || !credentials || selectedProviderId !== "max"}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border-primary text-text-secondary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border-primary text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label="Добавить файл, изображение или видео"
               >
                 <Paperclip size={16} />
@@ -1191,15 +1426,15 @@ export function MessengerPage() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={credentials ? "Сообщение" : "Сначала подключите аккаунт"}
-              className="max-h-28 min-h-9 min-w-0 flex-1 resize-none rounded-xl border border-border-primary bg-bg-primary px-3 py-2 text-xs text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
-              rows={1}
+              className="max-h-32 min-h-16 min-w-0 flex-1 resize-none rounded-xl border border-border-primary bg-bg-primary px-3 py-2 text-xs leading-relaxed text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
+              rows={2}
               disabled={!credentials}
             />
             <button
               type="button"
               onClick={sendMessage}
               disabled={busy || (!draft.trim() && pendingAttachments.length === 0) || !credentials}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border-primary bg-bg-tertiary text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="Отправить сообщение"
             >
               <Send size={16} />
@@ -1210,51 +1445,63 @@ export function MessengerPage() {
       </section>
 
       <button
+        ref={chatDividerRef}
         type="button"
-        onPointerDown={(event) => startDividerDrag("chat", event.clientX)}
-        className="w-px cursor-col-resize bg-border-primary hover:bg-accent/60"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          startDividerDrag("messengerChat", event.clientX);
+        }}
+        className={COLUMN_DIVIDER_CLASS}
         aria-label="Изменить ширину диалога"
       />
 
-      <aside className="min-w-[260px] flex-1 border-l border-border-primary bg-bg-secondary/65 glass-panel">
-        <div className="flex h-full flex-col">
-          <header className="flex items-center gap-2 border-b border-border-primary px-4 py-3">
-            {showContacts ? <Contact size={16} className="text-accent" /> : <Inbox size={16} className="text-accent" />}
-            <div className="min-w-0">
-              <h3 className="truncate text-sm font-semibold text-text-primary">{showContacts ? "Записная книжка MAX" : "Почта рядом с диалогом"}</h3>
-              <p className="truncate text-xs text-text-tertiary">
-                {showContacts ? "Контакты и участники выбранного диалога" : "Место под входящие/исходящие письма"}
-              </p>
-            </div>
-          </header>
-          <div className="flex-1 overflow-y-auto p-4">
-            {showContacts ? (
-              <div className="space-y-2">
-                {visibleConversations.slice(0, 24).map((conversation) => (
-                  <button
-                    key={`contact-${conversation.kind}:${conversation.id}`}
-                    type="button"
-                    onClick={() => selectConversation(conversation)}
-                    className="flex w-full items-center gap-2 rounded-xl border border-border-primary bg-bg-primary/65 px-3 py-2 text-left text-sm hover:border-accent"
-                  >
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-bg-tertiary text-text-secondary">
-                      <Contact size={14} />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium text-text-primary">{conversation.title}</span>
-                      <span className="block truncate text-xs text-text-tertiary">{conversation.subtitle}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-border-primary p-4 text-sm text-text-tertiary">
-                Правая колонка оставлена под список входящих или исходящих писем, чтобы чат MAX не занимал весь экран.
-              </div>
-            )}
-          </div>
-        </div>
-      </aside>
+      <section ref={mailListPaneRef} className={`flex h-full min-w-[260px] max-w-[440px] shrink-0 bg-bg-secondary/50 ${COLUMN_BORDER_CLASS}`}>
+        <ErrorBoundary name="MessengerMailList">
+          <EmailList selectedThreadIdOverride={mailThreadId} onThreadOpen={openMailThreadInPane} disableGlass />
+        </ErrorBoundary>
+      </section>
+
+      <button
+        ref={mailListDividerRef}
+        type="button"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          startDividerDrag("mailList", event.clientX);
+        }}
+        className={COLUMN_DIVIDER_CLASS}
+        aria-label="Изменить ширину списка писем"
+      />
+
+      <section ref={mailReaderPaneRef} className={`flex h-full min-w-[500px] grow shrink-0 bg-bg-primary/55 ${COLUMN_BORDER_CLASS}`}>
+        <ErrorBoundary name="MessengerReadingPane">
+          <ReadingPane
+            selectedThreadId={mailThreadId}
+            disableGlass
+            taskExtractSignal={mailTaskExtractSignal}
+            renderTaskSidebar={false}
+          />
+        </ErrorBoundary>
+      </section>
+
+      <button
+        ref={mailReaderDividerRef}
+        type="button"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          startDividerDrag("mailReader", event.clientX);
+        }}
+        className={COLUMN_DIVIDER_CLASS}
+        aria-label="Изменить ширину открытого письма"
+      />
+
+      {taskSidebarVisible && activeAccountId && mailThreadId ? (
+        <aside ref={taskPaneRef} className={`order-[9] flex h-full grow shrink-0 bg-bg-primary/50 ${COLUMN_BORDER_CLASS}`}>
+          <ErrorBoundary name="MessengerTaskSidebar">
+            <TaskSidebar accountId={activeAccountId} threadId={mailThreadId} className="w-full" />
+          </ErrorBoundary>
+        </aside>
+      ) : null}
+
     </main>
   );
 }

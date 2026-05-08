@@ -19,9 +19,10 @@ import { navigateToLabel } from "@/router/navigate";
 interface TaskSidebarProps {
   accountId: string;
   threadId: string;
+  className?: string;
 }
 
-export function TaskSidebar({ accountId, threadId }: TaskSidebarProps) {
+export function TaskSidebar({ accountId, threadId, className }: TaskSidebarProps) {
   const threadTasks = useTaskStore((s) => s.threadTasks);
   const setThreadTasks = useTaskStore((s) => s.setThreadTasks);
   const toggleTaskSidebar = useUIStore((s) => s.toggleTaskSidebar);
@@ -96,7 +97,7 @@ export function TaskSidebar({ accountId, threadId }: TaskSidebarProps) {
   }, [threadTasks]);
 
   return (
-    <div className="w-72 border-l border-border-primary bg-bg-primary/50 flex flex-col shrink-0">
+    <div className={`${className ?? "w-72 border-l border-border-primary"} bg-bg-primary/50 flex flex-col shrink-0`}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border-secondary">
         <h3 className="text-sm font-semibold text-text-primary">Задачи</h3>

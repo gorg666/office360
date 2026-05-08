@@ -146,7 +146,7 @@ export default function ThreadWindow() {
         for (const p of props) root.style.removeProperty(p);
         return;
       }
-      const themeData = getThemeById(colorTheme);
+      const themeData = getThemeById("slate");
       const isDark =
         theme === "dark" ||
         (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);

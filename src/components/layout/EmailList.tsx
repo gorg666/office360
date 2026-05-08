@@ -61,9 +61,18 @@ const LABEL_MAP: Record<string, string> = {
   all: "", // no filter
 };
 
-export function EmailList({ width, listRef }: { width?: number; listRef?: React.Ref<HTMLDivElement> }) {
+type EmailListProps = {
+  width?: number;
+  listRef?: React.Ref<HTMLDivElement>;
+  selectedThreadIdOverride?: string | null;
+  onThreadOpen?: (thread: Thread) => void;
+  disableGlass?: boolean;
+};
+
+export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOpen, disableGlass = false }: EmailListProps) {
   const threads = useThreadStore((s) => s.threads);
-  const selectedThreadId = useSelectedThreadId();
+  const routeSelectedThreadId = useSelectedThreadId();
+  const selectedThreadId = selectedThreadIdOverride ?? routeSelectedThreadId;
   const selectedThreadIds = useThreadStore((s) => s.selectedThreadIds);
   const isLoading = useThreadStore((s) => s.isLoading);
   const setThreads = useThreadStore((s) => s.setThreads);
@@ -163,10 +172,12 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const handleThreadClick = useCallback((thread: Thread) => {
     if (activeLabel === "drafts") {
       handleDraftClick(thread);
+    } else if (onThreadOpen) {
+      onThreadOpen(thread);
     } else {
       navigateToThread(thread.id);
     }
-  }, [activeLabel, handleDraftClick]);
+  }, [activeLabel, handleDraftClick, onThreadOpen]);
 
   const handleBulkDelete = async () => {
     if (!activeAccountId || multiSelectCount === 0) return;
@@ -500,17 +511,19 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     return () => container.removeEventListener("scroll", handleScroll);
   }, [loadMore]);
 
+  const layoutClassName = disableGlass
+    ? "min-w-0 w-full flex-1 overflow-hidden"
+    : readingPanePosition === "right"
+      ? "min-w-[240px] shrink-0"
+      : readingPanePosition === "bottom"
+        ? "w-full border-b border-border-primary h-[40%] min-h-[200px]"
+        : "w-full flex-1";
+
   return (
     <div
       ref={listRef}
-      className={`flex flex-col bg-bg-secondary/50 glass-panel ${
-        readingPanePosition === "right"
-          ? "min-w-[240px] shrink-0"
-          : readingPanePosition === "bottom"
-            ? "w-full border-b border-border-primary h-[40%] min-h-[200px]"
-            : "w-full flex-1"
-      }`}
-      style={readingPanePosition === "right" && width ? { width } : undefined}
+      className={`flex flex-col bg-bg-secondary/50 ${disableGlass ? "shadow-none" : "glass-panel"} ${layoutClassName}`}
+      style={!disableGlass && readingPanePosition === "right" && width ? { width } : undefined}
     >
       {/* Search */}
       <div className="px-3 py-2 border-b border-border-secondary">

@@ -25,10 +25,6 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { MessageSkeleton } from "@/components/ui/Skeleton";
 import { RawMessageModal } from "./RawMessageModal";
 
-interface ThreadViewProps {
-  thread: Thread;
-}
-
 async function handlePopOut(thread: Thread) {
   try {
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
@@ -71,7 +67,13 @@ function needsImapHydration(msg: DbMessage): boolean {
   return hasNoBody || !msg.from_address || msg.from_address === "unknown@example.com" || looksLikeRawHeaders;
 }
 
-export function ThreadView({ thread }: ThreadViewProps) {
+interface ThreadViewProps {
+  thread: Thread;
+  taskExtractSignal?: number;
+  renderTaskSidebar?: boolean;
+}
+
+export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = true }: ThreadViewProps) {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const contactSidebarVisible = useUIStore((s) => s.contactSidebarVisible);
   const toggleContactSidebar = useUIStore((s) => s.toggleContactSidebar);
@@ -420,6 +422,12 @@ export function ThreadView({ thread }: ThreadViewProps) {
     return () => window.removeEventListener("velo-extract-task", handler);
   }, [thread.id]);
 
+  useEffect(() => {
+    if (taskExtractSignal > 0) {
+      setShowTaskExtract(true);
+    }
+  }, [taskExtractSignal]);
+
   const handleMessageContextMenu = useCallback((e: React.MouseEvent, msg: DbMessage) => {
     e.preventDefault();
     openMenu("message", { x: e.clientX, y: e.clientY }, {
@@ -607,7 +615,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
       )}
 
       {/* Task sidebar */}
-      {taskSidebarVisible && activeAccountId && (
+      {renderTaskSidebar && taskSidebarVisible && activeAccountId && (
         <TaskSidebar accountId={activeAccountId} threadId={thread.id} />
       )}
 

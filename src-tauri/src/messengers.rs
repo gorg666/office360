@@ -657,16 +657,39 @@ fn upload_max_photo(
         .and_then(Value::as_str)
         .ok_or_else(|| format!("MAX не вернул URL загрузки фото: {upload}"))?;
 
-    let part = reqwest::blocking::multipart::Part::bytes(file_bytes)
-        .file_name(file_name)
-        .mime_str(&mime_type)
+    let safe_file_name = format!("image.{}", photo_extension(&file_name));
+    let client = reqwest::blocking::Client::builder()
+        .http1_only()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(90))
+        .user_agent(MAX_CLIENT_USER_AGENT)
+        .build()
         .map_err(|error| error.to_string())?;
-    let form = reqwest::blocking::multipart::Form::new().part("file", part);
-    let response = reqwest::blocking::Client::new()
-        .post(url)
-        .multipart(form)
-        .send()
-        .map_err(|error| error.to_string())?;
+    let mut last_error = None;
+    let mut response = None;
+    for _ in 0..3 {
+        let part = reqwest::blocking::multipart::Part::bytes(file_bytes.clone())
+            .file_name(safe_file_name.clone())
+            .mime_str(&mime_type)
+            .map_err(|error| error.to_string())?;
+        let form = reqwest::blocking::multipart::Form::new().part("file", part);
+        match client.post(url).multipart(form).send() {
+            Ok(upload_response) => {
+                response = Some(upload_response);
+                break;
+            }
+            Err(error) => {
+                last_error = Some(error.to_string());
+                std::thread::sleep(Duration::from_millis(450));
+            }
+        }
+    }
+    let response = response.ok_or_else(|| {
+        format!(
+            "MAX upload endpoint временно недоступен: {}",
+            last_error.unwrap_or_else(|| "connection failed".to_string())
+        )
+    })?;
     if !response.status().is_success() {
         return Err(format!("MAX отклонил загрузку фото: {}", response.status()));
     }
@@ -721,17 +744,43 @@ where
         .ok_or_else(|| format!("MAX не вернул {id_key}: {upload}"))?;
     let token = info.get("token").cloned();
     let file_len = file_bytes.len();
-    let response = reqwest::blocking::Client::new()
-        .post(url)
-        .header(
-            "Content-Disposition",
-            format!("attachment; filename={file_name}"),
-        )
-        .header("Content-Length", file_len.to_string())
-        .header("Content-Range", format!("0-{}/{}", file_len - 1, file_len))
-        .body(file_bytes)
-        .send()
+    let client = reqwest::blocking::Client::builder()
+        .http1_only()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(180))
+        .user_agent(MAX_CLIENT_USER_AGENT)
+        .build()
         .map_err(|error| error.to_string())?;
+    let mut last_error = None;
+    let mut response = None;
+    for _ in 0..3 {
+        match client
+            .post(url)
+            .header(
+                "Content-Disposition",
+                format!("attachment; filename={file_name}"),
+            )
+            .header("Content-Length", file_len.to_string())
+            .header("Content-Range", format!("0-{}/{}", file_len - 1, file_len))
+            .body(file_bytes.clone())
+            .send()
+        {
+            Ok(upload_response) => {
+                response = Some(upload_response);
+                break;
+            }
+            Err(error) => {
+                last_error = Some(error.to_string());
+                std::thread::sleep(Duration::from_millis(450));
+            }
+        }
+    }
+    let response = response.ok_or_else(|| {
+        format!(
+            "MAX upload endpoint временно недоступен: {}",
+            last_error.unwrap_or_else(|| "connection failed".to_string())
+        )
+    })?;
     if !response.status().is_success() {
         return Err(format!(
             "MAX отклонил загрузку файла: {}",
@@ -743,13 +792,7 @@ where
 }
 
 fn infer_mime_type(file_name: &str) -> String {
-    let extension = Path::new(file_name)
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-
-    match extension.as_str() {
+    match file_extension(file_name).as_str() {
         "jpg" | "jpeg" => "image/jpeg",
         "png" => "image/png",
         "gif" => "image/gif",
@@ -763,6 +806,22 @@ fn infer_mime_type(file_name: &str) -> String {
         _ => "application/octet-stream",
     }
     .to_string()
+}
+
+fn photo_extension(file_name: &str) -> String {
+    let extension = file_extension(file_name);
+    if extension.is_empty() {
+        return "png".to_string();
+    }
+    extension
+}
+
+fn file_extension(file_name: &str) -> String {
+    Path::new(file_name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
 }
 
 fn normalize_max_socket_response(mut response: Value) -> Value {
