@@ -211,12 +211,29 @@ export function CalendarPage() {
     if (!activeAccountId) return;
     try {
       const provider = await getCalendarProvider(activeAccountId);
+      let availableCalendars = calendars;
+
+      if (availableCalendars.length === 0) {
+        const providerCalendars = await provider.listCalendars();
+        for (const cal of providerCalendars) {
+          await upsertCalendar({
+            accountId: activeAccountId,
+            provider: provider.type,
+            remoteId: cal.remoteId,
+            displayName: cal.displayName,
+            color: cal.color,
+            isPrimary: cal.isPrimary,
+          });
+        }
+        availableCalendars = await getCalendarsForAccount(activeAccountId);
+        setCalendars(availableCalendars);
+      }
 
       // Find the target calendar
       let calendarRemoteId: string | undefined;
       let calendarDbId: string | undefined;
       if (eventData.calendarId) {
-        const cal = calendars.find((c) => c.id === eventData.calendarId);
+        const cal = availableCalendars.find((c) => c.id === eventData.calendarId);
         if (cal) {
           calendarRemoteId = cal.remote_id;
           calendarDbId = cal.id;
@@ -225,7 +242,7 @@ export function CalendarPage() {
 
       // Fallback to primary calendar
       if (!calendarRemoteId) {
-        const primary = calendars.find((c) => c.is_primary) ?? calendars[0];
+        const primary = availableCalendars.find((c) => c.is_primary) ?? availableCalendars[0];
         if (primary) {
           calendarRemoteId = primary.remote_id;
           calendarDbId = primary.id;
@@ -233,7 +250,9 @@ export function CalendarPage() {
       }
 
       if (!calendarRemoteId) {
-        // For Google, use "primary" as fallback
+        if (provider.type !== "google_api") {
+          throw new Error("Не найден календарь для создания события. Обновите список календарей и попробуйте ещё раз.");
+        }
         calendarRemoteId = "primary";
       }
 
@@ -254,6 +273,7 @@ export function CalendarPage() {
       loadEvents();
     } catch (err) {
       console.error("Failed to create event:", err);
+      throw err;
     }
   }, [activeAccountId, calendars, loadEvents]);
 

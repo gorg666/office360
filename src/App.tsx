@@ -78,6 +78,18 @@ import { normalizeLocale } from "./i18n";
 import { router } from "./router";
 import { getSelectedThreadId } from "./router/navigate";
 
+const LIGHTS_OUT_UNTIL_KEY = "velo_messenger_lights_out_until";
+const LIGHTS_OUT_CHANGED_EVENT = "velo-messenger-lights-out-changed";
+
+function hasMessengerLightsOutOverride(): boolean {
+  try {
+    const value = localStorage.getItem(LIGHTS_OUT_UNTIL_KEY);
+    return value ? Date.now() < Number(value) : false;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Sync bridge: subscribes to router state changes and writes the selected
  * thread ID to the threadStore so that range-select and other multi-select
@@ -436,14 +448,15 @@ export default function App() {
   // Sync theme class to <html> element
   useEffect(() => {
     const root = document.documentElement;
+    const isLightsOut = () => hasMessengerLightsOutOverride();
     if (theme === "dark") {
       root.classList.add("dark");
     } else if (theme === "light") {
-      root.classList.remove("dark");
+      root.classList.toggle("dark", isLightsOut());
     } else {
       const mq = window.matchMedia("(prefers-color-scheme: dark)");
       const apply = () => {
-        if (mq.matches) {
+        if (mq.matches || isLightsOut()) {
           root.classList.add("dark");
         } else {
           root.classList.remove("dark");
@@ -451,8 +464,18 @@ export default function App() {
       };
       apply();
       mq.addEventListener("change", apply);
-      return () => mq.removeEventListener("change", apply);
+      window.addEventListener(LIGHTS_OUT_CHANGED_EVENT, apply);
+      return () => {
+        mq.removeEventListener("change", apply);
+        window.removeEventListener(LIGHTS_OUT_CHANGED_EVENT, apply);
+      };
     }
+
+    const applyLightsOut = () => {
+      if (theme === "light") root.classList.toggle("dark", isLightsOut());
+    };
+    window.addEventListener(LIGHTS_OUT_CHANGED_EVENT, applyLightsOut);
+    return () => window.removeEventListener(LIGHTS_OUT_CHANGED_EVENT, applyLightsOut);
   }, [theme]);
 
   // Sync font-scale class to <html> element

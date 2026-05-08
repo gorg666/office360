@@ -13,6 +13,14 @@ export interface DbAttachment {
   local_path: string | null;
 }
 
+const ATTACHMENT_LIBRARY_FILTER = `
+       a.filename IS NOT NULL AND a.filename != ''
+       AND a.is_inline = 0
+       AND NOT (
+         a.content_id IS NOT NULL
+         AND LOWER(COALESCE(a.mime_type, '')) LIKE 'image/%'
+       )`;
+
 export async function upsertAttachment(att: {
   id: string;
   messageId: string;
@@ -73,7 +81,8 @@ export async function getAttachmentsForAccount(
     `SELECT a.*, m.from_address, m.from_name, m.date, m.subject, m.thread_id
      FROM attachments a
      JOIN messages m ON a.message_id = m.id AND a.account_id = m.account_id
-     WHERE a.account_id = $1 AND a.filename IS NOT NULL AND a.filename != ''
+     WHERE a.account_id = $1
+       AND ${ATTACHMENT_LIBRARY_FILTER}
      ORDER BY m.date DESC
      LIMIT $2 OFFSET $3`,
     [accountId, limit, offset],
@@ -94,7 +103,8 @@ export async function getAttachmentSenders(
     `SELECT m.from_address, m.from_name, COUNT(*) as count
      FROM attachments a
      JOIN messages m ON a.message_id = m.id AND a.account_id = m.account_id
-     WHERE a.account_id = $1 AND a.filename IS NOT NULL AND a.filename != ''
+     WHERE a.account_id = $1
+       AND ${ATTACHMENT_LIBRARY_FILTER}
        AND m.from_address IS NOT NULL
      GROUP BY m.from_address
      ORDER BY count DESC`,

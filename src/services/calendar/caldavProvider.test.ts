@@ -11,9 +11,9 @@ const MOCK_ICAL_DATA_2 =
 const mockLogin = vi.fn().mockResolvedValue(undefined);
 const mockFetchCalendars = vi.fn();
 const mockFetchCalendarObjects = vi.fn();
-const mockCreateCalendarObject = vi.fn().mockResolvedValue(undefined);
-const mockUpdateCalendarObject = vi.fn().mockResolvedValue(undefined);
-const mockDeleteCalendarObject = vi.fn().mockResolvedValue(undefined);
+const mockCreateCalendarObject = vi.fn().mockResolvedValue(new Response(null, { status: 201 }));
+const mockUpdateCalendarObject = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+const mockDeleteCalendarObject = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
 
 vi.mock("tsdav", () => {
   const MockDAVClient = vi.fn(function (this: Record<string, unknown>) {
@@ -49,6 +49,9 @@ describe("CalDAVProvider", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCreateCalendarObject.mockResolvedValue(new Response(null, { status: 201 }));
+    mockUpdateCalendarObject.mockResolvedValue(new Response(null, { status: 204 }));
+    mockDeleteCalendarObject.mockResolvedValue(new Response(null, { status: 204 }));
     provider = new CalDAVProvider("acc-1");
   });
 
@@ -133,6 +136,19 @@ describe("CalDAVProvider", () => {
 
       expect(event.summary).toBe("New Meeting");
       expect(event.remoteEventId).toBe("/cal/personal/generated-uuid.ics");
+    });
+
+    it("throws when CalDAV returns a failed create response", async () => {
+      mockCreateCalendarObject.mockResolvedValueOnce(new Response("Forbidden", {
+        status: 403,
+        statusText: "Forbidden",
+      }));
+
+      await expect(provider.createEvent("/cal/personal/", {
+        summary: "Blocked",
+        startTime: "2024-03-15T09:00:00Z",
+        endTime: "2024-03-15T10:00:00Z",
+      })).rejects.toThrow("CalDAV create event failed (403): Forbidden");
     });
   });
 
@@ -273,6 +289,23 @@ describe("CalDAVProvider", () => {
       const retryResult = await freshProvider.testConnection();
       expect(retryResult.success).toBe(true);
       expect(mockLogin).toHaveBeenCalledTimes(2); // initial fail + retry after client reset
+    });
+
+    it("does not cache a DAV client when login fails", async () => {
+      mockLogin.mockRejectedValueOnce(new Error("Login failed"));
+      const freshProvider = new CalDAVProvider("acc-1");
+
+      await expect(freshProvider.listCalendars()).rejects.toThrow("Login failed");
+
+      mockLogin.mockResolvedValueOnce(undefined);
+      mockFetchCalendars.mockResolvedValueOnce([{ url: "/cal/personal/", displayName: "Personal" }]);
+
+      const calendars = await freshProvider.listCalendars();
+
+      expect(calendars).toEqual([
+        { remoteId: "/cal/personal/", displayName: "Personal", color: null, isPrimary: true },
+      ]);
+      expect(mockLogin).toHaveBeenCalledTimes(2);
     });
 
     it("handles non-Error thrown values gracefully", async () => {

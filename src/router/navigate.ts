@@ -33,6 +33,11 @@ export function navigateToLabel(
     return;
   }
 
+  if (label === "messengers") {
+    router.navigate({ to: "/messengers" });
+    return;
+  }
+
   if (label === "help") {
     router.navigate({ to: "/help/$topic", params: { topic: "getting-started" } });
     return;
@@ -217,6 +222,9 @@ export function getActiveLabel(): string {
     }
     if (match.routeId === "/calendar") {
       return "calendar";
+    }
+    if (match.routeId === "/messengers") {
+      return "messengers";
     }
     if (match.routeId === "/help/$topic" || match.routeId === "/help") {
       return "help";

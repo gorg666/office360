@@ -8,6 +8,7 @@ use tauri_plugin_autostart::MacosLauncher;
 
 mod commands;
 mod imap;
+mod messengers;
 mod oauth;
 mod smtp;
 
@@ -113,6 +114,17 @@ pub fn run() {
             commands::imap_delta_check,
             commands::smtp_send_email,
             commands::smtp_test_connection,
+            messengers::messenger_request,
+            messengers::max_client_start_auth,
+            messengers::max_client_check_code,
+            messengers::max_client_check_password,
+            messengers::max_client_complete_registration,
+            messengers::max_client_get_session,
+            messengers::max_client_get_history,
+            messengers::max_client_send_message,
+            messengers::max_client_mark_as_read,
+            messengers::max_client_connect,
+            messengers::max_client_disconnect,
         ])
         .setup(|app| {
             {

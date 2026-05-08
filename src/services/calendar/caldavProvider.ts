@@ -34,9 +34,11 @@ export class CalDAVProvider implements CalendarProvider {
       throw new Error("CalDAV credentials not configured");
     }
 
+    let client: DAVClient;
+
     if (usesYandexOAuth) {
       const accessToken = await ensureFreshToken(account);
-      this.client = new DAVClient({
+      client = new DAVClient({
         serverUrl,
         credentials: { accessToken },
         authMethod: "Custom",
@@ -48,7 +50,7 @@ export class CalDAVProvider implements CalendarProvider {
         throw new Error("CalDAV credentials not configured");
       }
 
-      this.client = new DAVClient({
+      client = new DAVClient({
         serverUrl,
         credentials: { username, password },
         authMethod: "Basic",
@@ -56,8 +58,9 @@ export class CalDAVProvider implements CalendarProvider {
       });
     }
 
-    await this.client.login();
-    return this.client;
+    await client.login();
+    this.client = client;
+    return client;
   }
 
   async listCalendars(): Promise<CalendarInfo[]> {
@@ -98,13 +101,14 @@ export class CalDAVProvider implements CalendarProvider {
     const icalData = generateVEvent(event, uid);
     const filename = `${uid}.ics`;
 
-    await client.createCalendarObject({
+    const response = await client.createCalendarObject({
       calendar: { url: calendarRemoteId } as DAVCalendar,
       filename,
       iCalString: icalData,
     });
+    await assertDavResponseOk(response, "create event");
 
-    const parsed = parseVEvent(icalData, `${calendarRemoteId}${filename}`);
+    const parsed = parseVEvent(icalData, joinCalendarObjectUrl(calendarRemoteId, filename));
     return parsed;
   }
 
@@ -141,7 +145,7 @@ export class CalDAVProvider implements CalendarProvider {
     const headers: Record<string, string> = {};
     if (etag) headers["If-Match"] = etag;
 
-    await client.updateCalendarObject({
+    const response = await client.updateCalendarObject({
       calendarObject: {
         url: remoteEventId,
         data: icalData,
@@ -149,6 +153,7 @@ export class CalDAVProvider implements CalendarProvider {
       } as DAVObject,
       headers,
     });
+    await assertDavResponseOk(response, "update event");
 
     const result = parseVEvent(icalData, remoteEventId);
     return result;
@@ -160,13 +165,14 @@ export class CalDAVProvider implements CalendarProvider {
     const headers: Record<string, string> = {};
     if (etag) headers["If-Match"] = etag;
 
-    await client.deleteCalendarObject({
+    const response = await client.deleteCalendarObject({
       calendarObject: {
         url: remoteEventId,
         etag: etag ?? undefined,
       } as DAVObject,
       headers,
     });
+    await assertDavResponseOk(response, "delete event");
   }
 
   async syncEvents(calendarRemoteId: string, _syncToken?: string): Promise<CalendarSyncResult> {
@@ -221,4 +227,27 @@ function extractCalendarColor(cal: DAVCalendar): string | null {
   const props = cal as unknown as Record<string, unknown>;
   if (typeof props.calendarColor === "string") return props.calendarColor;
   return null;
+}
+
+async function assertDavResponseOk(response: Response, action: string): Promise<void> {
+  if (response.ok) return;
+
+  let details = response.statusText;
+  try {
+    const text = await response.text();
+    if (text.trim()) details = text.trim();
+  } catch {
+    // Keep the status text when the response body cannot be read.
+  }
+
+  throw new Error(`CalDAV ${action} failed (${response.status}): ${details}`);
+}
+
+function joinCalendarObjectUrl(calendarRemoteId: string, filename: string): string {
+  try {
+    return new URL(filename, calendarRemoteId).href;
+  } catch {
+    const separator = calendarRemoteId.endsWith("/") ? "" : "/";
+    return `${calendarRemoteId}${separator}${filename}`;
+  }
 }

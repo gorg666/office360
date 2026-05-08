@@ -34,6 +34,9 @@ describe("attachments DB service", () => {
       expect(sql).toContain("JOIN messages m");
       expect(sql).toContain("a.account_id = $1");
       expect(sql).toContain("filename IS NOT NULL");
+      expect(sql).toContain("a.is_inline = 0");
+      expect(sql).toContain("a.content_id IS NOT NULL");
+      expect(sql).toContain("LIKE 'image/%'");
       expect(sql).toContain("ORDER BY m.date DESC");
       expect(params).toEqual(["acc-1", 200, 0]);
       expect(result).toEqual(mockData);
@@ -60,6 +63,9 @@ describe("attachments DB service", () => {
 
       expect(mockDb.select).toHaveBeenCalledTimes(1);
       const [sql, params] = mockDb.select.mock.calls[0]!;
+      expect(sql).toContain("a.is_inline = 0");
+      expect(sql).toContain("a.content_id IS NOT NULL");
+      expect(sql).toContain("LIKE 'image/%'");
       expect(sql).toContain("GROUP BY m.from_address");
       expect(sql).toContain("ORDER BY count DESC");
       expect(params).toEqual(["acc-1"]);

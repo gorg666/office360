@@ -314,6 +314,11 @@ body {
   to { transform: translateX(0); }
 }
 
+@keyframes messengerPanelIn {
+  from { transform: translateX(-18px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
 @keyframes slideOutRight {
   from { transform: translateX(0); }
   to { transform: translateX(100%); }
@@ -415,6 +420,19 @@ body {
 /* Utility: stagger-in for list items */
 .stagger-in {
   animation: fadeIn var(--anim-normal) ease-out both;
+}
+
+.messenger-slide-panel {
+  animation: messengerPanelIn var(--anim-slow) ease-out both;
+}
+
+.messenger-slide-panel-delay {
+  animation-delay: 80ms;
+}
+
+.messenger-chat-row {
+  content-visibility: auto;
+  contain-intrinsic-size: 68px;
 }
 
 /* Accessibility: respect reduced motion preference */
