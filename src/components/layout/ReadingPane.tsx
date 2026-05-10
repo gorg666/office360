@@ -25,14 +25,14 @@ export function ReadingPane({
 
   if (!selectedThread) {
     return (
-      <div className={`flex-1 flex flex-col bg-bg-primary/50 ${panelClassName}`}>
+      <div className={`min-h-0 min-w-0 flex-1 flex flex-col bg-bg-primary/50 ${panelClassName}`}>
         <EmptyState illustration={ReadingPaneIllustration} title={APP_NAME_EN} subtitle="Select an email to read" />
       </div>
     );
   }
 
   return (
-    <div className={`flex-1 bg-bg-primary/50 overflow-hidden ${panelClassName}`}>
+    <div className={`min-h-0 min-w-0 flex-1 bg-bg-primary/50 overflow-hidden ${panelClassName}`}>
       <ThreadView thread={selectedThread} taskExtractSignal={taskExtractSignal} renderTaskSidebar={renderTaskSidebar} />
     </div>
   );

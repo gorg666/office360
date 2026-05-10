@@ -495,6 +495,39 @@ describe("imapInitialSync", () => {
     );
   });
 
+  it("retries with UID SEARCH ALL when SINCE returns empty but mailbox is non-empty (Yandex IMAP)", async () => {
+    const msg = createMockImapMessage({ uid: 1, message_id: "<m1@test>", date: Math.floor(Date.now() / 1000) });
+    const mockFolder = createMockImapFolder({
+      path: "INBOX",
+      raw_path: "INBOX",
+      exists: 1,
+    });
+    mockImapListFolders.mockResolvedValue([mockFolder]);
+    mockImapSearchFolder
+      .mockResolvedValueOnce({
+        uids: [],
+        folder_status: createMockImapFolderStatus({ exists: 1 }),
+      })
+      .mockResolvedValueOnce({
+        uids: [1],
+        folder_status: createMockImapFolderStatus({ exists: 1 }),
+      });
+    mockImapFetchMessages.mockResolvedValue(createMockImapFetchResult([msg]));
+
+    await imapInitialSync("acc-1");
+
+    expect(mockImapSearchFolder).toHaveBeenCalledTimes(2);
+    expect(mockImapSearchFolder.mock.calls[0]?.[2]).toEqual(
+      expect.stringMatching(/^\d{1,2}-[A-Z][a-z]{2}-\d{4}$/),
+    );
+    expect(mockImapSearchFolder.mock.calls[1]?.[2]).toBeNull();
+    expect(mockImapFetchMessages).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "imap.example.com" }),
+      "INBOX",
+      [1],
+    );
+  });
+
   it("syncs INBOX before other folders and fetches newest messages first", async () => {
     const archiveFolder = createMockImapFolder({
       path: "Archive",

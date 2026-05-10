@@ -21,6 +21,7 @@ import {
   onSyncStatus,
 } from "./services/gmail/syncManager";
 import { initializeClients } from "./services/gmail/tokenManager";
+import { refreshYandexImapAccountAvatars } from "./services/oauth/yandexProfile";
 import {
   startSnoozeChecker,
   stopSnoozeChecker,
@@ -71,7 +72,6 @@ import { OfflineBanner } from "./components/ui/OfflineBanner";
 import { UpdateToast } from "./components/ui/UpdateToast";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { formatSyncError } from "./utils/networkErrors";
-import { getAccountAvatarUrl } from "./utils/accountAvatar";
 import { getThemeById, COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import { normalizeLocale } from "./i18n";
@@ -304,6 +304,11 @@ export default function App() {
           ui.setTaskSidebarVisible(true);
         }
 
+        const savedMessengerPanels = await getSetting("messengers_panels_open");
+        if (savedMessengerPanels === "true") {
+          useUIStore.setState({ messengersPanelsOpen: true });
+        }
+
         // Restore sidebar nav config
         const savedNavConfig = await getSetting("sidebar_nav_config");
         if (savedNavConfig) {
@@ -321,7 +326,7 @@ export default function App() {
           id: a.id,
           email: a.email,
           displayName: a.display_name,
-          avatarUrl: getAccountAvatarUrl(a.email, a.avatar_url),
+          avatarUrl: a.avatar_url,
           isActive: a.is_active === 1,
           provider: a.provider,
         }));
@@ -330,6 +335,10 @@ export default function App() {
 
         // Initialize Gmail clients for existing accounts
         await initializeClients();
+
+        void refreshYandexImapAccountAvatars(dbAccounts).catch((err) => {
+          console.warn("[yandex-profile] Startup avatar refresh failed:", err);
+        });
 
         // Fetch Gmail send-as aliases only for the restored active Gmail account.
         const activeAccountId = useAccountStore.getState().activeAccountId;
@@ -430,6 +439,10 @@ export default function App() {
         setTimeout(() => setSyncStatus(null), 2_000);
         window.dispatchEvent(new Event("velo-sync-done"));
         updateBadgeCount();
+
+        void getAllAccounts()
+          .then(refreshYandexImapAccountAvatars)
+          .catch((err) => console.warn("[yandex-profile] Post-sync avatar refresh:", err));
 
         // Backfill uncategorized threads after first successful sync
         if (!backfillDoneRef.current) {
@@ -536,7 +549,7 @@ export default function App() {
         id: a.id,
         email: a.email,
         displayName: a.display_name,
-        avatarUrl: getAccountAvatarUrl(a.email, a.avatar_url),
+        avatarUrl: a.avatar_url,
         isActive: a.is_active === 1,
         provider: a.provider,
       }));
@@ -545,6 +558,10 @@ export default function App() {
 
       // Re-initialize clients for the new account
       await initializeClients();
+
+      void refreshYandexImapAccountAvatars(dbAccounts).catch((err) => {
+        console.warn("[yandex-profile] Avatar refresh after add-account failed:", err);
+      });
 
       if (newAccountId) {
         syncAccount(newAccountId).catch((err) => {
@@ -591,7 +608,7 @@ export default function App() {
         <div className="blob" />
       </div>
       <TitleBar />
-      <div className="flex flex-1 min-w-0 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <DndProvider>
           <ErrorBoundary name="Sidebar">
             <Sidebar

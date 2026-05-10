@@ -150,6 +150,19 @@ export async function updateAccountSyncState(
   );
 }
 
+/** Аватар и (опционально) отображаемое имя из Яндекс ID / OAuth profile. */
+export async function updateAccountProfilePresentation(
+  id: string,
+  patch: { avatarUrl: string; displayName?: string | null },
+): Promise<void> {
+  await executeWrite(
+    `UPDATE accounts SET avatar_url = $1,
+       display_name = COALESCE(NULLIF(TRIM($2), ''), display_name),
+       updated_at = unixepoch() WHERE id = $3`,
+    [patch.avatarUrl, patch.displayName ?? null, id],
+  );
+}
+
 export async function clearAccountHistoryId(id: string): Promise<void> {
   await executeWrite(
     "UPDATE accounts SET history_id = NULL, updated_at = unixepoch() WHERE id = $1",

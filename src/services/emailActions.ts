@@ -1,7 +1,9 @@
 import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore } from "@/stores/threadStore";
 import { getEmailProvider } from "@/services/email/providerFactory";
+import { getAccount } from "@/services/db/accounts";
 import { enqueuePendingOperation } from "@/services/db/pendingOperations";
+import { triggerSync } from "@/services/gmail/syncManager";
 import { classifyError } from "@/utils/networkErrors";
 import { getDb } from "@/services/db/connection";
 import { navigateToThread, getSelectedThreadId } from "@/router/navigate";
@@ -494,9 +496,15 @@ export async function sendEmail(
     threadId,
   });
 
-  // Notify the UI to refresh (so sent message appears in Sent folder)
   if (result.success) {
-    window.dispatchEvent(new Event("velo-sync-done"));
+    const account = await getAccount(accountId);
+    if (account?.provider === "imap") {
+      window.dispatchEvent(new Event("velo-sync-done"));
+    }
+    // Только аккаунт отправителя: дельта с провайдером (IMAP/Gmail), без синка чужих ящиков.
+    void triggerSync([accountId]).catch((err) => {
+      console.warn("[sendEmail] post-send sync failed:", err);
+    });
   }
 
   return result;

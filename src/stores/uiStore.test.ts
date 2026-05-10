@@ -18,6 +18,7 @@ describe("uiStore", () => {
       fontScale: "default",
       colorTheme: "indigo",
       inboxViewMode: "unified",
+      messengersPanelsOpen: false,
     });
   });
 

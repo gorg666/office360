@@ -106,6 +106,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
             className={avatarClassName}
             textClassName={avatarTextClassName}
             fallbackClassName={thread.isRead ? "bg-text-tertiary text-white" : "bg-accent text-white"}
+            lookupExternalAvatar
           />
         )}
 

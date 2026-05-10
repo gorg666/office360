@@ -17,6 +17,8 @@ export interface DbThread {
   is_muted: number;
   from_name: string | null;
   from_address: string | null;
+  /** Последнее сообщение — для списка «Отправленные» (показ получателя). */
+  to_addresses: string | null;
 }
 
 export async function getThreadsForAccount(
@@ -28,7 +30,7 @@ export async function getThreadsForAccount(
   const db = await getDb();
   if (labelId) {
     return db.select<DbThread[]>(
-      `SELECT t.*, m.from_name, m.from_address FROM threads t
+      `SELECT t.*, m.from_name, m.from_address, m.to_addresses FROM threads t
        INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
        LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
          AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
@@ -40,7 +42,7 @@ export async function getThreadsForAccount(
     );
   }
   return db.select<DbThread[]>(
-    `SELECT t.*, m.from_name, m.from_address FROM threads t
+    `SELECT t.*, m.from_name, m.from_address, m.to_addresses FROM threads t
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
        AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
      WHERE t.account_id = $1
@@ -59,7 +61,7 @@ export async function getThreadsForCategory(
   if (category === "Primary") {
     // Primary includes threads with NULL category (uncategorized)
     return db.select<DbThread[]>(
-      `SELECT t.*, m.from_name, m.from_address FROM threads t
+      `SELECT t.*, m.from_name, m.from_address, m.to_addresses FROM threads t
        INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
        LEFT JOIN thread_categories tc ON tc.account_id = t.account_id AND tc.thread_id = t.id
        LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
@@ -72,7 +74,7 @@ export async function getThreadsForCategory(
     );
   }
   return db.select<DbThread[]>(
-    `SELECT t.*, m.from_name, m.from_address FROM threads t
+    `SELECT t.*, m.from_name, m.from_address, m.to_addresses FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
      INNER JOIN thread_categories tc ON tc.account_id = t.account_id AND tc.thread_id = t.id
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
@@ -171,7 +173,7 @@ export async function getThreadById(
 ): Promise<DbThread | undefined> {
   const db = await getDb();
   const rows = await db.select<DbThread[]>(
-    `SELECT t.*, m.from_name, m.from_address FROM threads t
+    `SELECT t.*, m.from_name, m.from_address, m.to_addresses FROM threads t
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
        AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
      WHERE t.account_id = $1 AND t.id = $2

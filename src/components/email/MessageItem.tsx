@@ -9,6 +9,9 @@ import { MailMinus } from "lucide-react";
 import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
 import { ContactAvatar } from "@/components/ui/ContactAvatar";
+import { resolveMessageSenderDisplay, type ThreadSenderContext } from "@/utils/senderDisplay";
+
+const EMPTY_CONTACT_NAMES = new Map<string, string>();
 
 interface MessageItemProps {
   message: DbMessage;
@@ -20,9 +23,11 @@ interface MessageItemProps {
   isSpam?: boolean;
   focused?: boolean;
   onContextMenu?: (e: React.MouseEvent) => void;
+  contactDisplayNames?: Map<string, string>;
+  threadSender?: ThreadSenderContext | null;
 }
 
-export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, onContextMenu }, ref) {
+export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, onContextMenu, contactDisplayNames, threadSender }, ref) {
   const [expanded, setExpanded] = useState(isLast);
   const [attachments, setAttachments] = useState<DbAttachment[]>([]);
   const [authBannerDismissed, setAuthBannerDismissed] = useState(false);
@@ -76,7 +81,13 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     return cids;
   }, [message.body_html]);
 
-  const fromDisplay = message.from_name ?? message.from_address ?? "Unknown";
+  const names = contactDisplayNames ?? EMPTY_CONTACT_NAMES;
+  const fromDisplay = resolveMessageSenderDisplay(
+    message.from_name,
+    message.from_address,
+    names,
+    threadSender,
+  );
   const hasRenderableBody = Boolean((message.body_html ?? message.body_text ?? "").trim());
 
   return (
@@ -90,9 +101,10 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
           <div className="flex items-center gap-2 min-w-0">
             <ContactAvatar
               email={message.from_address}
-              name={message.from_name}
+              name={fromDisplay === "Unknown" ? null : fromDisplay}
               className="w-7 h-7 rounded-full shrink-0"
               textClassName="text-xs"
+              lookupExternalAvatar
             />
             <div className="min-w-0">
               <span className="text-sm font-medium text-text-primary truncate flex items-center gap-1">

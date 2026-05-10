@@ -214,6 +214,8 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const taskIncompleteCount = useTaskStore((s) => s.incompleteCount);
   const inboxViewMode = useUIStore((s) => s.inboxViewMode);
   const setInboxViewMode = useUIStore((s) => s.setInboxViewMode);
+  const messengersPanelsOpen = useUIStore((s) => s.messengersPanelsOpen);
+  const setMessengersPanelsOpen = useUIStore((s) => s.setMessengersPanelsOpen);
   const activeCategory = useActiveCategory();
   const openComposer = useComposerStore((s) => s.openComposer);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
@@ -369,9 +371,23 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             <div key={item.id}>
               <DroppableNavItem
                 id={item.id}
-                isActive={isInbox ? (activeLabel === "inbox" && (inboxViewMode === "unified" || activeCategory === "Primary")) : activeLabel === item.id}
+                isActive={
+                  item.id === "messengers"
+                    ? messengersPanelsOpen
+                    : isInbox
+                      ? (activeLabel === "inbox" && (inboxViewMode === "unified" || activeCategory === "Primary"))
+                      : activeLabel === item.id
+                }
                 collapsed={collapsed}
                 onClick={() => {
+                  if (item.id === "messengers") {
+                    if (messengersPanelsOpen) {
+                      setMessengersPanelsOpen(false);
+                    } else {
+                      navigateToLabel("messengers");
+                    }
+                    return;
+                  }
                   if (isInbox && inboxViewMode === "split") {
                     navigateToLabel(item.id, { category: "Primary" });
                   } else {

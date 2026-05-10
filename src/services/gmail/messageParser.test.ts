@@ -133,6 +133,26 @@ describe("parseGmailMessage", () => {
     ]);
   });
 
+  it("uses Sender display name when From is bare address and mailbox matches", () => {
+    const base = createMockGmailMessage();
+    const msg = {
+      ...base,
+      payload: {
+        ...base.payload,
+        headers: [
+          { name: "From", value: "info@timingweb.com" },
+          { name: "Sender", value: "Timing Web <info@timingweb.com>" },
+          { name: "To", value: "me@example.com" },
+          { name: "Subject", value: "Test" },
+        ],
+      },
+    };
+
+    const parsed = parseGmailMessage(msg);
+    expect(parsed.fromAddress).toBe("info@timingweb.com");
+    expect(parsed.fromName).toBe("Timing Web");
+  });
+
   it("decodes RFC 2047 subject (UTF-8 Q)", () => {
     const base = createMockGmailMessage();
     const msg = {

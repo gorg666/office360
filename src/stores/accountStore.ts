@@ -17,6 +17,7 @@ interface AccountState {
   setActiveAccount: (id: string) => void;
   addAccount: (account: Account) => void;
   removeAccount: (id: string) => void;
+  patchAccount: (id: string, patch: Partial<Pick<Account, "avatarUrl" | "displayName">>) => void;
 }
 
 export const useAccountStore = create<AccountState>((set) => ({
@@ -74,4 +75,11 @@ export const useAccountStore = create<AccountState>((set) => ({
         activeAccountId,
       };
     }),
+
+  patchAccount: (id, patch) =>
+    set((state) => ({
+      accounts: state.accounts.map((account) =>
+        account.id === id ? { ...account, ...patch } : account,
+      ),
+    })),
 }));

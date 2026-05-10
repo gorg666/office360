@@ -11,7 +11,10 @@ import { hasCalendarSupport, getCalendarProvider } from "../calendar/providerFac
 import { getVisibleCalendars, upsertCalendar, updateCalendarSyncToken } from "../db/calendars";
 import { upsertCalendarEvent, deleteEventByRemoteId } from "../db/calendarEvents";
 
-const SYNC_INTERVAL_MS = 60_000; // 60 seconds — delta syncs are lightweight (single API call when idle)
+/** When the window/tab is visible — pick up new mail sooner. */
+const SYNC_INTERVAL_VISIBLE_MS = 30_000;
+/** When hidden/minimized — back off to limit CPU and network. */
+const SYNC_INTERVAL_HIDDEN_MS = 120_000;
 
 interface ReconnectDiagnosticContext {
   accountId?: string;
@@ -42,9 +45,43 @@ function mapImapPhase(phase: string): "labels" | "threads" | "messages" | "done"
   return phase as "labels" | "threads" | "messages" | "done";
 }
 
-let syncTimer: ReturnType<typeof setInterval> | null = null;
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+let backgroundAccountIds: string[] | null = null;
+let visibilityListenerAttached = false;
 let syncPromise: Promise<void> | null = null;
 let pendingAccountIds: string[] | null = null;
+
+function getAdaptiveSyncDelayMs(): number {
+  if (typeof document === "undefined") return SYNC_INTERVAL_VISIBLE_MS;
+  return document.hidden ? SYNC_INTERVAL_HIDDEN_MS : SYNC_INTERVAL_VISIBLE_MS;
+}
+
+function scheduleNextPeriodicSync(): void {
+  if (!backgroundAccountIds) return;
+  if (syncTimer) clearTimeout(syncTimer);
+  const delay = getAdaptiveSyncDelayMs();
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    const ids = backgroundAccountIds;
+    if (!ids || ids.length === 0) return;
+    logReconnectDiagnostic("startBackgroundSync.intervalTick", {
+      reason: "periodic_sync_tick",
+      extra: { intervalMs: delay, accountIds: ids },
+    });
+    void runSync(ids).finally(() => scheduleNextPeriodicSync());
+  }, delay);
+}
+
+function attachVisibilitySyncListener(): void {
+  if (visibilityListenerAttached || typeof document === "undefined") return;
+  visibilityListenerAttached = true;
+  document.addEventListener("visibilitychange", () => {
+    if (!backgroundAccountIds?.length) return;
+    if (syncTimer) clearTimeout(syncTimer);
+    syncTimer = null;
+    scheduleNextPeriodicSync();
+  });
+}
 
 async function waitForSyncIdle(): Promise<void> {
   while (syncPromise) {
@@ -335,23 +372,18 @@ export async function syncAccount(accountId: string): Promise<void> {
 export function startBackgroundSync(accountIds: string[], skipImmediateSync = false): void {
   stopBackgroundSync();
 
+  backgroundAccountIds = [...accountIds];
+  attachVisibilitySyncListener();
+
   if (!skipImmediateSync) {
-    // Immediate sync
     logReconnectDiagnostic("startBackgroundSync.immediateSync", {
       reason: "startBackgroundSync",
       extra: { accountIds },
     });
-    runSync(accountIds);
+    void runSync(accountIds).finally(() => scheduleNextPeriodicSync());
+  } else {
+    scheduleNextPeriodicSync();
   }
-
-  // Periodic sync
-  syncTimer = setInterval(() => {
-    logReconnectDiagnostic("startBackgroundSync.intervalTick", {
-      reason: "periodic_sync_tick",
-      extra: { intervalMs: SYNC_INTERVAL_MS, accountIds },
-    });
-    runSync(accountIds);
-  }, SYNC_INTERVAL_MS);
 }
 
 /**
@@ -359,9 +391,10 @@ export function startBackgroundSync(accountIds: string[], skipImmediateSync = fa
  */
 export function stopBackgroundSync(): void {
   if (syncTimer) {
-    clearInterval(syncTimer);
+    clearTimeout(syncTimer);
     syncTimer = null;
   }
+  backgroundAccountIds = null;
 }
 
 /**

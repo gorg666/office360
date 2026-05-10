@@ -1,4 +1,4 @@
-use async_imap::{types::Flag, Authenticator, Client, Session};
+use async_imap::{types::{Flag, Mailbox}, Authenticator, Client, Session};
 use base64::Engine;
 use futures::StreamExt;
 use mail_parser::{MessageParser, MimeHeaders};
@@ -18,6 +18,21 @@ const IMAP_CMD_TIMEOUT: Duration = Duration::from_secs(30);
 const IMAP_FETCH_TIMEOUT: Duration = Duration::from_secs(120);
 const IMAP_SEARCH_TIMEOUT: Duration = Duration::from_secs(60);
 const OVERALL_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Some servers return an empty `UID SEARCH N:*` even when new messages exist, or the search
+/// fails transiently. After a successful SELECT, `UIDNEXT` is the next UID to assign, so any
+/// existing UID is in `[1, UIDNEXT)`; new mail since `last_uid` is therefore `last_uid+1 .. UIDNEXT-1`.
+fn infer_new_uids_from_uid_next(last_uid: u32, mailbox: &Mailbox) -> Vec<u32> {
+    let Some(uid_next) = mailbox.uid_next else {
+        return Vec::new();
+    };
+    if uid_next <= last_uid + 1 {
+        return Vec::new();
+    }
+    let mut uids: Vec<u32> = (last_uid + 1..uid_next).collect();
+    uids.sort();
+    uids
+}
 
 /// Configure TCP keepalive and nodelay on a connected socket.
 fn configure_tcp_socket(stream: &TcpStream) {
@@ -520,24 +535,38 @@ pub async fn fetch_new_uids(
     folder: &str,
     last_uid: u32,
 ) -> Result<Vec<u32>, String> {
-    tokio::time::timeout(IMAP_CMD_TIMEOUT, session.select(folder))
+    let mailbox = tokio::time::timeout(IMAP_CMD_TIMEOUT, session.select(folder))
         .await
         .map_err(|_| format!("SELECT {folder} timed out after {}s — check your server settings or network connection", IMAP_CMD_TIMEOUT.as_secs()))?
         .map_err(|e| format!("SELECT {folder} failed: {e}"))?;
 
     let query = format!("{}:*", last_uid + 1);
-    let uids = tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search(&query))
-        .await
-        .map_err(|_| {
-            format!(
-                "UID SEARCH timed out after {}s — check your server settings or network connection",
+    let mut result: Vec<u32> = match tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search(&query)).await {
+        Ok(Ok(uids)) => uids.into_iter().filter(|&u| u > last_uid).collect(),
+        Ok(Err(e)) => {
+            log::warn!("fetch_new_uids: UID SEARCH {folder} failed: {e}, trying UIDNEXT fallback");
+            Vec::new()
+        }
+        Err(_) => {
+            log::warn!(
+                "fetch_new_uids: UID SEARCH {folder} timed out after {}s, trying UIDNEXT fallback",
                 IMAP_SEARCH_TIMEOUT.as_secs()
-            )
-        })?
-        .map_err(|e| format!("UID SEARCH failed: {e}"))?;
+            );
+            Vec::new()
+        }
+    };
 
-    // Filter out last_uid itself (IMAP returns it if it's the highest UID)
-    let mut result: Vec<u32> = uids.into_iter().filter(|&u| u > last_uid).collect();
+    if result.is_empty() {
+        let fallback = infer_new_uids_from_uid_next(last_uid, &mailbox);
+        if !fallback.is_empty() {
+            log::info!(
+                "fetch_new_uids: {folder}: UID SEARCH empty or failed; UIDNEXT fallback → {} new UID(s)",
+                fallback.len()
+            );
+            result = fallback;
+        }
+    }
+
     result.sort();
     Ok(result)
 }
@@ -896,7 +925,7 @@ pub async fn delta_check_folders(
 
         // UID SEARCH for messages newer than last_uid
         let query = format!("{}:*", req.last_uid + 1);
-        let new_uids = match tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search(&query))
+        let mut new_uids = match tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search(&query))
             .await
         {
             Ok(Ok(uids)) => {
@@ -917,6 +946,18 @@ pub async fn delta_check_folders(
                 vec![]
             }
         };
+
+        if new_uids.is_empty() {
+            let fallback = infer_new_uids_from_uid_next(req.last_uid, &mailbox);
+            if !fallback.is_empty() {
+                log::info!(
+                    "delta_check: {}: UID SEARCH empty or failed; UIDNEXT fallback → {} UID(s)",
+                    req.folder,
+                    fallback.len()
+                );
+                new_uids = fallback;
+            }
+        }
 
         results.push(DeltaCheckResult {
             folder: req.folder.clone(),
@@ -2081,8 +2122,24 @@ fn parse_message_with_options(
         _ => None,
     };
 
-    // Addresses
-    let (from_address, from_name) = extract_first_address(message.from());
+    // Addresses — если в From только адрес, подставляем имя из Sender при совпадении mailbox (RFC 5322).
+    let (from_address, mut from_name) = extract_first_address(message.from());
+    if from_name
+        .as_ref()
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true)
+    {
+        if let Some(sender) = message.sender() {
+            let (s_addr, s_name) = extract_first_address(Some(sender));
+            let addrs_match = match (&from_address, &s_addr) {
+                (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+                _ => false,
+            };
+            if addrs_match && s_name.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false) {
+                from_name = s_name;
+            }
+        }
+    }
     let to_addresses = format_address_list(message.to());
     let cc_addresses = format_address_list(message.cc());
     let bcc_addresses = format_address_list(message.bcc());

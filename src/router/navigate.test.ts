@@ -16,6 +16,15 @@ vi.mock("./index", () => ({
   },
 }));
 
+const mockSetMessengersPanelsOpen = vi.fn();
+vi.mock("@/stores/uiStore", () => ({
+  useUIStore: {
+    getState: () => ({
+      setMessengersPanelsOpen: mockSetMessengersPanelsOpen,
+    }),
+  },
+}));
+
 import {
   navigateToLabel,
   navigateToThread,
@@ -28,6 +37,7 @@ import {
 describe("navigate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSetMessengersPanelsOpen.mockClear();
     mockState.location = { pathname: "/mail/inbox", search: {} };
     mockState.matches = [];
   });
@@ -39,6 +49,23 @@ describe("navigate", () => {
         to: "/mail/$label",
         params: { label: "inbox" },
         search: {},
+      });
+    });
+
+    it("should open messenger panels on mail shell without extra navigation", () => {
+      mockState.location.pathname = "/mail/starred";
+      navigateToLabel("messengers");
+      expect(mockSetMessengersPanelsOpen).toHaveBeenCalledWith(true);
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it("should open messenger panels and go to inbox when outside mail shell", () => {
+      mockState.location.pathname = "/calendar";
+      navigateToLabel("messengers");
+      expect(mockSetMessengersPanelsOpen).toHaveBeenCalledWith(true);
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/mail/$label",
+        params: { label: "inbox" },
       });
     });
 

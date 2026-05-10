@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
-import { EmailList } from "@/components/layout/EmailList";
-import { ReadingPane } from "@/components/layout/ReadingPane";
-import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import { TaskSidebar } from "@/components/tasks/TaskSidebar";
 import {
   AlertTriangle,
   Bot,
@@ -55,10 +51,6 @@ import {
   getYandexUserLink,
   sendYandexMessage,
 } from "@/services/messengers/yandexBotApi";
-import { useAccountStore } from "@/stores/accountStore";
-import { useThreadStore, type Thread } from "@/stores/threadStore";
-import { useUIStore } from "@/stores/uiStore";
-
 const LIGHTS_OUT_UNTIL_KEY = "velo_messenger_lights_out_until";
 const LIGHTS_OUT_CHANGED_EVENT = "velo-messenger-lights-out-changed";
 const MAX_CONVERSATIONS_CACHE_KEY = "velo_max_conversations:v1";
@@ -114,33 +106,93 @@ const PROVIDER_FILTERS: Array<{ id: MessengerProviderId; label: string }> = [
   { id: "telegram", label: "Telegram" },
 ];
 
-type PaneId = "messengerList" | "messengerChat" | "mailList" | "mailReader";
+type StripPaneId = "messengerList" | "messengerChat";
 
-const PANE_LABELS: Record<PaneId, string> = {
+const PANE_LABELS: Record<StripPaneId, string> = {
   messengerList: "М",
   messengerChat: "Ч",
-  mailList: "П",
-  mailReader: "О",
 };
 
-const DEFAULT_PANE_ORDER: PaneId[] = ["messengerList", "messengerChat", "mailList", "mailReader"];
+const DEFAULT_STRIP_ORDER: StripPaneId[] = ["messengerList", "messengerChat"];
+
+const ALL_STRIP_PANE_IDS: StripPaneId[] = ["messengerList", "messengerChat"];
+const LAYOUT_STORAGE_KEY = "velo_messenger_pane_layout:v2";
+/** Ширины и порядок только колонок мессенджера у обычных маршрутов почты. */
+const STRIP_LAYOUT_KEY = "velo_messenger_side_strip:v1";
+
+const DEFAULT_STRIP_WIDTHS: Record<StripPaneId, number> = {
+  messengerList: 250,
+  messengerChat: 360,
+};
+
 const COLUMN_BORDER_CLASS = "overflow-hidden border-l border-border-primary shadow-none";
 const COLUMN_DIVIDER_CLASS = "relative z-20 -mx-1.5 w-3 shrink-0 cursor-col-resize bg-transparent before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border-primary hover:before:bg-text-tertiary";
+/** Ширина разделителя между колонками списка и чата (соответствует `w-3` у ручки). */
+const INNER_STRIP_DIVIDER_PX = 12;
 
-const PANE_SIZE_LIMITS: Record<PaneId, { min: number; max: number }> = {
+const STRIP_PANE_LIMITS: Record<StripPaneId, { min: number; max: number }> = {
   messengerList: { min: 220, max: 340 },
   messengerChat: { min: 320, max: 520 },
-  mailList: { min: 260, max: 440 },
-  mailReader: { min: 500, max: 820 },
 };
-
-const TASK_PANE_SIZE_LIMITS = { min: 240, max: 420 };
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function nextVisiblePane(order: PaneId[], collapsed: PaneId[], paneId: PaneId): PaneId | null {
+interface PersistedMessengerLayout {
+  paneWidths?: Partial<Record<StripPaneId, number>>;
+  paneOrder?: StripPaneId[];
+  collapsedPaneIds?: string[];
+}
+
+function loadMessengerPaneLayout(): PersistedMessengerLayout {
+  try {
+    const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed as PersistedMessengerLayout;
+  } catch {
+    return {};
+  }
+}
+
+function loadSideStripLayout(): PersistedMessengerLayout {
+  try {
+    const raw = localStorage.getItem(STRIP_LAYOUT_KEY);
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") return parsed as PersistedMessengerLayout;
+    }
+  } catch {
+    // fall through to legacy full layout
+  }
+  const legacy = loadMessengerPaneLayout();
+  const stripOrder = legacy.paneOrder?.filter((x): x is StripPaneId => ALL_STRIP_PANE_IDS.includes(x as StripPaneId));
+  return {
+    paneWidths: {
+      messengerList: legacy.paneWidths?.messengerList,
+      messengerChat: legacy.paneWidths?.messengerChat,
+    },
+    paneOrder: stripOrder?.length === 2 ? stripOrder : undefined,
+    collapsedPaneIds: legacy.collapsedPaneIds?.filter((x): x is StripPaneId => ALL_STRIP_PANE_IDS.includes(x as StripPaneId)),
+  };
+}
+
+function mergeStripWidths(persisted: Partial<Record<StripPaneId, number>> | undefined): Record<StripPaneId, number> {
+  const merged = { ...DEFAULT_STRIP_WIDTHS };
+  if (!persisted) return merged;
+  for (const id of ALL_STRIP_PANE_IDS) {
+    const v = persisted[id];
+    if (typeof v === "number" && Number.isFinite(v)) {
+      const { min, max } = STRIP_PANE_LIMITS[id];
+      merged[id] = clamp(v, min, max);
+    }
+  }
+  return merged;
+}
+
+function nextVisibleStripPane(order: StripPaneId[], collapsed: StripPaneId[], paneId: StripPaneId): StripPaneId | null {
   const startIndex = order.indexOf(paneId);
   if (startIndex < 0) return null;
   for (let index = startIndex + 1; index < order.length; index += 1) {
@@ -323,7 +375,15 @@ function mergeMessages(...groups: MessengerMessage[][]): MessengerMessage[] {
   return [...map.values()].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
 }
 
-export function MessengerPage() {
+export type MessengerSideStripProps = {
+  /**
+   * Полная ширина блока мессенджера (список + разделитель + чат).
+   * Если задана — правая колонка чата занимает оставшееся место; иначе ширина по сохранённым пикселям колонок.
+   */
+  asideTotalWidth?: number;
+};
+
+export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps = {}) {
   const [selectedProviderId, setSelectedProviderId] = useState<MessengerProviderId>("max");
   const [activeProviderIds, setActiveProviderIds] = useState<MessengerProviderId[]>(["max", "yandex"]);
   const [query, setQuery] = useState("");
@@ -335,17 +395,15 @@ export function MessengerPage() {
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
-  const [paneWidths, setPaneWidths] = useState<Record<PaneId, number>>({
-    messengerList: 250,
-    messengerChat: 360,
-    mailList: 310,
-    mailReader: 560,
+  const [paneWidths, setPaneWidths] = useState<Record<StripPaneId, number>>(() =>
+    mergeStripWidths(loadSideStripLayout().paneWidths),
+  );
+  const paneOrder = DEFAULT_STRIP_ORDER;
+  const [collapsedPaneIds, setCollapsedPaneIds] = useState<StripPaneId[]>(() => {
+    const saved = loadSideStripLayout().collapsedPaneIds;
+    if (!Array.isArray(saved)) return [];
+    return saved.filter((x): x is StripPaneId => ALL_STRIP_PANE_IDS.includes(x as StripPaneId));
   });
-  const [taskPaneWidth, setTaskPaneWidth] = useState(288);
-  const [paneOrder, setPaneOrder] = useState<PaneId[]>(DEFAULT_PANE_ORDER);
-  const [collapsedPaneIds, setCollapsedPaneIds] = useState<PaneId[]>([]);
-  const [mailThreadId, setMailThreadId] = useState<string | null>(null);
-  const [mailTaskExtractSignal, setMailTaskExtractSignal] = useState(0);
   const [maxCredentials, setMaxCredentials] = useState<MessengerCredentials | null>(() => loadMessengerCredentials("max"));
   const [yandexCredentials, setYandexCredentials] = useState<MessengerCredentials | null>(() => loadMessengerCredentials("yandex"));
   const [telegramCredentials, setTelegramCredentials] = useState<MessengerCredentials | null>(() => loadMessengerCredentials("telegram"));
@@ -377,24 +435,14 @@ export function MessengerPage() {
   const conversationPanelRef = useRef<HTMLElement | null>(null);
   const chatPanelRef = useRef<HTMLElement | null>(null);
   const conversationDividerRef = useRef<HTMLButtonElement | null>(null);
-  const chatDividerRef = useRef<HTMLButtonElement | null>(null);
-  const mailListDividerRef = useRef<HTMLButtonElement | null>(null);
-  const mailReaderDividerRef = useRef<HTMLButtonElement | null>(null);
-  const mailListPaneRef = useRef<HTMLElement | null>(null);
-  const mailReaderPaneRef = useRef<HTMLElement | null>(null);
-  const taskPaneRef = useRef<HTMLElement | null>(null);
-  const draggedPaneRef = useRef<PaneId | null>(null);
-  const paneDragMovedRef = useRef(false);
   const dragStateRef = useRef<{
     startX: number;
-    leftPane: PaneId;
-    rightPane: PaneId | "taskSidebar";
+    leftPane: StripPaneId;
+    rightPane: StripPaneId;
     startLeftWidth: number;
     startRightWidth: number;
+    totalInner: number;
   } | null>(null);
-  const selectMailThread = useThreadStore((state) => state.selectThread);
-  const activeAccountId = useAccountStore((state) => state.activeAccountId);
-  const taskSidebarVisible = useUIStore((state) => state.taskSidebarVisible);
 
   const selectedProvider = PROVIDERS.find((provider) => provider.id === selectedProviderId) ?? PROVIDERS[0]!;
   const credentials = selectedProviderId === "max" ? maxCredentials : selectedProviderId === "yandex" ? yandexCredentials : telegramCredentials;
@@ -459,35 +507,46 @@ export function MessengerPage() {
   }, [messages.max]);
 
   useEffect(() => {
+    if (asideTotalWidth !== undefined) {
+      const inner = asideTotalWidth - INNER_STRIP_DIVIDER_PX;
+      setPaneWidths((w) => {
+        const sum = w.messengerList + w.messengerChat;
+        if (sum <= inner) return w;
+        let L = w.messengerList;
+        let R = w.messengerChat;
+        const ratio = inner / sum;
+        L = Math.round(L * ratio);
+        R = inner - L;
+        L = clamp(L, STRIP_PANE_LIMITS.messengerList.min, STRIP_PANE_LIMITS.messengerList.max);
+        R = inner - L;
+        R = clamp(R, STRIP_PANE_LIMITS.messengerChat.min, STRIP_PANE_LIMITS.messengerChat.max);
+        L = inner - R;
+        L = clamp(L, STRIP_PANE_LIMITS.messengerList.min, STRIP_PANE_LIMITS.messengerList.max);
+        return { messengerList: L, messengerChat: R };
+      });
+    }
+  }, [asideTotalWidth]);
+
+  useEffect(() => {
     if (conversationPanelRef.current) {
       conversationPanelRef.current.style.width = `${paneWidths.messengerList}px`;
     }
     if (chatPanelRef.current) {
-      chatPanelRef.current.style.width = `${paneWidths.messengerChat}px`;
+      if (asideTotalWidth !== undefined) {
+        chatPanelRef.current.style.width = "";
+      } else {
+        chatPanelRef.current.style.width = `${paneWidths.messengerChat}px`;
+      }
     }
-    if (mailListPaneRef.current) {
-      mailListPaneRef.current.style.width = `${paneWidths.mailList}px`;
-    }
-    if (mailReaderPaneRef.current) {
-      mailReaderPaneRef.current.style.width = `${paneWidths.mailReader}px`;
-    }
-  }, [paneWidths]);
+  }, [paneWidths, asideTotalWidth]);
 
   useEffect(() => {
-    if (taskPaneRef.current) {
-      taskPaneRef.current.style.width = `${taskPaneWidth}px`;
-    }
-  }, [taskPaneWidth]);
-
-  useEffect(() => {
-    const panes: Record<PaneId, HTMLElement | null> = {
+    const panes: Record<StripPaneId, HTMLElement | null> = {
       messengerList: conversationPanelRef.current,
       messengerChat: chatPanelRef.current,
-      mailList: mailListPaneRef.current,
-      mailReader: mailReaderPaneRef.current,
     };
 
-    for (const paneId of DEFAULT_PANE_ORDER) {
+    for (const paneId of ALL_STRIP_PANE_IDS) {
       const pane = panes[paneId];
       if (!pane) continue;
       pane.style.order = String(paneOrder.indexOf(paneId) * 2);
@@ -495,22 +554,28 @@ export function MessengerPage() {
     }
 
     if (conversationDividerRef.current) {
-      conversationDividerRef.current.style.order = String(paneOrder.indexOf("messengerList") * 2 + 1);
-      conversationDividerRef.current.style.display = collapsedPaneIds.includes("messengerList") || !nextVisiblePane(paneOrder, collapsedPaneIds, "messengerList") ? "none" : "";
+      conversationDividerRef.current.style.order = "1";
+      const listVisible = !collapsedPaneIds.includes("messengerList");
+      const chatVisible = !collapsedPaneIds.includes("messengerChat");
+      conversationDividerRef.current.style.display = listVisible && chatVisible ? "" : "none";
     }
-    if (chatDividerRef.current) {
-      chatDividerRef.current.style.order = String(paneOrder.indexOf("messengerChat") * 2 + 1);
-      chatDividerRef.current.style.display = collapsedPaneIds.includes("messengerChat") || !nextVisiblePane(paneOrder, collapsedPaneIds, "messengerChat") ? "none" : "";
-    }
-    if (mailListDividerRef.current) {
-      mailListDividerRef.current.style.order = String(paneOrder.indexOf("mailList") * 2 + 1);
-      mailListDividerRef.current.style.display = collapsedPaneIds.includes("mailList") || !nextVisiblePane(paneOrder, collapsedPaneIds, "mailList") ? "none" : "";
-    }
-    if (mailReaderDividerRef.current) {
-      mailReaderDividerRef.current.style.order = String(paneOrder.indexOf("mailReader") * 2 + 1);
-      mailReaderDividerRef.current.style.display = collapsedPaneIds.includes("mailReader") || !taskSidebarVisible || !activeAccountId || !mailThreadId ? "none" : "";
-    }
-  }, [activeAccountId, collapsedPaneIds, mailThreadId, paneOrder, taskSidebarVisible]);
+  }, [collapsedPaneIds, paneOrder]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const payload: PersistedMessengerLayout = {
+          paneWidths,
+          paneOrder,
+          collapsedPaneIds,
+        };
+        localStorage.setItem(STRIP_LAYOUT_KEY, JSON.stringify(payload));
+      } catch {
+        // best-effort persistence
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [paneWidths, collapsedPaneIds, paneOrder]);
 
   useEffect(() => {
     if (selectedConversation) {
@@ -581,28 +646,30 @@ export function MessengerPage() {
     }
   }, []);
 
-  const startDividerDrag = useCallback((leftPane: PaneId, clientX: number) => {
-    const rightPane = leftPane === "mailReader"
-      ? (taskSidebarVisible && activeAccountId && mailThreadId ? "taskSidebar" : null)
-      : nextVisiblePane(paneOrder, collapsedPaneIds, leftPane);
+  const startDividerDrag = useCallback((leftPane: StripPaneId, clientX: number) => {
+    const rightPane = nextVisibleStripPane(paneOrder, collapsedPaneIds, leftPane);
     if (!rightPane) return;
+
+    const totalInner =
+      asideTotalWidth !== undefined
+        ? asideTotalWidth - INNER_STRIP_DIVIDER_PX
+        : paneWidths[leftPane] + paneWidths[rightPane];
 
     dragStateRef.current = {
       startX: clientX,
       leftPane,
       rightPane,
       startLeftWidth: paneWidths[leftPane],
-      startRightWidth: rightPane === "taskSidebar" ? taskPaneWidth : paneWidths[rightPane],
+      startRightWidth: paneWidths[rightPane],
+      totalInner,
     };
     const handlePointerMove = (event: PointerEvent) => {
       const dragState = dragStateRef.current;
       if (!dragState) return;
       const delta = event.clientX - dragState.startX;
-      const leftLimits = PANE_SIZE_LIMITS[dragState.leftPane];
-      const rightLimits = dragState.rightPane === "taskSidebar"
-        ? TASK_PANE_SIZE_LIMITS
-        : PANE_SIZE_LIMITS[dragState.rightPane];
-      const totalWidth = dragState.startLeftWidth + dragState.startRightWidth;
+      const leftLimits = STRIP_PANE_LIMITS[dragState.leftPane];
+      const rightLimits = STRIP_PANE_LIMITS[dragState.rightPane];
+      const totalWidth = dragState.totalInner;
       const minLeft = Math.max(leftLimits.min, totalWidth - rightLimits.max);
       const maxLeft = Math.min(leftLimits.max, totalWidth - rightLimits.min);
       const nextLeftWidth = clamp(dragState.startLeftWidth + delta, minLeft, maxLeft);
@@ -611,11 +678,8 @@ export function MessengerPage() {
       setPaneWidths((current) => ({
         ...current,
         [dragState.leftPane]: nextLeftWidth,
-        ...(dragState.rightPane === "taskSidebar" ? {} : { [dragState.rightPane]: nextRightWidth }),
+        [dragState.rightPane]: nextRightWidth,
       }));
-      if (dragState.rightPane === "taskSidebar") {
-        setTaskPaneWidth(nextRightWidth);
-      }
     };
     const stopDrag = () => {
       dragStateRef.current = null;
@@ -624,7 +688,7 @@ export function MessengerPage() {
     };
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", stopDrag, { once: true });
-  }, [activeAccountId, collapsedPaneIds, mailThreadId, paneOrder, paneWidths, taskPaneWidth, taskSidebarVisible]);
+  }, [asideTotalWidth, collapsedPaneIds, paneOrder, paneWidths]);
 
   const pickAttachments = useCallback(() => {
     void runAction(async () => {
@@ -654,58 +718,13 @@ export function MessengerPage() {
     setPendingAttachments((current) => current.filter((attachment) => attachment.path !== path));
   }, []);
 
-  const togglePaneCollapsed = useCallback((paneId: PaneId) => {
+  const togglePaneCollapsed = useCallback((paneId: StripPaneId) => {
     setCollapsedPaneIds((current) => {
       if (current.includes(paneId)) return current.filter((id) => id !== paneId);
-      if (DEFAULT_PANE_ORDER.length - current.length <= 1) return current;
+      if (DEFAULT_STRIP_ORDER.length - current.length <= 1) return current;
       return [...current, paneId];
     });
   }, []);
-
-  const movePaneBefore = useCallback((source: PaneId, target: PaneId) => {
-    if (source === target) return;
-    setPaneOrder((current) => {
-      const withoutSource = current.filter((id) => id !== source);
-      const targetIndex = withoutSource.indexOf(target);
-      if (targetIndex < 0) return current;
-      return [
-        ...withoutSource.slice(0, targetIndex),
-        source,
-        ...withoutSource.slice(targetIndex),
-      ];
-    });
-  }, []);
-
-  const openMailThreadInPane = useCallback((thread: Thread) => {
-    setMailThreadId(thread.id);
-    selectMailThread(thread.id);
-  }, [selectMailThread]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const isTaskShortcut = event.code === "KeyT" || event.key.toLowerCase() === "t";
-      if (!isTaskShortcut || event.ctrlKey || event.metaKey || event.altKey) return;
-      const target = event.target as HTMLElement | null;
-      if (
-        target?.tagName === "INPUT" ||
-        target?.tagName === "TEXTAREA" ||
-        target?.isContentEditable
-      ) {
-        return;
-      }
-      const threadState = useThreadStore.getState();
-      const selectedFromList = [...threadState.selectedThreadIds][0] ?? null;
-      const selectedId = selectedFromList ?? mailThreadId ?? threadState.selectedThreadId;
-      if (!selectedId) return;
-      event.preventDefault();
-      event.stopPropagation();
-      setMailThreadId(selectedId);
-      setMailTaskExtractSignal((value) => value + 1);
-    };
-
-    window.addEventListener("keydown", handleKeyDown, { capture: true });
-    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
-  }, [mailThreadId]);
 
   const toggleProviderFilter = useCallback((providerId: MessengerProviderId) => {
     setActiveProviderIds((current) => {
@@ -967,8 +986,16 @@ export function MessengerPage() {
     });
   }, [credentials, draft, pendingAttachments, runAction, selectedConversation?.subtitle, selectedConversation?.title, selectedProvider.targetHint, selectedProviderId, targetId, targetKind]);
 
+  const chatColumnClass =
+    asideTotalWidth !== undefined
+      ? `messenger-slide-panel messenger-slide-panel-delay flex min-h-0 min-w-0 flex-1 flex-col bg-bg-primary/75 ${COLUMN_BORDER_CLASS}`
+      : `messenger-slide-panel messenger-slide-panel-delay flex min-h-0 min-w-[320px] max-w-[520px] flex-none flex-col bg-bg-primary/75 ${COLUMN_BORDER_CLASS}`;
+
   return (
-    <main className="relative flex flex-1 min-w-0 overflow-hidden bg-bg-primary/45">
+    <div
+      className="relative flex h-full min-h-0 shrink-0 overflow-hidden bg-bg-primary/45"
+      style={asideTotalWidth !== undefined ? { width: asideTotalWidth } : undefined}
+    >
       <div className="fixed right-24 top-1.5 z-50 flex items-center gap-1 rounded-lg border border-border-primary bg-bg-secondary/95 px-1.5 py-1 shadow-sm">
         {paneOrder.map((paneId) => {
           const collapsed = collapsedPaneIds.includes(paneId);
@@ -976,34 +1003,13 @@ export function MessengerPage() {
             <button
               key={paneId}
               type="button"
-              draggable
-              onClick={() => {
-                if (paneDragMovedRef.current) {
-                  paneDragMovedRef.current = false;
-                  return;
-                }
-                togglePaneCollapsed(paneId);
-              }}
-              onDragStart={() => {
-                draggedPaneRef.current = paneId;
-                paneDragMovedRef.current = false;
-              }}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault();
-                const source = draggedPaneRef.current;
-                draggedPaneRef.current = null;
-                if (source && source !== paneId) {
-                  paneDragMovedRef.current = true;
-                  movePaneBefore(source, paneId);
-                }
-              }}
+              onClick={() => togglePaneCollapsed(paneId)}
               className={`h-5 min-w-5 rounded border px-1 text-[0.625rem] font-medium transition-colors ${
                 collapsed
                   ? "border-border-secondary bg-bg-primary text-text-tertiary"
                   : "border-border-primary bg-bg-tertiary text-text-primary"
               }`}
-              title="Нажмите, чтобы свернуть окно. Перетащите, чтобы поменять порядок."
+              title="Показать/скрыть колонку мессенджера. Повторный клик по «Messengers» в сайдбаре скрывает панель."
               aria-label={`Окно ${PANE_LABELS[paneId]}`}
             >
               {PANE_LABELS[paneId]}
@@ -1013,7 +1019,7 @@ export function MessengerPage() {
       </div>
       <section
         ref={conversationPanelRef}
-        className="messenger-slide-panel min-w-[220px] max-w-[340px] overflow-hidden bg-bg-secondary/85 shadow-none"
+        className="messenger-slide-panel min-w-[220px] max-w-[340px] shrink-0 overflow-hidden bg-bg-secondary/85 shadow-none"
       >
         <div className="flex h-full flex-col">
           <header className="border-b border-border-primary px-4 py-3">
@@ -1341,10 +1347,7 @@ export function MessengerPage() {
         aria-label="Изменить ширину списка диалогов"
       />
 
-      <section
-        ref={chatPanelRef}
-        className={`messenger-slide-panel messenger-slide-panel-delay flex min-w-[320px] max-w-[520px] flex-none flex-col bg-bg-primary/75 ${COLUMN_BORDER_CLASS}`}
-      >
+      <section ref={chatPanelRef} className={chatColumnClass}>
         <header className="flex items-center justify-between gap-3 border-b border-border-primary bg-bg-secondary/70 px-4 py-2 shadow-none">
           <div className="flex min-w-0 items-center gap-2.5">
             <ProviderLogo provider={selectedProvider} />
@@ -1444,64 +1447,6 @@ export function MessengerPage() {
         </footer>
       </section>
 
-      <button
-        ref={chatDividerRef}
-        type="button"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          startDividerDrag("messengerChat", event.clientX);
-        }}
-        className={COLUMN_DIVIDER_CLASS}
-        aria-label="Изменить ширину диалога"
-      />
-
-      <section ref={mailListPaneRef} className={`flex h-full min-w-[260px] max-w-[440px] shrink-0 bg-bg-secondary/50 ${COLUMN_BORDER_CLASS}`}>
-        <ErrorBoundary name="MessengerMailList">
-          <EmailList selectedThreadIdOverride={mailThreadId} onThreadOpen={openMailThreadInPane} disableGlass />
-        </ErrorBoundary>
-      </section>
-
-      <button
-        ref={mailListDividerRef}
-        type="button"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          startDividerDrag("mailList", event.clientX);
-        }}
-        className={COLUMN_DIVIDER_CLASS}
-        aria-label="Изменить ширину списка писем"
-      />
-
-      <section ref={mailReaderPaneRef} className={`flex h-full min-w-[500px] grow shrink-0 bg-bg-primary/55 ${COLUMN_BORDER_CLASS}`}>
-        <ErrorBoundary name="MessengerReadingPane">
-          <ReadingPane
-            selectedThreadId={mailThreadId}
-            disableGlass
-            taskExtractSignal={mailTaskExtractSignal}
-            renderTaskSidebar={false}
-          />
-        </ErrorBoundary>
-      </section>
-
-      <button
-        ref={mailReaderDividerRef}
-        type="button"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          startDividerDrag("mailReader", event.clientX);
-        }}
-        className={COLUMN_DIVIDER_CLASS}
-        aria-label="Изменить ширину открытого письма"
-      />
-
-      {taskSidebarVisible && activeAccountId && mailThreadId ? (
-        <aside ref={taskPaneRef} className={`order-[9] flex h-full grow shrink-0 bg-bg-primary/50 ${COLUMN_BORDER_CLASS}`}>
-          <ErrorBoundary name="MessengerTaskSidebar">
-            <TaskSidebar accountId={activeAccountId} threadId={mailThreadId} className="w-full" />
-          </ErrorBoundary>
-        </aside>
-      ) : null}
-
-    </main>
+    </div>
   );
 }

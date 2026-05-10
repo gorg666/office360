@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { OAuthProviderConfig } from "./providers";
 import { getYandexOAuthConfigDiagnostics } from "./providers";
+import { normalizeYandexUserInfo } from "./yandexProfile";
 import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
 
 const OAUTH_CALLBACK_PORT = 17248;
@@ -257,15 +258,7 @@ async function fetchUserInfo(
   }
 
   if (provider.id === "yandex") {
-    const email = data.default_email || data.email || "";
-    const name = data.real_name || data.display_name || data.login || email;
-    return {
-      email,
-      name,
-      picture: data.default_avatar_id
-        ? `https://avatars.yandex.net/get-yapic/${data.default_avatar_id}/islands-200`
-        : undefined,
-    };
+    return normalizeYandexUserInfo(data as Record<string, unknown>);
   }
 
   return {

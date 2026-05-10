@@ -38,6 +38,8 @@ interface UIState {
   isOnline: boolean;
   pendingOpsCount: number;
   isSyncingFolder: string | null;
+  /** Две колонки мессенджера справа от почты (Starred/Sent и т.д.). */
+  messengersPanelsOpen: boolean;
   setTheme: (theme: Theme) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -63,6 +65,8 @@ interface UIState {
   setOnline: (online: boolean) => void;
   setPendingOpsCount: (count: number) => void;
   setSyncingFolder: (folder: string | null) => void;
+  setMessengersPanelsOpen: (open: boolean) => void;
+  toggleMessengersPanels: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -86,6 +90,7 @@ export const useUIStore = create<UIState>((set) => ({
   isOnline: true,
   pendingOpsCount: 0,
   isSyncingFolder: null,
+  messengersPanelsOpen: false,
 
   setTheme: (theme) => set({ theme }),
   toggleSidebar: () =>
@@ -170,4 +175,14 @@ export const useUIStore = create<UIState>((set) => ({
   setOnline: (isOnline) => set({ isOnline }),
   setPendingOpsCount: (pendingOpsCount) => set({ pendingOpsCount }),
   setSyncingFolder: (isSyncingFolder) => set({ isSyncingFolder }),
+  setMessengersPanelsOpen: (messengersPanelsOpen) => {
+    setSetting("messengers_panels_open", String(messengersPanelsOpen)).catch(() => {});
+    set({ messengersPanelsOpen });
+  },
+  toggleMessengersPanels: () =>
+    set((state) => {
+      const open = !state.messengersPanelsOpen;
+      setSetting("messengers_panels_open", String(open)).catch(() => {});
+      return { messengersPanelsOpen: open };
+    }),
 }));

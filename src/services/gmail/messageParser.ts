@@ -2,6 +2,7 @@ import type { GmailMessage, GmailMessagePart, GmailHeader } from "./client";
 import { parseAuthenticationResults } from "./authParser";
 import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
 import { decodeMimeWords } from "@/utils/mimeHeaderDecode";
+import { parseSingleEmailAddress } from "@/utils/emailAddressParse";
 
 export interface ParsedAttachment {
   filename: string;
@@ -40,8 +41,17 @@ export interface ParsedMessage {
 
 export function parseGmailMessage(msg: GmailMessage): ParsedMessage {
   const headers = msg.payload.headers;
-  const from = decodeHeaderValue(getHeader(headers, "From"));
-  const { name: fromName, address: fromAddress } = parseEmailAddress(from);
+  let { name: fromName, address: fromAddress } = parseSingleEmailAddress(getHeader(headers, "From"));
+  if (!fromName?.trim() && fromAddress) {
+    const sender = parseSingleEmailAddress(getHeader(headers, "Sender"));
+    if (
+      sender.name?.trim() &&
+      sender.address &&
+      sender.address.trim().toLowerCase() === fromAddress.trim().toLowerCase()
+    ) {
+      fromName = sender.name;
+    }
+  }
 
   const bodyHtml = extractBody(msg.payload, "text/html");
   const bodyText = extractBody(msg.payload, "text/plain");
@@ -84,24 +94,6 @@ function getHeader(headers: GmailHeader[], name: string): string | null {
 
 function decodeHeaderValue(value: string | null): string | null {
   return decodeMimeWords(value);
-}
-
-function parseEmailAddress(raw: string | null): {
-  name: string | null;
-  address: string | null;
-} {
-  if (!raw) return { name: null, address: null };
-
-  // Format: "Display Name <email@example.com>"
-  const angleMatch = raw.match(/^"?([^"<]*)"?\s*<([^>]+)>$/);
-  if (angleMatch) {
-    const name = angleMatch[1]?.trim() || null;
-    const address = angleMatch[2]?.trim() || null;
-    return { name: name === address ? null : name, address };
-  }
-
-  // Bare email: "email@example.com"
-  return { name: null, address: raw.trim() };
 }
 
 function extractBody(

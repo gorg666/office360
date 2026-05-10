@@ -1,6 +1,8 @@
 import { parseSearchQuery } from "./searchParser";
 import { buildSearchQuery } from "./searchQueryBuilder";
 import { getThreadLabelIds, getThreadById } from "@/services/db/threads";
+import { getContactDisplayNameMap } from "@/services/db/contacts";
+import { effectiveFromName } from "@/utils/senderDisplay";
 import type { Thread } from "@/stores/threadStore";
 
 /**
@@ -105,6 +107,10 @@ export async function mapSmartFolderRows(rows: SmartFolderRow[]): Promise<Thread
     return true;
   });
 
+  const contactNames = await getContactDisplayNameMap(
+    uniqueRows.map((r) => r.from_address).filter((a): a is string => Boolean(a)),
+  );
+
   return Promise.all(
     uniqueRows.map(async (r) => {
       const [labelIds, dbThread] = await Promise.all([
@@ -124,7 +130,7 @@ export async function mapSmartFolderRows(rows: SmartFolderRow[]): Promise<Thread
         isMuted: dbThread ? dbThread.is_muted === 1 : false,
         hasAttachments: dbThread ? dbThread.has_attachments === 1 : false,
         labelIds,
-        fromName: r.from_name,
+        fromName: effectiveFromName(r.from_name, r.from_address, contactNames),
         fromAddress: r.from_address,
       };
     }),

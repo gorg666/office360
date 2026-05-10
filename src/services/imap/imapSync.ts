@@ -1,4 +1,11 @@
-import type { ImapConfig, ImapFolder, ImapMessage, DeltaCheckRequest, DeltaCheckResult } from "./tauriCommands";
+import type {
+  ImapConfig,
+  ImapFolder,
+  ImapMessage,
+  ImapFolderSearchResult,
+  DeltaCheckRequest,
+  DeltaCheckResult,
+} from "./tauriCommands";
 import {
   imapListFolders,
   imapGetFolderStatus,
@@ -162,6 +169,38 @@ async function buildFreshImapConfig(accountId: string): Promise<ImapConfig> {
   }
 
   return buildImapConfig(account);
+}
+
+/**
+ * Yandex IMAP (в т.ч. Яндекс 360) иногда отвечает пустым `UID SEARCH SINCE …` при
+ * непустом ящике (даты в INTERNALDATE / индекс не совпадают с SINCE). Тогда делаем
+ * fallback на `UID SEARCH ALL` и по-прежнему режем по дате на стороне TS при разборе.
+ */
+const MAX_FALLBACK_ALL_UIDS = 20_000;
+
+async function imapSearchFolderResilient(
+  config: ImapConfig,
+  folderRawPath: string,
+  sinceDate: string,
+): Promise<ImapFolderSearchResult> {
+  const withSince = await imapSearchFolder(config, folderRawPath, sinceDate);
+  if (withSince.uids.length > 0 || withSince.folder_status.exists === 0) {
+    return withSince;
+  }
+  console.warn(
+    `[imapSync] UID SEARCH SINCE returned 0 UIDs for "${folderRawPath}" ` +
+      `but SELECT reports ${withSince.folder_status.exists} messages — falling back to UID SEARCH ALL ` +
+      "(Yandex / some IMAP servers).",
+  );
+  const all = await imapSearchFolder(config, folderRawPath, null);
+  let { uids } = all;
+  if (uids.length > MAX_FALLBACK_ALL_UIDS) {
+    uids = uids.slice(-MAX_FALLBACK_ALL_UIDS);
+    console.warn(
+      `[imapSync] ALL matched ${all.uids.length} UIDs — fetching newest ${MAX_FALLBACK_ALL_UIDS} only`,
+    );
+  }
+  return { uids, folder_status: all.folder_status };
 }
 
 // ---------------------------------------------------------------------------
@@ -625,7 +664,7 @@ export async function imapInitialSync(
     try {
       // Phase 2a: Lightweight search — get UIDs only (no message bodies over IPC)
       const sinceDate = computeSinceDate(daysBack);
-      const searchResult = await imapSearchFolder(config, folder.raw_path, sinceDate);
+      const searchResult = await imapSearchFolderResilient(config, folder.raw_path, sinceDate);
       const uidsToFetch = newestUidsFirst(searchResult.uids);
       totalUidsMatched += uidsToFetch.length;
 
@@ -1057,7 +1096,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     const folderMapping = mapFolderToLabel(folder);
     try {
       const sinceDate = computeSinceDate(daysBack);
-      const searchResult = await imapSearchFolder(config, folder.raw_path, sinceDate);
+      const searchResult = await imapSearchFolderResilient(config, folder.raw_path, sinceDate);
       consecutiveFailures = 0;
 
       if (searchResult.uids.length === 0) continue;
@@ -1164,7 +1203,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
               `Doing full resync of this folder.`,
           );
           const sinceDate = computeSinceDate(daysBack);
-          const searchResult = await imapSearchFolder(config, folder.raw_path, sinceDate);
+          const searchResult = await imapSearchFolderResilient(config, folder.raw_path, sinceDate);
           if (searchResult.uids.length === 0) continue;
 
           const { messages, lastUid } = await fetchMessagesInBatches(

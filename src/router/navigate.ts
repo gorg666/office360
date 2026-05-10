@@ -1,4 +1,5 @@
 import { router } from "./index";
+import { useUIStore } from "@/stores/uiStore";
 
 /** Known system labels that map to /mail/$label */
 const SYSTEM_LABELS = new Set([
@@ -34,7 +35,12 @@ export function navigateToLabel(
   }
 
   if (label === "messengers") {
-    router.navigate({ to: "/messengers" });
+    useUIStore.getState().setMessengersPanelsOpen(true);
+    const pathname = router.state.location.pathname;
+    const onMailShell = /^\/mail\/|^\/label\/|^\/smart-folder\//.test(pathname);
+    if (!onMailShell) {
+      router.navigate({ to: "/mail/$label", params: { label: "inbox" } });
+    }
     return;
   }
 
@@ -222,9 +228,6 @@ export function getActiveLabel(): string {
     }
     if (match.routeId === "/calendar") {
       return "calendar";
-    }
-    if (match.routeId === "/messengers") {
-      return "messengers";
     }
     if (match.routeId === "/help/$topic" || match.routeId === "/help") {
       return "help";

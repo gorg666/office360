@@ -20,6 +20,9 @@ import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { getMessagesForThread } from "@/services/db/messages";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
+import { parseFirstAddressFromList } from "@/utils/emailAddressParse";
+import { effectiveFromName } from "@/utils/senderDisplay";
+import { getContactDisplayNameMap } from "@/services/db/contacts";
 import { getDb } from "@/services/db/connection";
 import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch } from "lucide-react";
 import type { AppLocale } from "@/stores/uiStore";
@@ -97,11 +100,15 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
   const inboxViewMode = useUIStore((s) => s.inboxViewMode);
   const routerCategory = useActiveCategory();
 
-  // In split mode, use the router's category; in unified mode, always use "All"
   const activeCategory = inboxViewMode === "split" ? routerCategory : "All";
-  const setActiveCategory = inboxViewMode === "split"
-    ? (cat: string) => navigateToLabel("inbox", { category: cat })
-    : () => {};
+
+  const setActiveCategory = useCallback(
+    (cat: string) => {
+      if (inboxViewMode !== "split") return;
+      navigateToLabel("inbox", { category: cat });
+    },
+    [inboxViewMode],
+  );
 
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -262,9 +269,27 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
   }, [filteredThreads, activeLabel, activeCategory, categoryMap, bundledCategorySet, heldThreadIds]);
 
   const mapDbThreads = useCallback(async (dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>): Promise<Thread[]> => {
+    const isSentList = activeLabel === "sent";
+    const contactLookupEmails: string[] = [];
+    for (const t of dbThreads) {
+      const addr = isSentList ? parseFirstAddressFromList(t.to_addresses).address : t.from_address;
+      if (addr) contactLookupEmails.push(addr);
+    }
+    const contactNames = await getContactDisplayNameMap(contactLookupEmails);
+
     return Promise.all(
       dbThreads.map(async (t) => {
         const labelIds = await getThreadLabelIds(t.account_id, t.id);
+        let fromName = t.from_name;
+        let fromAddress = t.from_address;
+        if (isSentList && t.to_addresses) {
+          const first = parseFirstAddressFromList(t.to_addresses);
+          if (first.address) {
+            fromName = first.name;
+            fromAddress = first.address;
+          }
+        }
+        fromName = effectiveFromName(fromName, fromAddress, contactNames);
         return {
           id: t.id,
           accountId: t.account_id,
@@ -278,12 +303,12 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
           isMuted: t.is_muted === 1,
           hasAttachments: t.has_attachments === 1,
           labelIds,
-          fromName: t.from_name,
-          fromAddress: t.from_address,
+          fromName,
+          fromAddress,
         };
       }),
     );
-  }, []);
+  }, [activeLabel]);
 
   const clearSearch = useThreadStore((s) => s.clearSearch);
 
@@ -486,7 +511,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
     let timer: ReturnType<typeof setTimeout> | null = null;
     const handler = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => loadThreads(), 500);
+      timer = setTimeout(() => loadThreads(), 250);
     };
     window.addEventListener("velo-sync-done", handler);
     return () => {
@@ -514,7 +539,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
   const layoutClassName = disableGlass
     ? "min-w-0 w-full flex-1 overflow-hidden"
     : readingPanePosition === "right"
-      ? "min-w-[240px] shrink-0"
+      ? "h-full min-h-0 min-w-[240px] shrink-0"
       : readingPanePosition === "bottom"
         ? "w-full border-b border-border-primary h-[40%] min-h-[200px]"
         : "w-full flex-1";

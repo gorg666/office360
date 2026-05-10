@@ -761,7 +761,7 @@ export function AddImapAccount({
             <>Register at the Yahoo Developer Network with redirect URI <code className="text-accent">http://127.0.0.1:17248</code>.</>
           )}
           {providerId === "yandex" && !usesManagedPublicClient && (
-            <>Создайте приложение на <code className="text-accent">oauth.yandex.ru</code>, добавьте redirect URI <code className="text-accent">http://localhost:17248</code> и выдайте scopes <code className="text-accent">mail:imap_full</code>, <code className="text-accent">mail:smtp</code>, <code className="text-accent">login:email</code>, <code className="text-accent">login:info</code>.</>
+            <>Создайте приложение на <code className="text-accent">oauth.yandex.ru</code>, добавьте redirect URI <code className="text-accent">http://localhost:17248</code> и выдайте scopes <code className="text-accent">mail:imap_full</code>, <code className="text-accent">mail:smtp</code>, <code className="text-accent">login:email</code>, <code className="text-accent">login:info</code>, <code className="text-accent">login:avatar</code> (аватар — только с <code className="text-accent">default_avatar_id</code> по <a className="text-accent underline" href="https://yandex.com/dev/id/doc/en/user-information" target="_blank" rel="noreferrer">документации Яндекс ID</a>).</>
           )}
         </p>
       </div>

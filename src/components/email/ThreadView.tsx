@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { MessageItem } from "./MessageItem";
 import { ActionBar } from "./ActionBar";
 import { getMessagesForThread, upsertMessage, type DbMessage } from "@/services/db/messages";
@@ -24,6 +24,9 @@ import { AiTaskExtractDialog } from "@/components/tasks/AiTaskExtractDialog";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { MessageSkeleton } from "@/components/ui/Skeleton";
 import { RawMessageModal } from "./RawMessageModal";
+import { getContactDisplayNameMap } from "@/services/db/contacts";
+import { normalizeEmail } from "@/utils/emailUtils";
+import { resolveContactHeaderName } from "@/utils/senderDisplay";
 
 async function handlePopOut(thread: Thread) {
   try {
@@ -86,7 +89,21 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
   // null = not yet loaded; avoids flashing the wrong privacy mode on first paint
   const [blockRemoteImages, setBlockRemoteImages] = useState<boolean | null>(null);
   const [allowlistedSenders, setAllowlistedSenders] = useState<Set<string>>(new Set());
+  const [contactDisplayNames, setContactDisplayNames] = useState<Map<string, string>>(() => new Map());
   const hydrationAttemptedRef = useRef<Set<string>>(new Set());
+
+  const messageSenderEmailsKey = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of messages) {
+      if (m.from_address) set.add(normalizeEmail(m.from_address));
+    }
+    return [...set].sort().join("\0");
+  }, [messages]);
+
+  const threadSenderContext = useMemo(
+    () => ({ fromName: thread.fromName, fromAddress: thread.fromAddress }),
+    [thread.fromName, thread.fromAddress],
+  );
 
   const isSpamThread = thread.labelIds.includes("SPAM");
   const effectiveBlockImages =
@@ -107,6 +124,19 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [activeAccountId, thread.id]);
+
+  useEffect(() => {
+    if (!activeAccountId || messageSenderEmailsKey.length === 0) {
+      setContactDisplayNames(new Map());
+      return;
+    }
+    const emails = messageSenderEmailsKey.split("\0").filter(Boolean);
+    let cancelled = false;
+    getContactDisplayNameMap(emails).then((map) => {
+      if (!cancelled) setContactDisplayNames(map);
+    });
+    return () => { cancelled = true; };
+  }, [activeAccountId, messageSenderEmailsKey]);
 
   // IMAP initial sync stores headers first for fast list rendering. Hydrate the
   // opened thread body on demand and persist it so the next open is instant.
@@ -502,7 +532,14 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
 
   // Get the primary sender for the contact sidebar
   const primarySender = lastMessage?.from_address ?? null;
-  const primarySenderName = lastMessage?.from_name ?? null;
+  const primarySenderName = lastMessage
+    ? resolveContactHeaderName(
+        lastMessage.from_name,
+        lastMessage.from_address,
+        contactDisplayNames,
+        threadSenderContext,
+      )
+    : null;
 
   return (
     <div className="flex h-full @container relative">
@@ -563,6 +600,8 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
                 senderAllowlisted={msg.from_address ? allowlistedSenders.has(msg.from_address) : false}
                 isSpam={isSpamThread}
                 onContextMenu={(e) => handleMessageContextMenu(e, msg)}
+                contactDisplayNames={contactDisplayNames}
+                threadSender={threadSenderContext}
               />
             ))}
           </ErrorBoundary>

@@ -7,6 +7,7 @@ import {
 import App from "@/App";
 import { MailLayout } from "@/components/layout/MailLayout";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import { useUIStore } from "@/stores/uiStore";
 
 // Lazy-load heavy pages — these include many sub-components and service imports
 const SettingsPage = lazy(() => import("@/components/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
@@ -14,7 +15,6 @@ const HelpPage = lazy(() => import("@/components/help/HelpPage").then((m) => ({ 
 const CalendarPage = lazy(() => import("@/components/calendar/CalendarPage").then((m) => ({ default: m.CalendarPage })));
 const TasksPage = lazy(() => import("@/components/tasks/TasksPage").then((m) => ({ default: m.TasksPage })));
 const AttachmentLibrary = lazy(() => import("@/components/attachments/AttachmentLibrary").then((m) => ({ default: m.AttachmentLibrary })));
-const MessengerPage = lazy(() => import("@/components/messengers/MessengerPage").then((m) => ({ default: m.MessengerPage })));
 
 // ---------- Search param validation ----------
 const VALID_CATEGORIES = ["Primary", "Updates", "Promotions", "Social", "Newsletters"] as const;
@@ -84,16 +84,6 @@ function HelpPageWrapper() {
     <ErrorBoundary name="HelpPage">
       <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading help...</div>}>
         <HelpPage />
-      </Suspense>
-    </ErrorBoundary>
-  );
-}
-
-function MessengerPageWrapper() {
-  return (
-    <ErrorBoundary name="MessengerPage">
-      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading messengers...</div>}>
-        <MessengerPage />
       </Suspense>
     </ErrorBoundary>
   );
@@ -198,11 +188,14 @@ export const calendarRoute = createRoute({
   component: CalendarPageWrapper,
 });
 
-// ---------- /messengers ----------
+// ---------- /messengers (открыть панель и перейти во входящие) ----------
 export const messengersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "messengers",
-  component: MessengerPageWrapper,
+  beforeLoad: () => {
+    useUIStore.getState().setMessengersPanelsOpen(true);
+    throw redirect({ to: "/mail/$label", params: { label: "inbox" } });
+  },
 });
 
 // ---------- /help (redirect to /help/getting-started) ----------

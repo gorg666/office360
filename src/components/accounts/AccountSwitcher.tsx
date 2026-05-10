@@ -3,7 +3,6 @@ import { useAccountStore, type Account } from "@/stores/accountStore";
 import { ChevronDown, Check, Plus, UserPlus, Calendar } from "lucide-react";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { ContactAvatar } from "@/components/ui/ContactAvatar";
-import { getAccountAvatarUrl } from "@/utils/accountAvatar";
 
 interface AccountSwitcherProps {
   collapsed: boolean;
@@ -150,12 +149,12 @@ function ActiveAvatar({ account }: { account: Account | undefined }) {
     <ContactAvatar
       email={account.email}
       name={account.displayName}
-      avatarUrl={getAccountAvatarUrl(account.email, account.avatarUrl)}
+      avatarUrl={account.avatarUrl}
       className="w-8 h-8 rounded-full shrink-0"
       textClassName="text-sm"
       fallbackClassName="bg-accent/15 text-accent"
       showDomainFallback={false}
-      lookupExternalAvatar={false}
+      lookupExternalAvatar
     />
   );
 }
@@ -172,7 +171,7 @@ function AccountAvatarSmall({
     <ContactAvatar
       email={account.email}
       name={account.displayName}
-      avatarUrl={getAccountAvatarUrl(account.email, account.avatarUrl)}
+      avatarUrl={account.avatarUrl}
       className="w-7 h-7 rounded-full shrink-0"
       textClassName="text-xs"
       fallbackClassName={
@@ -181,7 +180,7 @@ function AccountAvatarSmall({
           : "bg-accent/12 text-accent"
       }
       showDomainFallback={false}
-      lookupExternalAvatar={false}
+      lookupExternalAvatar
     />
   );
 }

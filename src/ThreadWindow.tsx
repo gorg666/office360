@@ -9,6 +9,8 @@ import { getAllAccounts } from "./services/db/accounts";
 import { getSetting } from "./services/db/settings";
 import { initializeClients } from "./services/gmail/tokenManager";
 import { getThreadById, getThreadLabelIds } from "./services/db/threads";
+import { getContactDisplayNameMap } from "./services/db/contacts";
+import { effectiveFromName } from "./utils/senderDisplay";
 import { getThemeById, COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import type { Thread } from "./stores/threadStore";
@@ -80,6 +82,9 @@ export default function ThreadWindow() {
         }
 
         const labelIds = await getThreadLabelIds(accountId!, threadId!);
+        const contactNames = await getContactDisplayNameMap(
+          dbThread.from_address ? [dbThread.from_address] : [],
+        );
         setThread({
           id: dbThread.id,
           accountId: dbThread.account_id,
@@ -93,7 +98,7 @@ export default function ThreadWindow() {
           isMuted: dbThread.is_muted === 1,
           hasAttachments: dbThread.has_attachments === 1,
           labelIds,
-          fromName: dbThread.from_name,
+          fromName: effectiveFromName(dbThread.from_name, dbThread.from_address, contactNames),
           fromAddress: dbThread.from_address,
         });
       } catch (err) {

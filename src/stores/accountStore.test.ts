@@ -91,4 +91,15 @@ describe("accountStore", () => {
     expect(state.accounts.find((a) => a.id === "acc-1")?.isActive).toBe(false);
     expect(state.accounts.find((a) => a.id === "acc-2")?.isActive).toBe(true);
   });
+
+  it("patchAccount updates avatar and display name", () => {
+    useAccountStore.getState().setAccounts([mockAccount]);
+    useAccountStore.getState().patchAccount("acc-1", {
+      avatarUrl: "https://avatars.yandex.net/get-yapic/123/islands-200",
+      displayName: "Renamed",
+    });
+    const a = useAccountStore.getState().accounts[0]!;
+    expect(a.avatarUrl).toContain("get-yapic");
+    expect(a.displayName).toBe("Renamed");
+  });
 });

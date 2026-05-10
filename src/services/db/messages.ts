@@ -1,4 +1,5 @@
 import { getDb } from "./connection";
+import { upsertContact } from "./contacts";
 
 export interface DbMessage {
   id: string;
@@ -150,6 +151,10 @@ export async function upsertMessage(msg: {
       msg.imapFolder ?? null,
     ],
   );
+
+  if (msg.fromAddress?.trim() && msg.fromName?.trim()) {
+    await upsertContact(msg.fromAddress, msg.fromName);
+  }
 }
 
 export async function deleteMessage(

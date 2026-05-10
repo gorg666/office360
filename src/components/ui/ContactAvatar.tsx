@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchAndCacheGravatarUrl } from "@/services/contacts/gravatar";
+import { getContactByEmail } from "@/services/db/contacts";
 import { useAccountStore } from "@/stores/accountStore";
-import { getAccountAvatarUrl } from "@/utils/accountAvatar";
 import { normalizeEmail } from "@/utils/emailUtils";
 
 const CONSUMER_EMAIL_DOMAINS = new Set([
@@ -71,6 +71,14 @@ function uniqueUrls(urls: (string | null)[]): string[] {
   return [...new Set(urls.filter((url): url is string => Boolean(url)))];
 }
 
+function isYandexPasportAvatarUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname === "avatars.yandex.net";
+  } catch {
+    return false;
+  }
+}
+
 interface ContactAvatarProps {
   email: string | null | undefined;
   name?: string | null;
@@ -95,16 +103,34 @@ export function ContactAvatar({
   const accounts = useAccountStore((state) => state.accounts);
   const [avatarCandidates, setAvatarCandidates] = useState<string[]>([]);
   const [candidateIndex, setCandidateIndex] = useState(0);
+  const [dbContactAvatarUrl, setDbContactAvatarUrl] = useState<string | null>(null);
   const display = name || email || "Unknown";
   const initial = (display[0] ?? "?").toUpperCase();
 
-  const accountAvatarUrl = useMemo(() => {
+  /** Saved avatar from DB (e.g. OAuth `default_avatar_id` from Яндекс ID). */
+  const storedAvatarUrl = useMemo(() => {
     if (avatarUrl !== undefined) return avatarUrl;
     if (!email) return null;
     const normalized = normalizeEmail(email);
     const account = accounts.find((item) => normalizeEmail(item.email) === normalized);
-    return getAccountAvatarUrl(email, account?.avatarUrl ?? null);
+    return account?.avatarUrl ?? null;
   }, [accounts, avatarUrl, email]);
+
+  useEffect(() => {
+    if (!email?.trim()) {
+      setDbContactAvatarUrl(null);
+      return;
+    }
+    let cancelled = false;
+    getContactByEmail(email)
+      .then((row) => {
+        if (!cancelled) setDbContactAvatarUrl(row?.avatar_url?.trim() || null);
+      })
+      .catch(() => {
+        if (!cancelled) setDbContactAvatarUrl(null);
+      });
+    return () => { cancelled = true; };
+  }, [email]);
 
   const domainFallbackUrl = useMemo(() => {
     if (!showDomainFallback || !email) return null;
@@ -115,7 +141,12 @@ export function ContactAvatar({
 
   useEffect(() => {
     let cancelled = false;
-    const initialCandidates = uniqueUrls([accountAvatarUrl, domainFallbackUrl]);
+    // Яндекс: только default_avatar_id в URL (аккаунт / контакт в SQLite), не логин из email.
+    const initialCandidates = uniqueUrls([
+      storedAvatarUrl,
+      dbContactAvatarUrl,
+      domainFallbackUrl,
+    ]);
     setAvatarCandidates(initialCandidates);
     setCandidateIndex(0);
 
@@ -123,12 +154,20 @@ export function ContactAvatar({
 
     loadAvatar(email).then((url) => {
       if (cancelled) return;
-      setAvatarCandidates(uniqueUrls([accountAvatarUrl, url, domainFallbackUrl]));
+      setAvatarCandidates(
+        uniqueUrls([storedAvatarUrl, dbContactAvatarUrl, url, domainFallbackUrl]),
+      );
       setCandidateIndex(0);
     });
 
     return () => { cancelled = true; };
-  }, [email, accountAvatarUrl, domainFallbackUrl, lookupExternalAvatar]);
+  }, [
+    email,
+    storedAvatarUrl,
+    dbContactAvatarUrl,
+    domainFallbackUrl,
+    lookupExternalAvatar,
+  ]);
 
   const currentAvatarUrl = avatarCandidates[candidateIndex] ?? null;
 
@@ -139,7 +178,9 @@ export function ContactAvatar({
         alt={display}
         className={`${className} object-cover`}
         loading="lazy"
-        referrerPolicy="no-referrer"
+        referrerPolicy={
+          isYandexPasportAvatarUrl(currentAvatarUrl) ? "strict-origin-when-cross-origin" : "no-referrer"
+        }
         onError={() => setCandidateIndex((idx) => idx + 1)}
       />
     );
