@@ -11,6 +11,10 @@ vi.mock("@/services/db/contacts", () => ({
   getContactByEmail: vi.fn(() => Promise.resolve(null)),
 }));
 
+vi.mock("@/services/db/threads", () => ({
+  getUnreadInboxCountsByAccount: vi.fn(() => Promise.resolve({})),
+}));
+
 describe("AccountSwitcher", () => {
   beforeEach(() => {
     useAccountStore.setState({

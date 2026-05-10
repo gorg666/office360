@@ -59,9 +59,9 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = 
   { id: "trash", label: "Trash", icon: Trash2 },
   { id: "spam", label: "Spam", icon: Ban },
   { id: "all", label: "All Mail", icon: Mail },
+  { id: "messengers", label: "Мессенджеры", icon: MessageCircle },
   { id: "tasks", label: "Tasks", icon: CheckSquare },
   { id: "calendar", label: "Calendar", icon: Calendar },
-  { id: "messengers", label: "Messengers", icon: MessageCircle },
   { id: "attachments", label: "Attachments", icon: Paperclip },
   { id: "smart-folders", label: "Smart Folders", icon: FolderSearch },
   { id: "labels", label: "Labels", icon: Tag },
@@ -206,6 +206,7 @@ function getSmartFolderIcon(iconName: string): LucideIcon {
 }
 
 const LABELS_COLLAPSED_COUNT = 3;
+const SERVICE_NAV_IDS = new Set(["messengers", "tasks", "calendar", "attachments"]);
 
 export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const activeLabel = useActiveLabel();
@@ -351,8 +352,6 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         collapsed ? "w-16" : "w-60"
       }`}
     >
-      <AccountSwitcher collapsed={collapsed} onAddAccount={onAddAccount} />
-
       {/* Compose button */}
       <div className="px-3 py-2">
         <button
@@ -364,11 +363,22 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2">
-        {visibleNavItems.map((item) => {
+        {visibleNavItems.map((item, index) => {
           const Icon = item.icon;
           const isInbox = item.id === "inbox";
+          const previousItem = visibleNavItems[index - 1];
+          const shouldShowServicesHeader = !collapsed
+            && SERVICE_NAV_IDS.has(item.id)
+            && (!previousItem || !SERVICE_NAV_IDS.has(previousItem.id));
           return (
             <div key={item.id}>
+              {shouldShowServicesHeader && (
+                <div className="flex items-center justify-between px-3 pt-4 pb-1">
+                  <span className="text-xs font-medium text-sidebar-text/60 uppercase tracking-wider">
+                    Сервисы
+                  </span>
+                </div>
+              )}
               <DroppableNavItem
                 id={item.id}
                 isActive={
@@ -619,8 +629,16 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         )}
       </nav>
 
+      <div className="border-t border-border-primary pt-1">
+        <AccountSwitcher
+          collapsed={collapsed}
+          onAddAccount={onAddAccount}
+          dropdownPlacement="up"
+        />
+      </div>
+
       {/* Bottom bar: Settings + collapse toggle */}
-      <div className={`py-2 border-t border-border-primary flex ${collapsed ? "flex-col items-center gap-1 px-2" : "items-center gap-1 px-3"}`}>
+      <div className={`pb-2 flex ${collapsed ? "flex-col items-center gap-1 px-2" : "items-center gap-1 px-3"}`}>
         <button
           onClick={() => navigateToLabel("settings")}
           className={`flex items-center text-sm rounded-md transition-colors ${

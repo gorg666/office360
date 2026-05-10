@@ -1,25 +1,38 @@
-import { useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useAccountStore, type Account } from "@/stores/accountStore";
-import { ChevronDown, Check, Plus, UserPlus, Calendar } from "lucide-react";
+import { ChevronDown, ChevronUp, Check, Plus, UserPlus, Calendar } from "lucide-react";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { ContactAvatar } from "@/components/ui/ContactAvatar";
+import { getUnreadInboxCountsByAccount } from "@/services/db/threads";
 
 interface AccountSwitcherProps {
   collapsed: boolean;
   onAddAccount: () => void;
+  dropdownPlacement?: "down" | "up";
 }
 
 export function AccountSwitcher({
   collapsed,
   onAddAccount,
+  dropdownPlacement = "down",
 }: AccountSwitcherProps) {
   const { accounts, activeAccountId, setActiveAccount } = useAccountStore();
   const [open, setOpen] = useState(false);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
   useClickOutside(dropdownRef, () => setOpen(false));
 
   const activeAccount = accounts.find((a) => a.id === activeAccountId);
+  const activeUnreadCount = activeAccountId ? unreadCounts[activeAccountId] ?? 0 : 0;
+  const ChevronIcon = dropdownPlacement === "up" ? ChevronUp : ChevronDown;
+  const dropdownPositionClass = dropdownPlacement === "up"
+    ? collapsed
+      ? "left-full ml-1 bottom-0 w-64"
+      : "left-2 right-2 bottom-full mb-1"
+    : collapsed
+      ? "left-full ml-1 top-0 w-64"
+      : "left-2 right-2 mt-1";
 
   const handleSwitch = useCallback(
     (id: string) => {
@@ -33,6 +46,35 @@ export function AccountSwitcher({
     onAddAccount();
     setOpen(false);
   }, [onAddAccount]);
+
+  useEffect(() => {
+    const accountIds = accounts.map((account) => account.id);
+    let cancelled = false;
+
+    async function refreshUnreadCounts() {
+      try {
+        const counts = await getUnreadInboxCountsByAccount(accountIds);
+        if (!cancelled) {
+          setUnreadCounts((current) => {
+            const currentKeys = Object.keys(current);
+            const nextKeys = Object.keys(counts);
+            const unchanged = currentKeys.length === nextKeys.length
+              && nextKeys.every((key) => current[key] === counts[key]);
+            return unchanged ? current : counts;
+          });
+        }
+      } catch (err) {
+        console.error("Failed to load account unread counts:", err);
+      }
+    }
+
+    void refreshUnreadCounts();
+    window.addEventListener("velo-sync-done", refreshUnreadCounts);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("velo-sync-done", refreshUnreadCounts);
+    };
+  }, [accounts]);
 
   // No accounts — prompt to add
   if (accounts.length === 0) {
@@ -58,11 +100,12 @@ export function AccountSwitcher({
       {/* Trigger button */}
       <button
         onClick={() => setOpen((v) => !v)}
-        className={`flex items-center w-full rounded-lg p-1.5 hover:bg-sidebar-hover transition-colors ${
+        className={`relative flex items-center w-full rounded-lg p-1.5 hover:bg-sidebar-hover transition-colors ${
           collapsed ? "justify-center" : "gap-2.5"
         } ${open ? "bg-sidebar-hover" : ""}`}
       >
         <ActiveAvatar account={activeAccount} />
+        <UnreadBadge count={activeUnreadCount} placement="trigger" />
         {!collapsed && activeAccount && (
           <>
             <div className="flex-1 min-w-0 text-left">
@@ -73,7 +116,7 @@ export function AccountSwitcher({
                 {activeAccount.email}
               </div>
             </div>
-            <ChevronDown
+            <ChevronIcon
               size={14}
               className={`shrink-0 text-sidebar-text/40 transition-transform duration-200 ${
                 open ? "rotate-180" : ""
@@ -86,8 +129,8 @@ export function AccountSwitcher({
       {/* Dropdown */}
       {open && (
         <div
-          className={`absolute z-50 mt-1 py-1 rounded-lg border border-border-primary bg-bg-primary shadow-lg glass-panel ${
-            collapsed ? "left-full ml-1 top-0 w-64" : "left-2 right-2"
+          className={`absolute z-50 py-1 rounded-lg border border-border-primary bg-bg-primary shadow-lg glass-panel ${
+            dropdownPositionClass
           }`}
         >
           {accounts.length > 1 && (
@@ -97,6 +140,7 @@ export function AccountSwitcher({
           )}
           {accounts.map((account) => {
             const isActive = account.id === activeAccountId;
+            const unreadCount = unreadCounts[account.id] ?? 0;
             return (
               <button
                 key={account.id}
@@ -107,7 +151,10 @@ export function AccountSwitcher({
                     : "text-text-primary hover:bg-bg-hover"
                 }`}
               >
-                <AccountAvatarSmall account={account} isActive={isActive} />
+                <AccountAvatarSmall
+                  account={account}
+                  isActive={isActive}
+                />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate leading-tight flex items-center gap-1.5">
                     {account.displayName || account.email.split("@")[0]}
@@ -119,6 +166,7 @@ export function AccountSwitcher({
                     {account.email}
                   </div>
                 </div>
+                <UnreadBadge count={unreadCount} placement="inline" />
                 {isActive && (
                   <Check size={14} className="shrink-0 text-accent" />
                 )}
@@ -182,5 +230,42 @@ function AccountAvatarSmall({
       showDomainFallback={false}
       lookupExternalAvatar
     />
+  );
+}
+
+function UnreadBadge({
+  count,
+  compact = false,
+  placement = "avatar",
+}: {
+  count: number;
+  compact?: boolean;
+  placement?: "avatar" | "trigger" | "inline";
+}) {
+  if (count <= 0) return null;
+
+  const label = count > 99 ? "99+" : String(count);
+  if (placement === "inline") {
+    return (
+      <span
+        className="shrink-0 rounded-full bg-danger px-1.5 text-[0.625rem] font-semibold leading-4 text-white"
+        aria-label={`${count} unread emails`}
+      >
+        {label}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`absolute flex min-w-[1rem] items-center justify-center rounded-full bg-danger px-1 text-[0.625rem] font-semibold leading-4 text-white ring-2 ring-sidebar-bg ${
+        placement === "trigger" ? "right-0 top-0" : "-right-1 -top-1"
+      } ${
+        compact ? "min-w-[0.875rem] leading-[0.875rem] text-[0.5625rem]" : ""
+      }`}
+      aria-label={`${count} unread emails`}
+    >
+      {label}
+    </span>
   );
 }

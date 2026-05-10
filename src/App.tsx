@@ -82,6 +82,21 @@ import { Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 const LIGHTS_OUT_UNTIL_KEY = "velo_messenger_lights_out_until";
 const LIGHTS_OUT_CHANGED_EVENT = "velo-messenger-lights-out-changed";
 
+function getSyncableAccountIds(
+  accounts: Array<{ id: string; provider?: string }>,
+  preferredAccountId?: string | null,
+): string[] {
+  const ids = accounts
+    .filter((account) => account.provider !== "caldav")
+    .map((account) => account.id);
+
+  if (!preferredAccountId || !ids.includes(preferredAccountId)) {
+    return ids;
+  }
+
+  return [preferredAccountId, ...ids.filter((id) => id !== preferredAccountId)];
+}
+
 function hasMessengerLightsOutOverride(): boolean {
   try {
     const value = localStorage.getItem(LIGHTS_OUT_UNTIL_KEY);
@@ -123,6 +138,9 @@ export default function App() {
   const [showAskInbox, setShowAskInbox] = useState(false);
   const [moveToFolderState, setMoveToFolderState] = useState<{ open: boolean; threadIds: string[] }>({ open: false, threadIds: [] });
   const deepLinkCleanupRef = useRef<(() => void) | undefined>(undefined);
+  const accountsForSync = useAccountStore((s) => s.accounts);
+  const activeAccountIdForSync = useAccountStore((s) => s.activeAccountId);
+  const previousActiveAccountIdRef = useRef<string | null>(null);
   const isSyncingStatus = !!syncStatus && syncStatus.toLowerCase().startsWith("syncing");
   const isSyncErrorStatus = !!syncStatus && syncStatus.toLowerCase().startsWith("sync failed");
   const isSyncDoneStatus = !!syncStatus && syncStatus.toLowerCase().startsWith("sync complete");
@@ -142,8 +160,9 @@ export default function App() {
       setOnline(true);
       triggerQueueFlush();
       const accounts = useAccountStore.getState().accounts;
-      const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
-      if (activeIds.length > 0) triggerSync(activeIds);
+      const activeAccountId = useAccountStore.getState().activeAccountId;
+      const accountIds = getSyncableAccountIds(accounts, activeAccountId);
+      if (accountIds.length > 0) triggerSync(accountIds);
     };
     const handleOffline = () => setOnline(false);
 
@@ -193,9 +212,10 @@ export default function App() {
     import("@tauri-apps/api/event").then(({ listen }) => {
       listen("tray-check-mail", () => {
         const accounts = useAccountStore.getState().accounts;
-        const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
-        if (activeIds.length > 0) {
-          triggerSync(activeIds);
+        const activeAccountId = useAccountStore.getState().activeAccountId;
+        const accountIds = getSyncableAccountIds(accounts, activeAccountId);
+        if (accountIds.length > 0) {
+          triggerSync(accountIds);
         }
       }).then((fn) => { unlisten = fn; });
     });
@@ -352,11 +372,9 @@ export default function App() {
           }
         }
 
-        // Start background sync for the restored active account only.
-        // The DB `is_active` flag can be stale after account upserts; the store
-        // is the source of truth because it applies `active_account_id`.
-        if (activeAccountId) {
-          startBackgroundSync([activeAccountId]);
+        const syncableAccountIds = getSyncableAccountIds(mapped, activeAccountId);
+        if (syncableAccountIds.length > 0) {
+          startBackgroundSync(syncableAccountIds);
         }
 
         // Start snooze, scheduled send, follow-up, bundle, and queue checkers
@@ -416,6 +434,14 @@ export default function App() {
   const backfillDoneRef = useRef(false);
   useEffect(() => {
     const unsub = onSyncStatus((accountId, status, progress, error) => {
+      if (status === "done") {
+        window.dispatchEvent(new Event("velo-sync-done"));
+        updateBadgeCount();
+      } else if (status === "error") {
+        window.dispatchEvent(new Event("velo-sync-done"));
+        updateBadgeCount();
+      }
+
       if (accountId !== useAccountStore.getState().activeAccountId) {
         return;
       }
@@ -437,8 +463,6 @@ export default function App() {
       } else if (status === "done") {
         setSyncStatus("Sync complete");
         setTimeout(() => setSyncStatus(null), 2_000);
-        window.dispatchEvent(new Event("velo-sync-done"));
-        updateBadgeCount();
 
         void getAllAccounts()
           .then(refreshYandexImapAccountAvatars)
@@ -453,14 +477,34 @@ export default function App() {
         }
       } else if (status === "error") {
         setSyncStatus(error ? `Sync failed: ${formatSyncError(error)}` : "Sync failed");
-        // Still dispatch sync-done so the UI refreshes with any partially stored data
-        window.dispatchEvent(new Event("velo-sync-done"));
         // Auto-clear the error after 8 seconds
         setTimeout(() => setSyncStatus(null), 8_000);
       }
     });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    if (!initialized) {
+      previousActiveAccountIdRef.current = activeAccountIdForSync;
+      return;
+    }
+
+    const accountIds = getSyncableAccountIds(accountsForSync, activeAccountIdForSync);
+    if (accountIds.length > 0) {
+      startBackgroundSync(accountIds, true);
+    }
+
+    if (
+      activeAccountIdForSync
+      && previousActiveAccountIdRef.current !== activeAccountIdForSync
+      && accountIds.includes(activeAccountIdForSync)
+    ) {
+      void triggerSync([activeAccountIdForSync]);
+    }
+
+    previousActiveAccountIdRef.current = activeAccountIdForSync;
+  }, [accountsForSync, activeAccountIdForSync, initialized]);
 
   // Sync theme class to <html> element
   useEffect(() => {
@@ -576,9 +620,13 @@ export default function App() {
         }
       }
 
-      // Restart background sync for all accounts, but skip the immediate run
+      // Restart background sync for all mail accounts, but skip the immediate run
       // since the new account's sync was already started above.
-      startBackgroundSync([newAccountId], true);
+      const activeAccountId = useAccountStore.getState().activeAccountId;
+      const syncableAccountIds = getSyncableAccountIds(mapped, activeAccountId);
+      if (syncableAccountIds.length > 0) {
+        startBackgroundSync(syncableAccountIds, true);
+      }
     })();
   }, []);
 

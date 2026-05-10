@@ -5,6 +5,7 @@ import {
   registerActionTypes,
   onAction,
 } from "@tauri-apps/plugin-notification";
+import { invoke } from "@tauri-apps/api/core";
 import { getSetting } from "../db/settings";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useComposerStore } from "../../stores/composerStore";
@@ -14,6 +15,9 @@ import { APP_NAME_EN } from "@/i18n";
 
 let initialized = false;
 let notificationsEnabled = true;
+let lastSoundAt = 0;
+let notificationSoundVolume = 0.8;
+let notificationSoundPath = "";
 
 interface NotificationContext {
   threadId?: string;
@@ -24,6 +28,50 @@ interface NotificationContext {
 
 let lastNotificationContext: NotificationContext | null = null;
 const recentContexts = new Map<string, NotificationContext>();
+
+export function configureNotificationSound(options: {
+  volume?: string | number | null;
+  path?: string | null;
+}): void {
+  if (options.volume !== undefined) {
+    const parsedVolume = Number(options.volume ?? "80");
+    notificationSoundVolume = Math.min(1, Math.max(0, Number.isFinite(parsedVolume) ? parsedVolume / 100 : 0.8));
+  }
+
+  if (options.path !== undefined) {
+    notificationSoundPath = options.path ?? "";
+  }
+}
+
+export async function loadNotificationSoundSettings(): Promise<void> {
+  const [volumeSetting, customSoundPath] = await Promise.all([
+    getSetting("notification_sound_volume"),
+    getSetting("notification_sound_path"),
+  ]);
+  configureNotificationSound({
+    volume: volumeSetting ?? "80",
+    path: customSoundPath ?? "",
+  });
+}
+
+function playNewEmailSound(): void {
+  if (typeof window === "undefined") return;
+
+  const now = Date.now();
+  if (now - lastSoundAt < 1_500) return;
+  lastSoundAt = now;
+
+  playConfiguredNewEmailSound();
+}
+
+export function playConfiguredNewEmailSound(): void {
+  void invoke("play_notification_sound", {
+    path: notificationSoundPath.trim() || null,
+    volume: notificationSoundVolume,
+  }).catch((err) => {
+    console.warn("Failed to play native notification sound:", err);
+  });
+}
 
 async function showAndFocusMainWindow(): Promise<void> {
   const mainWindow = await WebviewWindow.getByLabel("main");
@@ -42,6 +90,7 @@ export async function initNotifications(): Promise<void> {
 
   const setting = await getSetting("notifications_enabled");
   notificationsEnabled = setting !== "false";
+  await loadNotificationSoundSettings();
 
   if (!notificationsEnabled) return;
 
@@ -129,6 +178,8 @@ export function queueNewEmailNotification(
   // Debounce: wait 2s before showing, to batch during sync
   if (notifyTimer) clearTimeout(notifyTimer);
   notifyTimer = setTimeout(() => {
+    playNewEmailSound();
+
     if (pendingCount === 1) {
       sendNotification({
         title: from,

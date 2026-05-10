@@ -206,6 +206,26 @@ export async function getUnreadInboxCount(): Promise<number> {
   return rows[0]?.count ?? 0;
 }
 
+export async function getUnreadInboxCountsByAccount(accountIds?: string[]): Promise<Record<string, number>> {
+  if (accountIds && accountIds.length === 0) return {};
+
+  const db = await getDb();
+  const params = accountIds ?? [];
+  const accountFilter = accountIds
+    ? `AND t.account_id IN (${accountIds.map((_, index) => `$${index + 1}`).join(", ")})`
+    : "";
+  const rows = await db.select<{ account_id: string; count: number }[]>(
+    `SELECT t.account_id, COUNT(*) as count FROM threads t
+     INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
+     WHERE tl.label_id = 'INBOX' AND t.is_read = 0
+       ${accountFilter}
+     GROUP BY t.account_id`,
+    params,
+  );
+
+  return Object.fromEntries(rows.map((row) => [row.account_id, row.count]));
+}
+
 export async function deleteThread(
   accountId: string,
   threadId: string,

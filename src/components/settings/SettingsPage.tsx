@@ -64,6 +64,10 @@ import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
 import appIcon from "@/assets/icon.png";
 import { isValidGoogleOAuthClientIdFormat } from "@/utils/googleCredentials";
+import {
+  configureNotificationSound,
+  playConfiguredNewEmailSound,
+} from "@/services/notifications/notificationManager";
 
 type SettingsTab = "general" | "notifications" | "composing" | "mail-rules" | "people" | "accounts" | "yandex360" | "shortcuts" | "ai" | "about";
 
@@ -152,6 +156,8 @@ export function SettingsPage() {
   const [autoArchiveCategories, setAutoArchiveCategories] = useState<Set<string>>(() => new Set());
   const [smartNotifications, setSmartNotifications] = useState(true);
   const [notifyCategories, setNotifyCategories] = useState<Set<string>>(() => new Set(["Primary"]));
+  const [notificationSoundVolume, setNotificationSoundVolume] = useState("80");
+  const [notificationSoundPath, setNotificationSoundPath] = useState("");
   const [vipSenders, setVipSenders] = useState<{ email_address: string; display_name: string | null }[]>([]);
   const [newVipEmail, setNewVipEmail] = useState("");
   const activeMailAccount = accounts.find((a) => a.isActive && a.provider !== "caldav");
@@ -233,6 +239,16 @@ export function SettingsPage() {
       if (notifCats) {
         setNotifyCategories(new Set(notifCats.split(",").map((s) => s.trim()).filter(Boolean)));
       }
+      const soundVolume = await getSetting("notification_sound_volume");
+      const soundPath = await getSetting("notification_sound_path");
+      const normalizedSoundVolume = soundVolume ?? "80";
+      const normalizedSoundPath = soundPath ?? "";
+      setNotificationSoundVolume(normalizedSoundVolume);
+      setNotificationSoundPath(normalizedSoundPath);
+      configureNotificationSound({
+        volume: normalizedSoundVolume,
+        path: normalizedSoundPath,
+      });
       try {
         const { getAllVipSenders } = await import("@/services/db/notificationVips");
         const activeId = accounts.find((a) => a.isActive)?.id;
@@ -263,6 +279,37 @@ export function SettingsPage() {
     setNotificationsEnabled(newVal);
     await setSetting("notifications_enabled", newVal ? "true" : "false");
   }, [notificationsEnabled]);
+
+  const handleNotificationSoundVolumeChange = useCallback(async (value: string) => {
+    setNotificationSoundVolume(value);
+    configureNotificationSound({ volume: value });
+    await setSetting("notification_sound_volume", value);
+  }, []);
+
+  const handleChooseNotificationSound = useCallback(async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({
+      multiple: false,
+      filters: [
+        {
+          name: "Audio",
+          extensions: ["mp3", "wav", "ogg", "m4a", "aac", "flac"],
+        },
+      ],
+    });
+    const path = Array.isArray(selected) ? selected[0] : selected;
+    if (!path) return;
+
+    setNotificationSoundPath(path);
+    configureNotificationSound({ path });
+    await setSetting("notification_sound_path", path);
+  }, []);
+
+  const handleResetNotificationSound = useCallback(async () => {
+    setNotificationSoundPath("");
+    configureNotificationSound({ path: "" });
+    await setSetting("notification_sound_path", "");
+  }, []);
 
   const handleUndoDelayChange = useCallback(async (value: string) => {
     setUndoSendDelay(value);
@@ -672,6 +719,41 @@ export function SettingsPage() {
                         await setSetting("smart_notifications", newVal ? "true" : "false");
                       }}
                     />
+                  </Section>
+
+                  <Section title="Notification Sound">
+                    <SettingRow label="Volume" description={`${notificationSoundVolume}%`}>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        value={notificationSoundVolume}
+                        onChange={(e) => {
+                          void handleNotificationSoundVolumeChange(e.target.value);
+                        }}
+                        className="w-48 accent-accent"
+                        aria-label="Notification sound volume"
+                      />
+                    </SettingRow>
+                    <SettingRow label="Sound file" description={notificationSoundPath ? notificationSoundPath.split(/[\\/]/).pop() : "Default sound"}>
+                      <div className="flex items-center gap-2">
+                        <Button variant="secondary" onClick={handleChooseNotificationSound}>
+                          Choose file
+                        </Button>
+                        <Button variant="ghost" onClick={handleResetNotificationSound} disabled={!notificationSoundPath}>
+                          Reset
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            playConfiguredNewEmailSound();
+                          }}
+                        >
+                          Test
+                        </Button>
+                      </div>
+                    </SettingRow>
                   </Section>
 
                   {smartNotifications && (
@@ -2270,14 +2352,23 @@ function Section({
 
 function SettingRow({
   label,
+  description,
   children,
 }: {
   label: string;
+  description?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex items-center justify-between">
-      <label className="text-sm text-text-secondary">{label}</label>
+      <div>
+        <label className="text-sm text-text-secondary">{label}</label>
+        {description && (
+          <p className="mt-0.5 max-w-xs truncate text-xs text-text-tertiary" title={description}>
+            {description}
+          </p>
+        )}
+      </div>
       {children}
     </div>
   );

@@ -45,6 +45,7 @@ import {
   type ThreadGroup,
 } from "../threading/threadBuilder";
 import { getPendingOpsForResource } from "../db/pendingOperations";
+import { queueNewEmailNotification } from "../notifications/notificationManager";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1323,6 +1324,17 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     allImapMsgs,
     labelsByRfcId,
   );
+
+  for (const message of storedMessages) {
+    if (message.isRead || !message.labelIds.includes("INBOX")) continue;
+    queueNewEmailNotification(
+      message.fromName ?? message.fromAddress ?? "Unknown",
+      message.subject ?? "",
+      message.threadId,
+      accountId,
+      message.fromAddress ?? undefined,
+    );
+  }
 
   // Update sync state timestamp
   await updateAccountSyncState(accountId, `imap-synced-${Date.now()}`);

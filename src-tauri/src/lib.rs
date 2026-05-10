@@ -7,6 +7,7 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::MacosLauncher;
 
 mod commands;
+mod audio;
 mod imap;
 mod messengers;
 mod oauth;
@@ -94,6 +95,7 @@ pub fn run() {
             set_tray_tooltip,
             close_splashscreen,
             open_devtools,
+            audio::play_notification_sound,
             commands::imap_test_connection,
             commands::imap_list_folders,
             commands::imap_fetch_messages,

@@ -11,8 +11,8 @@ import { hasCalendarSupport, getCalendarProvider } from "../calendar/providerFac
 import { getVisibleCalendars, upsertCalendar, updateCalendarSyncToken } from "../db/calendars";
 import { upsertCalendarEvent, deleteEventByRemoteId } from "../db/calendarEvents";
 
-/** When the window/tab is visible — pick up new mail sooner. */
-const SYNC_INTERVAL_VISIBLE_MS = 30_000;
+/** When the window/tab is visible — pick up new mail quickly while the app is open. */
+const SYNC_INTERVAL_VISIBLE_MS = 10_000;
 /** When hidden/minimized — back off to limit CPU and network. */
 const SYNC_INTERVAL_HIDDEN_MS = 120_000;
 
@@ -68,7 +68,7 @@ function scheduleNextPeriodicSync(): void {
       reason: "periodic_sync_tick",
       extra: { intervalMs: delay, accountIds: ids },
     });
-    void runSync(ids).finally(() => scheduleNextPeriodicSync());
+    void runPeriodicSync(ids);
   }, delay);
 }
 
@@ -337,9 +337,18 @@ async function runSync(accountIds: string[]): Promise<void> {
   }
 
   syncPromise = (async () => {
+    let queue = [...accountIds];
     try {
-      for (const id of accountIds) {
+      while (queue.length > 0) {
+        const id = queue.shift()!;
         await syncAccountInternal(id);
+
+        if (pendingAccountIds) {
+          const queued = pendingAccountIds;
+          pendingAccountIds = null;
+          const merged = new Set([...queued, ...queue]);
+          queue = [...merged];
+        }
       }
     } finally {
       syncPromise = null;
@@ -354,6 +363,23 @@ async function runSync(accountIds: string[]): Promise<void> {
   })();
 
   return syncPromise;
+}
+
+async function runPeriodicSync(accountIds: string[]): Promise<void> {
+  const [primaryAccountId, ...secondaryAccountIds] = accountIds;
+  if (!primaryAccountId) return;
+
+  try {
+    await runSync([primaryAccountId]);
+  } finally {
+    scheduleNextPeriodicSync();
+  }
+
+  if (secondaryAccountIds.length > 0) {
+    void runSync(secondaryAccountIds).catch((err) => {
+      console.error("[syncManager] Background secondary sync failed:", err);
+    });
+  }
 }
 
 /**
@@ -380,7 +406,7 @@ export function startBackgroundSync(accountIds: string[], skipImmediateSync = fa
       reason: "startBackgroundSync",
       extra: { accountIds },
     });
-    void runSync(accountIds).finally(() => scheduleNextPeriodicSync());
+    void runPeriodicSync(accountIds);
   } else {
     scheduleNextPeriodicSync();
   }
