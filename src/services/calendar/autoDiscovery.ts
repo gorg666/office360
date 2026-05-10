@@ -1,3 +1,4 @@
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type { DbAccount } from "@/services/db/accounts";
 import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
 
@@ -160,6 +161,7 @@ export async function testCalDavConnection(
       credentials: { username, password },
       authMethod: "Basic",
       defaultAccountType: "caldav",
+      fetch: tauriFetch,
     });
 
     await client.login();
@@ -178,24 +180,30 @@ export async function testCalDavConnection(
 
 /**
  * Test CalDAV using the OAuth token already stored on an IMAP account.
- * Yandex uses the `OAuth <token>` authorization scheme for token-backed APIs.
+ * Yandex: try `OAuth` then `Bearer` (see yandexCalDavAuth). Others: Bearer.
  */
 export async function testCalDavOAuthConnection(
   account: DbAccount,
   url: string,
 ): Promise<{ success: boolean; message: string; calendarCount?: number }> {
   try {
-    const { DAVClient } = await import("tsdav");
     const accessToken = await ensureFreshToken(account);
-    const client = new DAVClient({
-      serverUrl: url,
-      credentials: { accessToken },
-      authMethod: "Custom",
-      authFunction: async () => ({ authorization: `OAuth ${accessToken}` }),
-      defaultAccountType: "caldav",
-    });
+    let client: InstanceType<Awaited<typeof import("tsdav")>["DAVClient"]>;
+    if (account.oauth_provider === "yandex") {
+      const { loginYandexCalDavClient } = await import("./yandexCalDavAuth");
+      client = await loginYandexCalDavClient(url, accessToken);
+    } else {
+      const { DAVClient } = await import("tsdav");
+      client = new DAVClient({
+        serverUrl: url,
+        credentials: { accessToken },
+        authMethod: "Bearer",
+        defaultAccountType: "caldav",
+        fetch: tauriFetch,
+      });
+      await client.login();
+    }
 
-    await client.login();
     const calendars = await client.fetchCalendars();
 
     return {
@@ -204,7 +212,14 @@ export async function testCalDavOAuthConnection(
       calendarCount: calendars.length,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Connection failed";
+    let message = err instanceof Error ? err.message : "Connection failed";
+    if (
+      account.oauth_provider === "yandex" &&
+      /invalid credentials|401|cannot find homeurl/i.test(message)
+    ) {
+      message +=
+        " Для Яндекса включите в приложении oauth.yandex.ru доступ к календарю (calendar:all) и нажмите «Авторизовать заново», либо укажите пароль приложения для CalDAV.";
+    }
     return { success: false, message };
   }
 }

@@ -1,3 +1,4 @@
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { DAVClient, type DAVCalendar, type DAVObject } from "tsdav";
 import type {
   CalendarProvider,
@@ -38,13 +39,8 @@ export class CalDAVProvider implements CalendarProvider {
 
     if (usesYandexOAuth) {
       const accessToken = await ensureFreshToken(account);
-      client = new DAVClient({
-        serverUrl,
-        credentials: { accessToken },
-        authMethod: "Custom",
-        authFunction: async () => ({ authorization: `OAuth ${accessToken}` }),
-        defaultAccountType: "caldav",
-      });
+      const { loginYandexCalDavClient } = await import("./yandexCalDavAuth");
+      client = await loginYandexCalDavClient(serverUrl, accessToken);
     } else {
       if (!password) {
         throw new Error("CalDAV credentials not configured");
@@ -55,10 +51,11 @@ export class CalDAVProvider implements CalendarProvider {
         credentials: { username, password },
         authMethod: "Basic",
         defaultAccountType: "caldav",
+        fetch: tauriFetch,
       });
+      await client.login();
     }
 
-    await client.login();
     this.client = client;
     return client;
   }

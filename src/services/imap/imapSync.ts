@@ -24,7 +24,13 @@ import {
 import type { ParsedMessage, ParsedAttachment } from "../gmail/messageParser";
 import type { SyncResult } from "../email/types";
 import { getUncachedImapMessageRefs, upsertMessage, updateMessageThreadIds } from "../db/messages";
-import { upsertThread, setThreadLabels, addThreadLabels, deleteThread } from "../db/threads";
+import {
+  upsertThread,
+  setThreadLabels,
+  addThreadLabels,
+  deleteThread,
+  deleteThreadsWithoutMessages,
+} from "../db/threads";
 import { upsertAttachment } from "../db/attachments";
 import { getAccount, updateAccountSyncState } from "../db/accounts";
 import { withTransaction } from "../db/connection";
@@ -1040,6 +1046,12 @@ export async function imapInitialSync(
 
   await hydrateUncachedImapBodies(accountId, config, onProgress);
 
+  const ghostThreads = await deleteThreadsWithoutMessages(accountId);
+  if (ghostThreads > 0) {
+    console.log(`[imapSync] Removed ${ghostThreads} threads with no messages`);
+    notifyPartialSyncAvailable();
+  }
+
   onProgress?.({
     phase: "done",
     current: storedCount,
@@ -1277,6 +1289,11 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 
   if (allThreadable.length === 0) {
     await hydrateUncachedImapBodies(accountId, config);
+    const ghostOnly = await deleteThreadsWithoutMessages(accountId);
+    if (ghostOnly > 0) {
+      console.log(`[imapSync] Delta: removed ${ghostOnly} threads with no messages`);
+      notifyPartialSyncAvailable();
+    }
     return { messages: [] };
   }
 
@@ -1310,6 +1327,12 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   // Update sync state timestamp
   await updateAccountSyncState(accountId, `imap-synced-${Date.now()}`);
   await hydrateUncachedImapBodies(accountId, config);
+
+  const ghostAfterDelta = await deleteThreadsWithoutMessages(accountId);
+  if (ghostAfterDelta > 0) {
+    console.log(`[imapSync] Delta: removed ${ghostAfterDelta} threads with no messages`);
+    notifyPartialSyncAvailable();
+  }
 
   return { messages: storedMessages };
 }

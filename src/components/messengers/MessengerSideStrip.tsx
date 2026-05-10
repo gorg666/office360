@@ -34,6 +34,22 @@ import {
   type MessengerProviderId,
 } from "@/services/messengers/credentials";
 import {
+  fetchYandexMessengerUpdates,
+  getYandexConversations,
+  getYandexUserLink,
+  mergeYandexConversationFromUpdate,
+  messengerMessageFromYandexUpdate,
+  nextYandexUpdateOffset,
+  sendYandexMessage,
+} from "@/services/messengers/yandexBotApi";
+import { loadYandexMessengerUpdateOffset, saveYandexMessengerUpdateOffset } from "@/services/messengers/yandexMessengerOffset";
+import {
+  resolveYandexMessengerSession,
+  yandexMessengerSourceKey,
+  type YandexMessengerSession,
+} from "@/services/messengers/yandexMessengerSession";
+import { useAccountStore } from "@/stores/accountStore";
+import {
   checkMaxPassword,
   checkMaxAuthCode,
   connectMaxClient,
@@ -46,11 +62,6 @@ import {
   sendMaxMessage,
   startMaxAuth,
 } from "@/services/messengers/maxBotApi";
-import {
-  getYandexConversations,
-  getYandexUserLink,
-  sendYandexMessage,
-} from "@/services/messengers/yandexBotApi";
 const LIGHTS_OUT_UNTIL_KEY = "velo_messenger_lights_out_until";
 const LIGHTS_OUT_CHANGED_EVENT = "velo-messenger-lights-out-changed";
 const MAX_CONVERSATIONS_CACHE_KEY = "velo_max_conversations:v1";
@@ -81,8 +92,8 @@ const PROVIDERS: ProviderView[] = [
   {
     id: "yandex",
     name: "Яндекс",
-    subtitle: "Bot API для Мессенджера в Яндекс 360",
-    tokenLabel: "OAuth token бота",
+    subtitle: "Bot API Мессенджера Яндекс 360 (OAuth аккаунта или токен бота)",
+    tokenLabel: "OAuth аккаунта Яндекс Почты или токен бота",
     targetHint: "chat_id или login",
     docUrl: "https://yandex.ru/dev/messenger/doc/ru/",
     iconSrc: "/assets/yandexmess.svg",
@@ -384,6 +395,7 @@ export type MessengerSideStripProps = {
 };
 
 export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps = {}) {
+  const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const [selectedProviderId, setSelectedProviderId] = useState<MessengerProviderId>("max");
   const [activeProviderIds, setActiveProviderIds] = useState<MessengerProviderId[]>(["max", "yandex"]);
   const [query, setQuery] = useState("");
@@ -405,7 +417,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
     return saved.filter((x): x is StripPaneId => ALL_STRIP_PANE_IDS.includes(x as StripPaneId));
   });
   const [maxCredentials, setMaxCredentials] = useState<MessengerCredentials | null>(() => loadMessengerCredentials("max"));
-  const [yandexCredentials, setYandexCredentials] = useState<MessengerCredentials | null>(() => loadMessengerCredentials("yandex"));
+  const [yandexSession, setYandexSession] = useState<YandexMessengerSession | null>(null);
   const [telegramCredentials, setTelegramCredentials] = useState<MessengerCredentials | null>(() => loadMessengerCredentials("telegram"));
   const [tokenInput, setTokenInput] = useState("");
   const [maxPhoneInput, setMaxPhoneInput] = useState("");
@@ -445,7 +457,82 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
   } | null>(null);
 
   const selectedProvider = PROVIDERS.find((provider) => provider.id === selectedProviderId) ?? PROVIDERS[0]!;
-  const credentials = selectedProviderId === "max" ? maxCredentials : selectedProviderId === "yandex" ? yandexCredentials : telegramCredentials;
+  const credentials = useMemo((): MessengerCredentials | null => {
+    if (selectedProviderId === "max") return maxCredentials;
+    if (selectedProviderId === "telegram") return telegramCredentials;
+    if (selectedProviderId === "yandex") {
+      if (!yandexSession) return null;
+      return {
+        providerId: "yandex",
+        token: yandexSession.token,
+        savedAt: Date.now(),
+      };
+    }
+    return null;
+  }, [maxCredentials, selectedProviderId, telegramCredentials, yandexSession]);
+
+  const reloadYandexSession = useCallback(async () => {
+    try {
+      const next = await resolveYandexMessengerSession(activeAccountId);
+      setYandexSession(next);
+    } catch (sessionError) {
+      console.warn("[yandex-messenger] Не удалось получить сессию:", sessionError);
+      setYandexSession(null);
+    }
+  }, [activeAccountId]);
+
+  useEffect(() => {
+    void reloadYandexSession();
+  }, [reloadYandexSession]);
+
+  const syncYandexMessengerInbox = useCallback(
+    async (options: { silent: boolean }) => {
+      if (!yandexSession) {
+        if (!options.silent) throw new Error("Нет аккаунта Яндекс (OAuth) или токена Bot API. Добавьте почту Яндекс или укажите токен в настройках.");
+        return;
+      }
+      const sourceKey = yandexMessengerSourceKey(yandexSession);
+      const offset = loadYandexMessengerUpdateOffset(sourceKey);
+      const response = await fetchYandexMessengerUpdates(yandexSession.token, { offset, limit: 500 });
+      if (!response.ok) {
+        const message = response.description ?? "getUpdates вернул ошибку.";
+        if (!options.silent) throw new Error(message);
+        console.warn("[yandex-messenger] poll:", message);
+        return;
+      }
+      const updates = response.updates ?? [];
+      if (!updates.length) {
+        if (!options.silent) setInfo("Яндекс: новых обновлений нет.");
+        return;
+      }
+      const nextOffset = nextYandexUpdateOffset(updates);
+      saveYandexMessengerUpdateOffset(sourceKey, nextOffset);
+      const newMessages = updates.map(messengerMessageFromYandexUpdate);
+      const newConversations = updates.map(mergeYandexConversationFromUpdate);
+      setMessages((current) => ({
+        ...current,
+        yandex: mergeMessages(current.yandex, newMessages),
+      }));
+      setConversations((current) => ({
+        ...current,
+        yandex: mergeConversations(current.yandex, newConversations, getYandexConversations(loadMessengerTargets("yandex"))),
+      }));
+      if (!options.silent) setInfo(`Яндекс: получено обновлений: ${updates.length}.`);
+    },
+    [yandexSession],
+  );
+
+  useEffect(() => {
+    if (!yandexSession) return;
+    const tick = () => {
+      void syncYandexMessengerInbox({ silent: true }).catch((error) => {
+        console.warn("[yandex-messenger] poll failed:", error);
+      });
+    };
+    tick();
+    const intervalId = window.setInterval(tick, 15_000);
+    return () => clearInterval(intervalId);
+  }, [syncYandexMessengerInbox, yandexSession]);
 
   const visibleConversations = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -744,12 +831,12 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
     }
     const saved = saveMessengerCredentials(selectedProviderId, token);
     if (selectedProviderId === "max") setMaxCredentials(saved);
-    if (selectedProviderId === "yandex") setYandexCredentials(saved);
     if (selectedProviderId === "telegram") setTelegramCredentials(saved);
+    if (selectedProviderId === "yandex") void reloadYandexSession();
     setTokenInput("");
     setError(null);
     setInfo(`${selectedProvider.name}: token сохранён локально.`);
-  }, [selectedProvider.name, selectedProviderId, tokenInput]);
+  }, [reloadYandexSession, selectedProvider.name, selectedProviderId, tokenInput]);
 
   const clearToken = useCallback(() => {
     clearMessengerCredentials(selectedProviderId);
@@ -763,14 +850,14 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
       clearCachedMaxState();
       void disconnectMaxClient();
     }
-    if (selectedProviderId === "yandex") setYandexCredentials(null);
+    if (selectedProviderId === "yandex") void reloadYandexSession();
     if (selectedProviderId === "telegram") setTelegramCredentials(null);
     setMessages((current) => ({ ...current, [selectedProviderId]: [] }));
     setConversations((current) => ({ ...current, [selectedProviderId]: [] }));
     setSelectedConversationKey(null);
     setInfo(`${selectedProvider.name}: token удалён.`);
     setError(null);
-  }, [selectedProvider.name, selectedProviderId]);
+  }, [reloadYandexSession, selectedProvider.name, selectedProviderId]);
 
   const startMaxLogin = useCallback(() => {
     void runAction(async () => {
@@ -864,7 +951,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
 
   const verifyToken = useCallback(() => {
     void runAction(async () => {
-      if (!credentials) throw new Error("Сначала сохраните token.");
+      if (!credentials) throw new Error("Подключите аккаунт или сохраните token.");
       if (selectedProviderId === "max") {
         const me = await getMaxMe(credentials.token);
         setMaxProfileId(String(me.user_id));
@@ -872,20 +959,29 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
         return;
       }
 
-      if (targetKind === "login" && targetId.trim()) {
-        const link = await getYandexUserLink(credentials.token, targetId.trim());
-        if (!link.ok) throw new Error(link.description ?? "Яндекс не подтвердил token/login.");
-        setInfo(`Яндекс token рабочий, пользователь найден: ${link.id ?? targetId.trim()}.`);
+      if (selectedProviderId === "yandex") {
+        if (!yandexSession) throw new Error("Нет OAuth-сессии Яндекс Почты или токена бота.");
+        if (targetKind === "login" && targetId.trim()) {
+          const link = await getYandexUserLink(credentials.token, targetId.trim());
+          if (!link.ok) throw new Error(link.description ?? "Яндекс не подтвердил token/login.");
+          setInfo(`Яндекс: пользователь найден: ${link.id ?? targetId.trim()}.`);
+          return;
+        }
+        const sourceKey = yandexMessengerSourceKey(yandexSession);
+        const offset = loadYandexMessengerUpdateOffset(sourceKey);
+        const head = await fetchYandexMessengerUpdates(credentials.token, { offset, limit: 1 });
+        if (!head.ok) throw new Error(head.description ?? "Яндекс Messenger отклонил запрос.");
+        setInfo("Яндекс Messenger API отвечает (getUpdates).");
         return;
       }
 
-      setInfo("Яндекс token сохранён. Для проверки API укажите login и нажмите «Проверить» или отправьте тестовое сообщение.");
+      throw new Error("Проверка token для этого провайдера не реализована.");
     });
-  }, [credentials, runAction, selectedProviderId, targetId, targetKind]);
+  }, [credentials, runAction, selectedProviderId, targetId, targetKind, yandexSession]);
 
   const refreshConversations = useCallback(() => {
     void runAction(async () => {
-      if (!credentials) throw new Error("Сначала сохраните token.");
+      if (!credentials) throw new Error("Подключите аккаунт или сохраните token.");
       if (selectedProviderId === "max") {
         const me = await getMaxMe(credentials.token);
         setMaxProfileId(String(me.user_id));
@@ -901,15 +997,14 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
         return;
       }
 
-      const yandexConversations = getYandexConversations(loadMessengerTargets("yandex"));
-      setConversations((current) => ({ ...current, yandex: yandexConversations }));
-      setInfo(
-        yandexConversations.length
-          ? `Яндекс recent-диалоги загружены: ${yandexConversations.length}.`
-          : "У Яндекс Bot API нет общего inbox list: укажите chat_id/login и отправьте сообщение.",
-      );
+      if (selectedProviderId === "yandex") {
+        await syncYandexMessengerInbox({ silent: false });
+        return;
+      }
+
+      throw new Error("Обновление диалогов для этого провайдера не реализовано.");
     });
-  }, [credentials, runAction, selectedProviderId]);
+  }, [credentials, runAction, selectedProviderId, syncYandexMessengerInbox]);
 
   const selectConversation = useCallback((conversation: MessengerConversation) => {
     setSelectedConversationKey(`${conversation.providerId}:${conversation.kind}:${conversation.id}`);
@@ -920,7 +1015,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
 
   const sendMessage = useCallback(() => {
     void runAction(async () => {
-      if (!credentials) throw new Error("Сначала сохраните token.");
+      if (!credentials) throw new Error("Подключите аккаунт или сохраните token.");
       const text = draft.trim();
       const target = targetId.trim();
       const attachmentsToSend = pendingAttachments;
@@ -936,7 +1031,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
           setPendingAttachments(attachmentsToSend);
           throw sendError;
         }
-      } else {
+      } else if (selectedProviderId === "yandex") {
         if (attachmentsToSend.length > 0) {
           setPendingAttachments(attachmentsToSend);
           throw new Error("Вложения сейчас подключены для MAX client protocol.");
@@ -950,6 +1045,9 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
           subtitle: formatTargetKind(targetKind),
         });
         setConversations((current) => ({ ...current, yandex: getYandexConversations(targets) }));
+      } else {
+        setPendingAttachments(attachmentsToSend);
+        throw new Error("Отправка для этого мессенджера пока не подключена.");
       }
 
       const outgoing: MessengerMessage = {
@@ -1127,8 +1225,21 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-text-primary">{selectedProvider.subtitle}</p>
                   <p className="mt-1 text-xs text-text-tertiary">
-                    {credentials ? `Token сессии сохранён: ${maskMessengerToken(credentials.token)}` : selectedProvider.tokenLabel}
+                    {selectedProviderId === "yandex" && yandexSession && !yandexSession.manual
+                      ? `OAuth Яндекс Почты: ${yandexSession.accountEmail ?? "аккаунт"}`
+                      : credentials
+                        ? `Token: ${maskMessengerToken(credentials.token)}`
+                        : selectedProvider.tokenLabel}
                   </p>
+                  {selectedProviderId === "yandex" ? (
+                    <p className="mt-2 text-[0.6875rem] leading-snug text-text-tertiary">
+                      Bot API рассчитан на токен организационного бота. Если запросы отклоняются (403), выпустите токен в{" "}
+                      <a className="text-accent underline" href="https://admin.yandex.ru/bot-platform" target="_blank" rel="noreferrer">
+                        Боты в Мессенджере
+                      </a>{" "}
+                      и вставьте его ниже — он перекроет OAuth до удаления.
+                    </p>
+                  ) : null}
                 </div>
                 {credentials ? (
                   <button
@@ -1329,7 +1440,9 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
               <div className="rounded-2xl border border-dashed border-border-primary p-4 text-sm text-text-tertiary">
                 {selectedProviderId === "max"
                   ? "Войдите по номеру телефона или вставьте текущий MAX session token, затем нажмите «Обновить»."
-                  : "Укажите login/chat_id справа и отправьте сообщение. Recent-диалоги появятся здесь."}
+                  : selectedProviderId === "yandex"
+                    ? "Диалоги подтягиваются из Bot API (getUpdates). Добавьте аккаунт Яндекс Почты через OAuth или токен бота в настройках; можно написать по chat_id или login."
+                    : "Укажите идентификатор чата и отправьте сообщение."}
               </div>
             )}
           </div>

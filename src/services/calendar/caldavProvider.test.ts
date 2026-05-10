@@ -1,3 +1,7 @@
+vi.mock("@tauri-apps/plugin-http", () => ({
+  fetch: globalThis.fetch.bind(globalThis),
+}));
+
 import { CalDAVProvider } from "./caldavProvider";
 import { getAccount } from "@/services/db/accounts";
 import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";

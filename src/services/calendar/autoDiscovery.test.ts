@@ -1,3 +1,7 @@
+vi.mock("@tauri-apps/plugin-http", () => ({
+  fetch: globalThis.fetch.bind(globalThis),
+}));
+
 import { discoverCalDavSettings, testCalDavConnection, testCalDavOAuthConnection } from "./autoDiscovery";
 import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
 

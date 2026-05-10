@@ -540,7 +540,9 @@ pub async fn fetch_new_uids(
         .map_err(|_| format!("SELECT {folder} timed out after {}s — check your server settings or network connection", IMAP_CMD_TIMEOUT.as_secs()))?
         .map_err(|e| format!("SELECT {folder} failed: {e}"))?;
 
-    let query = format!("{}:*", last_uid + 1);
+    // RFC 3501: plain `N:*` in SEARCH matches *sequence numbers*, not UIDs.
+    // Use `UID N:*` so we match messages by UID (required for delta sync on Yandex et al.).
+    let query = format!("UID {}:*", last_uid + 1);
     let mut result: Vec<u32> = match tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search(&query)).await {
         Ok(Ok(uids)) => uids.into_iter().filter(|&u| u > last_uid).collect(),
         Ok(Err(e)) => {
@@ -923,8 +925,8 @@ pub async fn delta_check_folders(
             continue;
         }
 
-        // UID SEARCH for messages newer than last_uid
-        let query = format!("{}:*", req.last_uid + 1);
+        // See `fetch_new_uids`: must use `UID range:*`, not sequence numbers.
+        let query = format!("UID {}:*", req.last_uid + 1);
         let mut new_uids = match tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search(&query))
             .await
         {
@@ -2123,7 +2125,7 @@ fn parse_message_with_options(
     };
 
     // Addresses — если в From только адрес, подставляем имя из Sender при совпадении mailbox (RFC 5322).
-    let (from_address, mut from_name) = extract_first_address(message.from());
+    let (mut from_address, mut from_name) = extract_first_address(message.from());
     if from_name
         .as_ref()
         .map(|s| s.trim().is_empty())
@@ -2137,6 +2139,51 @@ fn parse_message_with_options(
             };
             if addrs_match && s_name.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false) {
                 from_name = s_name;
+            }
+        }
+    }
+
+    // Пустой From встречается у части служебных писем (Яндекс ID и др.) — берём Reply-To, Sender, Return-Path.
+    let from_addr_empty = from_address
+        .as_ref()
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true);
+    if from_addr_empty {
+        if let Some(reply) = message.reply_to() {
+            let (a, n) = extract_first_address(Some(reply));
+            if a.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false) {
+                from_address = a;
+                if from_name.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
+                    from_name = n;
+                }
+            }
+        }
+    }
+    let from_addr_empty = from_address
+        .as_ref()
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true);
+    if from_addr_empty {
+        if let Some(sender) = message.sender() {
+            let (a, n) = extract_first_address(Some(sender));
+            if a.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false) {
+                from_address = a;
+                if from_name.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true) {
+                    from_name = n;
+                }
+            }
+        }
+    }
+    let from_addr_empty = from_address
+        .as_ref()
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true);
+    if from_addr_empty {
+        if let Some(rp) = extract_header_text(
+            message.header(mail_parser::HeaderName::Other("Return-Path".into())),
+        ) {
+            if let Some(addr) = parse_angle_addr_or_bare(&rp) {
+                from_address = Some(addr);
             }
         }
     }
@@ -2400,6 +2447,28 @@ fn extract_header_text(hv: Option<&mail_parser::HeaderValue>) -> Option<String> 
                 .join(", "),
         ),
         _ => None,
+    }
+}
+
+/// Из `Return-Path: <user@host>` или `Return-Path: user@host`.
+fn parse_angle_addr_or_bare(value: &str) -> Option<String> {
+    let t = value.trim();
+    if t.is_empty() {
+        return None;
+    }
+    if let Some(start) = t.find('<') {
+        if let Some(end) = t[start + 1..].find('>') {
+            let inner = t[start + 1..start + 1 + end].trim();
+            if !inner.is_empty() {
+                return Some(inner.to_string());
+            }
+        }
+    }
+    let token = t.split_whitespace().next().unwrap_or(t).trim();
+    if token.contains('@') {
+        Some(token.to_string())
+    } else {
+        None
     }
 }
 
