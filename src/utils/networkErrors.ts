@@ -111,3 +111,55 @@ export function formatSyncError(rawError: string): string {
   }
   return rawError;
 }
+
+/**
+ * User-facing Russian text for compose send / draft save failures (SMTP, IMAP, Gmail).
+ */
+export function formatEmailSendOrDraftError(rawError: string): string {
+  const trimmed = rawError.trim();
+  const lower = trimmed.toLowerCase();
+
+  if (lower.includes("no recipients found in email")) {
+    return "Укажите получателя";
+  }
+  if (lower.includes("no from address found in email")) {
+    return "Не указан адрес отправителя в письме";
+  }
+  if (lower.includes("failed to parse email for envelope")) {
+    return "Не удалось разобрать письмо для отправки";
+  }
+  if (lower.includes("invalid from address")) {
+    return "Некорректный адрес отправителя";
+  }
+  if (lower.includes("envelope error")) {
+    return "Ошибка формирования конверта письма";
+  }
+  if (lower.includes("base64 decode error")) {
+    return "Ошибка кодирования письма";
+  }
+
+  const smtpSendFailed = /^smtp\s+send\s+failed:\s*(.+)$/i.exec(trimmed);
+  if (smtpSendFailed?.[1]) {
+    return `Ошибка отправки. ${formatSyncError(smtpSendFailed[1].trim())}`;
+  }
+
+  if (lower.includes("imap ok, but smtp failed")) {
+    const inner = trimmed.replace(/^imap ok, but smtp failed:\s*/i, "").trim();
+    return `Ошибка SMTP при сохранении на сервере. ${formatSyncError(inner)}`;
+  }
+
+  const smtpSendErrIdx = lower.indexOf("smtp send error:");
+  if (smtpSendErrIdx !== -1) {
+    const inner = trimmed.slice(smtpSendErrIdx + "smtp send error:".length).trim();
+    return `Ошибка отправки SMTP. ${formatSyncError(inner)}`;
+  }
+
+  if (lower.includes("subject required") || lower.includes("missing subject")) {
+    return "Укажите тему";
+  }
+  if (lower.includes("recipient required") || lower.includes("missing recipient")) {
+    return "Укажите получателя";
+  }
+
+  return formatSyncError(trimmed);
+}

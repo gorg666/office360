@@ -1,4 +1,4 @@
-import { classifyError, formatSyncError } from "./networkErrors";
+import { classifyError, formatSyncError, formatEmailSendOrDraftError } from "./networkErrors";
 
 describe("classifyError", () => {
   it("classifies 'Failed to fetch' as network (retryable)", () => {
@@ -162,5 +162,23 @@ describe("formatSyncError", () => {
 
   it("passes through short unknown errors unchanged", () => {
     expect(formatSyncError("Something unexpected")).toBe("Something unexpected");
+  });
+});
+
+describe("formatEmailSendOrDraftError", () => {
+  it("maps no recipients (SMTP envelope) to Russian", () => {
+    expect(formatEmailSendOrDraftError("No recipients found in email")).toBe("Укажите получателя");
+  });
+
+  it("unwraps SMTP send failed and maps inner auth text", () => {
+    expect(formatEmailSendOrDraftError("SMTP send failed: Authentication failed")).toBe(
+      "Ошибка отправки. Ошибка авторизации — проверьте пароль или пароль приложения",
+    );
+  });
+
+  it("maps IMAP+SMTP combined error prefix", () => {
+    expect(
+      formatEmailSendOrDraftError("IMAP OK, but SMTP failed: connection refused"),
+    ).toContain("Ошибка SMTP");
   });
 });

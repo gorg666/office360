@@ -158,7 +158,7 @@ pub async fn send_raw_email(
         .await
         .map(|_response| SmtpSendResult {
             success: true,
-            message: "Email sent successfully".to_string(),
+            message: "Письмо отправлено".to_string(),
         })
         .map_err(|e| format!("SMTP send error: {}", e))
 }

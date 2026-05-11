@@ -719,7 +719,7 @@ function PendingOpsIndicator({ collapsed }: { collapsed: boolean }) {
         </div>
       ) : (
         <div className="text-xs text-text-secondary">
-          {pendingOpsCount} pending {pendingOpsCount === 1 ? "change" : "changes"}
+          В очереди операций: {pendingOpsCount}
         </div>
       )}
     </div>

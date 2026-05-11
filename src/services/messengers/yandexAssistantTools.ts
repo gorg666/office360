@@ -10,6 +10,7 @@ import { getCalendarProvider, hasCalendarSupport } from "@/services/calendar/pro
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { sendEmail } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
+import { formatEmailSendOrDraftError } from "@/utils/networkErrors";
 import { buildReplyHeadersForMessageId } from "@/utils/replyHeaders";
 import type { MessengerConversation, MessengerMessage } from "./botApiTypes";
 import { sendYandexFile } from "./yandexBotApi";
@@ -787,7 +788,10 @@ async function handleSendPendingEmail(params: YandexAssistantToolParams): Promis
   });
   const result = await sendEmail(pending.accountId, raw, pending.threadId);
   if (!result.success) {
-    return { handled: true, replyText: `Не удалось отправить письмо: ${result.error ?? "неизвестная ошибка"}` };
+    const errText = result.error
+      ? formatEmailSendOrDraftError(result.error)
+      : "Неизвестная ошибка";
+    return { handled: true, replyText: `Не удалось отправить письмо: ${errText}` };
   }
 
   savePendingDraft(params.conversation.id, null);

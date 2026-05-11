@@ -475,9 +475,9 @@ export function Composer() {
           : "Новое сообщение";
 
   const savedLabel = isSaving
-    ? "Сохранение..."
+    ? "Сохранение черновика…"
     : lastSavedAt
-      ? "Черновик сохранен"
+      ? "Черновик сохранён"
       : null;
 
   return (

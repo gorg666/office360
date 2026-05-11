@@ -4,7 +4,7 @@ import { getEmailProvider } from "@/services/email/providerFactory";
 import { getAccount } from "@/services/db/accounts";
 import { enqueuePendingOperation } from "@/services/db/pendingOperations";
 import { triggerSync } from "@/services/gmail/syncManager";
-import { classifyError } from "@/utils/networkErrors";
+import { classifyError, formatEmailSendOrDraftError } from "@/utils/networkErrors";
 import { getDb } from "@/services/db/connection";
 import { navigateToThread, getSelectedThreadId } from "@/router/navigate";
 
@@ -352,7 +352,13 @@ export async function executeEmailAction(
     // Permanent error — revert optimistic update
     revertOptimisticUpdate(action);
     console.error(`Email action ${action.type} failed permanently:`, err);
-    return { success: false, error: classified.message };
+    const userMessage =
+      action.type === "sendMessage" ||
+      action.type === "createDraft" ||
+      action.type === "updateDraft"
+        ? formatEmailSendOrDraftError(classified.message)
+        : classified.message;
+    return { success: false, error: userMessage };
   }
 }
 
