@@ -42,6 +42,18 @@ export async function getMessagesForThread(
   );
 }
 
+export async function getMessageById(
+  accountId: string,
+  messageId: string,
+): Promise<DbMessage | null> {
+  const db = await getDb();
+  const rows = await db.select<DbMessage[]>(
+    "SELECT * FROM messages WHERE account_id = $1 AND id = $2 LIMIT 1",
+    [accountId, messageId],
+  );
+  return rows[0] ?? null;
+}
+
 export interface UncachedImapMessageRef {
   id: string;
   thread_id: string;

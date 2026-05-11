@@ -1,6 +1,7 @@
 import { useComposerStore } from "@/stores/composerStore";
 import { createDraft as createDraftAction, updateDraft as updateDraftAction } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
+import { buildReplyHeadersForMessageId } from "@/utils/replyHeaders";
 import { useAccountStore } from "@/stores/accountStore";
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -25,11 +26,14 @@ async function saveDraft(): Promise<void> {
   state.setIsSaving(true);
 
   try {
+    const replyHeaders = await buildReplyHeadersForMessageId(accountId, state.inReplyToMessageId);
     const raw = buildRawEmail({
       from: account.email,
       to: state.to.length > 0 ? state.to : [""],
       subject: state.subject,
       htmlBody: state.bodyHtml,
+      inReplyTo: replyHeaders.inReplyTo,
+      references: replyHeaders.references,
       threadId: state.threadId ?? undefined,
       attachments: state.attachments.length > 0
         ? state.attachments.map((a) => ({

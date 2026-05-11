@@ -37,6 +37,9 @@ export interface ParsedMessage {
   listUnsubscribe: string | null;
   listUnsubscribePost: string | null;
   authResults: string | null;
+  messageIdHeader: string | null;
+  referencesHeader: string | null;
+  inReplyToHeader: string | null;
 }
 
 export function parseGmailMessage(msg: GmailMessage): ParsedMessage {
@@ -82,6 +85,9 @@ export function parseGmailMessage(msg: GmailMessage): ParsedMessage {
     listUnsubscribe: decodeHeaderValue(getHeader(headers, "List-Unsubscribe")),
     listUnsubscribePost: decodeHeaderValue(getHeader(headers, "List-Unsubscribe-Post")),
     authResults: authResult ? JSON.stringify(authResult) : null,
+    messageIdHeader: getHeader(headers, "Message-ID"),
+    referencesHeader: getHeader(headers, "References"),
+    inReplyToHeader: getHeader(headers, "In-Reply-To"),
   };
 }
 

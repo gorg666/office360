@@ -20,6 +20,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { sendEmail, archiveThread, deleteDraft as deleteDraftAction } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
+import { buildReplyHeadersForMessageId } from "@/utils/replyHeaders";
 import { upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
 import { insertScheduledEmail } from "@/services/db/scheduledEmails";
@@ -243,6 +244,7 @@ export function Composer() {
 
     const html = getFullHtml();
     const senderEmail = state.fromEmail ?? activeAccount.email;
+    const replyHeaders = await buildReplyHeadersForMessageId(activeAccountId, state.inReplyToMessageId);
     const raw = buildRawEmail({
       from: senderEmail,
       to: state.to,
@@ -250,7 +252,8 @@ export function Composer() {
       bcc: state.bcc.length > 0 ? state.bcc : undefined,
       subject: state.subject,
       htmlBody: html,
-      inReplyTo: state.inReplyToMessageId ?? undefined,
+      inReplyTo: replyHeaders.inReplyTo,
+      references: replyHeaders.references,
       threadId: state.threadId ?? undefined,
       attachments: state.attachments.length > 0
         ? state.attachments.map((a) => ({

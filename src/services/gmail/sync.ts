@@ -133,6 +133,9 @@ async function processAndStoreThread(
       listUnsubscribe: parsed.listUnsubscribe,
       listUnsubscribePost: parsed.listUnsubscribePost,
       authResults: parsed.authResults,
+      messageIdHeader: parsed.messageIdHeader,
+      referencesHeader: parsed.referencesHeader,
+      inReplyToHeader: parsed.inReplyToHeader,
     });
 
     await Promise.all(parsed.attachments.map((att) =>

@@ -8,6 +8,7 @@ import { useComposerStore } from "@/stores/composerStore";
 import { useUIStore } from "@/stores/uiStore";
 import { sendEmail, archiveThread } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
+import { buildReplyHeadersForMessageId } from "@/utils/replyHeaders";
 import { upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
 import { getDefaultSignature } from "@/services/db/signatures";
@@ -171,13 +172,15 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
         html += `<div style="margin-top:16px;border-top:1px solid #e5e5e5;padding-top:12px">${signatureHtml}</div>`;
       }
 
+      const replyHeaders = await buildReplyHeadersForMessageId(accountId, lastMessage?.id);
       const raw = buildRawEmail({
         from: activeAccount.email,
         to,
         cc: cc.length > 0 ? cc : undefined,
         subject: getSubject(),
         htmlBody: html,
-        inReplyTo: lastMessage?.id,
+        inReplyTo: replyHeaders.inReplyTo,
+        references: replyHeaders.references,
         threadId: thread.id,
       });
 

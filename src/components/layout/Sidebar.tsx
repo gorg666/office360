@@ -353,16 +353,25 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       }`}
     >
       {/* Compose button */}
-      <div className="px-3 py-2">
+      <div className="px-0 py-0">
         <button
           onClick={() => openComposer()}
-          className="w-full flex items-center justify-center gap-2 bg-accent hover:bg-accent-hover text-white rounded-lg py-2 text-sm font-medium interactive-btn"
+          className={`w-full flex items-center text-sidebar-text hover:bg-sidebar-hover transition-colors press-scale ${
+            collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-4 py-3 text-left"
+          }`}
         >
-          {collapsed ? <Plus size={16} /> : "Compose"}
+          {collapsed ? (
+            <Plus size={18} />
+          ) : (
+            <>
+              <Mail size={18} className="shrink-0" />
+              <span className="text-base font-medium">Новое письмо</span>
+            </>
+          )}
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-2">
+      <nav className="flex-1 overflow-y-auto pt-0 pb-2">
         {visibleNavItems.map((item, index) => {
           const Icon = item.icon;
           const isInbox = item.id === "inbox";

@@ -277,6 +277,9 @@ export function imapMessageToParsedMessage(
     listUnsubscribe: msg.list_unsubscribe,
     listUnsubscribePost: msg.list_unsubscribe_post,
     authResults: msg.auth_results,
+    messageIdHeader: msg.message_id,
+    referencesHeader: msg.references,
+    inReplyToHeader: msg.in_reply_to,
   };
 
   const threadable: ThreadableMessage = {
