@@ -1,9 +1,24 @@
 export type AiProvider = "claude" | "openai" | "gemini" | "ollama" | "copilot";
 
+export type AiChatContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "input_audio"; input_audio: { data: string; format: string } };
+
+export interface AiChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string | AiChatContentPart[];
+}
+
 export interface AiCompletionRequest {
   systemPrompt: string;
   userContent: string;
   maxTokens?: number;
+  temperature?: number;
+  topP?: number;
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  messages?: AiChatMessage[];
 }
 
 export interface AiProviderClient {

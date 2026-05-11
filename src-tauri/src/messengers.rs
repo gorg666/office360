@@ -1,4 +1,5 @@
 use native_tls::{TlsConnector, TlsStream};
+use base64::Engine;
 use serde::Deserialize;
 use serde_json::{json, Map, Number, Value};
 use std::fs;
@@ -93,6 +94,136 @@ pub async fn messenger_request(
     }
 
     let response = request.send().await.map_err(|error| error.to_string())?;
+    let status = response.status();
+    let text = response.text().await.map_err(|error| error.to_string())?;
+    let parsed = if text.trim().is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_str::<Value>(&text).unwrap_or_else(|_| Value::String(text.clone()))
+    };
+
+    if !status.is_success() {
+        return Err(format_api_error(status.as_u16(), parsed));
+    }
+
+    Ok(parsed)
+}
+
+#[tauri::command]
+pub async fn messenger_download_file(
+    provider: String,
+    token: String,
+    file_id: String,
+    file_name: Option<String>,
+) -> Result<Value, String> {
+    let (base_url, authorization) = match provider.as_str() {
+        "yandex" => (YANDEX_BOT_API_URL, format!("OAuth {token}")),
+        other => return Err(format!("File download is not supported for provider: {other}")),
+    };
+
+    let client = reqwest::Client::new();
+    let url = format!("{base_url}/messages/getFile/");
+    let attempts = [
+        client
+            .get(&url)
+            .header("Authorization", authorization.clone())
+            .query(&[("file_id", file_id.as_str())]),
+        client
+            .post(&url)
+            .header("Authorization", authorization.clone())
+            .query(&[("file_id", file_id.as_str())]),
+        client
+            .post(&url)
+            .header("Authorization", authorization)
+            .header("Content-Type", "application/json")
+            .json(&json!({ "file_id": file_id })),
+    ];
+
+    let mut last_error: Option<String> = None;
+    for request in attempts {
+        let response = request
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+
+        let status = response.status();
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("application/octet-stream")
+            .to_string();
+        let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+
+        if !status.is_success() {
+            let parsed = String::from_utf8_lossy(&bytes).to_string();
+            last_error = Some(format!("Messenger file download failed: {} {}", status.as_u16(), parsed));
+            continue;
+        }
+
+        if content_type.starts_with("application/json") {
+            let parsed = String::from_utf8_lossy(&bytes).to_string();
+            last_error = Some(format!("Messenger file download returned JSON instead of file: {parsed}"));
+            continue;
+        }
+
+        let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let data_url = format!("data:{content_type};base64,{data}");
+
+        return Ok(json!({
+            "fileId": file_id,
+            "fileName": file_name,
+            "mimeType": content_type,
+            "size": bytes.len(),
+            "dataUrl": data_url,
+        }));
+    }
+
+    Err(last_error.unwrap_or_else(|| "Messenger file download failed.".to_string()))
+}
+
+#[tauri::command]
+pub async fn messenger_send_file_base64(
+    provider: String,
+    token: String,
+    target_kind: String,
+    target_id: String,
+    file_name: String,
+    mime_type: Option<String>,
+    data_base64: String,
+) -> Result<Value, String> {
+    let (base_url, authorization) = match provider.as_str() {
+        "yandex" => (YANDEX_BOT_API_URL, format!("OAuth {token}")),
+        other => return Err(format!("File sending is not supported for provider: {other}")),
+    };
+
+    let target_key = match target_kind.as_str() {
+        "login" | "user" => "login",
+        "chat" => "chat_id",
+        other => return Err(format!("Unsupported Yandex target kind for file send: {other}")),
+    };
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data_base64.replace(['\r', '\n', ' '], ""))
+        .map_err(|error| format!("Invalid base64 file payload: {error}"))?;
+    let mime_type = mime_type.unwrap_or_else(|| "application/octet-stream".to_string());
+
+    let part = reqwest::multipart::Part::bytes(bytes)
+        .file_name(file_name.clone())
+        .mime_str(&mime_type)
+        .map_err(|error| error.to_string())?;
+    let form = reqwest::multipart::Form::new()
+        .text(target_key.to_string(), target_id)
+        .part("document", part);
+
+    let response = reqwest::Client::new()
+        .post(format!("{base_url}/messages/sendFile/"))
+        .header("Authorization", authorization)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+
     let status = response.status();
     let text = response.text().await.map_err(|error| error.to_string())?;
     let parsed = if text.trim().is_empty() {

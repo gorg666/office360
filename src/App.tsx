@@ -6,7 +6,6 @@ import { Composer } from "./components/composer/Composer";
 import { UndoSendToast } from "./components/composer/UndoSendToast";
 import { CommandPalette } from "./components/search/CommandPalette";
 import { ShortcutsHelp } from "./components/search/ShortcutsHelp";
-import { AskInbox } from "./components/search/AskInbox";
 import { useUIStore } from "./stores/uiStore";
 import { useAccountStore } from "./stores/accountStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -140,7 +139,6 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
-  const [showAskInbox, setShowAskInbox] = useState(false);
   const [moveToFolderState, setMoveToFolderState] = useState<{ open: boolean; threadIds: string[] }>({ open: false, threadIds: [] });
   const deepLinkCleanupRef = useRef<(() => void) | undefined>(undefined);
   const accountsForSync = useAccountStore((s) => s.accounts);
@@ -194,19 +192,16 @@ export default function App() {
   useEffect(() => {
     const togglePalette = () => setShowCommandPalette((p) => !p);
     const toggleHelp = () => setShowShortcutsHelp((p) => !p);
-    const toggleAskInbox = () => setShowAskInbox((p) => !p);
     const handleMoveToFolder = (e: Event) => {
       const detail = (e as CustomEvent<{ threadIds: string[] }>).detail;
       setMoveToFolderState({ open: true, threadIds: detail.threadIds });
     };
     window.addEventListener("velo-toggle-command-palette", togglePalette);
     window.addEventListener("velo-toggle-shortcuts-help", toggleHelp);
-    window.addEventListener("velo-toggle-ask-inbox", toggleAskInbox);
     window.addEventListener("velo-move-to-folder", handleMoveToFolder);
     return () => {
       window.removeEventListener("velo-toggle-command-palette", togglePalette);
       window.removeEventListener("velo-toggle-shortcuts-help", toggleHelp);
-      window.removeEventListener("velo-toggle-ask-inbox", toggleAskInbox);
       window.removeEventListener("velo-move-to-folder", handleMoveToFolder);
     };
   }, []);
@@ -700,7 +695,7 @@ export default function App() {
       {/* Runtime sync indicator (non-blocking desktop style) */}
       {syncStatus && (
         <div
-          className={`fixed bottom-3 right-3 z-40 pointer-events-none select-none rounded-xl border px-3 py-2 text-xs shadow-lg backdrop-blur-md transition-opacity duration-200 animate-[fadeIn_200ms_ease-out] ${
+          className={`fixed bottom-2 left-1/2 z-40 -translate-x-1/2 pointer-events-none select-none rounded-lg border px-2 py-1 text-[0.625rem] shadow-md backdrop-blur-md transition-opacity duration-200 animate-[fadeIn_200ms_ease-out] ${
             isSyncErrorStatus
               ? "border-danger/40 bg-danger/25 text-red-100"
               : isSyncDoneStatus
@@ -709,13 +704,13 @@ export default function App() {
           }`}
           aria-live="polite"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {isSyncingStatus ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin opacity-90" />
+              <Loader2 className="h-2.5 w-2.5 animate-spin opacity-90" />
             ) : isSyncErrorStatus ? (
-              <AlertTriangle className="h-3.5 w-3.5 opacity-90" />
+              <AlertTriangle className="h-2.5 w-2.5 opacity-90" />
             ) : (
-              <CheckCircle2 className="h-3.5 w-3.5 opacity-90" />
+              <CheckCircle2 className="h-2.5 w-2.5 opacity-90" />
             )}
             <span>{syncStatus}</span>
           </div>
@@ -744,12 +739,6 @@ export default function App() {
         isOpen={showShortcutsHelp}
         onClose={() => setShowShortcutsHelp(false)}
       />
-      <ErrorBoundary name="AskInbox">
-        <AskInbox
-          isOpen={showAskInbox}
-          onClose={() => setShowAskInbox(false)}
-        />
-      </ErrorBoundary>
       <ContextMenuPortal />
       <MoveToFolderDialog
         isOpen={moveToFolderState.open}

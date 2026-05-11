@@ -68,6 +68,16 @@ export function TasksPage() {
     loadTasks();
   }, [loadTasks]);
 
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ accountId?: string | null }>).detail;
+      if (detail?.accountId && detail.accountId !== accountId) return;
+      void loadTasks();
+    };
+    window.addEventListener("velo-task-created", handler);
+    return () => window.removeEventListener("velo-task-created", handler);
+  }, [accountId, loadTasks]);
+
   // Load subtasks
   useEffect(() => {
     let cancelled = false;

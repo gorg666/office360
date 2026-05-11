@@ -9,7 +9,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
-import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, getUnreadThreadIdsForAccount, deleteThread as deleteThreadFromDb } from "@/services/db/threads";
+import { getThreadsForAccount, getThreadsForCategory, getThreadById, getThreadLabelIds, getUnreadThreadIdsForAccount, deleteThread as deleteThreadFromDb } from "@/services/db/threads";
 import { getCategoriesForThreads, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
@@ -368,7 +368,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
         setThreads(mapped);
         setHasMore(false); // Smart folders load all at once
       } else {
-        let dbThreads;
+        let dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>;
         // Server-side category filtering for inbox
         if (activeLabel === "inbox" && activeCategory !== "All") {
           dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, 0);
@@ -382,16 +382,24 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
           );
         }
 
+        const fetchedCount = dbThreads.length;
+        if (selectedThreadId && !dbThreads.some((thread) => thread.id === selectedThreadId)) {
+          const selectedThread = await getThreadById(activeAccountId, selectedThreadId);
+          if (selectedThread) {
+            dbThreads = [selectedThread, ...dbThreads];
+          }
+        }
+
         const mapped = await mapDbThreads(dbThreads);
         setThreads(mapped);
-        setHasMore(dbThreads.length === PAGE_SIZE);
+        setHasMore(fetchedCount === PAGE_SIZE);
       }
     } catch (err) {
       console.error("Failed to load threads:", err);
     } finally {
       setLoading(false);
     }
-  }, [activeAccountId, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, setThreads, setLoading, mapDbThreads, clearSearch]);
+  }, [activeAccountId, activeLabel, activeCategory, selectedThreadId, isSmartFolder, activeSmartFolder, setThreads, setLoading, mapDbThreads, clearSearch]);
 
   const loadMore = useCallback(async () => {
     if (!activeAccountId || loadingMore || !hasMore) return;

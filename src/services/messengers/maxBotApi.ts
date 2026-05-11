@@ -372,15 +372,31 @@ export function normalizeMaxClientEvent(event: unknown, profileId: string | null
   conversation: MessengerConversation | null;
   message: MessengerMessage | null;
 } {
-  const data = event as { opcode?: number; payload?: { chatId?: number; chat_id?: number; message?: MaxMessage; timestamp?: number } };
+  const data = event as {
+    opcode?: number;
+    payload?: {
+      chatId?: number | string;
+      chat_id?: number | string;
+      message?: MaxMessage;
+      messages?: MaxMessage[];
+      timestamp?: number;
+      time?: number;
+    };
+  };
   const payload = data.payload;
-  const chatId = payload?.chatId ?? payload?.chat_id ?? payload?.message?.recipient?.chat_id;
-  if (data.opcode !== 128 || typeof chatId !== "number" || !payload?.message) {
+  const liveMessage = payload?.message ?? extractHistoryMessages(payload)[0];
+  const chatId = payload?.chatId ?? payload?.chat_id ?? liveMessage?.recipient?.chat_id;
+
+  if (typeof chatId !== "number" && typeof chatId !== "string") {
+    return { conversation: null, message: null };
+  }
+
+  if (!liveMessage) {
     return { conversation: null, message: null };
   }
 
   const conversationId = String(chatId);
-  const message = normalizeMaxMessage(payload.message, conversationId, profileId);
+  const message = normalizeMaxMessage(liveMessage, conversationId, profileId);
   return {
     conversation: {
       id: conversationId,
@@ -389,7 +405,7 @@ export function normalizeMaxClientEvent(event: unknown, profileId: string | null
       title: `Чат ${conversationId}`,
       subtitle: "MAX client chat",
       lastText: message.text,
-      updatedAt: message.timestamp ?? payload.timestamp ?? Date.now(),
+      updatedAt: message.timestamp ?? payload?.timestamp ?? payload?.time ?? Date.now(),
       raw: event,
     },
     message,

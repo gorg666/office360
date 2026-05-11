@@ -8,6 +8,7 @@ export interface DbAttachment {
   mime_type: string | null;
   size: number | null;
   gmail_attachment_id: string | null;
+  imap_part_id?: string | null;
   content_id: string | null;
   is_inline: number;
   local_path: string | null;
@@ -61,6 +62,7 @@ export interface AttachmentWithContext {
   mime_type: string | null;
   size: number | null;
   gmail_attachment_id: string | null;
+  imap_part_id?: string | null;
   content_id: string | null;
   is_inline: number;
   local_path: string | null;

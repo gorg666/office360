@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -37,6 +37,7 @@ import {
   fetchYandexMessengerUpdates,
   getYandexConversations,
   getYandexUserLink,
+  hydrateYandexMessageAttachments,
   mergeYandexConversationFromUpdate,
   messengerMessageFromYandexUpdate,
   nextYandexUpdateOffset,
@@ -48,6 +49,8 @@ import {
   yandexMessengerSourceKey,
   type YandexMessengerSession,
 } from "@/services/messengers/yandexMessengerSession";
+import { generateYandexMessengerAiReply } from "@/services/messengers/yandexAiAutoReply";
+import { executeYandexAssistantTools } from "@/services/messengers/yandexAssistantTools";
 import { useAccountStore } from "@/stores/accountStore";
 import {
   checkMaxPassword,
@@ -66,6 +69,10 @@ const LIGHTS_OUT_UNTIL_KEY = "velo_messenger_lights_out_until";
 const LIGHTS_OUT_CHANGED_EVENT = "velo-messenger-lights-out-changed";
 const MAX_CONVERSATIONS_CACHE_KEY = "velo_max_conversations:v1";
 const MAX_MESSAGES_CACHE_KEY = "velo_max_messages:v1";
+const YANDEX_AI_AUTO_REPLY_ENABLED_KEY = "velo_yandex_ai_auto_reply_enabled:v1";
+const YANDEX_AI_AUTO_REPLY_SEEN_KEY = "velo_yandex_ai_auto_reply_seen:v1";
+const YANDEX_AI_AUTO_REPLY_PENDING_KEY = "velo_yandex_ai_auto_reply_pending:v1";
+const YANDEX_AI_AUTO_REPLY_PENDING_MESSAGES_KEY = "velo_yandex_ai_auto_reply_pending_messages:v1";
 
 interface ProviderView {
   id: MessengerProviderId;
@@ -218,6 +225,110 @@ function isLightsOutActive() {
   }
 }
 
+function loadYandexAiAutoReplyEnabled() {
+  try {
+    return localStorage.getItem(YANDEX_AI_AUTO_REPLY_ENABLED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveYandexAiAutoReplyEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(YANDEX_AI_AUTO_REPLY_ENABLED_KEY, enabled ? "true" : "false");
+  } catch {
+    // best-effort
+  }
+}
+
+function loadYandexAiRepliedMap(): Record<string, string[]> {
+  try {
+    const raw = localStorage.getItem(YANDEX_AI_AUTO_REPLY_SEEN_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed as Record<string, string[]>;
+  } catch {
+    return {};
+  }
+}
+
+function loadYandexAiRepliedIds(sourceKey: string): Set<string> {
+  const ids = loadYandexAiRepliedMap()[sourceKey];
+  return new Set(Array.isArray(ids) ? ids : []);
+}
+
+function saveYandexAiRepliedIds(sourceKey: string, ids: Set<string>): void {
+  try {
+    const map = loadYandexAiRepliedMap();
+    map[sourceKey] = [...ids].slice(-500);
+    localStorage.setItem(YANDEX_AI_AUTO_REPLY_SEEN_KEY, JSON.stringify(map));
+  } catch {
+    // best-effort
+  }
+}
+
+function loadYandexAiPendingMap(): Record<string, string[]> {
+  try {
+    const raw = localStorage.getItem(YANDEX_AI_AUTO_REPLY_PENDING_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed as Record<string, string[]>;
+  } catch {
+    return {};
+  }
+}
+
+function loadYandexAiPendingIds(sourceKey: string): Set<string> {
+  const ids = loadYandexAiPendingMap()[sourceKey];
+  return new Set(Array.isArray(ids) ? ids : []);
+}
+
+function saveYandexAiPendingIds(sourceKey: string, ids: Set<string>): void {
+  try {
+    const map = loadYandexAiPendingMap();
+    map[sourceKey] = [...ids].slice(-200);
+    localStorage.setItem(YANDEX_AI_AUTO_REPLY_PENDING_KEY, JSON.stringify(map));
+  } catch {
+    // best-effort
+  }
+}
+
+function loadYandexAiPendingMessageMap(): Record<string, MessengerMessage[]> {
+  try {
+    const raw = localStorage.getItem(YANDEX_AI_AUTO_REPLY_PENDING_MESSAGES_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed as Record<string, MessengerMessage[]>;
+  } catch {
+    return {};
+  }
+}
+
+function loadYandexAiPendingMessages(sourceKey: string): MessengerMessage[] {
+  const messages = loadYandexAiPendingMessageMap()[sourceKey];
+  return Array.isArray(messages) ? messages : [];
+}
+
+function saveYandexAiPendingMessages(sourceKey: string, messages: MessengerMessage[]): void {
+  try {
+    const map = loadYandexAiPendingMessageMap();
+    map[sourceKey] = mergeMessages(messages).slice(-200);
+    localStorage.setItem(YANDEX_AI_AUTO_REPLY_PENDING_MESSAGES_KEY, JSON.stringify(map));
+  } catch {
+    // best-effort
+  }
+}
+
+function isRobotMessengerMessage(message: MessengerMessage): boolean {
+  const raw = message.raw;
+  if (!raw || typeof raw !== "object") return false;
+  const from = (raw as { from?: { robot?: boolean } }).from;
+  return from?.robot === true;
+}
+
 function endOfDayTimestamp() {
   const end = new Date();
   end.setHours(23, 59, 59, 999);
@@ -305,6 +416,19 @@ function renderMessageAttachments(message: MessengerMessage) {
             />
           );
         }
+        if (attachment.kind === "audio" && attachment.url) {
+          return (
+            <div key={attachment.id} className="rounded-xl border border-border-primary/70 bg-bg-primary/50 px-3 py-2">
+              <div className="mb-1.5 flex items-center justify-between gap-2 text-xs text-text-secondary">
+                <span className="min-w-0 truncate">{attachment.title}</span>
+                {attachment.size ? <span className="shrink-0 opacity-70">{formatFileSize(attachment.size)}</span> : null}
+              </div>
+              <audio controls src={attachment.url} className="w-full" preload="metadata">
+                Ваш браузер не поддерживает воспроизведение аудио.
+              </audio>
+            </div>
+          );
+        }
         const Icon = attachment.kind === "video" ? Video : attachment.kind === "photo" ? Image : attachment.kind === "contact" ? Contact : FileIcon;
         return (
           <div key={attachment.id} className="flex items-center gap-2 rounded-xl border border-border-primary/70 bg-bg-primary/50 px-3 py-2 text-xs">
@@ -316,6 +440,44 @@ function renderMessageAttachments(message: MessengerMessage) {
       })}
     </div>
   );
+}
+
+function hasUnresolvedMediaAttachment(message: MessengerMessage): boolean {
+  return (message.attachments ?? []).some(
+    (attachment) => (attachment.kind === "photo" || attachment.kind === "audio") && !attachment.url && !attachment.previewUrl,
+  );
+}
+
+function conversationFromPendingYandexMessage(message: MessengerMessage): MessengerConversation | null {
+  const raw = message.raw;
+  if (!raw || typeof raw !== "object") return null;
+  const update = raw as {
+    chat?: { type?: string; id?: string };
+    from?: { login?: string; id?: string; display_name?: string };
+  };
+  if (update.chat?.type === "private") {
+    const id = update.from?.login?.trim() || update.from?.id?.trim();
+    if (!id) return null;
+    return {
+      id,
+      providerId: "yandex",
+      kind: "login",
+      title: update.from?.display_name?.trim() || id,
+      subtitle: `login · ${id}`,
+      updatedAt: message.timestamp,
+    };
+  }
+
+  const id = update.chat?.id?.trim();
+  if (!id) return null;
+  return {
+    id,
+    providerId: "yandex",
+    kind: "chat",
+    title: id,
+    subtitle: `chat_id · ${id}`,
+    updatedAt: message.timestamp,
+  };
 }
 
 function readCachedArray<T>(key: string): T[] {
@@ -415,6 +577,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
   const [draft, setDraft] = useState("");
   const [pendingAttachments, setPendingAttachments] = useState<MessengerAttachmentUpload[]>([]);
   const [lightsOut, setLightsOut] = useState(() => isLightsOutActive());
+  const [yandexAiAutoReplyEnabled, setYandexAiAutoReplyEnabled] = useState(() => loadYandexAiAutoReplyEnabled());
   const [busy, setBusy] = useState(false);
   const [, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -453,9 +616,15 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
   });
   const autoLoadedHistoryRef = useRef(new Set<string>());
   const loadingHistoryRef = useRef(new Set<string>());
+  const autoConnectedMaxTokenRef = useRef<string | null>(null);
+  const yandexMessagesRef = useRef<MessengerMessage[]>([]);
+  const yandexConversationsRef = useRef<MessengerConversation[]>([]);
+  const yandexAiAutoReplyEnabledRef = useRef(yandexAiAutoReplyEnabled);
+  const yandexAiProcessingRef = useRef(new Set<string>());
   const stripRootRef = useRef<HTMLDivElement | null>(null);
   const conversationPanelRef = useRef<HTMLElement | null>(null);
   const chatPanelRef = useRef<HTMLElement | null>(null);
+  const chatMessagesRef = useRef<HTMLDivElement | null>(null);
   const conversationDividerRef = useRef<HTMLButtonElement | null>(null);
   const dragStateRef = useRef<{
     startX: number;
@@ -492,8 +661,163 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
   }, [activeAccountId]);
 
   useEffect(() => {
+    yandexMessagesRef.current = messages.yandex;
+  }, [messages.yandex]);
+
+  useEffect(() => {
+    yandexConversationsRef.current = conversations.yandex;
+  }, [conversations.yandex]);
+
+  useEffect(() => {
+    yandexAiAutoReplyEnabledRef.current = yandexAiAutoReplyEnabled;
+    saveYandexAiAutoReplyEnabled(yandexAiAutoReplyEnabled);
+  }, [yandexAiAutoReplyEnabled]);
+
+  useEffect(() => {
     void reloadYandexSession();
   }, [reloadYandexSession]);
+
+  const sendYandexAiAutoReplies = useCallback(
+    async (incomingMessages: MessengerMessage[], incomingConversations: MessengerConversation[]) => {
+      if (!yandexAiAutoReplyEnabledRef.current || !yandexSession) return;
+
+      const sourceKey = yandexMessengerSourceKey(yandexSession);
+      const repliedIds = loadYandexAiRepliedIds(sourceKey);
+      const pendingIds = loadYandexAiPendingIds(sourceKey);
+      let pendingMessages = loadYandexAiPendingMessages(sourceKey);
+      for (const incomingMessage of incomingMessages) {
+        if (incomingMessage.direction !== "incoming" || isRobotMessengerMessage(incomingMessage)) continue;
+        if (!repliedIds.has(incomingMessage.id)) {
+          pendingIds.add(incomingMessage.id);
+          pendingMessages = mergeMessages(pendingMessages, [incomingMessage]);
+        }
+      }
+      saveYandexAiPendingIds(sourceKey, pendingIds);
+      saveYandexAiPendingMessages(sourceKey, pendingMessages);
+
+      const conversationsById = new Map(
+        mergeConversations(yandexConversationsRef.current, incomingConversations)
+          .map((conversation) => [conversation.id, conversation]),
+      );
+      let history = mergeMessages(pendingMessages, yandexMessagesRef.current, incomingMessages);
+      const latestPendingByConversation = new Map<string, MessengerMessage>();
+      for (const pendingId of [...pendingIds]) {
+        const pendingMessage = history.find((message) => message.id === pendingId);
+        if (!pendingMessage || pendingMessage.direction !== "incoming" || isRobotMessengerMessage(pendingMessage)) continue;
+        const currentLatest = latestPendingByConversation.get(pendingMessage.conversationId);
+        if (!currentLatest || (pendingMessage.timestamp ?? 0) >= (currentLatest.timestamp ?? 0)) {
+          latestPendingByConversation.set(pendingMessage.conversationId, pendingMessage);
+        }
+      }
+      const latestPendingIds = new Set([...latestPendingByConversation.values()].map((message) => message.id));
+
+      for (const pendingId of [...pendingIds]) {
+        const incomingMessage = history.find((message) => message.id === pendingId);
+        if (!incomingMessage) continue;
+        if (incomingMessage.direction !== "incoming" || isRobotMessengerMessage(incomingMessage)) {
+          pendingIds.delete(pendingId);
+          pendingMessages = pendingMessages.filter((message) => message.id !== pendingId);
+          saveYandexAiPendingIds(sourceKey, pendingIds);
+          saveYandexAiPendingMessages(sourceKey, pendingMessages);
+          continue;
+        }
+        if (!latestPendingIds.has(incomingMessage.id)) {
+          pendingIds.delete(incomingMessage.id);
+          pendingMessages = pendingMessages.filter((message) => message.id !== incomingMessage.id);
+          repliedIds.add(incomingMessage.id);
+          saveYandexAiPendingIds(sourceKey, pendingIds);
+          saveYandexAiPendingMessages(sourceKey, pendingMessages);
+          saveYandexAiRepliedIds(sourceKey, repliedIds);
+          continue;
+        }
+        if (repliedIds.has(incomingMessage.id) || yandexAiProcessingRef.current.has(incomingMessage.id)) continue;
+
+        const conversation = conversationsById.get(incomingMessage.conversationId) ?? conversationFromPendingYandexMessage(incomingMessage);
+        if (!conversation) continue;
+
+        yandexAiProcessingRef.current.add(incomingMessage.id);
+        try {
+          let incomingForReply = incomingMessage;
+          if (hasUnresolvedMediaAttachment(incomingForReply)) {
+            const [hydratedMessage] = await hydrateYandexMessageAttachments(yandexSession.token, [incomingForReply]);
+            if (hydratedMessage) {
+              incomingForReply = hydratedMessage;
+              history = mergeMessages(history, [hydratedMessage]);
+              pendingMessages = mergeMessages(pendingMessages, [hydratedMessage]);
+              saveYandexAiPendingMessages(sourceKey, pendingMessages);
+              setMessages((current) => ({
+                ...current,
+                yandex: mergeMessages(current.yandex, [hydratedMessage]),
+              }));
+            }
+          }
+
+          if (hasUnresolvedMediaAttachment(incomingForReply)) {
+            throw new Error("Не удалось загрузить изображение/аудио из Яндекс Мессенджера. Сообщение оставлено в очереди автоответа.");
+          }
+
+          const toolResult = await executeYandexAssistantTools({
+            token: yandexSession.token,
+            conversation,
+            messages: history,
+            incomingMessage: incomingForReply,
+          });
+          const reply = toolResult.handled
+            ? toolResult.replyText
+            : await generateYandexMessengerAiReply({
+              conversation,
+              messages: history,
+              incomingMessage: incomingForReply,
+            });
+          if (!reply) {
+            throw new Error("LM Studio вернул пустой ответ. Сообщение оставлено в очереди автоответа.");
+          }
+
+          await sendYandexMessage(yandexSession.token, {
+            providerId: "yandex",
+            targetKind: conversation.kind,
+            targetId: conversation.id,
+            text: reply,
+          });
+
+          const outgoing: MessengerMessage = {
+            id: `yandex-ai-${incomingMessage.id}`,
+            providerId: "yandex",
+            conversationId: conversation.id,
+            direction: "outgoing",
+            author: "Локальная ИИ",
+            text: reply,
+            timestamp: Date.now(),
+          };
+
+          setMessages((current) => ({
+            ...current,
+            yandex: mergeMessages(current.yandex, [outgoing]),
+          }));
+          setConversations((current) => ({
+            ...current,
+            yandex: mergeConversations([{
+              ...conversation,
+              lastText: reply,
+              updatedAt: Date.now(),
+            }], current.yandex),
+          }));
+          repliedIds.add(incomingMessage.id);
+          pendingIds.delete(incomingMessage.id);
+          pendingMessages = pendingMessages.filter((message) => message.id !== incomingMessage.id);
+          saveYandexAiRepliedIds(sourceKey, repliedIds);
+          saveYandexAiPendingIds(sourceKey, pendingIds);
+          saveYandexAiPendingMessages(sourceKey, pendingMessages);
+        } catch (replyError) {
+          console.warn("[yandex-messenger] AI auto reply failed:", replyError);
+          setError(`Яндекс ИИ-автоответ: ${formatMessengerError(replyError)}`);
+        } finally {
+          yandexAiProcessingRef.current.delete(incomingMessage.id);
+        }
+      }
+    },
+    [yandexSession],
+  );
 
   const syncYandexMessengerInbox = useCallback(
     async (options: { silent: boolean }) => {
@@ -512,12 +836,16 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
       }
       const updates = response.updates ?? [];
       if (!updates.length) {
+        void sendYandexAiAutoReplies([], []);
         if (!options.silent) setInfo("Яндекс: новых обновлений нет.");
         return;
       }
       const nextOffset = nextYandexUpdateOffset(updates);
       saveYandexMessengerUpdateOffset(sourceKey, nextOffset);
-      const newMessages = updates.map(messengerMessageFromYandexUpdate);
+      const newMessages = await hydrateYandexMessageAttachments(
+        yandexSession.token,
+        updates.map(messengerMessageFromYandexUpdate),
+      );
       const newConversations = updates.map(mergeYandexConversationFromUpdate);
       setMessages((current) => ({
         ...current,
@@ -527,9 +855,10 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
         ...current,
         yandex: mergeConversations(current.yandex, newConversations, getYandexConversations(loadMessengerTargets("yandex"))),
       }));
+      void sendYandexAiAutoReplies(newMessages, newConversations);
       if (!options.silent) setInfo(`Яндекс: получено обновлений: ${updates.length}.`);
     },
-    [yandexSession],
+    [sendYandexAiAutoReplies, yandexSession],
   );
 
   useEffect(() => {
@@ -543,6 +872,39 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
     const intervalId = window.setInterval(tick, 15_000);
     return () => clearInterval(intervalId);
   }, [syncYandexMessengerInbox, yandexSession]);
+
+  useEffect(() => {
+    if (!maxCredentials) {
+      autoConnectedMaxTokenRef.current = null;
+      return;
+    }
+
+    if (autoConnectedMaxTokenRef.current === maxCredentials.token) return;
+    autoConnectedMaxTokenRef.current = maxCredentials.token;
+
+    let cancelled = false;
+    void Promise.all([
+      getMaxMe(maxCredentials.token),
+      connectMaxClient(maxCredentials.token),
+    ])
+      .then(([me, chats]) => {
+        if (cancelled) return;
+        setMaxProfileId(String(me.user_id));
+        setConversations((current) => ({
+          ...current,
+          max: mergeConversations(chats, current.max),
+        }));
+      })
+      .catch((connectError) => {
+        if (cancelled) return;
+        autoConnectedMaxTokenRef.current = null;
+        console.warn("[max-messenger] auto connect failed:", connectError);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [maxCredentials]);
 
   const visibleConversations = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -566,33 +928,91 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
   }, [messages, selectedConversation]);
 
   useEffect(() => {
+    if (!yandexAiAutoReplyEnabled || !selectedConversation || selectedConversation.providerId !== "yandex") return;
+    const latestMessage = conversationMessages[conversationMessages.length - 1];
+    if (!latestMessage || latestMessage.direction !== "incoming" || isRobotMessengerMessage(latestMessage)) return;
+    void sendYandexAiAutoReplies([latestMessage], [selectedConversation]);
+  }, [conversationMessages, selectedConversation, sendYandexAiAutoReplies, yandexAiAutoReplyEnabled]);
+
+  const selectedConversationScrollKey = selectedConversation
+    ? `${selectedConversation.providerId}:${selectedConversation.kind}:${selectedConversation.id}`
+    : "none";
+  const lastConversationMessage = conversationMessages[conversationMessages.length - 1];
+  const lastConversationMessageKey = lastConversationMessage
+    ? `${lastConversationMessage.id}:${lastConversationMessage.timestamp}`
+    : "empty";
+
+  const scrollChatToBottom = useCallback(() => {
+    const node = chatMessagesRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, []);
+
+  useLayoutEffect(() => {
+    scrollChatToBottom();
+  }, [conversationMessages.length, lastConversationMessageKey, scrollChatToBottom, selectedConversationScrollKey]);
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(scrollChatToBottom);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [conversationMessages.length, lastConversationMessageKey, scrollChatToBottom, selectedConversationScrollKey]);
+
+  useEffect(() => {
     if (selectedConversation?.providerId !== "max" || !maxCredentials || selectedConversation.kind !== "chat") return;
-    if (conversationMessages.length > 0) return;
 
+    let cancelled = false;
     const cacheKey = selectedConversation.id;
-    if (autoLoadedHistoryRef.current.has(cacheKey)) return;
-    if (loadingHistoryRef.current.has(cacheKey)) return;
-    loadingHistoryRef.current.add(cacheKey);
 
-    void getMaxMessages(maxCredentials.token, selectedConversation.id)
-      .then((history) => {
-        if (!history.length) {
+    const syncSelectedHistory = (showError: boolean) => {
+      if (loadingHistoryRef.current.has(cacheKey)) return;
+      loadingHistoryRef.current.add(cacheKey);
+
+      void getMaxMessages(maxCredentials.token, selectedConversation.id)
+        .then((history) => {
+          if (cancelled) return;
+          if (!history.length) {
+            autoLoadedHistoryRef.current.delete(cacheKey);
+            return;
+          }
+
+          const latest = history[history.length - 1];
+          autoLoadedHistoryRef.current.add(cacheKey);
+          setMessages((current) => ({
+            ...current,
+            max: mergeMessages(current.max, history),
+          }));
+          if (latest) {
+            setConversations((current) => ({
+              ...current,
+              max: mergeConversations([{
+                ...selectedConversation,
+                lastText: latest.text,
+                updatedAt: latest.timestamp ?? Date.now(),
+              }], current.max),
+            }));
+          }
+        })
+        .catch((historyError) => {
+          if (cancelled) return;
           autoLoadedHistoryRef.current.delete(cacheKey);
-          return;
-        }
-        autoLoadedHistoryRef.current.add(cacheKey);
-        setMessages((current) => ({
-          ...current,
-          max: mergeMessages(current.max, history),
-        }));
-      })
-      .catch((historyError) => {
-        autoLoadedHistoryRef.current.delete(cacheKey);
-        setError(historyError instanceof Error ? historyError.message : String(historyError || "Не удалось загрузить историю MAX."));
-      })
-      .finally(() => {
-        loadingHistoryRef.current.delete(cacheKey);
-      });
+          if (showError) {
+            setError(historyError instanceof Error ? historyError.message : String(historyError || "Не удалось загрузить историю MAX."));
+          } else {
+            console.warn("[max-messenger] history sync failed:", historyError);
+          }
+        })
+        .finally(() => {
+          loadingHistoryRef.current.delete(cacheKey);
+        });
+    };
+
+    syncSelectedHistory(conversationMessages.length === 0);
+    const intervalId = window.setInterval(() => syncSelectedHistory(false), 10_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
   }, [conversationMessages.length, maxCredentials, selectedConversation]);
 
   useEffect(() => {
@@ -1479,9 +1899,25 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
               <p className="truncate text-[0.6875rem] text-text-tertiary">{selectedProvider.subtitle}</p>
             </div>
           </div>
+          {selectedProviderId === "yandex" ? (
+            <button
+              type="button"
+              onClick={() => setYandexAiAutoReplyEnabled((enabled) => !enabled)}
+              className={`flex shrink-0 items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[0.6875rem] font-medium transition-colors ${
+                yandexAiAutoReplyEnabled
+                  ? "border-accent/40 bg-accent/10 text-accent"
+                  : "border-border-primary bg-bg-primary/70 text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
+              }`}
+              title={yandexAiAutoReplyEnabled ? "Отключить автоответы локальной ИИ" : "Включить автоответы локальной ИИ"}
+              aria-label={yandexAiAutoReplyEnabled ? "Отключить автоответы локальной ИИ" : "Включить автоответы локальной ИИ"}
+            >
+              <Bot size={14} />
+              {yandexAiAutoReplyEnabled ? "ИИ вкл." : "ИИ выкл."}
+            </button>
+          ) : null}
         </header>
 
-        <div className="flex-1 overflow-y-auto px-4 py-3">
+        <div ref={chatMessagesRef} className="flex-1 overflow-y-auto px-4 py-3">
           <div className="mx-auto flex max-w-full flex-col gap-2">
             {conversationMessages.length ? conversationMessages.map((message) => (
               <div key={message.id} className={`flex ${message.direction === "outgoing" ? "justify-end" : "justify-start"}`}>

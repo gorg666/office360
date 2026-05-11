@@ -117,6 +117,8 @@ pub fn run() {
             commands::smtp_send_email,
             commands::smtp_test_connection,
             messengers::messenger_request,
+            messengers::messenger_download_file,
+            messengers::messenger_send_file_base64,
             messengers::max_client_start_auth,
             messengers::max_client_check_code,
             messengers::max_client_check_password,
