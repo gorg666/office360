@@ -61,11 +61,12 @@ import {
   type SendAsAlias,
 } from "@/services/db/sendAsAliases";
 import { ALL_NAV_ITEMS } from "@/components/layout/Sidebar";
-import type {
-  SidebarNavItem,
-  WindowBackgroundLayout,
-  WindowBackgroundPreset,
-  WindowBackgroundSpeed,
+import {
+  migrateSidebarNavIds,
+  type SidebarNavItem,
+  type WindowBackgroundLayout,
+  type WindowBackgroundPreset,
+  type WindowBackgroundSpeed,
 } from "@/stores/uiStore";
 import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
@@ -2411,10 +2412,11 @@ function SidebarNavEditor() {
 
   const items: SidebarNavItem[] = (() => {
     if (!sidebarNavConfig) return ALL_NAV_ITEMS.map((i) => ({ id: i.id, visible: true }));
+    const normalized = migrateSidebarNavIds(sidebarNavConfig);
     // Append any ALL_NAV_ITEMS entries missing from saved config (e.g. newly added sections)
-    const savedIds = new Set(sidebarNavConfig.map((i) => i.id));
+    const savedIds = new Set(normalized.map((i) => i.id));
     const missing = ALL_NAV_ITEMS.filter((i) => !savedIds.has(i.id)).map((i) => ({ id: i.id, visible: true }));
-    return [...sidebarNavConfig, ...missing];
+    return [...normalized, ...missing];
   })();
   const navLookup = new Map(ALL_NAV_ITEMS.map((n) => [n.id, n]));
 

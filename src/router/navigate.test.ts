@@ -91,6 +91,30 @@ describe("navigate", () => {
       expect(mockNavigate).toHaveBeenCalledWith({ to: "/calendar" });
     });
 
+    it("should navigate to files (incoming by default)", () => {
+      navigateToLabel("files");
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/files/$tab",
+        params: { tab: "incoming" },
+      });
+    });
+
+    it("should navigate to files outgoing tab", () => {
+      navigateToLabel("files", { filesTab: "outgoing" });
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/files/$tab",
+        params: { tab: "outgoing" },
+      });
+    });
+
+    it("should map legacy attachments label to files incoming", () => {
+      navigateToLabel("attachments");
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/files/$tab",
+        params: { tab: "incoming" },
+      });
+    });
+
     it("should navigate to smart folders", () => {
       navigateToLabel("smart-folder:folder-1");
       expect(mockNavigate).toHaveBeenCalledWith({
@@ -306,6 +330,19 @@ describe("navigate", () => {
     it("should return 'calendar' from calendar route", () => {
       mockState.matches = [{ routeId: "/calendar", params: {} }];
       expect(getActiveLabel()).toBe("calendar");
+    });
+
+    it("should return 'files' from files route", () => {
+      mockState.matches = [
+        { routeId: "__root__", params: {} },
+        { routeId: "/files/$tab", params: { tab: "incoming" } },
+      ];
+      expect(getActiveLabel()).toBe("files");
+    });
+
+    it("should return 'tasks' from tasks route", () => {
+      mockState.matches = [{ routeId: "/tasks", params: {} }];
+      expect(getActiveLabel()).toBe("tasks");
     });
 
     it("should return 'inbox' as fallback", () => {

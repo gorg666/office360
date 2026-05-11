@@ -12,7 +12,7 @@ const SYSTEM_LABELS = new Set([
  */
 export function navigateToLabel(
   label: string,
-  opts?: { category?: string; threadId?: string },
+  opts?: { category?: string; threadId?: string; filesTab?: "incoming" | "outgoing" },
 ): void {
   if (label === "settings") {
     router.navigate({ to: "/settings/$tab", params: { tab: "general" } });
@@ -24,8 +24,14 @@ export function navigateToLabel(
     return;
   }
 
+  if (label === "files") {
+    const tab = opts?.filesTab === "outgoing" ? "outgoing" : "incoming";
+    router.navigate({ to: "/files/$tab", params: { tab } });
+    return;
+  }
+
   if (label === "attachments") {
-    router.navigate({ to: "/attachments" });
+    router.navigate({ to: "/files/$tab", params: { tab: "incoming" } });
     return;
   }
 
@@ -207,6 +213,10 @@ export function navigateBack(): void {
  */
 export function getActiveLabel(): string {
   const matches = router.state.matches;
+  const routeIds = new Set(matches.map((m) => m.routeId));
+  if (routeIds.has("/files/$tab")) return "files";
+  if (routeIds.has("/attachments")) return "files";
+  if (routeIds.has("/tasks")) return "tasks";
   for (const match of matches) {
     if (match.routeId === "/mail/$label" || match.routeId === "/mail/$label/thread/$threadId") {
       return (match.params as { label: string }).label;
@@ -219,12 +229,6 @@ export function getActiveLabel(): string {
     }
     if (match.routeId === "/settings/$tab" || match.routeId === "/settings") {
       return "settings";
-    }
-    if (match.routeId === "/attachments") {
-      return "attachments";
-    }
-    if (match.routeId === "/tasks") {
-      return "tasks";
     }
     if (match.routeId === "/calendar") {
       return "calendar";

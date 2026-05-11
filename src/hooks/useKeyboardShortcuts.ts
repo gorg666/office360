@@ -271,7 +271,7 @@ async function executeAction(actionId: string): Promise<void> {
       navigateToLabel("tasks");
       break;
     case "nav.goAttachments":
-      navigateToLabel("attachments");
+      navigateToLabel("files");
       break;
     case "nav.escape": {
       if (useComposerStore.getState().isOpen) {

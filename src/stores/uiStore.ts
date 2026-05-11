@@ -20,6 +20,23 @@ export interface SidebarNavItem {
   visible: boolean;
 }
 
+/** Старый id пункта «Вложения» в конфиге сайдбара → «Файлы». */
+export function migrateSidebarNavIds(config: SidebarNavItem[]): SidebarNavItem[] {
+  let filesSeen = false;
+  const result: SidebarNavItem[] = [];
+  for (const entry of config) {
+    const id = entry.id === "attachments" ? "files" : entry.id;
+    if (id === "files") {
+      if (filesSeen) continue;
+      filesSeen = true;
+      result.push({ ...entry, id: "files" });
+      continue;
+    }
+    result.push({ ...entry, id });
+  }
+  return result;
+}
+
 interface UIState {
   theme: Theme;
   sidebarCollapsed: boolean;
@@ -186,10 +203,12 @@ export const useUIStore = create<UIState>((set) => ({
     }),
   setTaskSidebarVisible: (taskSidebarVisible) => set({ taskSidebarVisible }),
   setSidebarNavConfig: (sidebarNavConfig) => {
-    setSetting("sidebar_nav_config", JSON.stringify(sidebarNavConfig)).catch(() => {});
-    set({ sidebarNavConfig });
+    const migrated = migrateSidebarNavIds(sidebarNavConfig);
+    setSetting("sidebar_nav_config", JSON.stringify(migrated)).catch(() => {});
+    set({ sidebarNavConfig: migrated });
   },
-  restoreSidebarNavConfig: (sidebarNavConfig) => set({ sidebarNavConfig }),
+  restoreSidebarNavConfig: (sidebarNavConfig) =>
+    set({ sidebarNavConfig: migrateSidebarNavIds(sidebarNavConfig) }),
   setReduceMotion: (reduceMotion) => {
     setSetting("reduce_motion", String(reduceMotion)).catch(() => {});
     set({ reduceMotion });
