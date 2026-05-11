@@ -15,11 +15,12 @@ import {
   SMART_LABEL_PROMPT,
   EXTRACT_TASK_PROMPT,
 } from "./prompts";
+import { getAiLocale, getLocalizedFallback, localizedCacheType, withAiLanguage } from "./language";
 
 async function callAi(systemPrompt: string, userContent: string): Promise<string> {
   try {
     const provider = await getActiveProvider();
-    return await provider.complete({ systemPrompt, userContent });
+    return await provider.complete({ systemPrompt: withAiLanguage(systemPrompt), userContent });
   } catch (err) {
     if (err instanceof AiError) throw err;
     const message = err instanceof Error ? err.message : String(err);
@@ -52,16 +53,17 @@ export async function summarizeThread(
   messages: DbMessage[],
 ): Promise<string> {
   // Check cache first
-  const cached = await getAiCache(accountId, threadId, "summary");
+  const cacheType = localizedCacheType("summary");
+  const cached = await getAiCache(accountId, threadId, cacheType);
   if (cached) return cached;
 
-  const subject = messages[0]?.subject ?? "No subject";
+  const subject = messages[0]?.subject ?? getLocalizedFallback("Без темы", "No subject");
   const formatted = messages.map(formatMessageForSummary).join("\n---\n");
   const combined = `Subject: ${subject}\n\n${formatted}`.slice(0, 6000);
   const summary = await callAi(SUMMARIZE_PROMPT, combined);
 
   // Cache the result
-  await setAiCache(accountId, threadId, "summary", summary);
+  await setAiCache(accountId, threadId, cacheType, summary);
   return summary;
 }
 
@@ -100,7 +102,8 @@ export async function generateSmartReplies(
   messages: DbMessage[],
 ): Promise<string[]> {
   // Check cache first
-  const cached = await getAiCache(accountId, threadId, "smart_replies");
+  const cacheType = localizedCacheType("smart_replies");
+  const cached = await getAiCache(accountId, threadId, cacheType);
   if (cached) {
     try {
       return JSON.parse(cached) as string[];
@@ -135,11 +138,13 @@ export async function generateSmartReplies(
     .map((r) => r.replace(/<[^>]*>/g, "").slice(0, 200));
 
   // Ensure exactly 3 replies
-  while (replies.length < 3) replies.push("Спасибо за информацию.");
+  while (replies.length < 3) {
+    replies.push(getLocalizedFallback("Спасибо за информацию.", "Thanks for the information."));
+  }
   replies = replies.slice(0, 3);
 
   // Cache the result
-  await setAiCache(accountId, threadId, "smart_replies", JSON.stringify(replies));
+  await setAiCache(accountId, threadId, cacheType, JSON.stringify(replies));
   return replies;
 }
 
@@ -229,9 +234,10 @@ export async function extractTaskFromThread(
   _accountId: string,
   messages: DbMessage[],
 ): Promise<string> {
-  const subject = messages[0]?.subject ?? "No subject";
+  const subject = messages[0]?.subject ?? getLocalizedFallback("Без темы", "No subject");
   const formatted = messages.map(formatMessageForSummary).join("\n---\n");
-  const combined = `<email_content>Subject: ${subject}\n\n${formatted}</email_content>`.slice(0, 6000);
+  const locale = getAiLocale();
+  const combined = `<email_content>Subject: ${subject}\n\n${formatted}</email_content>\n\nOutput language: ${locale === "ru" ? "Russian" : "English"}`.slice(0, 6000);
   return callAi(EXTRACT_TASK_PROMPT, combined);
 }
 

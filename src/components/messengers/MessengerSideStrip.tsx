@@ -119,12 +119,8 @@ const PROVIDER_FILTERS: Array<{ id: MessengerProviderId; label: string }> = [
 
 type StripPaneId = "messengerList" | "messengerChat";
 
-const PANE_LABELS: Record<StripPaneId, string> = {
-  messengerList: "М",
-  messengerChat: "Ч",
-};
-
 const DEFAULT_STRIP_ORDER: StripPaneId[] = ["messengerList", "messengerChat"];
+const COLLAPSED_STRIP_PANES: StripPaneId[] = [];
 
 const ALL_STRIP_PANE_IDS: StripPaneId[] = ["messengerList", "messengerChat"];
 const LAYOUT_STORAGE_KEY = "velo_messenger_pane_layout:v2";
@@ -411,11 +407,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
     mergeStripWidths(loadSideStripLayout().paneWidths),
   );
   const paneOrder = DEFAULT_STRIP_ORDER;
-  const [collapsedPaneIds, setCollapsedPaneIds] = useState<StripPaneId[]>(() => {
-    const saved = loadSideStripLayout().collapsedPaneIds;
-    if (!Array.isArray(saved)) return [];
-    return saved.filter((x): x is StripPaneId => ALL_STRIP_PANE_IDS.includes(x as StripPaneId));
-  });
+  const collapsedPaneIds = COLLAPSED_STRIP_PANES;
   const [maxCredentials, setMaxCredentials] = useState<MessengerCredentials | null>(() => loadMessengerCredentials("max"));
   const [yandexSession, setYandexSession] = useState<YandexMessengerSession | null>(null);
   const [telegramCredentials, setTelegramCredentials] = useState<MessengerCredentials | null>(() => loadMessengerCredentials("telegram"));
@@ -805,14 +797,6 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
     setPendingAttachments((current) => current.filter((attachment) => attachment.path !== path));
   }, []);
 
-  const togglePaneCollapsed = useCallback((paneId: StripPaneId) => {
-    setCollapsedPaneIds((current) => {
-      if (current.includes(paneId)) return current.filter((id) => id !== paneId);
-      if (DEFAULT_STRIP_ORDER.length - current.length <= 1) return current;
-      return [...current, paneId];
-    });
-  }, []);
-
   const toggleProviderFilter = useCallback((providerId: MessengerProviderId) => {
     setActiveProviderIds((current) => {
       if (current.includes(providerId)) {
@@ -1094,27 +1078,6 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
       className="relative flex h-full min-h-0 shrink-0 overflow-hidden bg-bg-primary/45"
       style={asideTotalWidth !== undefined ? { width: asideTotalWidth } : undefined}
     >
-      <div className="fixed right-24 top-1.5 z-50 flex items-center gap-1 rounded-lg border border-border-primary bg-bg-secondary/95 px-1.5 py-1 shadow-sm">
-        {paneOrder.map((paneId) => {
-          const collapsed = collapsedPaneIds.includes(paneId);
-          return (
-            <button
-              key={paneId}
-              type="button"
-              onClick={() => togglePaneCollapsed(paneId)}
-              className={`h-5 min-w-5 rounded border px-1 text-[0.625rem] font-medium transition-colors ${
-                collapsed
-                  ? "border-border-secondary bg-bg-primary text-text-tertiary"
-                  : "border-border-primary bg-bg-tertiary text-text-primary"
-              }`}
-              title="Показать/скрыть колонку мессенджера. Повторный клик по «Messengers» в сайдбаре скрывает панель."
-              aria-label={`Окно ${PANE_LABELS[paneId]}`}
-            >
-              {PANE_LABELS[paneId]}
-            </button>
-          );
-        })}
-      </div>
       <section
         ref={conversationPanelRef}
         className="messenger-slide-panel min-w-[220px] max-w-[340px] shrink-0 overflow-hidden bg-bg-secondary/85 shadow-none"
@@ -1234,7 +1197,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                   {selectedProviderId === "yandex" ? (
                     <p className="mt-2 text-[0.6875rem] leading-snug text-text-tertiary">
                       Bot API рассчитан на токен организационного бота. Если запросы отклоняются (403), выпустите токен в{" "}
-                      <a className="text-accent underline" href="https://admin.yandex.ru/bot-platform" target="_blank" rel="noreferrer">
+                      <a className="text-accent underline" href="https://admin.yandex.ru/bot-platform" target="_blank" rel="noopener noreferrer">
                         Боты в Мессенджере
                       </a>{" "}
                       и вставьте его ниже — он перекроет OAuth до удаления.

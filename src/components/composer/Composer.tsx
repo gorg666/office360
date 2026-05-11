@@ -26,12 +26,35 @@ import { getSetting } from "@/services/db/settings";
 import { insertScheduledEmail } from "@/services/db/scheduledEmails";
 import { getDefaultSignature } from "@/services/db/signatures";
 import { getAliasesForAccount, mapDbAlias, type SendAsAlias } from "@/services/db/sendAsAliases";
+import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
 import { resolveFromAddress } from "@/utils/resolveFromAddress";
 import { startAutoSave, stopAutoSave } from "@/services/composer/draftAutoSave";
 import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates";
 import { readFileAsBase64 } from "@/utils/fileUtils";
 import { interpolateVariables } from "@/utils/templateVariables";
 import { sanitizeHtml } from "@/utils/sanitize";
+
+function htmlToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatMessageForAiReply(message: DbMessage): string {
+  const from = message.from_name
+    ? `${message.from_name} <${message.from_address ?? ""}>`
+    : (message.from_address ?? "Unknown");
+  const date = new Date(message.date).toLocaleString("ru-RU");
+  const body = (message.body_text ?? (message.body_html ? htmlToText(message.body_html) : message.snippet) ?? "").trim();
+  return `From: ${from}\nDate: ${date}\nSubject: ${message.subject ?? ""}\n\n${body}`;
+}
 
 export function Composer() {
   // Individual selectors — only re-render when each specific value changes
@@ -41,6 +64,7 @@ export function Composer() {
   const cc = useComposerStore((s) => s.cc);
   const bcc = useComposerStore((s) => s.bcc);
   const subject = useComposerStore((s) => s.subject);
+  const threadId = useComposerStore((s) => s.threadId);
   const showCcBcc = useComposerStore((s) => s.showCcBcc);
   const fromEmail = useComposerStore((s) => s.fromEmail);
   const viewMode = useComposerStore((s) => s.viewMode);
@@ -65,6 +89,7 @@ export function Composer() {
   const sendingRef = useRef(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showAiAssist, setShowAiAssist] = useState(false);
+  const [replyThreadMessages, setReplyThreadMessages] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [aliases, setAliases] = useState<SendAsAlias[]>([]);
   const templateShortcutsRef = useRef<DbTemplate[]>([]);
@@ -140,6 +165,30 @@ export function Composer() {
       },
     },
   });
+
+  const isReplyMode = mode === "reply" || mode === "replyAll";
+
+  useEffect(() => {
+    if (!showAiAssist || !isReplyMode || !activeAccountId || !threadId) {
+      setReplyThreadMessages([]);
+      return;
+    }
+
+    let cancelled = false;
+    getMessagesForThread(activeAccountId, threadId)
+      .then((messages) => {
+        if (cancelled) return;
+        setReplyThreadMessages(messages.map(formatMessageForAiReply));
+      })
+      .catch((err) => {
+        console.error("Failed to load thread messages for AI reply:", err);
+        if (!cancelled) setReplyThreadMessages([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAccountId, isReplyMode, showAiAssist, threadId]);
 
   // Load signature, aliases, and templates in parallel when composer opens
   useEffect(() => {
@@ -535,7 +584,8 @@ export function Composer() {
         {showAiAssist && (
           <AiAssistPanel
             editor={editor}
-            isReplyMode={mode === "reply" || mode === "replyAll"}
+            isReplyMode={isReplyMode}
+            threadMessages={replyThreadMessages}
           />
         )}
 

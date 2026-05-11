@@ -31,15 +31,66 @@ export interface DbMessage {
   imap_folder: string | null;
 }
 
+function normalizeMessageIdHeader(value: string | null): string | null {
+  if (!value?.trim()) return null;
+  const bracketed = value.match(/<([^<>]+)>/)?.[1];
+  const raw = (bracketed ?? value).trim().replace(/^<|>$/g, "");
+  return raw ? raw.toLowerCase() : null;
+}
+
+function getMessageBodyFingerprint(message: DbMessage): string {
+  const body = message.body_text ?? message.body_html ?? message.snippet ?? "";
+  return body.replace(/\s+/g, " ").trim().slice(0, 500).toLowerCase();
+}
+
+function getDuplicateMessageKey(message: DbMessage): string {
+  const rfcMessageId = normalizeMessageIdHeader(message.message_id_header);
+  if (rfcMessageId) return `rfc:${rfcMessageId}`;
+
+  const from = message.from_address?.trim().toLowerCase() ?? "";
+  const to = message.to_addresses?.trim().toLowerCase() ?? "";
+  const subject = message.subject?.trim().toLowerCase() ?? "";
+  const body = getMessageBodyFingerprint(message);
+  if (!from || !subject || !body) return `local:${message.id}`;
+
+  return `fallback:${message.date}:${from}:${to}:${subject}:${body}`;
+}
+
+function messageQualityScore(message: DbMessage): number {
+  let score = 0;
+  if (message.body_cached === 1) score += 100;
+  if (message.body_html?.trim()) score += 20;
+  if (message.body_text?.trim()) score += 10;
+  if (message.from_address && message.from_address !== "unknown@example.com") score += 10;
+  if (message.raw_size) score += Math.min(message.raw_size / 100_000, 5);
+  if (message.id.startsWith("imap-sent-")) score -= 50;
+  return score;
+}
+
+export function dedupeMessages(messages: DbMessage[]): DbMessage[] {
+  const byKey = new Map<string, DbMessage>();
+
+  for (const message of messages) {
+    const key = getDuplicateMessageKey(message);
+    const existing = byKey.get(key);
+    if (!existing || messageQualityScore(message) > messageQualityScore(existing)) {
+      byKey.set(key, message);
+    }
+  }
+
+  return [...byKey.values()].sort((a, b) => a.date - b.date);
+}
+
 export async function getMessagesForThread(
   accountId: string,
   threadId: string,
 ): Promise<DbMessage[]> {
   const db = await getDb();
-  return db.select<DbMessage[]>(
+  const rows = await db.select<DbMessage[]>(
     "SELECT * FROM messages WHERE account_id = $1 AND thread_id = $2 ORDER BY date ASC",
     [accountId, threadId],
   );
+  return dedupeMessages(rows);
 }
 
 export async function getMessageById(

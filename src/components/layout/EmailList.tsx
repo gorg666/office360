@@ -9,7 +9,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
-import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb } from "@/services/db/threads";
+import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, getUnreadThreadIdsForAccount, deleteThread as deleteThreadFromDb } from "@/services/db/threads";
 import { getCategoriesForThreads, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
@@ -24,9 +24,11 @@ import { parseFirstAddressFromList } from "@/utils/emailAddressParse";
 import { effectiveFromName } from "@/utils/senderDisplay";
 import { getContactDisplayNameMap } from "@/services/db/contacts";
 import { getDb } from "@/services/db/connection";
-import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch } from "lucide-react";
+import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch, CheckCheck } from "lucide-react";
 import type { AppLocale } from "@/stores/uiStore";
 import { EmptyState } from "../ui/EmptyState";
+import { markThreadRead } from "@/services/emailActions";
+import { updateBadgeCount } from "@/services/badgeManager";
 import {
   InboxClearIllustration,
   NoSearchResultsIllustration,
@@ -35,6 +37,7 @@ import {
 } from "../ui/illustrations";
 
 const PAGE_SIZE = 50;
+const MARK_ALL_READ_BATCH_SIZE = 10;
 
 function formatConversationCount(count: number, locale: AppLocale): string {
   if (locale !== "ru") {
@@ -120,6 +123,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
   const [heldThreadIds, setHeldThreadIds] = useState<Set<string>>(() => new Set());
   const [expandedBundles, setExpandedBundles] = useState<Set<string>>(() => new Set());
   const [bundleSummaries, setBundleSummaries] = useState<Map<string, { count: number; latestSubject: string | null; latestSender: string | null }>>(() => new Map());
+  const [markingAllRead, setMarkingAllRead] = useState(false);
 
   const openMenu = useContextMenuStore((s) => s.openMenu);
   const multiSelectCount = selectedThreadIds.size;
@@ -235,6 +239,34 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
     }
   };
 
+  const isUnreadView = readFilter === "unread" || activeSmartFolder?.query.trim().toLowerCase() === "is:unread";
+
+  const handleMarkAllRead = useCallback(async () => {
+    if (!activeAccountId || markingAllRead) return;
+
+    setMarkingAllRead(true);
+    try {
+      const labelId = !isSmartFolder ? LABEL_MAP[activeLabel] ?? activeLabel : undefined;
+      const unreadThreadIds = await getUnreadThreadIdsForAccount(
+        activeAccountId,
+        labelId || undefined,
+      );
+
+      for (let index = 0; index < unreadThreadIds.length; index += MARK_ALL_READ_BATCH_SIZE) {
+        const batch = unreadThreadIds.slice(index, index + MARK_ALL_READ_BATCH_SIZE);
+        await Promise.all(batch.map((threadId) => markThreadRead(activeAccountId, threadId, [], true)));
+      }
+
+      clearMultiSelect();
+      await updateBadgeCount();
+      window.dispatchEvent(new Event("velo-sync-done"));
+    } catch (err) {
+      console.error("Failed to mark all unread threads as read:", err);
+    } finally {
+      setMarkingAllRead(false);
+    }
+  }, [activeAccountId, activeLabel, clearMultiSelect, isSmartFolder, markingAllRead]);
+
   const searchThreadIds = useThreadStore((s) => s.searchThreadIds);
   const searchQuery = useThreadStore((s) => s.searchQuery);
 
@@ -250,6 +282,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
     // Category filtering is now server-side (Phase 4) — no client-side filter needed
     return filtered;
   }, [threads, readFilter, searchThreadIds]);
+  const canMarkAllRead = Boolean(activeAccountId && isUnreadView && filteredThreads.some((thread) => !thread.isRead));
 
   // Pre-compute bundled category Set for O(1) lookups in filter
   const bundledCategorySet = useMemo(
@@ -572,16 +605,30 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
             {formatConversationCount(filteredThreads.length, locale)}
           </span>
         </div>
-        <select
-          value={readFilter}
-          title="Read filter"
-          onChange={(e) => setReadFilter(e.target.value as "all" | "read" | "unread")}
-          className="text-xs bg-bg-tertiary text-text-secondary px-2 py-1 rounded border border-border-primary"
-        >
-          <option value="all">All</option>
-          <option value="unread">Unread</option>
-          <option value="read">Read</option>
-        </select>
+        <div className="flex items-center gap-2">
+          {isUnreadView && (
+            <button
+              type="button"
+              onClick={handleMarkAllRead}
+              disabled={!canMarkAllRead || markingAllRead}
+              className="inline-flex items-center gap-1.5 rounded border border-border-primary bg-bg-tertiary px-2 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-bg-tertiary disabled:hover:text-text-secondary"
+              title="Пометить все непрочитанные письма как прочитанные"
+            >
+              <CheckCheck size={13} />
+              {markingAllRead ? "Читаем..." : "Прочитать все"}
+            </button>
+          )}
+          <select
+            value={readFilter}
+            title="Read filter"
+            onChange={(e) => setReadFilter(e.target.value as "all" | "read" | "unread")}
+            className="text-xs bg-bg-tertiary text-text-secondary px-2 py-1 rounded border border-border-primary"
+          >
+            <option value="all">All</option>
+            <option value="unread">Unread</option>
+            <option value="read">Read</option>
+          </select>
+        </div>
       </div>
 
       {/* Category tabs (inbox + split mode only) */}

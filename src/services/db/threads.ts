@@ -226,6 +226,26 @@ export async function getUnreadInboxCountsByAccount(accountIds?: string[]): Prom
   return Object.fromEntries(rows.map((row) => [row.account_id, row.count]));
 }
 
+export async function getUnreadThreadIdsForAccount(
+  accountId: string,
+  labelId?: string,
+): Promise<string[]> {
+  const db = await getDb();
+  const labelJoin = labelId
+    ? "INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id AND tl.label_id = $2"
+    : "";
+  const rows = await db.select<{ id: string }[]>(
+    `SELECT DISTINCT t.id
+     FROM threads t
+     INNER JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
+     ${labelJoin}
+     WHERE t.account_id = $1
+       AND (t.is_read = 0 OR m.is_read = 0)`,
+    labelId ? [accountId, labelId] : [accountId],
+  );
+  return rows.map((row) => row.id);
+}
+
 export async function deleteThread(
   accountId: string,
   threadId: string,

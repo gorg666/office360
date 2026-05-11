@@ -1,5 +1,6 @@
 import { searchMessages, type SearchResult } from "@/services/db/search";
 import { askInbox as callAskInbox } from "./aiService";
+import { getLocalizedFallback } from "./language";
 
 /**
  * Extract key search terms from a natural language question.
@@ -46,7 +47,10 @@ export async function askMyInbox(
   const terms = extractSearchTerms(question);
   if (!terms.trim()) {
     return {
-      answer: "I couldn't understand the question. Please try rephrasing it.",
+      answer: getLocalizedFallback(
+        "Не удалось понять вопрос. Попробуйте сформулировать его иначе.",
+        "I couldn't understand the question. Please try rephrasing it.",
+      ),
       sourceMessages: [],
     };
   }
@@ -56,7 +60,10 @@ export async function askMyInbox(
 
   if (results.length === 0) {
     return {
-      answer: "I couldn't find any relevant emails for your question. Try a different question or check your search terms.",
+      answer: getLocalizedFallback(
+        "Не удалось найти подходящие письма по вашему вопросу. Попробуйте другой вопрос или измените поисковые слова.",
+        "I couldn't find any relevant emails for your question. Try a different question or check your search terms.",
+      ),
       sourceMessages: [],
     };
   }

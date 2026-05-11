@@ -9,10 +9,43 @@ vi.mock("@/services/db/connection", async (importOriginal) => {
 });
 
 import { getDb } from "@/services/db/connection";
-import { deleteAllMessagesForAccount, updateMessageThreadIds, upsertMessage } from "./messages";
+import { dedupeMessages, deleteAllMessagesForAccount, updateMessageThreadIds, upsertMessage, type DbMessage } from "./messages";
 import { createMockDb } from "@/test/mocks";
 
 const mockDb = createMockDb();
+
+function createDbMessage(overrides: Partial<DbMessage> = {}): DbMessage {
+  return {
+    id: "msg-1",
+    account_id: "acc-1",
+    thread_id: "thread-1",
+    from_address: "sender@example.com",
+    from_name: null,
+    to_addresses: "me@example.com",
+    cc_addresses: null,
+    bcc_addresses: null,
+    reply_to: null,
+    subject: "Subject",
+    snippet: "Body",
+    date: 1_700_000_000,
+    is_read: 0,
+    is_starred: 0,
+    body_html: null,
+    body_text: "Body",
+    body_cached: 1,
+    raw_size: 100,
+    internal_date: 1_700_000_000,
+    list_unsubscribe: null,
+    list_unsubscribe_post: null,
+    auth_results: null,
+    message_id_header: "<same@example.com>",
+    references_header: null,
+    in_reply_to_header: null,
+    imap_uid: null,
+    imap_folder: null,
+    ...overrides,
+  };
+}
 
 describe("messages service", () => {
   beforeEach(() => {
@@ -45,6 +78,38 @@ describe("messages service", () => {
 
       const params = mockDb.execute.mock.calls[0]![1] as unknown[];
       expect(params[16]).toBe(1);
+    });
+  });
+
+  describe("dedupeMessages", () => {
+    it("deduplicates IMAP folder copies by RFC Message-ID", () => {
+      const messages = dedupeMessages([
+        createDbMessage({
+          id: "imap-acc-INBOX-10",
+          message_id_header: "<same@example.com>",
+          body_cached: 0,
+          body_text: null,
+        }),
+        createDbMessage({
+          id: "imap-acc-Sent-20",
+          message_id_header: "same@example.com",
+          body_cached: 1,
+          body_text: "Full body",
+          raw_size: 1000,
+        }),
+      ]);
+
+      expect(messages).toHaveLength(1);
+      expect(messages[0]?.id).toBe("imap-acc-Sent-20");
+    });
+
+    it("keeps distinct messages without an RFC Message-ID", () => {
+      const messages = dedupeMessages([
+        createDbMessage({ id: "msg-1", message_id_header: null, body_text: "First" }),
+        createDbMessage({ id: "msg-2", message_id_header: null, body_text: "Second" }),
+      ]);
+
+      expect(messages.map((message) => message.id)).toEqual(["msg-1", "msg-2"]);
     });
   });
 
