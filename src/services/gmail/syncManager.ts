@@ -50,6 +50,14 @@ let backgroundAccountIds: string[] | null = null;
 let visibilityListenerAttached = false;
 let syncPromise: Promise<void> | null = null;
 let pendingAccountIds: string[] | null = null;
+let dbReady = false;
+let resolveDbReady: (() => void) | null = null;
+const dbReadyPromise = new Promise<void>((resolve) => {
+  resolveDbReady = resolve;
+});
+
+const DB_LOCK_RETRY_ATTEMPTS = 4;
+const DB_LOCK_RETRY_BASE_MS = 350;
 
 function getAdaptiveSyncDelayMs(): number {
   if (typeof document === "undefined") return SYNC_INTERVAL_VISIBLE_MS;
@@ -87,6 +95,20 @@ async function waitForSyncIdle(): Promise<void> {
   while (syncPromise) {
     await syncPromise;
   }
+}
+
+function isDatabaseLockedError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  return /database is locked|database busy|SQLITE_BUSY|code["']?\s*[:=]\s*5|\(code:\s*5\)/i.test(message);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForDatabaseReady(): Promise<void> {
+  if (dbReady) return;
+  await dbReadyPromise;
 }
 
 export type SyncStatusCallback = (
@@ -283,47 +305,63 @@ async function syncCalendarForAccount(accountId: string): Promise<void> {
  * Routes to Gmail or IMAP sync based on account provider.
  */
 async function syncAccountInternal(accountId: string): Promise<void> {
-  try {
-    const account = await getAccount(accountId);
+  for (let attempt = 1; attempt <= DB_LOCK_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      const account = await getAccount(accountId);
 
-    if (!account) {
-      throw new Error("Account not found");
-    }
+      if (!account) {
+        throw new Error("Account not found");
+      }
 
-    statusCallback?.(accountId, "syncing");
+      statusCallback?.(accountId, "syncing");
 
-    console.log(`[syncManager] Syncing account ${accountId} (provider=${account.provider}, history_id=${account.history_id ?? "null"})`);
+      console.log(`[syncManager] Syncing account ${accountId} (provider=${account.provider}, history_id=${account.history_id ?? "null"})`);
 
-    if (account.provider === "caldav") {
-      // CalDAV-only accounts — skip email sync, only sync calendar
-      await syncCalendarForAccount(accountId);
+      if (account.provider === "caldav") {
+        // CalDAV-only accounts — skip email sync, only sync calendar
+        await syncCalendarForAccount(accountId);
+        statusCallback?.(accountId, "done");
+        return;
+      }
+
+      if (account.provider === "imap") {
+        await syncImapAccount(accountId);
+      } else {
+        await syncGmailAccount(accountId);
+      }
+
+      // Always emit "done" when an initial sync completes (clears the bar).
+      // Also emit for delta syncs that fell back to initial (recovery re-sync)
+      // since those emit progress via statusCallback inside syncImapAccount.
       statusCallback?.(accountId, "done");
+
+      // Sync calendar alongside email (non-blocking — calendar errors don't affect email sync)
+      syncCalendarForAccount(accountId).catch((err) => {
+        console.warn(`[syncManager] Calendar sync error for ${accountId}:`, err);
+      });
+      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err ?? "Unknown error");
+      const isDbLock = isDatabaseLockedError(err);
+      if (isDbLock && attempt < DB_LOCK_RETRY_ATTEMPTS) {
+        const delayMs = Math.min(DB_LOCK_RETRY_BASE_MS * (2 ** (attempt - 1)), 3_000);
+        console.warn(
+          `[syncManager] Database is locked during sync for ${accountId}; retry ${attempt}/${DB_LOCK_RETRY_ATTEMPTS - 1} in ${delayMs}ms`,
+        );
+        await sleep(delayMs);
+        continue;
+      }
+
+      console.error(`[syncManager] Sync failed for account ${accountId}:`, message);
+      statusCallback?.(accountId, "error", undefined, message);
       return;
     }
-
-    if (account.provider === "imap") {
-      await syncImapAccount(accountId);
-    } else {
-      await syncGmailAccount(accountId);
-    }
-
-    // Always emit "done" when an initial sync completes (clears the bar).
-    // Also emit for delta syncs that fell back to initial (recovery re-sync)
-    // since those emit progress via statusCallback inside syncImapAccount.
-    statusCallback?.(accountId, "done");
-
-    // Sync calendar alongside email (non-blocking — calendar errors don't affect email sync)
-    syncCalendarForAccount(accountId).catch((err) => {
-      console.warn(`[syncManager] Calendar sync error for ${accountId}:`, err);
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err ?? "Unknown error");
-    console.error(`[syncManager] Sync failed for account ${accountId}:`, message);
-    statusCallback?.(accountId, "error", undefined, message);
   }
 }
 
 async function runSync(accountIds: string[]): Promise<void> {
+  await waitForDatabaseReady();
+
   if (syncPromise) {
     // Queue these accounts, merging with any already-pending IDs
     const existing = new Set(pendingAccountIds ?? []);
@@ -410,6 +448,12 @@ export function startBackgroundSync(accountIds: string[], skipImmediateSync = fa
   } else {
     scheduleNextPeriodicSync();
   }
+}
+
+export function markSyncDatabaseReady(): void {
+  if (dbReady) return;
+  dbReady = true;
+  resolveDbReady?.();
 }
 
 /**

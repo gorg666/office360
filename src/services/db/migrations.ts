@@ -1,4 +1,4 @@
-import { getDb } from "./connection";
+import { getDb, withTransaction } from "./connection";
 
 const MIGRATIONS = [
   {
@@ -853,20 +853,41 @@ function splitStatements(sql: string): string[] {
 
 export async function runMigrations(): Promise<void> {
   const db = await getDb();
+  const isDatabaseLockedError = (err: unknown): boolean => {
+    const message = err instanceof Error ? err.message : String(err ?? "");
+    return /database is locked|database busy|SQLITE_BUSY|code["']?\s*[:=]\s*5|\(code:\s*5\)/i.test(message);
+  };
+  const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+  const runWithDbRetry = async <T>(fn: () => Promise<T>, maxAttempts = 6): Promise<T> => {
+    let delayMs = 200;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await fn();
+      } catch (err) {
+        if (!isDatabaseLockedError(err) || attempt === maxAttempts) {
+          throw err;
+        }
+        console.warn(`[migrations] SQLite busy/locked, retry ${attempt}/${maxAttempts - 1} in ${delayMs}ms`);
+        await sleep(delayMs);
+        delayMs = Math.min(delayMs * 2, 2_000);
+      }
+    }
+    throw new Error("Unreachable migration retry state");
+  };
 
   // Ensure migrations table exists
-  await db.execute(`
+  await runWithDbRetry(() => db.execute(`
     CREATE TABLE IF NOT EXISTS _migrations (
       version INTEGER PRIMARY KEY,
       description TEXT,
       applied_at INTEGER DEFAULT (unixepoch())
     )
-  `);
+  `));
 
   // Get already-applied versions
-  const applied = await db.select<{ version: number }[]>(
+  const applied = await runWithDbRetry(() => db.select<{ version: number }[]>(
     "SELECT version FROM _migrations ORDER BY version",
-  );
+  ));
   const appliedVersions = new Set(applied.map((r) => r.version));
 
   // Repair: if migration 18 is marked applied but tasks table is missing,
@@ -877,7 +898,7 @@ export async function runMigrations(): Promise<void> {
     );
     if (tables.length === 0) {
       console.warn("Migration v18 marked applied but tasks table missing — re-running");
-      await db.execute("DELETE FROM _migrations WHERE version = 18");
+      await runWithDbRetry(() => db.execute("DELETE FROM _migrations WHERE version = 18"));
       appliedVersions.delete(18);
     }
   }
@@ -893,12 +914,12 @@ export async function runMigrations(): Promise<void> {
     // Split SQL into individual statements, respecting BEGIN...END blocks
     const statements = splitStatements(migration.sql);
 
-    // Use a transaction so migrations are all-or-nothing
-    await db.execute("BEGIN");
-    try {
+    // Run migration statements in the DB write lock to avoid pooled-connection
+    // transaction races that can self-lock SQLite on startup.
+    await runWithDbRetry(() => withTransaction(async (lockedDb) => {
       for (const statement of statements) {
         try {
-          await db.execute(statement);
+          await lockedDb.execute(statement);
         } catch (err) {
           // Tolerate "duplicate column" errors from ALTER TABLE ADD COLUMN
           // in case a migration was partially applied previously
@@ -911,15 +932,11 @@ export async function runMigrations(): Promise<void> {
         }
       }
 
-      await db.execute(
+      await lockedDb.execute(
         "INSERT OR IGNORE INTO _migrations (version, description) VALUES ($1, $2)",
         [migration.version, migration.description],
       );
-      await db.execute("COMMIT");
-    } catch (err) {
-      await db.execute("ROLLBACK").catch(() => {});
-      throw err;
-    }
+    }));
   }
 
   console.log("All migrations applied.");
@@ -927,27 +944,27 @@ export async function runMigrations(): Promise<void> {
   // One-time repair: force IMAP attachment resync with corrected Rust binary.
   // Migrations 20/21 may have run before the Rust fix was compiled in.
   // This uses a settings flag so it only runs once.
-  const repairFlag = await db.select<{ value: string }[]>(
+  const repairFlag = await runWithDbRetry(() => db.select<{ value: string }[]>(
     "SELECT value FROM settings WHERE key = 'imap_attachment_repair_v1'",
-  );
+  ));
   if (repairFlag.length === 0) {
-    const imapAccounts = await db.select<{ id: string }[]>(
+    const imapAccounts = await runWithDbRetry(() => db.select<{ id: string }[]>(
       "SELECT id FROM accounts WHERE provider = 'imap'",
-    );
+    ));
     if (imapAccounts.length > 0) {
       console.log("[repair] Forcing IMAP attachment resync with corrected part IDs...");
-      await db.execute(
+      await runWithDbRetry(() => db.execute(
         "DELETE FROM attachments WHERE account_id IN (SELECT id FROM accounts WHERE provider = 'imap')",
-      );
-      await db.execute(
+      ));
+      await runWithDbRetry(() => db.execute(
         "DELETE FROM folder_sync_state WHERE account_id IN (SELECT id FROM accounts WHERE provider = 'imap')",
-      );
-      await db.execute(
+      ));
+      await runWithDbRetry(() => db.execute(
         "UPDATE accounts SET history_id = NULL WHERE provider = 'imap'",
-      );
+      ));
     }
-    await db.execute(
+    await runWithDbRetry(() => db.execute(
       "INSERT OR REPLACE INTO settings (key, value) VALUES ('imap_attachment_repair_v1', '1')",
-    );
+    ));
   }
 }

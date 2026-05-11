@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { EmailList } from "./EmailList";
 import { ReadingPane } from "./ReadingPane";
 import { useUIStore } from "@/stores/uiStore";
@@ -8,54 +8,27 @@ const MessengerSideStrip = lazy(() =>
   import("@/components/messengers/MessengerSideStrip").then((m) => ({ default: m.MessengerSideStrip })),
 );
 
-const MESSENGER_ASIDE_TOTAL_KEY = "velo_mail_messenger_aside_total:v1";
-/** Прежний дефолт до привязки к ширине окна — мигрируем в пропорциональный, если пользователь не менял руками. */
-const LEGACY_DEFAULT_MESSENGER_ASIDE_PX = 680;
 const MESSENGER_ASIDE_MIN = 560;
-const MESSENGER_ASIDE_MAX = 960;
 /** Верхняя граница стартовой ширины мессенджера на очень широких мониторах (область чтения остаётся основной). */
-const MESSENGER_ASIDE_DEFAULT_CAP = 720;
+const MESSENGER_ASIDE_DEFAULT = 680;
+const MESSENGER_ASIDE_MAX_CAP = 960;
+
+function getMessengerAsideMax(): number {
+  if (typeof window === "undefined") return MESSENGER_ASIDE_MAX_CAP;
+  const viewportMax = Math.floor(window.innerWidth * 0.55);
+  return Math.max(MESSENGER_ASIDE_MIN, Math.min(MESSENGER_ASIDE_MAX_CAP, viewportMax));
+}
 
 function clampMessengerAside(n: number): number {
-  return Math.min(MESSENGER_ASIDE_MAX, Math.max(MESSENGER_ASIDE_MIN, n));
+  return Math.min(getMessengerAsideMax(), Math.max(MESSENGER_ASIDE_MIN, n));
 }
 
 /**
  * Доля окна под две колонки мессенджера (как на эталонном макете: широкая панель чтения, средние диалоги и чат).
  */
-function computeDefaultMessengerAsideTotal(): number {
-  if (typeof window === "undefined") return 600;
-  const target = Math.round(window.innerWidth * 0.31);
-  return clampMessengerAside(Math.min(MESSENGER_ASIDE_DEFAULT_CAP, target));
-}
-
-function loadMessengerAsideTotal(): number {
-  const fallback = computeDefaultMessengerAsideTotal();
-  try {
-    const raw = localStorage.getItem(MESSENGER_ASIDE_TOTAL_KEY);
-    if (!raw) return fallback;
-    const n = Number.parseInt(raw, 10);
-    if (!Number.isFinite(n)) return fallback;
-    const clamped = clampMessengerAside(n);
-    if (
-      clamped === LEGACY_DEFAULT_MESSENGER_ASIDE_PX &&
-      fallback !== LEGACY_DEFAULT_MESSENGER_ASIDE_PX
-    ) {
-      persistMessengerAsideTotal(fallback);
-      return fallback;
-    }
-    return clamped;
-  } catch {
-    return fallback;
-  }
-}
-
-function persistMessengerAsideTotal(width: number): void {
-  try {
-    localStorage.setItem(MESSENGER_ASIDE_TOTAL_KEY, String(clampMessengerAside(width)));
-  } catch {
-    // best-effort
-  }
+function computeFixedMessengerAsideTotal(): number {
+  if (typeof window === "undefined") return MESSENGER_ASIDE_DEFAULT;
+  return clampMessengerAside(MESSENGER_ASIDE_DEFAULT);
 }
 
 function ResizableEmailLayout() {
@@ -104,34 +77,14 @@ function ResizableEmailLayout() {
 }
 
 function MailWithMessengerChrome({ children, messengersOpen }: { children: ReactNode; messengersOpen: boolean }) {
-  const [asideTotal, setAsideTotal] = useState(loadMessengerAsideTotal);
-  const asideTotalRef = useRef(asideTotal);
-  asideTotalRef.current = asideTotal;
+  const [asideTotal, setAsideTotal] = useState(computeFixedMessengerAsideTotal);
 
-  const handleMessengerAsideMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = asideTotalRef.current;
-
-    const handleMouseMove = (ev: MouseEvent) => {
-      const delta = ev.clientX - startX;
-      const next = clampMessengerAside(startW + delta);
-      asideTotalRef.current = next;
-      setAsideTotal(next);
+  useEffect(() => {
+    const handleResize = () => {
+      setAsideTotal(computeFixedMessengerAsideTotal());
     };
-
-    const handleMouseUp = () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      persistMessengerAsideTotal(asideTotalRef.current);
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   const mailColumn = (
@@ -144,9 +97,8 @@ function MailWithMessengerChrome({ children, messengersOpen }: { children: React
     <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
       {mailColumn}
       <div
-        onMouseDown={handleMessengerAsideMouseDown}
-        className="w-1 shrink-0 cursor-col-resize bg-border-primary transition-colors hover:bg-accent/50 active:bg-accent"
-        aria-label="Ширина панели мессенджера"
+        className="w-px shrink-0 bg-border-primary"
+        aria-label="Граница панели мессенджера"
         aria-orientation="vertical"
         role="separator"
       />

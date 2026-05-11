@@ -52,6 +52,7 @@ import {
 import { generateYandexMessengerAiReply } from "@/services/messengers/yandexAiAutoReply";
 import { executeYandexAssistantTools } from "@/services/messengers/yandexAssistantTools";
 import { useAccountStore } from "@/stores/accountStore";
+import { useUIStore } from "@/stores/uiStore";
 import {
   checkMaxPassword,
   checkMaxAuthCode,
@@ -135,17 +136,16 @@ const LAYOUT_STORAGE_KEY = "velo_messenger_pane_layout:v2";
 const STRIP_LAYOUT_KEY = "velo_messenger_side_strip:v1";
 
 const DEFAULT_STRIP_WIDTHS: Record<StripPaneId, number> = {
-  messengerList: 250,
+  messengerList: 360,
   messengerChat: 360,
 };
 
 const COLUMN_BORDER_CLASS = "overflow-hidden border-l border-border-primary shadow-none";
-const COLUMN_DIVIDER_CLASS = "relative z-20 -mx-1.5 w-3 shrink-0 cursor-col-resize bg-transparent before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border-primary hover:before:bg-text-tertiary";
 /** Ширина разделителя между колонками списка и чата (соответствует `w-3` у ручки). */
 const INNER_STRIP_DIVIDER_PX = 12;
 
 const STRIP_PANE_LIMITS: Record<StripPaneId, { min: number; max: number }> = {
-  messengerList: { min: 220, max: 340 },
+  messengerList: { min: 360, max: 360 },
   messengerChat: { min: 320, max: 520 },
 };
 
@@ -204,16 +204,6 @@ function mergeStripWidths(persisted: Partial<Record<StripPaneId, number>> | unde
     }
   }
   return merged;
-}
-
-function nextVisibleStripPane(order: StripPaneId[], collapsed: StripPaneId[], paneId: StripPaneId): StripPaneId | null {
-  const startIndex = order.indexOf(paneId);
-  if (startIndex < 0) return null;
-  for (let index = startIndex + 1; index < order.length; index += 1) {
-    const candidate = order[index];
-    if (candidate && !collapsed.includes(candidate)) return candidate;
-  }
-  return null;
 }
 
 function isLightsOutActive() {
@@ -399,6 +389,11 @@ function formatMessengerError(error: unknown): string {
   return message;
 }
 
+function isMissingYandexBotScopeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /missing required scope:\s*botplatform:write/i.test(message);
+}
+
 function renderMessageAttachments(message: MessengerMessage) {
   if (!message.attachments?.length) return null;
 
@@ -571,6 +566,7 @@ export type MessengerSideStripProps = {
 
 export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps = {}) {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const setMessengersPanelsOpen = useUIStore((s) => s.setMessengersPanelsOpen);
   const [selectedProviderId, setSelectedProviderId] = useState<MessengerProviderId>("max");
   const [activeProviderIds, setActiveProviderIds] = useState<MessengerProviderId[]>(["max", "yandex"]);
   const [query, setQuery] = useState("");
@@ -581,6 +577,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
   const [busy, setBusy] = useState(false);
   const [, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [yandexPollingBlockedReason, setYandexPollingBlockedReason] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
   const [paneWidths, setPaneWidths] = useState<Record<StripPaneId, number>>(() =>
@@ -625,15 +622,6 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
   const conversationPanelRef = useRef<HTMLElement | null>(null);
   const chatPanelRef = useRef<HTMLElement | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement | null>(null);
-  const conversationDividerRef = useRef<HTMLButtonElement | null>(null);
-  const dragStateRef = useRef<{
-    startX: number;
-    leftPane: StripPaneId;
-    rightPane: StripPaneId;
-    startLeftWidth: number;
-    startRightWidth: number;
-    totalInner: number;
-  } | null>(null);
 
   const selectedProvider = PROVIDERS.find((provider) => provider.id === selectedProviderId) ?? PROVIDERS[0]!;
   const credentials = useMemo((): MessengerCredentials | null => {
@@ -654,6 +642,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
     try {
       const next = await resolveYandexMessengerSession(activeAccountId);
       setYandexSession(next);
+      setYandexPollingBlockedReason(null);
     } catch (sessionError) {
       console.warn("[yandex-messenger] Не удалось получить сессию:", sessionError);
       setYandexSession(null);
@@ -830,9 +819,20 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
       const response = await fetchYandexMessengerUpdates(yandexSession.token, { offset, limit: 500 });
       if (!response.ok) {
         const message = response.description ?? "getUpdates вернул ошибку.";
+        if (isMissingYandexBotScopeError(message)) {
+          const scopeMessage = "Polling отключён: у токена нет scope botplatform:write.";
+          if (yandexPollingBlockedReason !== scopeMessage) {
+            setYandexPollingBlockedReason(scopeMessage);
+            if (!options.silent) setError(scopeMessage);
+          }
+          return;
+        }
         if (!options.silent) throw new Error(message);
         console.warn("[yandex-messenger] poll:", message);
         return;
+      }
+      if (yandexPollingBlockedReason) {
+        setYandexPollingBlockedReason(null);
       }
       const updates = response.updates ?? [];
       if (!updates.length) {
@@ -858,20 +858,21 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
       void sendYandexAiAutoReplies(newMessages, newConversations);
       if (!options.silent) setInfo(`Яндекс: получено обновлений: ${updates.length}.`);
     },
-    [sendYandexAiAutoReplies, yandexSession],
+    [sendYandexAiAutoReplies, yandexPollingBlockedReason, yandexSession],
   );
 
   useEffect(() => {
-    if (!yandexSession) return;
+    if (!yandexSession || yandexPollingBlockedReason) return;
     const tick = () => {
       void syncYandexMessengerInbox({ silent: true }).catch((error) => {
+        if (isMissingYandexBotScopeError(error)) return;
         console.warn("[yandex-messenger] poll failed:", error);
       });
     };
     tick();
     const intervalId = window.setInterval(tick, 15_000);
     return () => clearInterval(intervalId);
-  }, [syncYandexMessengerInbox, yandexSession]);
+  }, [syncYandexMessengerInbox, yandexPollingBlockedReason, yandexSession]);
 
   useEffect(() => {
     if (!maxCredentials) {
@@ -1055,7 +1056,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
 
   useEffect(() => {
     if (conversationPanelRef.current) {
-      conversationPanelRef.current.style.width = `${paneWidths.messengerList}px`;
+      conversationPanelRef.current.style.width = "360px";
     }
     if (chatPanelRef.current) {
       if (asideTotalWidth !== undefined) {
@@ -1079,12 +1080,6 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
       pane.style.display = collapsedPaneIds.includes(paneId) ? "none" : "";
     }
 
-    if (conversationDividerRef.current) {
-      conversationDividerRef.current.style.order = "1";
-      const listVisible = !collapsedPaneIds.includes("messengerList");
-      const chatVisible = !collapsedPaneIds.includes("messengerChat");
-      conversationDividerRef.current.style.display = listVisible && chatVisible ? "" : "none";
-    }
   }, [collapsedPaneIds, paneOrder]);
 
   useEffect(() => {
@@ -1171,50 +1166,6 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
       setBusy(false);
     }
   }, []);
-
-  const startDividerDrag = useCallback((leftPane: StripPaneId, clientX: number) => {
-    const rightPane = nextVisibleStripPane(paneOrder, collapsedPaneIds, leftPane);
-    if (!rightPane) return;
-
-    const totalInner =
-      asideTotalWidth !== undefined
-        ? asideTotalWidth - INNER_STRIP_DIVIDER_PX
-        : paneWidths[leftPane] + paneWidths[rightPane];
-
-    dragStateRef.current = {
-      startX: clientX,
-      leftPane,
-      rightPane,
-      startLeftWidth: paneWidths[leftPane],
-      startRightWidth: paneWidths[rightPane],
-      totalInner,
-    };
-    const handlePointerMove = (event: PointerEvent) => {
-      const dragState = dragStateRef.current;
-      if (!dragState) return;
-      const delta = event.clientX - dragState.startX;
-      const leftLimits = STRIP_PANE_LIMITS[dragState.leftPane];
-      const rightLimits = STRIP_PANE_LIMITS[dragState.rightPane];
-      const totalWidth = dragState.totalInner;
-      const minLeft = Math.max(leftLimits.min, totalWidth - rightLimits.max);
-      const maxLeft = Math.min(leftLimits.max, totalWidth - rightLimits.min);
-      const nextLeftWidth = clamp(dragState.startLeftWidth + delta, minLeft, maxLeft);
-      const nextRightWidth = totalWidth - nextLeftWidth;
-
-      setPaneWidths((current) => ({
-        ...current,
-        [dragState.leftPane]: nextLeftWidth,
-        [dragState.rightPane]: nextRightWidth,
-      }));
-    };
-    const stopDrag = () => {
-      dragStateRef.current = null;
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", stopDrag);
-    };
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", stopDrag, { once: true });
-  }, [asideTotalWidth, collapsedPaneIds, paneOrder, paneWidths]);
 
   const pickAttachments = useCallback(() => {
     void runAction(async () => {
@@ -1527,7 +1478,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
     >
       <section
         ref={conversationPanelRef}
-        className="messenger-slide-panel min-w-[220px] max-w-[340px] shrink-0 overflow-hidden bg-bg-secondary/85 shadow-none"
+        className="messenger-slide-panel w-[360px] min-w-[360px] max-w-[360px] shrink-0 overflow-hidden bg-bg-secondary/85 shadow-none"
       >
         <div className="flex h-full flex-col">
           <header className="border-b border-border-primary px-4 py-3">
@@ -1583,28 +1534,39 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                 >
                   <Moon size={18} />
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setMessengersPanelsOpen(false)}
+                  className="rounded-lg p-2 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+                  title="Скрыть мессенджеры"
+                  aria-label="Скрыть мессенджеры"
+                >
+                  <X size={18} />
+                </button>
               </div>
             </div>
 
-            <div className="mt-5 grid grid-cols-3 gap-1.5">
-              {PROVIDER_FILTERS.map((provider) => {
-                const isActive = activeProviderIds.includes(provider.id);
-                return (
-                  <button
-                    key={provider.id}
-                    type="button"
-                    onClick={() => toggleProviderFilter(provider.id)}
-                    className={`rounded-lg border px-2 py-1 text-[0.6875rem] font-medium transition-colors ${
-                      isActive
-                        ? "border-border-primary bg-bg-tertiary text-text-primary"
-                        : "border-border-primary bg-bg-primary/70 text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
-                    }`}
-                  >
-                    {provider.label}
-                  </button>
-                );
-              })}
-            </div>
+            {!showSettings ? (
+              <div className="mt-5 grid grid-cols-3 gap-1.5">
+                {PROVIDER_FILTERS.map((provider) => {
+                  const isActive = activeProviderIds.includes(provider.id);
+                  return (
+                    <button
+                      key={provider.id}
+                      type="button"
+                      onClick={() => toggleProviderFilter(provider.id)}
+                      className={`rounded-lg border px-2 py-1 text-[0.6875rem] font-medium transition-colors ${
+                        isActive
+                          ? "border-border-primary bg-bg-tertiary text-text-primary"
+                          : "border-border-primary bg-bg-primary/70 text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
+                      }`}
+                    >
+                      {provider.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
 
             {showSettings ? <div className="mt-3 grid grid-cols-3 gap-1.5">
               {PROVIDER_FILTERS.map((provider) => (
@@ -1629,7 +1591,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
               ))}
             </div> : null}
 
-            {showSettings ? <div className="mt-4 rounded-2xl border border-border-primary bg-bg-primary/70 p-3">
+            {showSettings ? <div className="mt-4 max-h-[58vh] overflow-y-auto rounded-2xl border border-border-primary bg-bg-primary/70 p-2.5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-text-primary">{selectedProvider.subtitle}</p>
@@ -1675,7 +1637,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                         type="tel"
                         aria-label="Номер телефона MAX"
                       />
-                      <div className="grid grid-cols-[1fr_auto] gap-2">
+                      <div className="grid grid-cols-1 gap-2">
                         <input
                           value={maxCodeInput}
                           onChange={(event) => setMaxCodeInput(event.target.value)}
@@ -1688,7 +1650,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                           type="button"
                           onClick={submitMaxCode}
                           disabled={busy || !maxAuthToken || !maxCodeInput.trim()}
-                          className="rounded-lg border border-border-primary px-3 py-2 text-xs text-text-secondary hover:border-border-primary hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
+                          className="w-full rounded-lg border border-border-primary px-3 py-2 text-xs text-text-secondary hover:border-border-primary hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
                         >
                           Войти
                         </button>
@@ -1706,7 +1668,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                           <div className="text-xs text-text-secondary">
                             Аккаунт нужно зарегистрировать: SMS уже подтверждена.
                           </div>
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-1 gap-2">
                             <input
                               value={maxFirstNameInput}
                               onChange={(event) => setMaxFirstNameInput(event.target.value)}
@@ -1738,7 +1700,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                             Введите пароль двухфакторной защиты
                             {maxPasswordChallenge.hint ? `, подсказка: ${maxPasswordChallenge.hint}` : ""}.
                           </div>
-                          <div className="grid grid-cols-[1fr_auto] gap-2">
+                          <div className="grid grid-cols-1 gap-2">
                             <input
                               value={maxPasswordInput}
                               onChange={(event) => setMaxPasswordInput(event.target.value)}
@@ -1761,37 +1723,48 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                     </div>
                   </div>
                 ) : null}
-                <input
-                  value={tokenInput}
-                  onChange={(event) => setTokenInput(event.target.value)}
-                  placeholder={selectedProviderId === "max" ? "Или вставьте готовый __oneme_auth token" : selectedProvider.tokenLabel}
-                  className="w-full rounded-xl border border-border-primary bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-                  type="password"
-                  aria-label={selectedProvider.tokenLabel}
-                />
-                <div className="grid grid-cols-3 gap-2">
-                  <button type="button" onClick={saveToken} className="rounded-xl border border-border-primary bg-bg-tertiary px-3 py-2 text-xs font-medium text-text-primary hover:bg-bg-hover">
-                    Сохранить
-                  </button>
-                  <button
-                    type="button"
-                    onClick={verifyToken}
-                    disabled={busy || !credentials}
-                    className="rounded-xl border border-border-primary px-3 py-2 text-xs text-text-secondary hover:border-border-primary hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
-                  >
-                    Проверить
-                  </button>
-                  <button
-                    type="button"
-                    onClick={refreshConversations}
-                    disabled={busy || !credentials}
-                    title="Обновить диалоги"
-                    aria-label="Обновить диалоги"
-                    className="rounded-xl border border-border-primary px-3 py-2 text-xs text-text-secondary hover:border-border-primary hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
-                  >
-                    <RefreshCw size={14} className={busy ? "mx-auto animate-spin" : "mx-auto"} />
-                  </button>
-                </div>
+                {selectedProviderId === "telegram" ? (
+                  <div className="rounded-xl border border-border-primary/70 bg-bg-secondary/60 p-3 text-xs text-text-tertiary">
+                    Telegram пока отображается в режиме preview. Подключение можно будет включить позже без перегруженной формы.
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      value={tokenInput}
+                      onChange={(event) => setTokenInput(event.target.value)}
+                      placeholder={selectedProviderId === "max" ? "Или вставьте готовый __oneme_auth token" : selectedProvider.tokenLabel}
+                      className="w-full rounded-xl border border-border-primary bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+                      type="password"
+                      aria-label={selectedProvider.tokenLabel}
+                    />
+                    <div className="grid grid-cols-1 gap-2">
+                      <button type="button" onClick={saveToken} className="w-full rounded-xl border border-border-primary bg-bg-tertiary px-3 py-2 text-xs font-medium text-text-primary hover:bg-bg-hover">
+                        Сохранить
+                      </button>
+                      <button
+                        type="button"
+                        onClick={verifyToken}
+                        disabled={busy || !credentials}
+                        className="w-full rounded-xl border border-border-primary px-3 py-2 text-xs text-text-secondary hover:border-border-primary hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
+                      >
+                        Проверить
+                      </button>
+                      <button
+                        type="button"
+                        onClick={refreshConversations}
+                        disabled={busy || !credentials}
+                        title="Обновить диалоги"
+                        aria-label="Обновить диалоги"
+                        className="w-full rounded-xl border border-border-primary px-3 py-2 text-xs text-text-secondary hover:border-border-primary hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          <RefreshCw size={14} className={busy ? "animate-spin" : ""} />
+                          Обновить
+                        </span>
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
 
               {error ? (
@@ -1830,6 +1803,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                   key={`${conversation.providerId}:${conversation.kind}:${conversation.id}`}
                   type="button"
                   onClick={() => selectConversation(conversation)}
+                  title={`${formatTargetKind(conversation.kind)} · ${conversation.id}`}
                   className={`messenger-chat-row group hover-lift press-scale flex w-full gap-3 border-b border-border-secondary px-4 py-3 text-left transition-colors ${
                     isActive ? "bg-bg-selected text-text-primary" : "text-text-primary hover:bg-bg-hover"
                   }`}
@@ -1850,8 +1824,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                       </span>
                     </span>
                     <span className="mt-0.5 block truncate text-sm text-text-secondary">{conversation.lastText ?? conversation.subtitle}</span>
-                    <span className="mt-0.5 flex items-center gap-1.5 text-[0.625rem] uppercase tracking-wide text-text-tertiary">
-                      <span className="truncate">{formatTargetKind(conversation.kind)} · {conversation.id}</span>
+                    <span className="mt-0.5 flex items-center justify-end text-[0.625rem] text-text-tertiary">
                       <span className="shrink-0 rounded-full bg-bg-tertiary px-1.5 normal-case tracking-normal">
                         {PROVIDERS.find((provider) => provider.id === conversation.providerId)?.name ?? conversation.providerId}
                       </span>
@@ -1872,16 +1845,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
         </div>
       </section>
 
-      <button
-        ref={conversationDividerRef}
-        type="button"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          startDividerDrag("messengerList", event.clientX);
-        }}
-        className={COLUMN_DIVIDER_CLASS}
-        aria-label="Изменить ширину списка диалогов"
-      />
+      <div className="w-px shrink-0 bg-border-primary" aria-hidden />
 
       <section ref={chatPanelRef} className={chatColumnClass}>
         <header className="flex items-center justify-between gap-3 border-b border-border-primary bg-bg-secondary/70 px-4 py-2 shadow-none">
@@ -1897,6 +1861,9 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                 </span>
               </div>
               <p className="truncate text-[0.6875rem] text-text-tertiary">{selectedProvider.subtitle}</p>
+              {selectedProviderId === "yandex" && yandexPollingBlockedReason ? (
+                <p className="mt-1 text-[0.6875rem] text-warning">{yandexPollingBlockedReason}</p>
+              ) : null}
             </div>
           </div>
           {selectedProviderId === "yandex" ? (

@@ -18,6 +18,7 @@ import {
   syncAccount,
   triggerSync,
   onSyncStatus,
+  markSyncDatabaseReady,
 } from "./services/gmail/syncManager";
 import { initializeClients } from "./services/gmail/tokenManager";
 import { refreshYandexImapAccountAvatars } from "./services/oauth/yandexProfile";
@@ -77,7 +78,7 @@ import { normalizeLocale } from "./i18n";
 import { router } from "./router";
 import { getSelectedThreadId } from "./router/navigate";
 import { applyColorTheme, applyWindowBackground } from "./utils/themeEffects";
-import { Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 
 const LIGHTS_OUT_UNTIL_KEY = "velo_messenger_lights_out_until";
 const LIGHTS_OUT_CHANGED_EVENT = "velo-messenger-lights-out-changed";
@@ -136,7 +137,7 @@ export default function App() {
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [initialized, setInitialized] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [moveToFolderState, setMoveToFolderState] = useState<{ open: boolean; threadIds: string[] }>({ open: false, threadIds: [] });
@@ -144,9 +145,15 @@ export default function App() {
   const accountsForSync = useAccountStore((s) => s.accounts);
   const activeAccountIdForSync = useAccountStore((s) => s.activeAccountId);
   const previousActiveAccountIdRef = useRef<string | null>(null);
-  const isSyncingStatus = !!syncStatus && syncStatus.toLowerCase().startsWith("syncing");
-  const isSyncErrorStatus = !!syncStatus && syncStatus.toLowerCase().startsWith("sync failed");
-  const isSyncDoneStatus = !!syncStatus && syncStatus.toLowerCase().startsWith("sync complete");
+  const syncErrorClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialSyncAccountIdRef = useRef<string | null>(null);
+
+  const clearSyncErrorTimer = useCallback(() => {
+    if (syncErrorClearTimerRef.current) {
+      clearTimeout(syncErrorClearTimerRef.current);
+      syncErrorClearTimerRef.current = null;
+    }
+  }, []);
 
   // Sync bridge: router state → Zustand stores (temporary)
   useRouterSyncBridge();
@@ -227,6 +234,7 @@ export default function App() {
     async function init() {
       try {
         await runMigrations();
+        markSyncDatabaseReady();
 
         const ui = useUIStore.getState();
 
@@ -453,7 +461,7 @@ export default function App() {
   // Listen for sync status updates
   const backfillDoneRef = useRef(false);
   useEffect(() => {
-    const unsub = onSyncStatus((accountId, status, progress, error) => {
+    const unsub = onSyncStatus((accountId, status, _progress, error) => {
       if (status === "done") {
         window.dispatchEvent(new Event("velo-sync-done"));
         updateBadgeCount();
@@ -466,23 +474,17 @@ export default function App() {
         return;
       }
 
+      const isInitialSync = initialSyncAccountIdRef.current === accountId;
+
       if (status === "syncing") {
-        if (progress) {
-          if (progress.phase === "messages") {
-            setSyncStatus(
-              `Syncing: ${progress.current}/${progress.total} messages`,
-            );
-          } else if (progress.phase === "labels") {
-            setSyncStatus("Syncing labels...");
-          } else if (progress.phase === "threads") {
-            setSyncStatus(`Building threads... (${progress.current}/${progress.total})`);
-          }
-        } else {
-          setSyncStatus("Syncing...");
-        }
+        clearSyncErrorTimer();
+        setSyncErrorMessage(null);
       } else if (status === "done") {
-        setSyncStatus("Sync complete");
-        setTimeout(() => setSyncStatus(null), 2_000);
+        clearSyncErrorTimer();
+        if (isInitialSync) {
+          initialSyncAccountIdRef.current = null;
+        }
+        setSyncErrorMessage(null);
 
         void getAllAccounts()
           .then(refreshYandexImapAccountAvatars)
@@ -496,13 +498,22 @@ export default function App() {
             .catch((err) => console.error("Backfill error:", err));
         }
       } else if (status === "error") {
-        setSyncStatus(error ? `Sync failed: ${formatSyncError(error)}` : "Sync failed");
-        // Auto-clear the error after 8 seconds
-        setTimeout(() => setSyncStatus(null), 8_000);
+        clearSyncErrorTimer();
+        if (isInitialSync) {
+          initialSyncAccountIdRef.current = null;
+        }
+        const detail = error
+          ? formatSyncError(error)
+          : "Проверьте подключение к интернету и настройки аккаунта.";
+        setSyncErrorMessage(detail);
+        syncErrorClearTimerRef.current = setTimeout(() => {
+          setSyncErrorMessage(null);
+          syncErrorClearTimerRef.current = null;
+        }, 8_000);
       }
     });
     return unsub;
-  }, []);
+  }, [clearSyncErrorTimer]);
 
   useEffect(() => {
     if (!initialized) {
@@ -608,6 +619,10 @@ export default function App() {
     }
   }, [theme, windowBackgroundPreset, windowBackgroundLayout, windowBackgroundSpeed, windowBackgroundImagePath]);
 
+  useEffect(() => () => {
+    clearSyncErrorTimer();
+  }, [clearSyncErrorTimer]);
+
   const handleAddAccountSuccess = useCallback((newAccountId: string) => {
     setShowAddAccount(false);
 
@@ -632,8 +647,12 @@ export default function App() {
       });
 
       if (newAccountId) {
+        initialSyncAccountIdRef.current = newAccountId;
         syncAccount(newAccountId).catch((err) => {
           console.error("Initial sync failed for new account:", err);
+          if (initialSyncAccountIdRef.current === newAccountId) {
+            initialSyncAccountIdRef.current = null;
+          }
         });
 
         const added = mapped.find((a) => a.id === newAccountId);
@@ -692,27 +711,30 @@ export default function App() {
         </DndProvider>
       </div>
 
-      {/* Runtime sync indicator (non-blocking desktop style) */}
-      {syncStatus && (
+      {/* Sync errors only: no banner for background / manual success */}
+      {syncErrorMessage && (
         <div
-          className={`fixed bottom-2 left-1/2 z-40 -translate-x-1/2 pointer-events-none select-none rounded-lg border px-2 py-1 text-[0.625rem] shadow-md backdrop-blur-md transition-opacity duration-200 animate-[fadeIn_200ms_ease-out] ${
-            isSyncErrorStatus
-              ? "border-danger/40 bg-danger/25 text-red-100"
-              : isSyncDoneStatus
-                ? "border-success/30 bg-success/20 text-emerald-100"
-                : "border-white/10 bg-black/45 text-slate-100"
-          }`}
-          aria-live="polite"
+          className="fixed bottom-3 right-3 z-40 max-w-[min(22rem,calc(100vw-1.5rem))] animate-[fadeIn_200ms_ease-out]"
+          role="alert"
+          aria-live="assertive"
         >
-          <div className="flex items-center gap-1.5">
-            {isSyncingStatus ? (
-              <Loader2 className="h-2.5 w-2.5 animate-spin opacity-90" />
-            ) : isSyncErrorStatus ? (
-              <AlertTriangle className="h-2.5 w-2.5 opacity-90" />
-            ) : (
-              <CheckCircle2 className="h-2.5 w-2.5 opacity-90" />
-            )}
-            <span>{syncStatus}</span>
+          <div className="flex items-start gap-2 rounded-lg border border-danger/40 bg-danger/30 px-2.5 py-2 text-xs text-red-50 shadow-md backdrop-blur-md">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 opacity-90" aria-hidden />
+            <div className="min-w-0 flex-1 leading-snug">
+              <div className="font-semibold">Синхронизация не удалась</div>
+              <div className="mt-0.5 text-[0.6875rem] text-red-100/95">{syncErrorMessage}</div>
+            </div>
+            <button
+              type="button"
+              className="shrink-0 rounded p-0.5 text-red-100/90 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-white/80"
+              aria-label="Закрыть уведомление"
+              onClick={() => {
+                clearSyncErrorTimer();
+                setSyncErrorMessage(null);
+              }}
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         </div>
       )}
