@@ -22,19 +22,19 @@ function filterCards(query: string) {
 
 describe("HelpPage search filtering", () => {
   it("matches cards by title", () => {
-    const results = filterCards("snooze");
+    const results = filterCards("отлож");
     expect(results).not.toBeNull();
     expect(results!.some((c) => c.id === "snooze")).toBe(true);
   });
 
   it("matches cards by description", () => {
-    const results = filterCards("rich text editor");
+    const results = filterCards("форматировать текст");
     expect(results).not.toBeNull();
     expect(results!.some((c) => c.id === "new-email")).toBe(true);
   });
 
   it("matches cards by tip text", () => {
-    const results = filterCards("drag and drop");
+    const results = filterCards("перетащите цепочку");
     expect(results).not.toBeNull();
     expect(results!.some((c) => c.id === "labels")).toBe(true);
   });
@@ -45,8 +45,8 @@ describe("HelpPage search filtering", () => {
   });
 
   it("search is case-insensitive", () => {
-    const lower = filterCards("archive");
-    const upper = filterCards("ARCHIVE");
+    const lower = filterCards("архив");
+    const upper = filterCards("АРХИВ");
     expect(lower).not.toBeNull();
     expect(upper).not.toBeNull();
     expect(lower!.length).toBe(upper!.length);
@@ -63,7 +63,7 @@ describe("HelpPage topic fallback", () => {
   it("valid topic resolves to correct category", () => {
     const cat = getCategoryById("composing");
     expect(cat).toBeDefined();
-    expect(cat!.label).toBe("Composing & Sending");
+    expect(cat!.label).toBe("Написание и отправка");
   });
 
   it("invalid topic falls back (getCategoryById returns undefined)", () => {

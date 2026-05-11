@@ -1,8 +1,10 @@
 import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore } from "@/stores/threadStore";
 import { getEmailProvider } from "@/services/email/providerFactory";
+import { getAccount } from "@/services/db/accounts";
 import { enqueuePendingOperation } from "@/services/db/pendingOperations";
-import { classifyError } from "@/utils/networkErrors";
+import { triggerSync } from "@/services/gmail/syncManager";
+import { classifyError, formatEmailSendOrDraftError } from "@/utils/networkErrors";
 import { getDb } from "@/services/db/connection";
 import { navigateToThread, getSelectedThreadId } from "@/router/navigate";
 
@@ -149,6 +151,10 @@ async function applyLocalDbUpdate(
     case "markRead":
       await db.execute(
         "UPDATE threads SET is_read = $1 WHERE account_id = $2 AND id = $3",
+        [action.read ? 1 : 0, accountId, action.threadId],
+      );
+      await db.execute(
+        "UPDATE messages SET is_read = $1 WHERE account_id = $2 AND thread_id = $3",
         [action.read ? 1 : 0, accountId, action.threadId],
       );
       break;
@@ -346,7 +352,13 @@ export async function executeEmailAction(
     // Permanent error — revert optimistic update
     revertOptimisticUpdate(action);
     console.error(`Email action ${action.type} failed permanently:`, err);
-    return { success: false, error: classified.message };
+    const userMessage =
+      action.type === "sendMessage" ||
+      action.type === "createDraft" ||
+      action.type === "updateDraft"
+        ? formatEmailSendOrDraftError(classified.message)
+        : classified.message;
+    return { success: false, error: userMessage };
   }
 }
 
@@ -494,9 +506,15 @@ export async function sendEmail(
     threadId,
   });
 
-  // Notify the UI to refresh (so sent message appears in Sent folder)
   if (result.success) {
-    window.dispatchEvent(new Event("velo-sync-done"));
+    const account = await getAccount(accountId);
+    if (account?.provider === "imap") {
+      window.dispatchEvent(new Event("velo-sync-done"));
+    }
+    // Только аккаунт отправителя: дельта с провайдером (IMAP/Gmail), без синка чужих ящиков.
+    void triggerSync([accountId]).catch((err) => {
+      console.warn("[sendEmail] post-send sync failed:", err);
+    });
   }
 
   return result;

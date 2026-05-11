@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { EventCard } from "./EventCard";
+import { useUIStore } from "@/stores/uiStore";
 
 interface MonthViewProps {
   currentDate: Date;
@@ -8,9 +9,13 @@ interface MonthViewProps {
   onEventClick: (event: DbCalendarEvent) => void;
 }
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_NAMES = {
+  en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+  ru: ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"],
+} as const;
 
 export function MonthView({ currentDate, events, onEventClick }: MonthViewProps) {
+  const locale = useUIStore((state) => state.locale);
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
   const firstDay = new Date(year, month, 1);
@@ -42,7 +47,7 @@ export function MonthView({ currentDate, events, onEventClick }: MonthViewProps)
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* Day headers */}
       <div className="grid grid-cols-7 border-b border-border-primary">
-        {DAY_NAMES.map((name) => (
+        {DAY_NAMES[locale].map((name) => (
           <div key={name} className="px-2 py-2 text-xs font-medium text-text-tertiary text-center">
             {name}
           </div>
@@ -79,7 +84,7 @@ export function MonthView({ currentDate, events, onEventClick }: MonthViewProps)
                 ))}
                 {dayEvents.length > 3 && (
                   <div className="text-[0.625rem] text-text-tertiary pl-1">
-                    +{dayEvents.length - 3} more
+                    +{dayEvents.length - 3} {locale === "ru" ? "ещё" : "more"}
                   </div>
                 )}
               </div>

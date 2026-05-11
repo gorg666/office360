@@ -110,6 +110,31 @@ export async function getContactByEmail(
   );
 }
 
+/**
+ * Пакетная подстановка имён из адресной книги для списка писем (ключ — нормализованный email).
+ */
+export async function getContactDisplayNameMap(emails: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(emails.map((e) => normalizeEmail(e)).filter(Boolean))];
+  const out = new Map<string, string>();
+  if (unique.length === 0) return out;
+
+  const db = await getDb();
+  const chunkSize = 400;
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize);
+    const ph = chunk.map((_, j) => `$${j + 1}`).join(", ");
+    const rows = await db.select<{ email: string; display_name: string | null }[]>(
+      `SELECT email, display_name FROM contacts WHERE email IN (${ph})`,
+      chunk,
+    );
+    for (const r of rows) {
+      const dn = r.display_name?.trim();
+      if (dn) out.set(normalizeEmail(r.email), dn);
+    }
+  }
+  return out;
+}
+
 export interface ContactStats {
   emailCount: number;
   firstEmail: number | null;

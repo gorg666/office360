@@ -1,7 +1,19 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AccountSwitcher } from "./AccountSwitcher";
 import { useAccountStore } from "@/stores/accountStore";
+
+vi.mock("@/services/contacts/gravatar", () => ({
+  fetchAndCacheGravatarUrl: vi.fn(() => Promise.resolve(null)),
+}));
+
+vi.mock("@/services/db/contacts", () => ({
+  getContactByEmail: vi.fn(() => Promise.resolve(null)),
+}));
+
+vi.mock("@/services/db/threads", () => ({
+  getUnreadInboxCountsByAccount: vi.fn(() => Promise.resolve({})),
+}));
 
 describe("AccountSwitcher", () => {
   beforeEach(() => {
@@ -34,7 +46,28 @@ describe("AccountSwitcher", () => {
     expect(screen.getByText("J")).toBeInTheDocument();
   });
 
-  it("shows initial letter when avatar image fails to load", () => {
+  it("uses account avatar URL built with numeric Yandex default_avatar_id (API Yandex ID)", () => {
+    useAccountStore.setState({
+      accounts: [
+        {
+          id: "1",
+          email: "turbobarsuk@yandex.ru",
+          displayName: "turbobarsuk",
+          avatarUrl: "https://avatars.yandex.net/get-yapic/131652443/islands-200",
+          isActive: true,
+        },
+      ],
+      activeAccountId: "1",
+    });
+
+    render(<AccountSwitcher collapsed={false} onAddAccount={() => {}} />);
+    expect(screen.getByRole("img")).toHaveAttribute(
+      "src",
+      "https://avatars.yandex.net/get-yapic/131652443/islands-200",
+    );
+  });
+
+  it("shows initial letter when account avatar image fails to load", () => {
     useAccountStore.setState({
       accounts: [
         {
@@ -57,7 +90,7 @@ describe("AccountSwitcher", () => {
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
-  it("falls back to email initial when displayName is null", () => {
+  it("falls back to email initial when all avatar images fail", () => {
     useAccountStore.setState({
       accounts: [
         {

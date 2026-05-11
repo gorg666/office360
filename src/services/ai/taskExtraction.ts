@@ -1,6 +1,7 @@
 import { extractTaskFromThread as aiExtract } from "./aiService";
 import type { DbMessage } from "@/services/db/messages";
 import type { TaskPriority } from "@/services/db/tasks";
+import { getLocalizedFallback } from "./language";
 
 export interface ExtractedTask {
   title: string;
@@ -33,12 +34,12 @@ export async function extractTask(
       priority?: string;
     };
 
-    const subject = messages[0]?.subject ?? "Email task";
+    const subject = messages[0]?.subject ?? getLocalizedFallback("Задача из письма", "Email task");
 
     return {
       title: (typeof parsed.title === "string" && parsed.title.trim())
         ? parsed.title.trim()
-        : `Follow up on: ${subject}`,
+        : getLocalizedFallback(`Ответить по теме: ${subject}`, `Follow up on: ${subject}`),
       description: typeof parsed.description === "string" ? parsed.description : null,
       dueDate: typeof parsed.dueDate === "number" ? parsed.dueDate : null,
       priority: VALID_PRIORITIES.has(parsed.priority as TaskPriority)
@@ -47,9 +48,9 @@ export async function extractTask(
     };
   } catch {
     // Fallback if parsing fails
-    const subject = messages[0]?.subject ?? "Email task";
+    const subject = messages[0]?.subject ?? getLocalizedFallback("Задача из письма", "Email task");
     return {
-      title: `Follow up on: ${subject}`,
+      title: getLocalizedFallback(`Ответить по теме: ${subject}`, `Follow up on: ${subject}`),
       description: null,
       dueDate: null,
       priority: "medium",

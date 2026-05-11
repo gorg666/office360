@@ -4,8 +4,18 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function isImage(mimeType: string | null): boolean {
-  return mimeType?.startsWith("image/") ?? false;
+export function isImage(mimeType: string | null, filename?: string | null): boolean {
+  if (mimeType?.startsWith("image/")) return true;
+  const ext = filename?.toLowerCase();
+  return !!(
+    ext?.endsWith(".png") ||
+    ext?.endsWith(".jpg") ||
+    ext?.endsWith(".jpeg") ||
+    ext?.endsWith(".gif") ||
+    ext?.endsWith(".webp") ||
+    ext?.endsWith(".bmp") ||
+    ext?.endsWith(".svg")
+  );
 }
 
 export function isPdf(mimeType: string | null, filename?: string | null): boolean {
@@ -20,7 +30,7 @@ export function isText(mimeType: string | null): boolean {
 }
 
 export function canPreview(mimeType: string | null, filename: string | null): boolean {
-  return isImage(mimeType) || isPdf(mimeType, filename) || isText(mimeType);
+  return isImage(mimeType, filename) || isPdf(mimeType, filename) || isText(mimeType);
 }
 
 export function isDocument(mimeType: string | null, filename?: string | null): boolean {
@@ -44,9 +54,9 @@ export function isArchive(mimeType: string | null): boolean {
   return mimeType.includes("zip") || mimeType.includes("compressed") || mimeType.includes("archive") || mimeType.includes("tar") || mimeType === "application/gzip" || mimeType === "application/x-gzip";
 }
 
-export function getFileIcon(mimeType: string | null): string {
+export function getFileIcon(mimeType: string | null, filename?: string | null): string {
+  if (isImage(mimeType, filename)) return "\u{1F5BC}";
   if (!mimeType) return "\u{1F4CE}";
-  if (mimeType.startsWith("image/")) return "\u{1F5BC}";
   if (mimeType.startsWith("video/")) return "\u{1F3AC}";
   if (mimeType.startsWith("audio/")) return "\u{1F3B5}";
   if (mimeType === "application/pdf") return "\u{1F4C4}";

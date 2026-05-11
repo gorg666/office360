@@ -75,6 +75,19 @@ describe("useRouteNavigation hooks", () => {
       expect(useActiveLabel()).toBe("calendar");
     });
 
+    it("should return 'files' from files route", () => {
+      setMatches([
+        { routeId: "__root__", params: {} },
+        { routeId: "/files/$tab", params: { tab: "outgoing" } },
+      ]);
+      expect(useActiveLabel()).toBe("files");
+    });
+
+    it("should return 'tasks' from tasks route", () => {
+      setMatches([{ routeId: "/tasks", params: {} }]);
+      expect(useActiveLabel()).toBe("tasks");
+    });
+
     it("should return 'inbox' as fallback when no matches", () => {
       setMatches([]);
       expect(useActiveLabel()).toBe("inbox");

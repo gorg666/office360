@@ -6,6 +6,7 @@ import { addToAllowlist } from "@/services/db/imageAllowlist";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 import { useUIStore } from "@/stores/uiStore";
 import type { DbAttachment } from "@/services/db/attachments";
+import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
 
 interface EmailRendererProps {
   html: string | null;
@@ -14,6 +15,8 @@ interface EmailRendererProps {
   senderAddress?: string | null;
   accountId?: string | null;
   senderAllowlisted?: boolean;
+  /** When true, per-sender allowlist must not bypass remote-image blocking (Spam). */
+  isSpam?: boolean;
   messageId?: string | null;
   inlineAttachments?: DbAttachment[];
 }
@@ -25,6 +28,7 @@ export function EmailRenderer({
   senderAddress,
   accountId,
   senderAllowlisted = false,
+  isSpam = false,
   messageId,
   inlineAttachments,
 }: EmailRendererProps) {
@@ -38,7 +42,10 @@ export function EmailRenderer({
   const isDark = theme === "dark"
     || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 
-  const shouldBlock = blockImages && !senderAllowlisted && !overrideShow;
+  const shouldBlock =
+    blockImages &&
+    !overrideShow &&
+    !(senderAllowlisted && !isSpam);
 
   // Resolve cid: references by fetching inline attachment data
   useEffect(() => {
@@ -64,8 +71,13 @@ export function EmailRenderer({
                 messageId,
                 att.gmail_attachment_id!,
               );
-              const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
-              resolved.set(att.content_id!, `data:${att.mime_type ?? "image/png"};base64,${base64}`);
+              const raw = String(response.data ?? "").replace(/\s/g, "");
+              if (!raw) return;
+              const base64 = normalizeBase64UrlToStandardBase64(raw);
+              const dataUri = `data:${getEffectiveInlineMimeType(att)};base64,${base64}`;
+              for (const key of getContentIdKeys(att.content_id)) {
+                resolved.set(key, dataUri);
+              }
             } catch {
               // Skip individual failures
             }
@@ -103,9 +115,22 @@ export function EmailRenderer({
     if (cidMap.size > 0) {
       body = body.replace(
         /\bcid:([^"'\s)]+)/gi,
-        (match, cidRef: string) => cidMap.get(cidRef) ?? match,
+        (match, cidRef: string) => {
+          const keys = getContentIdKeys(cidRef);
+          for (const key of keys) {
+            const resolved = cidMap.get(key);
+            if (resolved) return resolved;
+          }
+          return match;
+        },
       );
     }
+
+    // Hide images whose cid: was not resolved (quoted, single-quoted, or unquoted src).
+    body = body.replace(
+      /(<img\b[^>]*?)(\ssrc\s*=\s*)(?:"cid:[^"]*"|'cid:[^']*'|cid:[^\s>)]+)/gi,
+      "$1 data-unresolved-cid=\"true\"",
+    );
 
     return body;
   }, [sanitizedBody, text, shouldBlock, cidMap]);
@@ -147,6 +172,7 @@ export function EmailRenderer({
       overflow: hidden;
     }
     img { max-width: 100%; height: auto; }
+    img[data-blocked-src], img[data-unresolved-cid] { display: none !important; }
     a { color: ${plainTextDark ? "#60a5fa" : "#3b82f6"}; }
     blockquote {
       border-left: 3px solid ${plainTextDark ? "#4b5563" : "#d1d5db"};
@@ -246,3 +272,31 @@ export function EmailRenderer({
   );
 }
 
+function normalizeContentId(value: string | null | undefined): string | null {
+  if (!value) return null;
+  let normalized = value.trim().replace(/^cid:/i, "").replace(/[<>]/g, "");
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch {
+    // Keep original when it is not URL encoded.
+  }
+  return normalized.toLowerCase();
+}
+
+function getContentIdKeys(value: string | null | undefined): string[] {
+  const normalized = normalizeContentId(value);
+  if (!normalized) return [];
+  const withoutDomain = normalized.split("@")[0] ?? normalized;
+  return [...new Set([normalized, withoutDomain])];
+}
+
+function getEffectiveInlineMimeType(attachment: DbAttachment): string {
+  if (attachment.mime_type?.startsWith("image/")) return attachment.mime_type;
+  const filename = attachment.filename?.toLowerCase() ?? "";
+  if (filename.endsWith(".png")) return "image/png";
+  if (filename.endsWith(".gif")) return "image/gif";
+  if (filename.endsWith(".webp")) return "image/webp";
+  if (filename.endsWith(".svg")) return "image/svg+xml";
+  if (filename.endsWith(".bmp")) return "image/bmp";
+  return "image/jpeg";
+}

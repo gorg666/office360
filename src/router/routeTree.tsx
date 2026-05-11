@@ -7,13 +7,14 @@ import {
 import App from "@/App";
 import { MailLayout } from "@/components/layout/MailLayout";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import { useUIStore } from "@/stores/uiStore";
 
 // Lazy-load heavy pages — these include many sub-components and service imports
 const SettingsPage = lazy(() => import("@/components/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const HelpPage = lazy(() => import("@/components/help/HelpPage").then((m) => ({ default: m.HelpPage })));
 const CalendarPage = lazy(() => import("@/components/calendar/CalendarPage").then((m) => ({ default: m.CalendarPage })));
 const TasksPage = lazy(() => import("@/components/tasks/TasksPage").then((m) => ({ default: m.TasksPage })));
-const AttachmentLibrary = lazy(() => import("@/components/attachments/AttachmentLibrary").then((m) => ({ default: m.AttachmentLibrary })));
+const FilesPage = lazy(() => import("@/components/files/FilesPage").then((m) => ({ default: m.FilesPage })));
 
 // ---------- Search param validation ----------
 const VALID_CATEGORIES = ["Primary", "Updates", "Promotions", "Social", "Newsletters"] as const;
@@ -146,21 +147,45 @@ export const settingsTabRoute = createRoute({
   component: SettingsTabPage,
 });
 
-// ---------- /attachments ----------
-function AttachmentLibraryWrapper() {
+// ---------- /files → /files/incoming ----------
+const filesIndexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "files",
+  beforeLoad: () => {
+    throw redirect({ to: "/files/$tab", params: { tab: "incoming" } });
+  },
+});
+
+// ---------- /files/$tab ----------
+function FilesPageWrapper() {
   return (
-    <ErrorBoundary name="AttachmentLibrary">
-      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading attachments...</div>}>
-        <AttachmentLibrary />
+    <ErrorBoundary name="FilesPage">
+      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Загрузка…</div>}>
+        <FilesPage />
       </Suspense>
     </ErrorBoundary>
   );
 }
 
+export const filesTabRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "files/$tab",
+  beforeLoad: ({ params }) => {
+    const t = params.tab;
+    if (t !== "incoming" && t !== "outgoing") {
+      throw redirect({ to: "/files/$tab", params: { tab: "incoming" } });
+    }
+  },
+  component: FilesPageWrapper,
+});
+
+// ---------- /attachments → /files/incoming (старый URL) ----------
 export const attachmentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "attachments",
-  component: AttachmentLibraryWrapper,
+  beforeLoad: () => {
+    throw redirect({ to: "/files/$tab", params: { tab: "incoming" } });
+  },
 });
 
 // ---------- /tasks ----------
@@ -187,6 +212,16 @@ export const calendarRoute = createRoute({
   component: CalendarPageWrapper,
 });
 
+// ---------- /messengers (открыть панель и перейти во входящие) ----------
+export const messengersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "messengers",
+  beforeLoad: () => {
+    useUIStore.getState().setMessengersPanelsOpen(true);
+    throw redirect({ to: "/mail/$label", params: { label: "inbox" } });
+  },
+});
+
 // ---------- /help (redirect to /help/getting-started) ----------
 const helpIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -211,9 +246,12 @@ export const routeTree = rootRoute.addChildren([
   smartFolderRoute.addChildren([smartFolderThreadRoute]),
   settingsIndexRoute,
   settingsTabRoute,
+  filesIndexRoute,
+  filesTabRoute,
   attachmentsRoute,
   tasksRoute,
   calendarRoute,
+  messengersRoute,
   helpIndexRoute,
   helpTopicRoute,
 ]);

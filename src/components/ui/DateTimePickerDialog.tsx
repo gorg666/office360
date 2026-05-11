@@ -56,7 +56,7 @@ export function DateTimePickerDialog({
             <span className="text-xs text-text-tertiary">
               {preset.detail ??
                 new Date(preset.timestamp * 1000).toLocaleDateString(
-                  undefined,
+                  "ru-RU",
                   { weekday: "short", month: "short", day: "numeric" },
                 )}
             </span>
@@ -66,7 +66,7 @@ export function DateTimePickerDialog({
 
       <div className="border-t border-border-secondary px-4 py-3 space-y-2">
         <div className="text-xs text-text-tertiary font-medium">
-          Custom date & time
+          Своя дата и время
         </div>
         <div className="flex gap-2">
           <input

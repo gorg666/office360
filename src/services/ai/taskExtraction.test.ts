@@ -68,7 +68,7 @@ describe("taskExtraction", () => {
   it("falls back on invalid JSON", async () => {
     vi.mocked(extractTaskFromThread).mockResolvedValue("not valid json");
     const result = await extractTask("t1", "acc1", [makeMessage()]);
-    expect(result.title).toBe("Follow up on: Meeting follow-up");
+    expect(result.title).toBe("Ответить по теме: Meeting follow-up");
     expect(result.priority).toBe("medium");
   });
 
@@ -85,6 +85,6 @@ describe("taskExtraction", () => {
       '{"title": "", "priority": "low"}',
     );
     const result = await extractTask("t1", "acc1", [makeMessage()]);
-    expect(result.title).toBe("Follow up on: Meeting follow-up");
+    expect(result.title).toBe("Ответить по теме: Meeting follow-up");
   });
 });

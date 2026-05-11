@@ -7,7 +7,9 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::MacosLauncher;
 
 mod commands;
+mod audio;
 mod imap;
+mod messengers;
 mod oauth;
 mod smtp;
 
@@ -49,14 +51,14 @@ fn open_devtools(app: tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Set explicit AUMID on Windows so toast notifications show "Velo"
+    // Set explicit AUMID on Windows so toast notifications show "Office360"
     // instead of "Windows PowerShell"
     #[cfg(windows)]
     {
         use windows::core::w;
         use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
         unsafe {
-            let _ = SetCurrentProcessExplicitAppUserModelID(w!("com.velomail.app"));
+            let _ = SetCurrentProcessExplicitAppUserModelID(w!("com.office360.desktop"));
         }
     }
 
@@ -93,9 +95,11 @@ pub fn run() {
             set_tray_tooltip,
             close_splashscreen,
             open_devtools,
+            audio::play_notification_sound,
             commands::imap_test_connection,
             commands::imap_list_folders,
             commands::imap_fetch_messages,
+            commands::imap_fetch_message_headers,
             commands::imap_fetch_new_uids,
             commands::imap_search_all_uids,
             commands::imap_fetch_message_body,
@@ -112,6 +116,19 @@ pub fn run() {
             commands::imap_delta_check,
             commands::smtp_send_email,
             commands::smtp_test_connection,
+            messengers::messenger_request,
+            messengers::messenger_download_file,
+            messengers::messenger_send_file_base64,
+            messengers::max_client_start_auth,
+            messengers::max_client_check_code,
+            messengers::max_client_check_password,
+            messengers::max_client_complete_registration,
+            messengers::max_client_get_session,
+            messengers::max_client_get_history,
+            messengers::max_client_send_message,
+            messengers::max_client_mark_as_read,
+            messengers::max_client_connect,
+            messengers::max_client_disconnect,
         ])
         .setup(|app| {
             {
@@ -131,7 +148,7 @@ pub fn run() {
             #[cfg(not(target_os = "linux"))]
             {
                 // Build system tray menu
-                let show = MenuItem::with_id(app, "show", "Show Velo", true, None::<&str>)?;
+                let show = MenuItem::with_id(app, "show", "Show Office360", true, None::<&str>)?;
                 let check_mail =
                     MenuItem::with_id(app, "check_mail", "Check for Mail", true, None::<&str>)?;
                 let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -144,7 +161,7 @@ pub fn run() {
 
                 TrayIconBuilder::with_id("main-tray")
                     .icon(icon)
-                    .tooltip("Velo")
+                    .tooltip("Office360")
                     .menu(&menu)
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id.as_ref() {
@@ -183,22 +200,23 @@ pub fn run() {
                 let app_handle = app.handle().clone();
 
                 std::thread::spawn(move || {
-                    let mut tray = match TrayItem::new("Velo", IconSource::Resource("mail-read")) {
-                        Ok(t) => t,
-                        Err(e) => {
-                            log::warn!("Failed to create system tray: {e}");
-                            return;
-                        }
-                    };
+                    let mut tray =
+                        match TrayItem::new("Office360", IconSource::Resource("mail-read")) {
+                            Ok(t) => t,
+                            Err(e) => {
+                                log::warn!("Failed to create system tray: {e}");
+                                return;
+                            }
+                        };
 
                     let app_handle_show = app_handle.clone();
-                    if let Err(e) = tray.add_menu_item("Show Velo", move || {
+                    if let Err(e) = tray.add_menu_item("Show Office360", move || {
                         if let Some(window) = app_handle_show.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
                     }) {
-                        log::warn!("Failed to add tray menu item 'Show Velo': {e}");
+                        log::warn!("Failed to add tray menu item 'Show Office360': {e}");
                     }
 
                     let app_handle_check = app_handle.clone();

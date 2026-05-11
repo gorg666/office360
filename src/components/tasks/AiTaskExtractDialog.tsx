@@ -7,12 +7,27 @@ import type { DbMessage } from "@/services/db/messages";
 import { useTaskStore } from "@/stores/taskStore";
 
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string; color: string }[] = [
-  { value: "none", label: "None", color: "text-text-tertiary" },
-  { value: "low", label: "Low", color: "text-blue-400" },
-  { value: "medium", label: "Medium", color: "text-amber-400" },
-  { value: "high", label: "High", color: "text-orange-500" },
-  { value: "urgent", label: "Urgent", color: "text-red-500" },
+  { value: "none", label: "Без приоритета", color: "text-text-tertiary" },
+  { value: "low", label: "Низкий", color: "text-blue-400" },
+  { value: "medium", label: "Средний", color: "text-amber-400" },
+  { value: "high", label: "Высокий", color: "text-orange-500" },
+  { value: "urgent", label: "Срочный", color: "text-red-500" },
 ];
+
+function formatDateTimeLocal(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    "-",
+    pad(date.getMonth() + 1),
+    "-",
+    pad(date.getDate()),
+    "T",
+    pad(date.getHours()),
+    ":",
+    pad(date.getMinutes()),
+  ].join("");
+}
 
 interface AiTaskExtractDialogProps {
   threadId: string;
@@ -34,7 +49,7 @@ export function AiTaskExtractDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
-  const [dueDate, setDueDate] = useState("");
+  const [dueDate, setDueDate] = useState(() => formatDateTimeLocal(new Date()));
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -48,11 +63,11 @@ export function AiTaskExtractDialog({
         setPriority(result.priority);
         if (result.dueDate) {
           const d = new Date(result.dueDate * 1000);
-          setDueDate(d.toISOString().split("T")[0] ?? "");
+          setDueDate(formatDateTimeLocal(d));
         }
       } catch (err) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to extract task");
+        setError(err instanceof Error ? err.message : "Не удалось извлечь задачу");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -83,7 +98,7 @@ export function AiTaskExtractDialog({
       onCreated?.(taskId);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create task");
+      setError(err instanceof Error ? err.message : "Не удалось создать задачу");
       setCreating(false);
     }
   }, [title, description, priority, dueDate, accountId, threadId, onCreated, onClose]);
@@ -96,9 +111,13 @@ export function AiTaskExtractDialog({
         <div className="flex items-center justify-between px-5 py-4 border-b border-border-secondary">
           <div className="flex items-center gap-2">
             <Sparkles size={16} className="text-accent" />
-            <h3 className="text-sm font-semibold text-text-primary">Create Task from Email</h3>
+            <h3 className="text-sm font-semibold text-text-primary">Создать задачу из письма</h3>
           </div>
-          <button onClick={onClose} className="p-1 text-text-tertiary hover:text-text-primary">
+          <button
+            onClick={onClose}
+            aria-label="Закрыть"
+            className="p-1 text-text-tertiary hover:text-text-primary"
+          >
             <X size={16} />
           </button>
         </div>
@@ -108,7 +127,7 @@ export function AiTaskExtractDialog({
           {loading ? (
             <div className="flex flex-col items-center justify-center py-8 gap-3">
               <Loader2 size={24} className="animate-spin text-accent" />
-              <p className="text-sm text-text-secondary">Extracting task from email...</p>
+              <p className="text-sm text-text-secondary">Извлекаю задачу из письма...</p>
             </div>
           ) : error && !title ? (
             <div className="text-center py-8">
@@ -118,9 +137,11 @@ export function AiTaskExtractDialog({
             <>
               {/* Title */}
               <div>
-                <label className="block text-xs font-medium text-text-secondary mb-1.5">Title</label>
+                <label htmlFor="ai-task-title" className="block text-xs font-medium text-text-secondary mb-1.5">Название</label>
                 <input
+                  id="ai-task-title"
                   type="text"
+                  title="Название задачи"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="w-full px-3 py-2 bg-bg-tertiary border border-border-primary rounded-lg text-sm text-text-primary outline-none focus:border-accent"
@@ -130,8 +151,10 @@ export function AiTaskExtractDialog({
 
               {/* Description */}
               <div>
-                <label className="block text-xs font-medium text-text-secondary mb-1.5">Description</label>
+                <label htmlFor="ai-task-description" className="block text-xs font-medium text-text-secondary mb-1.5">Описание</label>
                 <textarea
+                  id="ai-task-description"
+                  title="Описание задачи"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
@@ -142,11 +165,13 @@ export function AiTaskExtractDialog({
               {/* Priority + Due Date */}
               <div className="flex gap-4">
                 <div className="flex-1">
-                  <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                  <label htmlFor="ai-task-priority" className="block text-xs font-medium text-text-secondary mb-1.5">
                     <Flag size={11} className="inline mr-1" />
-                    Priority
+                    Приоритет
                   </label>
                   <select
+                    id="ai-task-priority"
+                    title="Приоритет задачи"
                     value={priority}
                     onChange={(e) => setPriority(e.target.value as TaskPriority)}
                     className="w-full px-3 py-2 bg-bg-tertiary border border-border-primary rounded-lg text-sm text-text-primary outline-none focus:border-accent"
@@ -157,12 +182,14 @@ export function AiTaskExtractDialog({
                   </select>
                 </div>
                 <div className="flex-1">
-                  <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                  <label htmlFor="ai-task-due-date" className="block text-xs font-medium text-text-secondary mb-1.5">
                     <Calendar size={11} className="inline mr-1" />
-                    Due date
+                    Дата и время
                   </label>
                   <input
-                    type="date"
+                    id="ai-task-due-date"
+                    type="datetime-local"
+                    title="Дата и время задачи"
                     value={dueDate}
                     onChange={(e) => setDueDate(e.target.value)}
                     className="w-full px-3 py-2 bg-bg-tertiary border border-border-primary rounded-lg text-sm text-text-primary outline-none focus:border-accent"
@@ -184,14 +211,14 @@ export function AiTaskExtractDialog({
               onClick={onClose}
               className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
             >
-              Cancel
+              Отмена
             </button>
             <button
               onClick={handleCreate}
               disabled={!title.trim() || creating}
               className="px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-lg transition-colors disabled:opacity-50"
             >
-              {creating ? "Creating..." : "Create Task"}
+              {creating ? "Создаю..." : "Создать задачу"}
             </button>
           </div>
         )}

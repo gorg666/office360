@@ -158,12 +158,12 @@ describe("writingStyleService", () => {
     it("generates and caches new draft", async () => {
       const result = await generateAutoDraft("t1", "acc1", msgs, "reply");
       expect(result).toBe("Mocked AI response");
-      expect(setAiCache).toHaveBeenCalledWith("acc1", "t1", "auto_draft_reply", "Mocked AI response");
+      expect(setAiCache).toHaveBeenCalledWith("acc1", "t1", "auto_draft_reply_ru", "Mocked AI response");
     });
 
     it("uses correct cache type for replyAll", async () => {
       await generateAutoDraft("t1", "acc1", msgs, "replyAll");
-      expect(getAiCache).toHaveBeenCalledWith("acc1", "t1", "auto_draft_replyAll");
+      expect(getAiCache).toHaveBeenCalledWith("acc1", "t1", "auto_draft_replyAll_ru");
     });
   });
 
@@ -171,7 +171,7 @@ describe("writingStyleService", () => {
     it("clears cache before generating", async () => {
       const msgs = [makeSentMessage()];
       await regenerateAutoDraft("t1", "acc1", msgs, "reply");
-      expect(deleteAiCache).toHaveBeenCalledWith("acc1", "t1", "auto_draft_reply");
+      expect(deleteAiCache).toHaveBeenCalledWith("acc1", "t1", "auto_draft_reply_ru");
     });
   });
 

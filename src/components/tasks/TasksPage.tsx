@@ -21,6 +21,8 @@ import {
 import { handleRecurringTaskCompletion } from "@/services/tasks/taskManager";
 import { TaskItem } from "./TaskItem";
 import { TaskQuickAdd } from "./TaskQuickAdd";
+import { TaskDetailModal } from "./TaskDetailModal";
+import { useUIStore } from "@/stores/uiStore";
 
 const PRIORITY_ORDER: Record<TaskPriority, number> = {
   urgent: 0,
@@ -31,6 +33,7 @@ const PRIORITY_ORDER: Record<TaskPriority, number> = {
 };
 
 export function TasksPage() {
+  const locale = useUIStore((state) => state.locale);
   const accounts = useAccountStore((s) => s.accounts);
   const activeAccount = accounts.find((a) => a.isActive);
   const accountId = activeAccount?.id ?? null;
@@ -64,6 +67,16 @@ export function TasksPage() {
   useEffect(() => {
     loadTasks();
   }, [loadTasks]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ accountId?: string | null }>).detail;
+      if (detail?.accountId && detail.accountId !== accountId) return;
+      void loadTasks();
+    };
+    window.addEventListener("velo-task-created", handler);
+    return () => window.removeEventListener("velo-task-created", handler);
+  }, [accountId, loadTasks]);
 
   // Load subtasks
   useEffect(() => {
@@ -124,16 +137,16 @@ export function TasksPage() {
             const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             const dueStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
             const diff = Math.floor((dueStart.getTime() - todayStart.getTime()) / 86400000);
-            if (diff < 0) key = "Overdue";
-            else if (diff === 0) key = "Today";
-            else if (diff === 1) key = "Tomorrow";
-            else if (diff <= 7) key = "This week";
-            else key = "Later";
+            if (diff < 0) key = locale === "ru" ? "Просрочено" : "Overdue";
+            else if (diff === 0) key = locale === "ru" ? "Сегодня" : "Today";
+            else if (diff === 1) key = locale === "ru" ? "Завтра" : "Tomorrow";
+            else if (diff <= 7) key = locale === "ru" ? "На этой неделе" : "This week";
+            else key = locale === "ru" ? "Позже" : "Later";
           }
           break;
         case "tag": {
           const tags: string[] = (() => { try { return JSON.parse(task.tags_json); } catch { return []; } })();
-          key = tags[0] ?? "Untagged";
+          key = tags[0] ?? (locale === "ru" ? "Без тегов" : "Untagged");
           break;
         }
         default:
@@ -154,7 +167,41 @@ export function TasksPage() {
     }
 
     return entries.map(([label, tasks]) => ({ label, tasks }));
-  }, [filteredTasks, groupBy]);
+  }, [filteredTasks, groupBy, locale]);
+
+  const statusLabels: Record<TaskFilterStatus, string> = locale === "ru"
+    ? { incomplete: "Активные", all: "Все", completed: "Завершённые" }
+    : { incomplete: "Active", all: "All", completed: "Completed" };
+  const priorityLabels: Record<TaskPriority | "all", string> = locale === "ru"
+    ? {
+      all: "Все приоритеты",
+      urgent: "Срочно",
+      high: "Высокий",
+      medium: "Средний",
+      low: "Низкий",
+      none: "Без приоритета",
+    }
+    : {
+      all: "All priorities",
+      urgent: "Urgent",
+      high: "High",
+      medium: "Medium",
+      low: "Low",
+      none: "None",
+    };
+  const groupLabels: Record<TaskGroupBy, string> = locale === "ru"
+    ? {
+      none: "Без группировки",
+      priority: "Группировать по приоритету",
+      dueDate: "Группировать по сроку",
+      tag: "Группировать по тегу",
+    }
+    : {
+      none: "No grouping",
+      priority: "Group by priority",
+      dueDate: "Group by due date",
+      tag: "Group by tag",
+    };
 
   const handleAddTask = useCallback(async (title: string) => {
     if (!accountId) return;
@@ -178,8 +225,9 @@ export function TasksPage() {
 
   const handleDelete = useCallback(async (id: string) => {
     await dbDeleteTask(id);
+    if (selectedTaskId === id) setSelectedTaskId(null);
     await loadTasks();
-  }, [loadTasks]);
+  }, [loadTasks, selectedTaskId, setSelectedTaskId]);
 
   const handleBulkComplete = useCallback(async () => {
     for (const id of selectedIds) {
@@ -194,8 +242,13 @@ export function TasksPage() {
       await dbDeleteTask(id);
     }
     setSelectedIds(new Set());
+    if (selectedTaskId && selectedIds.has(selectedTaskId)) setSelectedTaskId(null);
     await loadTasks();
-  }, [selectedIds, loadTasks]);
+  }, [selectedIds, loadTasks, selectedTaskId, setSelectedTaskId]);
+
+  const selectedTask = selectedTaskId
+    ? tasks.find((task) => task.id === selectedTaskId) ?? null
+    : null;
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-bg-primary/50">
@@ -203,7 +256,9 @@ export function TasksPage() {
       <div className="flex items-center justify-between px-5 py-3 border-b border-border-primary shrink-0 bg-bg-primary/60 backdrop-blur-sm">
         <div className="flex items-center gap-2">
           <CheckSquare size={18} className="text-accent" />
-          <h1 className="text-base font-semibold text-text-primary">Tasks</h1>
+          <h1 className="text-base font-semibold text-text-primary">
+            {locale === "ru" ? "Задачи" : "Tasks"}
+          </h1>
           {filteredTasks.length > 0 && (
             <span className="text-xs text-text-tertiary bg-bg-tertiary px-2 py-0.5 rounded-full">
               {filteredTasks.length}
@@ -219,7 +274,7 @@ export function TasksPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search tasks..."
+              placeholder={locale === "ru" ? "Поиск задач..." : "Search tasks..."}
               className="w-48 pl-8 pr-3 py-1.5 bg-bg-tertiary border border-border-primary rounded-lg text-xs text-text-primary outline-none focus:border-accent"
             />
           </div>
@@ -227,37 +282,40 @@ export function TasksPage() {
           {/* Filters */}
           <select
             value={filterStatus}
+            title={locale === "ru" ? "Фильтр статуса задач" : "Task status filter"}
             onChange={(e) => setFilterStatus(e.target.value as TaskFilterStatus)}
             className="bg-bg-tertiary text-text-primary text-xs px-2.5 py-1.5 rounded-lg border border-border-primary"
           >
-            <option value="incomplete">Active</option>
-            <option value="all">All</option>
-            <option value="completed">Completed</option>
+            <option value="incomplete">{statusLabels.incomplete}</option>
+            <option value="all">{statusLabels.all}</option>
+            <option value="completed">{statusLabels.completed}</option>
           </select>
 
           <select
             value={filterPriority}
+            title={locale === "ru" ? "Фильтр приоритета задач" : "Task priority filter"}
             onChange={(e) => setFilterPriority(e.target.value as TaskPriority | "all")}
             className="bg-bg-tertiary text-text-primary text-xs px-2.5 py-1.5 rounded-lg border border-border-primary"
           >
-            <option value="all">All priorities</option>
-            <option value="urgent">Urgent</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-            <option value="none">None</option>
+            <option value="all">{priorityLabels.all}</option>
+            <option value="urgent">{priorityLabels.urgent}</option>
+            <option value="high">{priorityLabels.high}</option>
+            <option value="medium">{priorityLabels.medium}</option>
+            <option value="low">{priorityLabels.low}</option>
+            <option value="none">{priorityLabels.none}</option>
           </select>
 
           {/* Group by */}
           <select
             value={groupBy}
+            title={locale === "ru" ? "Группировка задач" : "Task grouping"}
             onChange={(e) => setGroupBy(e.target.value as TaskGroupBy)}
             className="bg-bg-tertiary text-text-primary text-xs px-2.5 py-1.5 rounded-lg border border-border-primary"
           >
-            <option value="none">No grouping</option>
-            <option value="priority">Group by priority</option>
-            <option value="dueDate">Group by due date</option>
-            <option value="tag">Group by tag</option>
+            <option value="none">{groupLabels.none}</option>
+            <option value="priority">{groupLabels.priority}</option>
+            <option value="dueDate">{groupLabels.dueDate}</option>
+            <option value="tag">{groupLabels.tag}</option>
           </select>
         </div>
       </div>
@@ -265,26 +323,28 @@ export function TasksPage() {
       {/* Bulk actions bar */}
       {selectedIds.size > 0 && (
         <div className="flex items-center gap-3 px-5 py-2 bg-accent/5 border-b border-accent/20">
-          <span className="text-xs text-text-secondary">{selectedIds.size} selected</span>
+          <span className="text-xs text-text-secondary">
+            {locale === "ru" ? `Выбрано: ${selectedIds.size}` : `${selectedIds.size} selected`}
+          </span>
           <button
             onClick={handleBulkComplete}
             className="flex items-center gap-1 text-xs text-accent hover:text-accent-hover"
           >
             <CheckCircle2 size={13} />
-            Complete
+            {locale === "ru" ? "Завершить" : "Complete"}
           </button>
           <button
             onClick={handleBulkDelete}
             className="flex items-center gap-1 text-xs text-danger hover:opacity-80"
           >
             <Trash2 size={13} />
-            Delete
+            {locale === "ru" ? "Удалить" : "Delete"}
           </button>
           <button
             onClick={() => setSelectedIds(new Set())}
             className="text-xs text-text-tertiary hover:text-text-primary ml-auto"
           >
-            Clear selection
+            {locale === "ru" ? "Снять выделение" : "Clear selection"}
           </button>
         </div>
       )}
@@ -299,9 +359,14 @@ export function TasksPage() {
         {filteredTasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <CheckSquare size={48} className="text-text-tertiary/30 mb-4" />
-            <p className="text-sm text-text-secondary mb-1">No tasks</p>
+            <p className="text-sm text-text-secondary mb-1">
+              {locale === "ru" ? "Нет задач" : "No tasks"}
+            </p>
             <p className="text-xs text-text-tertiary">
-              {searchQuery ? "Try a different search term" : "Add a task above or press 't' on any email thread"}
+              {searchQuery
+                ? (locale === "ru" ? "Попробуйте другой поисковый запрос" : "Try a different search term")
+                : (locale === "ru" ? "Добавьте задачу выше или нажмите 't' в любой цепочке писем" : "Add a task above or press 't' on any email thread")
+              }
             </p>
           </div>
         ) : (
@@ -331,6 +396,15 @@ export function TasksPage() {
           </div>
         )}
       </div>
+      {selectedTask ? (
+        <TaskDetailModal
+          key={selectedTask.id}
+          task={selectedTask}
+          accountId={accountId}
+          onClose={() => setSelectedTaskId(null)}
+          onSaved={loadTasks}
+        />
+      ) : null}
     </div>
   );
 }

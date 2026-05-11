@@ -106,20 +106,20 @@ export async function reauthorizeAccount(
     );
   }
 
-  if (!tokens.refresh_token) {
+  const refreshToken = tokens.refresh_token ?? account.refresh_token;
+  if (!refreshToken) {
     throw new Error(
       "Google did not return a refresh token. Please revoke app access at https://myaccount.google.com/permissions and try again.",
     );
   }
-
   const expiresAt = getCurrentUnixTimestamp() + tokens.expires_in;
-  await updateAccountAllTokens(accountId, tokens.access_token, tokens.refresh_token, expiresAt);
+  await updateAccountAllTokens(accountId, tokens.access_token, refreshToken, expiresAt);
 
   // Evict stale client and create a fresh one
   clients.delete(accountId);
   const client = new GmailClient(accountId, clientId, {
     accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token,
+    refreshToken,
     expiresAt,
   }, clientSecret);
   clients.set(accountId, client);

@@ -23,8 +23,8 @@ describe("themes", () => {
     }
   });
 
-  it("DEFAULT_COLOR_THEME is indigo", () => {
-    expect(DEFAULT_COLOR_THEME).toBe("indigo");
+  it("DEFAULT_COLOR_THEME is neutral", () => {
+    expect(DEFAULT_COLOR_THEME).toBe("neutral");
   });
 
   it("getThemeById returns correct theme", () => {
@@ -36,8 +36,8 @@ describe("themes", () => {
     expect(emerald.id).toBe("emerald");
   });
 
-  it("getThemeById falls back to indigo for unknown ID", () => {
+  it("getThemeById falls back to neutral for unknown ID", () => {
     const fallback = getThemeById("nonexistent");
-    expect(fallback.id).toBe("indigo");
+    expect(fallback.id).toBe("neutral");
   });
 });

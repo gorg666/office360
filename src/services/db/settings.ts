@@ -1,4 +1,4 @@
-import { getDb } from "./connection";
+import { executeWrite, getDb } from "./connection";
 import { encryptValue, decryptValue, isEncrypted } from "@/utils/crypto";
 
 export async function getSetting(key: string): Promise<string | null> {
@@ -11,8 +11,7 @@ export async function getSetting(key: string): Promise<string | null> {
 }
 
 export async function setSetting(key: string, value: string): Promise<void> {
-  const db = await getDb();
-  await db.execute(
+  await executeWrite(
     "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = $2",
     [key, value],
   );

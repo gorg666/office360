@@ -45,6 +45,26 @@ describe("mapFolderToLabel", () => {
     expect(result).toEqual({ labelId: "INBOX", labelName: "Inbox", type: "system" });
   });
 
+  it("maps Russian Yandex Inbox name Входящие to INBOX when special_use is missing", () => {
+    const folder = createMockImapFolder({
+      path: "Входящие",
+      name: "Входящие",
+      special_use: null,
+    });
+    const result = mapFolderToLabel(folder);
+    expect(result).toEqual({ labelId: "INBOX", labelName: "Inbox", type: "system" });
+  });
+
+  it("maps Russian Отправленные to SENT when special_use is missing", () => {
+    const folder = createMockImapFolder({
+      path: "Отправленные",
+      name: "Отправленные",
+      special_use: null,
+    });
+    const result = mapFolderToLabel(folder);
+    expect(result).toEqual({ labelId: "SENT", labelName: "Sent", type: "system" });
+  });
+
   it("falls back to name-based detection for Sent Items", () => {
     const folder = createMockImapFolder({ path: "Sent Items", name: "Sent Items", special_use: null });
     const result = mapFolderToLabel(folder);

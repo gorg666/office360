@@ -10,10 +10,31 @@ export type DefaultReplyMode = "reply" | "replyAll";
 export type MarkAsReadBehavior = "instant" | "2s" | "manual";
 export type FontScale = "small" | "default" | "large" | "xlarge";
 export type InboxViewMode = "unified" | "split";
+export type AppLocale = "en" | "ru";
+export type WindowBackgroundPreset = "default" | "sunrise" | "mint" | "lavender" | "graphite";
+export type WindowBackgroundLayout = "soft" | "diagonal" | "corners" | "halo" | "minimal";
+export type WindowBackgroundSpeed = "slow" | "normal" | "fast" | "still";
 
 export interface SidebarNavItem {
   id: string;
   visible: boolean;
+}
+
+/** Старый id пункта «Вложения» в конфиге сайдбара → «Файлы». */
+export function migrateSidebarNavIds(config: SidebarNavItem[]): SidebarNavItem[] {
+  let filesSeen = false;
+  const result: SidebarNavItem[] = [];
+  for (const entry of config) {
+    const id = entry.id === "attachments" ? "files" : entry.id;
+    if (id === "files") {
+      if (filesSeen) continue;
+      filesSeen = true;
+      result.push({ ...entry, id: "files" });
+      continue;
+    }
+    result.push({ ...entry, id });
+  }
+  return result;
 }
 
 interface UIState {
@@ -28,14 +49,21 @@ interface UIState {
   markAsReadBehavior: MarkAsReadBehavior;
   fontScale: FontScale;
   colorTheme: ColorThemeId;
+  windowBackgroundPreset: WindowBackgroundPreset;
+  windowBackgroundLayout: WindowBackgroundLayout;
+  windowBackgroundSpeed: WindowBackgroundSpeed;
+  windowBackgroundImagePath: string;
   sendAndArchive: boolean;
   inboxViewMode: InboxViewMode;
   taskSidebarVisible: boolean;
   sidebarNavConfig: SidebarNavItem[] | null;
   reduceMotion: boolean;
+  locale: AppLocale;
   isOnline: boolean;
   pendingOpsCount: number;
   isSyncingFolder: string | null;
+  /** Две колонки мессенджера справа от почты (Starred/Sent и т.д.). */
+  messengersPanelsOpen: boolean;
   setTheme: (theme: Theme) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -49,6 +77,10 @@ interface UIState {
   setMarkAsReadBehavior: (behavior: MarkAsReadBehavior) => void;
   setFontScale: (scale: FontScale) => void;
   setColorTheme: (theme: ColorThemeId) => void;
+  setWindowBackgroundPreset: (preset: WindowBackgroundPreset) => void;
+  setWindowBackgroundLayout: (layout: WindowBackgroundLayout) => void;
+  setWindowBackgroundSpeed: (speed: WindowBackgroundSpeed) => void;
+  setWindowBackgroundImagePath: (path: string) => void;
   setSendAndArchive: (enabled: boolean) => void;
   setInboxViewMode: (mode: InboxViewMode) => void;
   toggleTaskSidebar: () => void;
@@ -56,9 +88,13 @@ interface UIState {
   setSidebarNavConfig: (config: SidebarNavItem[]) => void;
   restoreSidebarNavConfig: (config: SidebarNavItem[]) => void;
   setReduceMotion: (reduce: boolean) => void;
+  setLocale: (locale: AppLocale) => void;
+  restoreLocale: (locale: AppLocale) => void;
   setOnline: (online: boolean) => void;
   setPendingOpsCount: (count: number) => void;
   setSyncingFolder: (folder: string | null) => void;
+  setMessengersPanelsOpen: (open: boolean) => void;
+  toggleMessengersPanels: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -72,15 +108,21 @@ export const useUIStore = create<UIState>((set) => ({
   defaultReplyMode: "reply",
   markAsReadBehavior: "instant",
   fontScale: "default",
-  colorTheme: "indigo",
+  colorTheme: "neutral",
+  windowBackgroundPreset: "default",
+  windowBackgroundLayout: "soft",
+  windowBackgroundSpeed: "normal",
+  windowBackgroundImagePath: "",
   sendAndArchive: false,
   inboxViewMode: "unified",
   taskSidebarVisible: false,
   sidebarNavConfig: null,
   reduceMotion: false,
+  locale: "ru",
   isOnline: true,
   pendingOpsCount: 0,
   isSyncingFolder: null,
+  messengersPanelsOpen: false,
 
   setTheme: (theme) => set({ theme }),
   toggleSidebar: () =>
@@ -129,6 +171,22 @@ export const useUIStore = create<UIState>((set) => ({
     setSetting("color_theme", colorTheme).catch(() => {});
     set({ colorTheme });
   },
+  setWindowBackgroundPreset: (windowBackgroundPreset) => {
+    setSetting("window_background_preset", windowBackgroundPreset).catch(() => {});
+    set({ windowBackgroundPreset });
+  },
+  setWindowBackgroundLayout: (windowBackgroundLayout) => {
+    setSetting("window_background_layout", windowBackgroundLayout).catch(() => {});
+    set({ windowBackgroundLayout });
+  },
+  setWindowBackgroundSpeed: (windowBackgroundSpeed) => {
+    setSetting("window_background_speed", windowBackgroundSpeed).catch(() => {});
+    set({ windowBackgroundSpeed });
+  },
+  setWindowBackgroundImagePath: (windowBackgroundImagePath) => {
+    setSetting("window_background_image_path", windowBackgroundImagePath).catch(() => {});
+    set({ windowBackgroundImagePath });
+  },
   setSendAndArchive: (sendAndArchive) => {
     setSetting("send_and_archive", String(sendAndArchive)).catch(() => {});
     set({ sendAndArchive });
@@ -145,15 +203,36 @@ export const useUIStore = create<UIState>((set) => ({
     }),
   setTaskSidebarVisible: (taskSidebarVisible) => set({ taskSidebarVisible }),
   setSidebarNavConfig: (sidebarNavConfig) => {
-    setSetting("sidebar_nav_config", JSON.stringify(sidebarNavConfig)).catch(() => {});
-    set({ sidebarNavConfig });
+    const migrated = migrateSidebarNavIds(sidebarNavConfig);
+    setSetting("sidebar_nav_config", JSON.stringify(migrated)).catch(() => {});
+    set({ sidebarNavConfig: migrated });
   },
-  restoreSidebarNavConfig: (sidebarNavConfig) => set({ sidebarNavConfig }),
+  restoreSidebarNavConfig: (sidebarNavConfig) =>
+    set({ sidebarNavConfig: migrateSidebarNavIds(sidebarNavConfig) }),
   setReduceMotion: (reduceMotion) => {
     setSetting("reduce_motion", String(reduceMotion)).catch(() => {});
     set({ reduceMotion });
   },
+  setLocale: (locale) => {
+    setSetting("ui_locale", locale).catch(() => {});
+    localStorage.setItem("ui_locale", locale);
+    set({ locale });
+  },
+  restoreLocale: (locale) => {
+    localStorage.setItem("ui_locale", locale);
+    set({ locale });
+  },
   setOnline: (isOnline) => set({ isOnline }),
   setPendingOpsCount: (pendingOpsCount) => set({ pendingOpsCount }),
   setSyncingFolder: (isSyncingFolder) => set({ isSyncingFolder }),
+  setMessengersPanelsOpen: (messengersPanelsOpen) => {
+    setSetting("messengers_panels_open", String(messengersPanelsOpen)).catch(() => {});
+    set({ messengersPanelsOpen });
+  },
+  toggleMessengersPanels: () =>
+    set((state) => {
+      const open = !state.messengersPanelsOpen;
+      setSetting("messengers_panels_open", String(open)).catch(() => {});
+      return { messengersPanelsOpen: open };
+    }),
 }));

@@ -8,6 +8,10 @@ import type { DbAttachment } from "@/services/db/attachments";
 import { MailMinus } from "lucide-react";
 import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
+import { ContactAvatar } from "@/components/ui/ContactAvatar";
+import { resolveMessageSenderDisplay, type ThreadSenderContext } from "@/utils/senderDisplay";
+
+const EMPTY_CONTACT_NAMES = new Map<string, string>();
 
 interface MessageItemProps {
   message: DbMessage;
@@ -19,9 +23,11 @@ interface MessageItemProps {
   isSpam?: boolean;
   focused?: boolean;
   onContextMenu?: (e: React.MouseEvent) => void;
+  contactDisplayNames?: Map<string, string>;
+  threadSender?: ThreadSenderContext | null;
 }
 
-export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, onContextMenu }, ref) {
+export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, onContextMenu, contactDisplayNames, threadSender }, ref) {
   const [expanded, setExpanded] = useState(isLast);
   const [attachments, setAttachments] = useState<DbAttachment[]>([]);
   const [authBannerDismissed, setAuthBannerDismissed] = useState(false);
@@ -68,12 +74,21 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     const regex = /\bcid:([^"'\s)]+)/gi;
     let m;
     while ((m = regex.exec(message.body_html)) !== null) {
-      cids.add(m[1]!);
+      for (const key of getContentIdKeys(m[1])) {
+        cids.add(key);
+      }
     }
     return cids;
   }, [message.body_html]);
 
-  const fromDisplay = message.from_name ?? message.from_address ?? "Unknown";
+  const names = contactDisplayNames ?? EMPTY_CONTACT_NAMES;
+  const fromDisplay = resolveMessageSenderDisplay(
+    message.from_name,
+    message.from_address,
+    names,
+    threadSender,
+  );
+  const hasRenderableBody = Boolean((message.body_html ?? message.body_text ?? "").trim());
 
   return (
     <div ref={ref} className={`border-b border-border-secondary last:border-b-0 ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""} ${focused ? "ring-2 ring-inset ring-accent/50" : ""}`} onContextMenu={onContextMenu}>
@@ -84,9 +99,13 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-full bg-accent/20 text-accent flex items-center justify-center shrink-0 text-xs font-medium">
-              {fromDisplay[0]?.toUpperCase()}
-            </div>
+            <ContactAvatar
+              email={message.from_address}
+              name={fromDisplay === "Unknown" ? null : fromDisplay}
+              className="w-7 h-7 rounded-full shrink-0"
+              textClassName="text-xs"
+              lookupExternalAvatar
+            />
             <div className="min-w-0">
               <span className="text-sm font-medium text-text-primary truncate flex items-center gap-1">
                 {fromDisplay}
@@ -134,7 +153,11 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
             />
           )}
 
-          {blockImages != null ? (
+          {!hasRenderableBody && message.imap_uid != null ? (
+            <div className="py-4 text-sm text-text-tertiary">
+              Загружаю тело письма...
+            </div>
+          ) : blockImages != null ? (
             <EmailRenderer
               html={message.body_html}
               text={message.body_text}
@@ -142,8 +165,11 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
               senderAddress={message.from_address}
               accountId={message.account_id}
               senderAllowlisted={senderAllowlisted}
+              isSpam={!!isSpam}
               messageId={message.id}
-              inlineAttachments={attachments.filter((a) => a.content_id)}
+              inlineAttachments={attachments.filter((a) =>
+                a.content_id && getContentIdKeys(a.content_id).some((key) => referencedCids.has(key))
+              )}
             />
           ) : (
             <div className="py-8 text-center text-text-tertiary text-sm">Loading...</div>
@@ -176,6 +202,24 @@ export function parseUnsubscribeUrl(header: string): string | null {
   const mailtoMatch = header.match(/<(mailto:[^>]+)>/);
   if (mailtoMatch?.[1]) return mailtoMatch[1];
   return null;
+}
+
+function normalizeContentId(value: string | null | undefined): string | null {
+  if (!value) return null;
+  let normalized = value.trim().replace(/^cid:/i, "").replace(/[<>]/g, "");
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch {
+    // Keep original when it is not URL encoded.
+  }
+  return normalized.toLowerCase();
+}
+
+function getContentIdKeys(value: string | null | undefined): string[] {
+  const normalized = normalizeContentId(value);
+  if (!normalized) return [];
+  const withoutDomain = normalized.split("@")[0] ?? normalized;
+  return [...new Set([normalized, withoutDomain])];
 }
 
 function UnsubscribeLink({

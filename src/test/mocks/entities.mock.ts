@@ -39,6 +39,9 @@ export function createMockParsedMessage(
     listUnsubscribe: null,
     listUnsubscribePost: null,
     authResults: null,
+    messageIdHeader: null,
+    referencesHeader: null,
+    inReplyToHeader: null,
     ...overrides,
   };
 }

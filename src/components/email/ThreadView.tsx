@@ -1,7 +1,9 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { MessageItem } from "./MessageItem";
 import { ActionBar } from "./ActionBar";
-import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
+import { getMessagesForThread, upsertMessage, type DbMessage } from "@/services/db/messages";
+import { upsertAttachment } from "@/services/db/attachments";
+import { getEmailProvider } from "@/services/email/providerFactory";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore, type Thread } from "@/stores/threadStore";
@@ -22,10 +24,9 @@ import { AiTaskExtractDialog } from "@/components/tasks/AiTaskExtractDialog";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { MessageSkeleton } from "@/components/ui/Skeleton";
 import { RawMessageModal } from "./RawMessageModal";
-
-interface ThreadViewProps {
-  thread: Thread;
-}
+import { getContactDisplayNameMap } from "@/services/db/contacts";
+import { normalizeEmail } from "@/utils/emailUtils";
+import { resolveContactHeaderName } from "@/utils/senderDisplay";
 
 async function handlePopOut(thread: Thread) {
   try {
@@ -57,7 +58,25 @@ async function handlePopOut(thread: Thread) {
   }
 }
 
-export function ThreadView({ thread }: ThreadViewProps) {
+function needsImapHydration(msg: DbMessage): boolean {
+  if (msg.imap_uid == null || !msg.imap_folder) return false;
+  if (msg.body_cached === 0) return true;
+
+  const body = `${msg.body_html ?? ""}\n${msg.body_text ?? ""}`.slice(0, 1000);
+  const hasNoBody = body.trim().length === 0;
+  const looksLikeRawHeaders =
+    /\b(MIME-Version|Content-Type|DKIM-Signature|Received|Message-ID):/i.test(body);
+
+  return hasNoBody || !msg.from_address || msg.from_address === "unknown@example.com" || looksLikeRawHeaders;
+}
+
+interface ThreadViewProps {
+  thread: Thread;
+  taskExtractSignal?: number;
+  renderTaskSidebar?: boolean;
+}
+
+export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = true }: ThreadViewProps) {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const contactSidebarVisible = useUIStore((s) => s.contactSidebarVisible);
   const toggleContactSidebar = useUIStore((s) => s.toggleContactSidebar);
@@ -67,24 +86,156 @@ export function ThreadView({ thread }: ThreadViewProps) {
   const [messages, setMessages] = useState<DbMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const markedReadRef = useRef<string | null>(null);
-  // null = not yet loaded; defer iframe rendering until setting is known
-  const [blockImages, setBlockImages] = useState<boolean | null>(null);
+  // null = not yet loaded; avoids flashing the wrong privacy mode on first paint
+  const [blockRemoteImages, setBlockRemoteImages] = useState<boolean | null>(null);
   const [allowlistedSenders, setAllowlistedSenders] = useState<Set<string>>(new Set());
+  const [contactDisplayNames, setContactDisplayNames] = useState<Map<string, string>>(() => new Map());
+  const hydrationAttemptedRef = useRef<Set<string>>(new Set());
+
+  const messageSenderEmailsKey = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of messages) {
+      if (m.from_address) set.add(normalizeEmail(m.from_address));
+    }
+    return [...set].sort().join("\0");
+  }, [messages]);
+
+  const threadSenderContext = useMemo(
+    () => ({ fromName: thread.fromName, fromAddress: thread.fromAddress }),
+    [thread.fromName, thread.fromAddress],
+  );
+
+  const isSpamThread = thread.labelIds.includes("SPAM");
+  const effectiveBlockImages =
+    blockRemoteImages === null ? null : isSpamThread || blockRemoteImages;
 
   // Preload settings eagerly on mount (parallel with message loading)
   useEffect(() => {
-    getSetting("block_remote_images").then((val) => setBlockImages(val !== "false"));
+    getSetting("block_remote_images").then((val) => setBlockRemoteImages(val !== "false"));
   }, []);
 
   // Load messages
   useEffect(() => {
     if (!activeAccountId) return;
+    hydrationAttemptedRef.current.clear();
     setLoading(true);
     getMessagesForThread(activeAccountId, thread.id)
       .then(setMessages)
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [activeAccountId, thread.id]);
+
+  useEffect(() => {
+    if (!activeAccountId || messageSenderEmailsKey.length === 0) {
+      setContactDisplayNames(new Map());
+      return;
+    }
+    const emails = messageSenderEmailsKey.split("\0").filter(Boolean);
+    let cancelled = false;
+    getContactDisplayNameMap(emails).then((map) => {
+      if (!cancelled) setContactDisplayNames(map);
+    });
+    return () => { cancelled = true; };
+  }, [activeAccountId, messageSenderEmailsKey]);
+
+  // IMAP initial sync stores headers first for fast list rendering. Hydrate the
+  // opened thread body on demand and persist it so the next open is instant.
+  useEffect(() => {
+    if (!activeAccountId || messages.length === 0) return;
+    const missingBodies = messages.filter((msg) => (
+      needsImapHydration(msg) && !hydrationAttemptedRef.current.has(msg.id)
+    ));
+    if (missingBodies.length === 0) return;
+    for (const msg of missingBodies) {
+      hydrationAttemptedRef.current.add(msg.id);
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const provider = await getEmailProvider(activeAccountId);
+        for (const msg of missingBodies) {
+          if (cancelled) return;
+          const parsed = await provider.fetchMessage(msg.id);
+          await upsertMessage({
+            id: msg.id,
+            accountId: activeAccountId,
+            threadId: msg.thread_id,
+            fromAddress: parsed.fromAddress,
+            fromName: parsed.fromName,
+            toAddresses: parsed.toAddresses,
+            ccAddresses: parsed.ccAddresses,
+            bccAddresses: parsed.bccAddresses,
+            replyTo: parsed.replyTo,
+            subject: parsed.subject,
+            snippet: parsed.snippet,
+            date: parsed.date,
+            isRead: parsed.isRead,
+            isStarred: parsed.isStarred,
+            bodyHtml: parsed.bodyHtml,
+            bodyText: parsed.bodyText,
+            rawSize: parsed.rawSize,
+            internalDate: parsed.internalDate,
+            listUnsubscribe: parsed.listUnsubscribe,
+            listUnsubscribePost: parsed.listUnsubscribePost,
+            authResults: parsed.authResults,
+            imapUid: msg.imap_uid,
+            imapFolder: msg.imap_folder,
+          });
+
+          for (const att of parsed.attachments) {
+            await upsertAttachment({
+              id: `${msg.id}_${att.gmailAttachmentId}`,
+              messageId: msg.id,
+              accountId: activeAccountId,
+              filename: att.filename,
+              mimeType: att.mimeType,
+              size: att.size,
+              gmailAttachmentId: att.gmailAttachmentId,
+              contentId: att.contentId,
+              isInline: att.isInline,
+            });
+          }
+
+          if (!cancelled) {
+            setMessages((current) => current.map((currentMsg) => (
+              currentMsg.id === msg.id
+                ? {
+                    ...currentMsg,
+                    from_address: parsed.fromAddress,
+                    from_name: parsed.fromName,
+                    to_addresses: parsed.toAddresses,
+                    cc_addresses: parsed.ccAddresses,
+                    bcc_addresses: parsed.bccAddresses,
+                    reply_to: parsed.replyTo,
+                    subject: parsed.subject,
+                    snippet: parsed.snippet,
+                    date: parsed.date,
+                    is_read: parsed.isRead ? 1 : 0,
+                    is_starred: parsed.isStarred ? 1 : 0,
+                    body_html: parsed.bodyHtml,
+                    body_text: parsed.bodyText,
+                    body_cached: parsed.bodyHtml || parsed.bodyText ? 1 : 0,
+                    raw_size: parsed.rawSize,
+                    internal_date: parsed.internalDate,
+                    list_unsubscribe: parsed.listUnsubscribe,
+                    list_unsubscribe_post: parsed.listUnsubscribePost,
+                    auth_results: parsed.authResults,
+                  }
+                : currentMsg
+            )));
+          }
+        }
+      } catch (err) {
+        console.error("Failed to hydrate IMAP message body:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAccountId, messages, thread.id]);
 
   // Check per-sender allowlist (single batch query instead of N queries)
   useEffect(() => {
@@ -301,6 +452,12 @@ export function ThreadView({ thread }: ThreadViewProps) {
     return () => window.removeEventListener("velo-extract-task", handler);
   }, [thread.id]);
 
+  useEffect(() => {
+    if (taskExtractSignal > 0) {
+      setShowTaskExtract(true);
+    }
+  }, [taskExtractSignal]);
+
   const handleMessageContextMenu = useCallback((e: React.MouseEvent, msg: DbMessage) => {
     e.preventDefault();
     openMenu("message", { x: e.clientX, y: e.clientY }, {
@@ -375,7 +532,14 @@ export function ThreadView({ thread }: ThreadViewProps) {
 
   // Get the primary sender for the contact sidebar
   const primarySender = lastMessage?.from_address ?? null;
-  const primarySenderName = lastMessage?.from_name ?? null;
+  const primarySenderName = lastMessage
+    ? resolveContactHeaderName(
+        lastMessage.from_name,
+        lastMessage.from_address,
+        contactDisplayNames,
+        threadSenderContext,
+      )
+    : null;
 
   return (
     <div className="flex h-full @container relative">
@@ -432,10 +596,12 @@ export function ThreadView({ thread }: ThreadViewProps) {
                 message={msg}
                 isLast={i === messages.length - 1}
                 focused={i === focusedMsgIdx}
-                blockImages={blockImages}
+                blockImages={effectiveBlockImages}
                 senderAllowlisted={msg.from_address ? allowlistedSenders.has(msg.from_address) : false}
-                isSpam={thread.labelIds.includes("SPAM")}
+                isSpam={isSpamThread}
                 onContextMenu={(e) => handleMessageContextMenu(e, msg)}
+                contactDisplayNames={contactDisplayNames}
+                threadSender={threadSenderContext}
               />
             ))}
           </ErrorBoundary>
@@ -488,7 +654,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
       )}
 
       {/* Task sidebar */}
-      {taskSidebarVisible && activeAccountId && (
+      {renderTaskSidebar && taskSidebarVisible && activeAccountId && (
         <TaskSidebar accountId={activeAccountId} threadId={thread.id} />
       )}
 

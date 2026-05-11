@@ -42,12 +42,26 @@ vi.mock("../imap/messageHelper", () => ({
 
 vi.mock("../db/messages", () => ({
   upsertMessage: vi.fn(),
+  getMessagesForThread: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("../db/connection", () => ({
+  getDb: vi.fn().mockResolvedValue({
+    select: vi.fn().mockResolvedValue([{ c: 2 }]),
+  }),
 }));
 
 vi.mock("../db/threads", () => ({
   upsertThread: vi.fn(),
   setThreadLabels: vi.fn(),
   getThreadLabelIds: vi.fn().mockResolvedValue([]),
+  getThreadById: vi.fn().mockResolvedValue({
+    subject: "Re: Hello",
+    is_starred: 0,
+    is_important: 0,
+    has_attachments: 0,
+    is_read: 1,
+  }),
 }));
 
 import { getAccount } from "../db/accounts";
@@ -64,7 +78,7 @@ import {
   smtpTestConnection,
 } from "../imap/tauriCommands";
 import { findSpecialFolder } from "../imap/messageHelper";
-import { upsertMessage } from "../db/messages";
+import { getMessagesForThread, upsertMessage } from "../db/messages";
 import { upsertThread, setThreadLabels, getThreadLabelIds } from "../db/threads";
 
 const mockImapConfig = {
@@ -324,6 +338,25 @@ describe("ImapSmtpProvider", () => {
         false,
       );
     });
+
+    it("loads message IDs from DB when messageIds is empty (thread-level mark read)", async () => {
+      vi.mocked(imapSetFlags).mockResolvedValue(undefined);
+      vi.mocked(getMessagesForThread).mockResolvedValueOnce([
+        { id: "imap-acc-1-INBOX-50" } as never,
+        { id: "imap-acc-1-INBOX-51" } as never,
+      ]);
+
+      await provider.markRead("thread-xyz", [], true);
+
+      expect(getMessagesForThread).toHaveBeenCalledWith("acc-1", "thread-xyz");
+      expect(imapSetFlags).toHaveBeenCalledWith(
+        mockImapConfig,
+        "INBOX",
+        [50, 51],
+        ["Seen"],
+        true,
+      );
+    });
   });
 
   describe("star", () => {
@@ -422,7 +455,7 @@ describe("ImapSmtpProvider", () => {
     const rawEmail = "From: user@example.com\r\nTo: bob@example.com\r\nSubject: Test\r\nDate: Thu, 20 Feb 2025 12:00:00 GMT\r\nMessage-ID: <test123@example.com>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nHello World";
     const rawBase64Url = btoa(rawEmail).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
-    it("sends via SMTP, saves locally, and copies to Sent folder", async () => {
+    it("sends via SMTP, copies to Sent on server, skips local row (sync adds server UID)", async () => {
       vi.mocked(smtpSendEmail).mockResolvedValue({
         success: true,
         message: "OK",
@@ -433,33 +466,19 @@ describe("ImapSmtpProvider", () => {
       const result = await provider.sendMessage(rawBase64Url);
 
       expect(smtpSendEmail).toHaveBeenCalledWith(mockSmtpConfig, rawBase64Url);
-      // Should save message to local DB
-      expect(upsertThread).toHaveBeenCalled();
-      expect(setThreadLabels).toHaveBeenCalledWith(
-        "acc-1",
-        expect.stringMatching(/^imap-sent-/),
-        ["SENT"],
-      );
-      expect(upsertMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          accountId: "acc-1",
-          fromAddress: "user@example.com",
-          toAddresses: "bob@example.com",
-          subject: "Test",
-          isRead: true,
-        }),
-      );
-      // Should copy to server Sent folder
       expect(imapAppendMessage).toHaveBeenCalledWith(
         mockImapConfig,
         "Sent Items",
         rawBase64Url,
         "(\\Seen)",
       );
+      expect(upsertThread).not.toHaveBeenCalled();
+      expect(setThreadLabels).not.toHaveBeenCalled();
+      expect(upsertMessage).not.toHaveBeenCalled();
       expect(result.id).toMatch(/^imap-sent-/);
     });
 
-    it("adds SENT label to existing thread when replying", async () => {
+    it("reply: APPEND succeeds — no local duplicate; sync will merge by headers", async () => {
       vi.mocked(smtpSendEmail).mockResolvedValue({
         success: true,
         message: "OK",
@@ -470,20 +489,10 @@ describe("ImapSmtpProvider", () => {
 
       const result = await provider.sendMessage(rawBase64Url, "existing-thread-1");
 
-      // Should add SENT to existing labels
-      expect(setThreadLabels).toHaveBeenCalledWith(
-        "acc-1",
-        "existing-thread-1",
-        ["INBOX", "SENT"],
-      );
-      // Should NOT create a new thread (reply uses existing thread)
+      expect(imapAppendMessage).toHaveBeenCalled();
+      expect(setThreadLabels).not.toHaveBeenCalled();
       expect(upsertThread).not.toHaveBeenCalled();
-      // Should save message with existing thread ID
-      expect(upsertMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          threadId: "existing-thread-1",
-        }),
-      );
+      expect(upsertMessage).not.toHaveBeenCalled();
       expect(result.id).toMatch(/^imap-sent-/);
     });
 

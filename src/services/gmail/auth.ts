@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const OAUTH_CALLBACK_PORT = 17248;
+const OAUTH_CALLBACK_TIMEOUT_MS = 45_000;
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -71,12 +72,6 @@ export async function startOAuthFlow(
   clientId: string,
   clientSecret?: string,
 ): Promise<{ tokens: TokenResponse; userInfo: UserInfo }> {
-  if (!clientSecret) {
-    throw new Error(
-      "Client Secret is not configured. Go to Settings → Google API to add it.",
-    );
-  }
-
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
 
@@ -106,13 +101,28 @@ export async function startOAuthFlow(
     port: OAUTH_CALLBACK_PORT,
     state: oauthState,
   });
+  serverPromise.catch(() => {
+    // The race below may time out first; prevent late rejections from bubbling.
+  });
 
   // Small delay to let the server bind before opening the browser
   await new Promise((r) => setTimeout(r, 100));
   await openUrl(authUrl);
 
-  // Wait for the redirect
-  const result = await serverPromise;
+  // Wait for the redirect. Google does not redirect back when it blocks an
+  // unverified/testing OAuth app, so surface a useful error instead of waiting.
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(
+        new Error(
+          "OAuth callback timed out. If Google shows access_denied, add this Gmail address to Test users in Google Cloud OAuth consent screen or submit the app for Google verification.",
+        ),
+      );
+    }, OAUTH_CALLBACK_TIMEOUT_MS);
+  });
+  const result = await Promise.race([serverPromise, timeoutPromise]);
+  if (timeoutId) clearTimeout(timeoutId);
 
   // Validate state parameter (CSRF protection)
   if (result.state !== oauthState) {

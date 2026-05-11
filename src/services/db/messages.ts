@@ -1,4 +1,5 @@
 import { getDb } from "./connection";
+import { upsertContact } from "./contacts";
 
 export interface DbMessage {
   id: string;
@@ -30,14 +31,113 @@ export interface DbMessage {
   imap_folder: string | null;
 }
 
+function normalizeMessageIdHeader(value: string | null): string | null {
+  if (!value?.trim()) return null;
+  const bracketed = value.match(/<([^<>]+)>/)?.[1];
+  const raw = (bracketed ?? value).trim().replace(/^<|>$/g, "");
+  return raw ? raw.toLowerCase() : null;
+}
+
+function getMessageBodyFingerprint(message: DbMessage): string {
+  const body = message.body_text ?? message.body_html ?? message.snippet ?? "";
+  return body.replace(/\s+/g, " ").trim().slice(0, 500).toLowerCase();
+}
+
+function getDuplicateMessageKey(message: DbMessage): string {
+  const rfcMessageId = normalizeMessageIdHeader(message.message_id_header);
+  if (rfcMessageId) return `rfc:${rfcMessageId}`;
+
+  const from = message.from_address?.trim().toLowerCase() ?? "";
+  const to = message.to_addresses?.trim().toLowerCase() ?? "";
+  const subject = message.subject?.trim().toLowerCase() ?? "";
+  const body = getMessageBodyFingerprint(message);
+  if (!from || !subject || !body) return `local:${message.id}`;
+
+  return `fallback:${message.date}:${from}:${to}:${subject}:${body}`;
+}
+
+function messageQualityScore(message: DbMessage): number {
+  let score = 0;
+  if (message.body_cached === 1) score += 100;
+  if (message.body_html?.trim()) score += 20;
+  if (message.body_text?.trim()) score += 10;
+  if (message.from_address && message.from_address !== "unknown@example.com") score += 10;
+  if (message.raw_size) score += Math.min(message.raw_size / 100_000, 5);
+  if (message.id.startsWith("imap-sent-")) score -= 50;
+  return score;
+}
+
+export function dedupeMessages(messages: DbMessage[]): DbMessage[] {
+  const byKey = new Map<string, DbMessage>();
+
+  for (const message of messages) {
+    const key = getDuplicateMessageKey(message);
+    const existing = byKey.get(key);
+    if (!existing || messageQualityScore(message) > messageQualityScore(existing)) {
+      byKey.set(key, message);
+    }
+  }
+
+  return [...byKey.values()].sort((a, b) => a.date - b.date);
+}
+
 export async function getMessagesForThread(
   accountId: string,
   threadId: string,
 ): Promise<DbMessage[]> {
   const db = await getDb();
-  return db.select<DbMessage[]>(
+  const rows = await db.select<DbMessage[]>(
     "SELECT * FROM messages WHERE account_id = $1 AND thread_id = $2 ORDER BY date ASC",
     [accountId, threadId],
+  );
+  return dedupeMessages(rows);
+}
+
+export async function getMessageById(
+  accountId: string,
+  messageId: string,
+): Promise<DbMessage | null> {
+  const db = await getDb();
+  const rows = await db.select<DbMessage[]>(
+    "SELECT * FROM messages WHERE account_id = $1 AND id = $2 LIMIT 1",
+    [accountId, messageId],
+  );
+  return rows[0] ?? null;
+}
+
+export interface UncachedImapMessageRef {
+  id: string;
+  thread_id: string;
+  imap_uid: number;
+  imap_folder: string;
+}
+
+export async function getUncachedImapMessageRefs(
+  accountId: string,
+  limit = 500,
+): Promise<UncachedImapMessageRef[]> {
+  const db = await getDb();
+  return db.select<UncachedImapMessageRef[]>(
+    `SELECT id, thread_id, imap_uid, imap_folder
+     FROM messages
+     WHERE account_id = $1
+       AND imap_uid IS NOT NULL
+       AND imap_folder IS NOT NULL
+       AND (
+         body_cached = 0
+         OR from_address IS NULL
+         OR from_address = 'unknown@example.com'
+         OR ((body_html IS NULL OR body_html = '') AND (body_text IS NULL OR body_text = ''))
+         OR body_text LIKE 'MIME-Version:%'
+         OR body_text LIKE 'Content-Type:%'
+         OR body_text LIKE 'Received:%'
+         OR body_html LIKE 'MIME-Version:%'
+         OR body_html LIKE 'Content-Type:%'
+         OR body_html LIKE 'Received:%'
+       )
+     ORDER BY date DESC
+     LIMIT $2`,
+    [accountId, limit],
   );
 }
 
@@ -78,7 +178,7 @@ export async function upsertMessage(msg: {
        bcc_addresses = $8, reply_to = $9, subject = $10, snippet = $11,
        date = $12, is_read = $13, is_starred = $14,
        body_html = COALESCE($15, body_html), body_text = COALESCE($16, body_text),
-       body_cached = CASE WHEN $15 IS NOT NULL THEN 1 ELSE body_cached END,
+       body_cached = CASE WHEN $15 IS NOT NULL OR $16 IS NOT NULL THEN 1 ELSE body_cached END,
        raw_size = $18, internal_date = $19, list_unsubscribe = $20, list_unsubscribe_post = $21,
        auth_results = $22, message_id_header = COALESCE($23, message_id_header),
        references_header = COALESCE($24, references_header),
@@ -101,7 +201,7 @@ export async function upsertMessage(msg: {
       msg.isStarred ? 1 : 0,
       msg.bodyHtml,
       msg.bodyText,
-      msg.bodyHtml ? 1 : 0,
+      msg.bodyHtml || msg.bodyText ? 1 : 0,
       msg.rawSize,
       msg.internalDate,
       msg.listUnsubscribe ?? null,
@@ -114,6 +214,10 @@ export async function upsertMessage(msg: {
       msg.imapFolder ?? null,
     ],
   );
+
+  if (msg.fromAddress?.trim() && msg.fromName?.trim()) {
+    await upsertContact(msg.fromAddress, msg.fromName);
+  }
 }
 
 export async function deleteMessage(

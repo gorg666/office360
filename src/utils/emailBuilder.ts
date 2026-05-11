@@ -32,6 +32,56 @@ function base64UrlEncode(str: string): string {
     .replace(/=+$/, "");
 }
 
+function base64EncodeUtf8(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  for (const b of bytes) {
+    binary += String.fromCharCode(b);
+  }
+  return btoa(binary);
+}
+
+function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[\r\n]+/g, " ").trim();
+}
+
+function encodeMimeHeaderValue(value: string): string {
+  const sanitized = sanitizeHeaderValue(value);
+  if (!/[^\x20-\x7E]/.test(sanitized)) return sanitized;
+
+  const chunks: string[] = [];
+  let current = "";
+  for (const char of sanitized) {
+    const next = current + char;
+    if (new TextEncoder().encode(next).length > 45 && current) {
+      chunks.push(current);
+      current = char;
+    } else {
+      current = next;
+    }
+  }
+  if (current) chunks.push(current);
+
+  return chunks
+    .map((chunk) => `=?UTF-8?B?${base64EncodeUtf8(chunk)}?=`)
+    .join(" ");
+}
+
+function encodeAddressHeaderValue(value: string): string {
+  const sanitized = sanitizeHeaderValue(value);
+  const angleMatch = sanitized.match(/^(?:"?([^"<]*)"?)\s*<([^>]+)>$/);
+  if (!angleMatch) return encodeMimeHeaderValue(sanitized);
+
+  const displayName = angleMatch[1]?.trim();
+  const address = angleMatch[2]?.trim();
+  if (!displayName || !address) return sanitized;
+  return `${encodeMimeHeaderValue(displayName)} <${address}>`;
+}
+
+function encodeAddressList(values: string[]): string {
+  return values.map(encodeAddressHeaderValue).join(", ");
+}
+
 function htmlToPlainText(html: string): string {
   return html
     .replace(/<br\s*\/?>/gi, "\n")
@@ -79,7 +129,7 @@ function extractInlineImages(html: string): { html: string; images: InlineImage[
   const processed = html.replace(
     /<img([^>]*)\ssrc="data:([^;]+);base64,([^"]+)"([^>]*)>/g,
     (_match, before: string, mime: string, data: string, after: string) => {
-      const cid = `inline_${Date.now()}_${images.length}@velomail`;
+      const cid = `inline_${Date.now()}_${images.length}@office360`;
       images.push({ cid, mimeType: mime, base64: data });
       return `<img${before} src="cid:${cid}"${after}>`;
     },
@@ -93,27 +143,27 @@ function extractInlineImages(html: string): { html: string; images: InlineImage[
 function generateMessageId(from: string): string {
   const timestamp = Date.now();
   const random = Math.random().toString(36).slice(2, 10);
-  const domain = from.includes("@") ? from.split("@")[1] : "velomail.local";
+  const domain = from.includes("@") ? from.split("@")[1] : "office360.local";
   return `<${timestamp}.${random}@${domain}>`;
 }
 
 export function buildRawEmail(draft: EmailDraft): string {
   const messageId = generateMessageId(draft.from);
   const lines: string[] = [
-    `From: ${draft.from}`,
-    `To: ${draft.to.join(", ")}`,
+    `From: ${encodeAddressHeaderValue(draft.from)}`,
+    `To: ${encodeAddressList(draft.to)}`,
   ];
 
   if (draft.cc && draft.cc.length > 0) {
-    lines.push(`Cc: ${draft.cc.join(", ")}`);
+    lines.push(`Cc: ${encodeAddressList(draft.cc)}`);
   }
   if (draft.bcc && draft.bcc.length > 0) {
-    lines.push(`Bcc: ${draft.bcc.join(", ")}`);
+    lines.push(`Bcc: ${encodeAddressList(draft.bcc)}`);
   }
 
   lines.push(`Date: ${new Date().toUTCString()}`);
   lines.push(`Message-ID: ${messageId}`);
-  lines.push(`Subject: ${draft.subject}`);
+  lines.push(`Subject: ${encodeMimeHeaderValue(draft.subject)}`);
   lines.push(`MIME-Version: 1.0`);
 
   if (draft.inReplyTo) {

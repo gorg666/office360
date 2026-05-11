@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { Plus } from "lucide-react";
+import { useUIStore } from "@/stores/uiStore";
 
 interface TaskQuickAddProps {
   onAdd: (title: string) => void;
@@ -9,6 +10,12 @@ interface TaskQuickAddProps {
 export function TaskQuickAdd({ onAdd, placeholder = "Add a task..." }: TaskQuickAddProps) {
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const locale = useUIStore((state) => state.locale);
+  const resolvedPlaceholder = locale === "ru" && placeholder === "Add a task..."
+    ? "Добавить задачу..."
+    : locale === "ru" && placeholder === "Add task to this thread..."
+      ? "Добавить задачу к этой цепочке..."
+      : placeholder;
 
   const handleSubmit = useCallback(() => {
     const trimmed = value.trim();
@@ -32,7 +39,7 @@ export function TaskQuickAdd({ onAdd, placeholder = "Add a task..." }: TaskQuick
             handleSubmit();
           }
         }}
-        placeholder={placeholder}
+        placeholder={resolvedPlaceholder}
         className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-tertiary outline-none"
       />
     </div>

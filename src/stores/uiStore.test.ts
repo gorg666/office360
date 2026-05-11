@@ -16,8 +16,13 @@ describe("uiStore", () => {
       readingPanePosition: "right",
       readFilter: "all",
       fontScale: "default",
-      colorTheme: "indigo",
+      colorTheme: "neutral",
+      windowBackgroundPreset: "default",
+      windowBackgroundLayout: "soft",
+      windowBackgroundSpeed: "normal",
+      windowBackgroundImagePath: "",
       inboxViewMode: "unified",
+      messengersPanelsOpen: false,
     });
   });
 
@@ -147,7 +152,7 @@ describe("uiStore", () => {
   });
 
   it("setColorTheme should persist to DB and update state", () => {
-    expect(useUIStore.getState().colorTheme).toBe("indigo");
+    expect(useUIStore.getState().colorTheme).toBe("neutral");
 
     useUIStore.getState().setColorTheme("rose");
     expect(setSetting).toHaveBeenCalledWith("color_theme", "rose");
@@ -156,6 +161,24 @@ describe("uiStore", () => {
     useUIStore.getState().setColorTheme("emerald");
     expect(setSetting).toHaveBeenCalledWith("color_theme", "emerald");
     expect(useUIStore.getState().colorTheme).toBe("emerald");
+  });
+
+  it("window background settings should persist to DB and update state", () => {
+    useUIStore.getState().setWindowBackgroundPreset("lavender");
+    expect(setSetting).toHaveBeenCalledWith("window_background_preset", "lavender");
+    expect(useUIStore.getState().windowBackgroundPreset).toBe("lavender");
+
+    useUIStore.getState().setWindowBackgroundLayout("halo");
+    expect(setSetting).toHaveBeenCalledWith("window_background_layout", "halo");
+    expect(useUIStore.getState().windowBackgroundLayout).toBe("halo");
+
+    useUIStore.getState().setWindowBackgroundSpeed("fast");
+    expect(setSetting).toHaveBeenCalledWith("window_background_speed", "fast");
+    expect(useUIStore.getState().windowBackgroundSpeed).toBe("fast");
+
+    useUIStore.getState().setWindowBackgroundImagePath("C:/Images/bg.png");
+    expect(setSetting).toHaveBeenCalledWith("window_background_image_path", "C:/Images/bg.png");
+    expect(useUIStore.getState().windowBackgroundImagePath).toBe("C:/Images/bg.png");
   });
 
   it("sidebarNavConfig should default to null", () => {
@@ -181,6 +204,13 @@ describe("uiStore", () => {
     vi.clearAllMocks();
     useUIStore.getState().restoreSidebarNavConfig(config);
     expect(useUIStore.getState().sidebarNavConfig).toEqual(config);
+    expect(setSetting).not.toHaveBeenCalled();
+  });
+
+  it("restoreSidebarNavConfig migrates attachments id to files", () => {
+    vi.clearAllMocks();
+    useUIStore.getState().restoreSidebarNavConfig([{ id: "attachments", visible: true }]);
+    expect(useUIStore.getState().sidebarNavConfig).toEqual([{ id: "files", visible: true }]);
     expect(setSetting).not.toHaveBeenCalled();
   });
 

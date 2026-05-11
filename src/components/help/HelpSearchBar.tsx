@@ -16,13 +16,16 @@ export function HelpSearchBar({ query, onChange }: HelpSearchBarProps) {
         type="text"
         value={query}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="Search help topics..."
+        placeholder="Поиск по справке..."
+        aria-label="Поиск по справке"
         className="w-full pl-9 pr-9 py-2 text-sm rounded-lg bg-bg-secondary border border-border-secondary text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent transition-colors"
       />
       {query && (
         <button
           onClick={() => onChange("")}
           className="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-secondary transition-colors"
+          title="Очистить поиск"
+          aria-label="Очистить поиск"
         >
           <X size={14} />
         </button>

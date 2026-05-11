@@ -5,6 +5,10 @@ const mockExecute = vi.fn();
 const mockSelect = vi.fn();
 const mockDb = { execute: mockExecute, select: mockSelect };
 
+function withoutPragmas(log: string[]): string[] {
+  return log.filter((sql) => !sql.startsWith("PRAGMA "));
+}
+
 vi.mock("@tauri-apps/plugin-sql", () => ({
   default: {
     load: vi.fn(() => Promise.resolve(mockDb)),
@@ -12,7 +16,7 @@ vi.mock("@tauri-apps/plugin-sql", () => ({
 }));
 
 // Use dynamic import so mocks are in place
-const { withTransaction, getDb } = await import("./connection");
+const { withTransaction, getDb, executeWrite } = await import("./connection");
 
 describe("withTransaction", () => {
   beforeEach(() => {
@@ -20,7 +24,7 @@ describe("withTransaction", () => {
     mockExecute.mockResolvedValue(undefined);
   });
 
-  it("executes BEGIN, callback, COMMIT in order", async () => {
+  it("executes callback without pooled BEGIN/COMMIT", async () => {
     const callOrder: string[] = [];
     mockExecute.mockImplementation(async (sql: string) => {
       callOrder.push(sql);
@@ -30,10 +34,10 @@ describe("withTransaction", () => {
       callOrder.push("callback");
     });
 
-    expect(callOrder).toEqual(["BEGIN TRANSACTION", "callback", "COMMIT"]);
+    expect(withoutPragmas(callOrder)).toEqual(["callback"]);
   });
 
-  it("rolls back on callback error", async () => {
+  it("propagates callback errors without opening a pooled transaction", async () => {
     const callOrder: string[] = [];
     mockExecute.mockImplementation(async (sql: string) => {
       callOrder.push(sql);
@@ -45,22 +49,7 @@ describe("withTransaction", () => {
       }),
     ).rejects.toThrow("callback failed");
 
-    expect(callOrder).toEqual(["BEGIN TRANSACTION", "ROLLBACK"]);
-  });
-
-  it("handles ROLLBACK failure gracefully (SQLite auto-rollback)", async () => {
-    mockExecute.mockImplementation(async (sql: string) => {
-      if (sql === "ROLLBACK") {
-        throw new Error("cannot rollback - no transaction is active");
-      }
-    });
-
-    // Should still throw the original error, not the ROLLBACK error
-    await expect(
-      withTransaction(async () => {
-        throw new Error("original error");
-      }),
-    ).rejects.toThrow("original error");
+    expect(withoutPragmas(callOrder)).toEqual([]);
   });
 
   it("serialises concurrent transactions via mutex", async () => {
@@ -84,23 +73,10 @@ describe("withTransaction", () => {
 
     await Promise.all([tx1, tx2]);
 
-    // tx1 should fully complete (BEGIN, work, done, COMMIT) before tx2 starts
-    const tx1BeginIdx = executionLog.indexOf("BEGIN TRANSACTION");
-    const tx1CommitIdx = executionLog.indexOf("COMMIT");
-    const tx2BeginIdx = executionLog.lastIndexOf("BEGIN TRANSACTION");
-
-    expect(tx1BeginIdx).toBeLessThan(tx1CommitIdx);
-    expect(tx1CommitIdx).toBeLessThan(tx2BeginIdx);
+    expect(executionLog).toEqual(["tx1-work", "tx1-done", "tx2-work"]);
   });
 
   it("unblocks next transaction even if current one fails", async () => {
-    mockExecute.mockImplementation(async (sql: string) => {
-      if (sql === "ROLLBACK") {
-        // Simulate auto-rollback already happened
-        throw new Error("cannot rollback - no transaction is active");
-      }
-    });
-
     // First transaction fails
     const tx1 = withTransaction(async () => {
       throw new Error("tx1 failed");
@@ -117,6 +93,37 @@ describe("withTransaction", () => {
     await Promise.all([tx1, tx2]);
 
     expect(tx2Ran).toBe(true);
+  });
+});
+
+describe("executeWrite", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecute.mockResolvedValue(undefined);
+  });
+
+  it("retries object-shaped SQLITE_BUSY errors", async () => {
+    mockExecute
+      .mockRejectedValueOnce({ code: 5, message: "database is locked" })
+      .mockResolvedValueOnce(undefined);
+
+    await executeWrite("INSERT INTO accounts (id) VALUES ($1)", ["acc-1"]);
+
+    expect(mockExecute).toHaveBeenCalledWith(
+      "INSERT INTO accounts (id) VALUES ($1)",
+      ["acc-1"],
+    );
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries Tauri SQL code 5 error strings", async () => {
+    mockExecute
+      .mockRejectedValueOnce("error returned from database: (code: 5) database is locked")
+      .mockResolvedValueOnce(undefined);
+
+    await executeWrite("UPDATE accounts SET email = $1 WHERE id = $2", ["a@b.com", "acc-1"]);
+
+    expect(mockExecute).toHaveBeenCalledTimes(2);
   });
 });
 

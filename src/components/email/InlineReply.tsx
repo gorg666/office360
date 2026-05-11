@@ -8,6 +8,7 @@ import { useComposerStore } from "@/stores/composerStore";
 import { useUIStore } from "@/stores/uiStore";
 import { sendEmail, archiveThread } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
+import { buildReplyHeadersForMessageId } from "@/utils/replyHeaders";
 import { upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
 import { getDefaultSignature } from "@/services/db/signatures";
@@ -49,7 +50,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
     extensions: [
       StarterKit.configure({ heading: false, link: { openOnClick: false } }),
       Placeholder.configure({
-        placeholder: "Write your reply...",
+        placeholder: "Напишите ответ…",
       }),
     ],
     content: "",
@@ -171,13 +172,15 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
         html += `<div style="margin-top:16px;border-top:1px solid #e5e5e5;padding-top:12px">${signatureHtml}</div>`;
       }
 
+      const replyHeaders = await buildReplyHeadersForMessageId(accountId, lastMessage?.id);
       const raw = buildRawEmail({
         from: activeAccount.email,
         to,
         cc: cc.length > 0 ? cc : undefined,
         subject: getSubject(),
         htmlBody: html,
-        inReplyTo: lastMessage?.id,
+        inReplyTo: replyHeaders.inReplyTo,
+        references: replyHeaders.references,
         threadId: thread.id,
       });
 
@@ -313,27 +316,27 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
         <button
           onClick={() => activateMode("reply")}
           disabled={noReply}
-          title={noReply ? "This sender does not accept replies" : undefined}
+          title={noReply ? "Этот отправитель не принимает ответы" : undefined}
           className="flex items-center gap-1.5 px-4 py-2 text-xs text-text-secondary border border-border-primary rounded-lg hover:bg-bg-hover hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary"
         >
           <Reply size={14} />
-          Reply
+          Ответить
         </button>
         <button
           onClick={() => activateMode("replyAll")}
           disabled={noReply}
-          title={noReply ? "This sender does not accept replies" : undefined}
+          title={noReply ? "Этот отправитель не принимает ответы" : undefined}
           className="flex items-center gap-1.5 px-4 py-2 text-xs text-text-secondary border border-border-primary rounded-lg hover:bg-bg-hover hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary"
         >
           <ReplyAll size={14} />
-          Reply All
+          Ответить всем
         </button>
         <button
           onClick={() => activateMode("forward")}
           className="flex items-center gap-1.5 px-4 py-2 text-xs text-text-secondary border border-border-primary rounded-lg hover:bg-bg-hover hover:text-text-primary transition-colors"
         >
           <Forward size={14} />
-          Forward
+          Переслать
         </button>
       </div>
     );
@@ -341,7 +344,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
 
   // Expanded state — editor visible
   const { to } = getRecipients();
-  const modeLabel = mode === "reply" ? "Reply" : mode === "replyAll" ? "Reply All" : "Forward";
+  const modeLabel = mode === "reply" ? "Ответить" : mode === "replyAll" ? "Ответить всем" : "Переслать";
 
   return (
     <div ref={containerRef} className="mx-4 my-3 border border-border-primary rounded-lg overflow-hidden bg-bg-primary">
@@ -359,13 +362,13 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
                     : "text-text-tertiary hover:text-text-primary"
                 }`}
               >
-                {m === "reply" ? "Reply" : m === "replyAll" ? "Reply All" : "Forward"}
+                {m === "reply" ? "Ответ" : m === "replyAll" ? "Всем" : "Переслать"}
               </button>
             ))}
           </div>
           {to.length > 0 && (
             <span className="text-[0.6875rem] text-text-tertiary truncate max-w-[200px]">
-              to {to.join(", ")}
+              Кому: {to.join(", ")}
             </span>
           )}
         </div>
@@ -373,7 +376,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
           onClick={() => setMode(null)}
           className="text-xs text-text-tertiary hover:text-text-primary transition-colors"
         >
-          Cancel
+          Закрыть
         </button>
       </div>
 
@@ -384,7 +387,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
           <div className="absolute inset-0 flex items-center justify-center bg-bg-primary/60 backdrop-blur-[1px]">
             <div className="flex items-center gap-2 text-xs text-text-secondary">
               <Loader2 size={14} className="animate-spin" />
-              Generating draft...
+              Подготовка черновика…
             </div>
           </div>
         )}
@@ -395,30 +398,30 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
         <div className="flex items-center gap-1">
           <button
             onClick={handleExpandToComposer}
-            title="Expand to full composer"
+            title="Открыть в полном редакторе"
             className="flex items-center gap-1.5 px-2 py-1 text-xs text-text-tertiary hover:text-text-primary transition-colors"
           >
             <Maximize2 size={12} />
-            Expand
+            Развернуть
           </button>
           {hasAutoDraft && mode !== "forward" && (
             <>
               <button
                 onClick={handleRegenerateDraft}
                 disabled={autoDraftLoading}
-                title="Regenerate AI draft"
+                title="Снова сгенерировать черновик"
                 className="flex items-center gap-1 px-2 py-1 text-xs text-text-tertiary hover:text-accent transition-colors disabled:opacity-50"
               >
                 <RotateCcw size={11} />
-                Regenerate
+                Заново
               </button>
               <button
                 onClick={handleClearDraft}
-                title="Clear AI draft"
+                title="Очистить черновик"
                 className="flex items-center gap-1 px-2 py-1 text-xs text-text-tertiary hover:text-danger transition-colors"
               >
                 <X size={11} />
-                Clear
+                Очистить
               </button>
             </>
           )}

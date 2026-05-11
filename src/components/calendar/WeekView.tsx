@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
+import { useUIStore } from "@/stores/uiStore";
 
 interface WeekViewProps {
   currentDate: Date;
@@ -8,9 +9,13 @@ interface WeekViewProps {
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_NAMES = {
+  en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+  ru: ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"],
+} as const;
 
 export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
+  const locale = useUIStore((state) => state.locale);
   const weekStart = new Date(currentDate);
   weekStart.setDate(weekStart.getDate() - weekStart.getDay());
   weekStart.setHours(0, 0, 0, 0);
@@ -68,7 +73,7 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
           const isToday = day.toDateString() === todayStr;
           return (
             <div key={i} className="px-2 py-2 text-center border-r border-border-secondary">
-              <div className="text-xs text-text-tertiary">{DAY_NAMES[day.getDay()]}</div>
+              <div className="text-xs text-text-tertiary">{DAY_NAMES[locale][day.getDay()]}</div>
               <div className={`text-sm font-medium mt-0.5 w-7 h-7 flex items-center justify-center mx-auto rounded-full ${
                 isToday ? "bg-accent text-white" : "text-text-primary"
               }`}>
@@ -81,7 +86,9 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
 
       {/* All-day events row */}
       <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
-        <div className="border-r border-border-secondary px-1 py-1 text-[0.625rem] text-text-tertiary">all-day</div>
+        <div className="border-r border-border-secondary px-1 py-1 text-[0.625rem] text-text-tertiary">
+          {locale === "ru" ? "весь день" : "all-day"}
+        </div>
         {days.map((day, i) => {
           const allDay = allDayByDay.get(day.getDate()) ?? [];
           return (
@@ -92,7 +99,7 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
                   onClick={() => onEventClick(e)}
                   className="w-full text-left text-[0.625rem] px-1 py-0.5 rounded bg-accent/10 text-accent truncate hover:bg-accent/20 transition-colors"
                 >
-                  {e.summary ?? "Event"}
+                  {e.summary ?? (locale === "ru" ? "Событие" : "Event")}
                 </button>
               ))}
             </div>
@@ -119,9 +126,9 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
                         key={e.id}
                         onClick={() => onEventClick(e)}
                         className="absolute inset-x-0.5 text-[0.625rem] px-1 py-0.5 rounded bg-accent/15 text-accent truncate hover:bg-accent/25 transition-colors"
-                        title={e.summary ?? "Event"}
+                        title={e.summary ?? (locale === "ru" ? "Событие" : "Event")}
                       >
-                        {e.summary ?? "Event"}
+                        {e.summary ?? (locale === "ru" ? "Событие" : "Event")}
                       </button>
                     ))}
                   </div>

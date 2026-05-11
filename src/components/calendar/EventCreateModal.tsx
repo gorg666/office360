@@ -14,7 +14,7 @@ interface EventCreateModalProps {
     startTime: string;
     endTime: string;
     calendarId?: string;
-  }) => void;
+  }) => void | Promise<void>;
 }
 
 export function EventCreateModal({ calendars, onClose, onCreate }: EventCreateModalProps) {
@@ -23,21 +23,43 @@ export function EventCreateModal({ calendars, onClose, onCreate }: EventCreateMo
   const [location, setLocation] = useState("");
   const [startTime, setStartTime] = useState(getDefaultStart());
   const [endTime, setEndTime] = useState(getDefaultEnd());
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [calendarId, setCalendarId] = useState<string>(
     calendars?.find((c) => c.is_primary)?.id ?? calendars?.[0]?.id ?? "",
   );
 
-  const handleSubmit = useCallback((e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!summary.trim()) return;
-    onCreate({
-      summary: summary.trim(),
-      description,
-      location,
-      startTime,
-      endTime,
-      calendarId: calendarId || undefined,
-    });
+
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+      setError("Проверьте дату и время события.");
+      return;
+    }
+    if (end <= start) {
+      setError("Время окончания должно быть позже времени начала.");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onCreate({
+        summary: summary.trim(),
+        description,
+        location,
+        startTime,
+        endTime,
+        calendarId: calendarId || undefined,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось создать событие.");
+    } finally {
+      setSubmitting(false);
+    }
   }, [summary, description, location, startTime, endTime, calendarId, onCreate]);
 
   return (
@@ -54,8 +76,9 @@ export function EventCreateModal({ calendars, onClose, onCreate }: EventCreateMo
 
         {calendars && calendars.length > 1 && (
           <div>
-            <label className="text-xs text-text-secondary block mb-1">Calendar</label>
+            <label htmlFor="event-calendar" className="text-xs text-text-secondary block mb-1">Calendar</label>
             <select
+              id="event-calendar"
               value={calendarId}
               onChange={(e) => setCalendarId(e.target.value)}
               className="w-full px-3 py-1.5 bg-bg-tertiary border border-border-primary rounded text-sm text-text-primary outline-none focus:border-accent"
@@ -105,11 +128,17 @@ export function EventCreateModal({ calendars, onClose, onCreate }: EventCreateMo
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
+          {error && (
+            <div className="mr-auto max-w-[60%] text-xs text-danger">
+              {error}
+            </div>
+          )}
           <Button
             type="button"
             variant="secondary"
             size="md"
             onClick={onClose}
+            disabled={submitting}
           >
             Cancel
           </Button>
@@ -117,9 +146,9 @@ export function EventCreateModal({ calendars, onClose, onCreate }: EventCreateMo
             type="submit"
             variant="primary"
             size="md"
-            disabled={!summary.trim()}
+            disabled={submitting || !summary.trim()}
           >
-            Create
+            {submitting ? "Создание..." : "Create"}
           </Button>
         </div>
       </form>

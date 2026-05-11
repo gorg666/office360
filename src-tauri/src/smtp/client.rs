@@ -17,9 +17,7 @@ fn decode_base64url(input: &str) -> Result<Vec<u8>, String> {
 }
 
 /// Build an async SMTP transport from the given config.
-fn build_transport(
-    config: &SmtpConfig,
-) -> Result<AsyncSmtpTransport<Tokio1Executor>, String> {
+fn build_transport(config: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, String> {
     let credentials = Credentials::new(config.username.clone(), config.password.clone());
 
     // For OAuth2, force XOAUTH2 mechanism; for password, use default mechanisms
@@ -160,7 +158,7 @@ pub async fn send_raw_email(
         .await
         .map(|_response| SmtpSendResult {
             success: true,
-            message: "Email sent successfully".to_string(),
+            message: "Письмо отправлено".to_string(),
         })
         .map_err(|e| format!("SMTP send error: {}", e))
 }

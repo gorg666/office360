@@ -2,46 +2,51 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 
 #[derive(Serialize)]
 pub struct OAuthResult {
-    pub code: String,
+    pub code: Option<String>,
     pub state: String,
+    pub error: Option<String>,
+    pub error_description: Option<String>,
 }
 
 /// Binds to a localhost port for OAuth callback. Tries the given port first,
 /// falls back to nearby ports if taken.
 #[tauri::command]
 pub async fn start_oauth_server(port: u16, state: String) -> Result<OAuthResult, String> {
-    // Try the requested port, then a few alternatives
-    let mut listener = None;
+    // Try the requested port, then a few alternatives. Bind both IPv4 and IPv6
+    // loopback where possible: browsers often resolve localhost to ::1 first.
+    let mut listeners = None;
     for p in [port, port + 1, port + 2, port + 3] {
-        match TcpListener::bind(format!("127.0.0.1:{}", p)).await {
-            Ok(l) => {
-                listener = Some(l);
+        let ipv4 = TcpListener::bind(format!("127.0.0.1:{}", p)).await.ok();
+        let ipv6 = TcpListener::bind(format!("[::1]:{}", p)).await.ok();
+        if ipv4.is_some() || ipv6.is_some() {
+            if let Some(listener) = ipv4.as_ref().or(ipv6.as_ref()) {
+                let actual_port = listener
+                    .local_addr()
+                    .map_err(|e| format!("Failed to get addr: {}", e))?
+                    .port();
+                listeners = Some((actual_port, ipv4, ipv6));
                 break;
             }
-            Err(_) => continue,
         }
     }
 
-    let listener = listener.ok_or("Failed to bind to any port")?;
-    let actual_port = listener
-        .local_addr()
-        .map_err(|e| format!("Failed to get addr: {}", e))?
-        .port();
+    let (actual_port, ipv4_listener, ipv6_listener) =
+        listeners.ok_or("Failed to bind to any localhost port")?;
 
     log::info!("OAuth callback server listening on port {}", actual_port);
 
     // Wait for exactly one connection (the redirect from Google) with 5-minute timeout
-    let (mut stream, _) = tokio::time::timeout(
+    let mut stream = tokio::time::timeout(
         Duration::from_secs(300),
-        listener.accept(),
+        accept_oauth_connection(ipv4_listener, ipv6_listener),
     )
-    .await
-    .map_err(|_| "OAuth timed out — please try again".to_string())?
-    .map_err(|e| format!("Failed to accept: {}", e))?;
+        .await
+        .map_err(|_| "OAuth timed out — please try again".to_string())?
+        .map_err(|e| format!("Failed to accept: {}", e))?;
 
     // Read the HTTP request
     let mut buf = vec![0u8; 4096];
@@ -51,41 +56,106 @@ pub async fn start_oauth_server(port: u16, state: String) -> Result<OAuthResult,
         .map_err(|e| format!("Failed to read: {}", e))?;
     let request = String::from_utf8_lossy(&buf[..n]);
 
-    // Extract query string from GET request line
-    let (code, returned_state) = parse_auth_code_and_state(&request)?;
+    // Extract callback payload from GET request line
+    let callback = parse_oauth_callback(&request)?;
 
     // Validate state parameter (CSRF protection)
-    if returned_state != state {
+    if callback.state != state {
+        let html = r#"<!DOCTYPE html>
+<html>
+<head><title>Office360 — Ошибка авторизации</title></head>
+<body style="font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #fecaca;">
+<div style="text-align: center; max-width: 540px;">
+<h1 style="margin-bottom: 8px;">Ошибка авторизации</h1>
+<p style="opacity: 0.85;">Не удалось подтвердить состояние авторизации. Закройте вкладку и попробуйте снова из Office360.</p>
+</div>
+</body>
+</html>"#;
+        let _ = write_browser_response(&mut stream, html).await;
         return Err("OAuth state mismatch — possible CSRF attack".to_string());
     }
+
+    if let Some(error) = callback.error.as_ref() {
+        let description = callback
+            .error_description
+            .as_deref()
+            .unwrap_or("Провайдер OAuth вернул ошибку авторизации.");
+        let html = format!(
+            r#"<!DOCTYPE html>
+<html>
+<head><title>Office360 — Ошибка авторизации</title></head>
+<body style="font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #fecaca;">
+<div style="text-align: center; max-width: 540px;">
+<h1 style="margin-bottom: 8px;">Ошибка авторизации</h1>
+<p style="opacity: 0.9; margin-bottom: 6px;">{}</p>
+<p style="opacity: 0.72;">Закройте вкладку и вернитесь в Office360.</p>
+</div>
+</body>
+</html>"#,
+            html_escape(description)
+        );
+        let _ = write_browser_response(&mut stream, &html).await;
+        return Ok(OAuthResult {
+            code: None,
+            state: callback.state,
+            error: Some(error.clone()),
+            error_description: callback.error_description,
+        });
+    }
+
+    let code = callback
+        .code
+        .ok_or_else(|| "No auth code in redirect".to_string())?;
 
     // Send a success response to the browser
     let html = r#"<!DOCTYPE html>
 <html>
-<head><title>Velo</title></head>
+<head><title>Office360 — Аккаунт подключён</title></head>
 <body style="font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #e2e8f0;">
 <div style="text-align: center;">
-<h1 style="margin-bottom: 8px;">Account Connected!</h1>
-<p style="opacity: 0.7;">You can close this tab and return to Velo.</p>
+<h1 style="margin-bottom: 8px;">Аккаунт успешно подключён</h1>
+<p style="opacity: 0.7;">Теперь можно закрыть вкладку и вернуться в Office360.</p>
 </div>
 </body>
 </html>"#;
+    let _ = write_browser_response(&mut stream, html).await;
 
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nConnection: close\r\n\r\n{}",
-        html.len(),
-        html
-    );
-
-    let _ = stream.write_all(response.as_bytes()).await;
-    let _ = stream.flush().await;
-
-    drop(listener);
-
-    Ok(OAuthResult { code, state: returned_state })
+    Ok(OAuthResult {
+        code: Some(code),
+        state: callback.state,
+        error: None,
+        error_description: None,
+    })
 }
 
-fn parse_auth_code_and_state(request: &str) -> Result<(String, String), String> {
+async fn accept_oauth_connection(
+    ipv4_listener: Option<TcpListener>,
+    ipv6_listener: Option<TcpListener>,
+) -> std::io::Result<TcpStream> {
+    match (ipv4_listener, ipv6_listener) {
+        (Some(ipv4), Some(ipv6)) => {
+            tokio::select! {
+                result = ipv4.accept() => result.map(|(stream, _)| stream),
+                result = ipv6.accept() => result.map(|(stream, _)| stream),
+            }
+        }
+        (Some(ipv4), None) => ipv4.accept().await.map(|(stream, _)| stream),
+        (None, Some(ipv6)) => ipv6.accept().await.map(|(stream, _)| stream),
+        (None, None) => Err(std::io::Error::new(
+            std::io::ErrorKind::AddrNotAvailable,
+            "no localhost listener available",
+        )),
+    }
+}
+
+struct OAuthCallbackPayload {
+    code: Option<String>,
+    state: String,
+    error: Option<String>,
+    error_description: Option<String>,
+}
+
+fn parse_oauth_callback(request: &str) -> Result<OAuthCallbackPayload, String> {
     let first_line = request.lines().next().ok_or("Empty request")?;
 
     let path = first_line
@@ -93,22 +163,17 @@ fn parse_auth_code_and_state(request: &str) -> Result<(String, String), String> 
         .nth(1)
         .ok_or("No path in request")?;
 
-    if path.contains("error=") {
-        let params = parse_query_string(path);
-        let error = params.get("error").cloned().unwrap_or_default();
-        return Err(format!("OAuth error: {}", error));
-    }
-
     let params = parse_query_string(path);
-    let code = params
-        .get("code")
-        .cloned()
-        .ok_or_else(|| "No auth code in redirect".to_string())?;
     let state = params
         .get("state")
         .cloned()
         .ok_or_else(|| "No state in redirect".to_string())?;
-    Ok((code, state))
+    Ok(OAuthCallbackPayload {
+        code: params.get("code").cloned(),
+        state,
+        error: params.get("error").cloned(),
+        error_description: params.get("error_description").cloned(),
+    })
 }
 
 fn parse_query_string(path: &str) -> HashMap<String, String> {
@@ -130,10 +195,7 @@ fn urlencoding_decode(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(
-                &s[i + 1..i + 3],
-                16,
-            ) {
+            if let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
                 result.push(byte);
                 i += 3;
                 continue;
@@ -147,6 +209,25 @@ fn urlencoding_decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8(result).unwrap_or_else(|_| s.to_string())
+}
+
+fn html_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+async fn write_browser_response(stream: &mut TcpStream, html: &str) -> std::io::Result<()> {
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nConnection: close\r\n\r\n{}",
+        html.len(),
+        html
+    );
+    stream.write_all(response.as_bytes()).await?;
+    stream.flush().await
 }
 
 #[derive(Serialize, Deserialize)]

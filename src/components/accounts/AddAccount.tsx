@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Mail, Calendar } from "lucide-react";
+import { Mail, Calendar, ShieldCheck } from "lucide-react";
 import { startOAuthFlow } from "@/services/gmail/auth";
 import { insertAccount } from "@/services/db/accounts";
 import { getClientId, getClientSecret } from "@/services/gmail/tokenManager";
@@ -9,13 +9,16 @@ import { SetupClientId } from "./SetupClientId";
 import { AddImapAccount } from "./AddImapAccount";
 import { AddCalDavAccount } from "./AddCalDavAccount";
 import { getCurrentUnixTimestamp } from "@/utils/timestamp";
+import { APP_NAME_EN, APP_NAME_RU } from "@/i18n";
+import { useUIStore } from "@/stores/uiStore";
 
 interface AddAccountProps {
   onClose: () => void;
-  onSuccess: () => void;
+  /** New account id in DB (for immediate targeted sync). */
+  onSuccess: (accountId: string) => void;
 }
 
-type View = "select-provider" | "gmail" | "imap" | "caldav";
+type View = "select-provider" | "yandex" | "gmail" | "imap" | "caldav";
 
 export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
   const [view, setView] = useState<View>("select-provider");
@@ -25,6 +28,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
   const [error, setError] = useState<string | null>(null);
   const [needsSetup, setNeedsSetup] = useState(false);
   const addAccount = useAccountStore((s) => s.addAccount);
+  const locale = useUIStore((s) => s.locale);
 
   const handleAddGmailAccount = async () => {
     setStatus("checking");
@@ -56,15 +60,23 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
         displayName: userInfo.name,
         avatarUrl: userInfo.picture,
         isActive: true,
+        provider: "gmail_api",
       });
 
-      onSuccess();
+      onSuccess(accountId);
     } catch (err) {
       console.error("Add account error:", err);
       const message =
         err instanceof Error ? err.message : String(err);
       if (message.includes("Client ID not configured")) {
         setNeedsSetup(true);
+      } else if (message.includes("access_denied") || message.includes("OAuth callback timed out")) {
+        setError(
+          locale === "ru"
+            ? "Google заблокировал доступ: добавьте этот Gmail в Test users на OAuth consent screen в Google Cloud или отправьте приложение на проверку Google."
+            : "Google blocked access: add this Gmail address to Test users on the OAuth consent screen in Google Cloud, or submit the app for Google verification.",
+        );
+        setStatus("error");
       } else {
         setError(message);
         setStatus("error");
@@ -104,12 +116,32 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
     );
   }
 
+  if (view === "yandex") {
+    return (
+      <AddImapAccount
+        onClose={onClose}
+        onSuccess={onSuccess}
+        onBack={() => setView("select-provider")}
+        oauthPreset={{
+          providerId: "yandex",
+          title: locale === "ru" ? "Подключить через Яндекс ID" : "Connect with Yandex ID",
+          defaultEmail: "user@yandex.ru",
+          description: locale === "ru"
+            ? "Подключите Яндекс Почту и Календарь через один OAuth-вход. IMAP/SMTP и CalDAV будут использовать один сохраненный токен."
+            : "Connect Yandex Mail and Calendar with one OAuth sign-in. IMAP/SMTP and CalDAV will share the stored token.",
+        }}
+      />
+    );
+  }
+
   if (view === "gmail") {
     return (
       <Modal isOpen={true} onClose={onClose} title="Add Gmail Account" width="w-full max-w-md">
         <div className="p-4">
           <p className="text-text-secondary text-sm mb-6">
-            Sign in with your Google account to connect it to Velo.
+            {locale === "ru"
+              ? `Войдите через Google-аккаунт, чтобы подключить его к ${APP_NAME_RU}.`
+              : `Sign in with your Google account to connect it to ${APP_NAME_EN}.`}
           </p>
 
           {error && (
@@ -163,15 +195,54 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
     );
   }
 
+  const providerCopy = {
+    addAccountTitle: locale === "ru" ? "Добавить аккаунт" : "Add Account",
+    chooseProvider: locale === "ru"
+      ? "Выберите способ подключения почтового аккаунта."
+      : "Choose how you want to connect your email account.",
+    yandexDescription: locale === "ru"
+      ? "Яндекс Почта и Календарь через один OAuth-вход"
+      : "Yandex Mail and Calendar via one OAuth sign-in",
+    gmailDescription: locale === "ru"
+      ? "Подключение через OAuth с полной поддержкой Gmail API"
+      : "Connect via OAuth with full Gmail API support",
+    imapDescription: locale === "ru"
+      ? "Подключите любого почтового провайдера с ручной настройкой серверов"
+      : "Connect any email provider with manual server configuration",
+    caldavTitle: locale === "ru" ? "CalDAV (только календарь)" : "CalDAV (Calendar Only)",
+    caldavDescription: locale === "ru"
+      ? "Подключите iCloud, Fastmail, Nextcloud или любой сервер календаря CalDAV"
+      : "Connect iCloud, Fastmail, Nextcloud, or any CalDAV calendar server",
+    cancel: locale === "ru" ? "Отмена" : "Cancel",
+  };
+
   // Provider selection view
   return (
-    <Modal isOpen={true} onClose={onClose} title="Add Account" width="w-full max-w-md">
+    <Modal isOpen={true} onClose={onClose} title={providerCopy.addAccountTitle} width="w-full max-w-md">
       <div className="p-4">
         <p className="text-text-secondary text-sm mb-4">
-          Choose how you want to connect your email account.
+          {providerCopy.chooseProvider}
         </p>
 
         <div className="space-y-3">
+          <button
+            onClick={() => setView("yandex")}
+            className="w-full flex items-center gap-4 p-4 rounded-lg border border-accent/30 bg-accent/5 hover:bg-accent/10 transition-colors text-left group"
+          >
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-[#fc3f1d] text-white flex items-center justify-center font-semibold">
+              Я
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors flex items-center gap-2">
+                Яндекс ID
+                <ShieldCheck className="w-3.5 h-3.5 text-accent" />
+              </div>
+              <div className="text-xs text-text-tertiary mt-0.5">
+                {providerCopy.yandexDescription}
+              </div>
+            </div>
+          </button>
+
           <button
             onClick={() => setView("gmail")}
             className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
@@ -201,7 +272,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                 Google (Gmail)
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
-                Connect via OAuth with full Gmail API support
+                {providerCopy.gmailDescription}
               </div>
             </div>
           </button>
@@ -218,7 +289,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                 IMAP / SMTP
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
-                Connect any email provider with manual server configuration
+                {providerCopy.imapDescription}
               </div>
             </div>
           </button>
@@ -232,10 +303,10 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors">
-                CalDAV (Calendar Only)
+                {providerCopy.caldavTitle}
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
-                Connect iCloud, Fastmail, Nextcloud, or any CalDAV calendar server
+                {providerCopy.caldavDescription}
               </div>
             </div>
           </button>
@@ -246,7 +317,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             onClick={onClose}
             className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
           >
-            Cancel
+            {providerCopy.cancel}
           </button>
         </div>
       </div>

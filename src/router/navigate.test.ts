@@ -16,6 +16,15 @@ vi.mock("./index", () => ({
   },
 }));
 
+const mockSetMessengersPanelsOpen = vi.fn();
+vi.mock("@/stores/uiStore", () => ({
+  useUIStore: {
+    getState: () => ({
+      setMessengersPanelsOpen: mockSetMessengersPanelsOpen,
+    }),
+  },
+}));
+
 import {
   navigateToLabel,
   navigateToThread,
@@ -28,6 +37,7 @@ import {
 describe("navigate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSetMessengersPanelsOpen.mockClear();
     mockState.location = { pathname: "/mail/inbox", search: {} };
     mockState.matches = [];
   });
@@ -39,6 +49,23 @@ describe("navigate", () => {
         to: "/mail/$label",
         params: { label: "inbox" },
         search: {},
+      });
+    });
+
+    it("should open messenger panels on mail shell without extra navigation", () => {
+      mockState.location.pathname = "/mail/starred";
+      navigateToLabel("messengers");
+      expect(mockSetMessengersPanelsOpen).toHaveBeenCalledWith(true);
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it("should open messenger panels and go to inbox when outside mail shell", () => {
+      mockState.location.pathname = "/calendar";
+      navigateToLabel("messengers");
+      expect(mockSetMessengersPanelsOpen).toHaveBeenCalledWith(true);
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/mail/$label",
+        params: { label: "inbox" },
       });
     });
 
@@ -62,6 +89,30 @@ describe("navigate", () => {
     it("should navigate to calendar", () => {
       navigateToLabel("calendar");
       expect(mockNavigate).toHaveBeenCalledWith({ to: "/calendar" });
+    });
+
+    it("should navigate to files (incoming by default)", () => {
+      navigateToLabel("files");
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/files/$tab",
+        params: { tab: "incoming" },
+      });
+    });
+
+    it("should navigate to files outgoing tab", () => {
+      navigateToLabel("files", { filesTab: "outgoing" });
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/files/$tab",
+        params: { tab: "outgoing" },
+      });
+    });
+
+    it("should map legacy attachments label to files incoming", () => {
+      navigateToLabel("attachments");
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/files/$tab",
+        params: { tab: "incoming" },
+      });
     });
 
     it("should navigate to smart folders", () => {
@@ -279,6 +330,19 @@ describe("navigate", () => {
     it("should return 'calendar' from calendar route", () => {
       mockState.matches = [{ routeId: "/calendar", params: {} }];
       expect(getActiveLabel()).toBe("calendar");
+    });
+
+    it("should return 'files' from files route", () => {
+      mockState.matches = [
+        { routeId: "__root__", params: {} },
+        { routeId: "/files/$tab", params: { tab: "incoming" } },
+      ];
+      expect(getActiveLabel()).toBe("files");
+    });
+
+    it("should return 'tasks' from tasks route", () => {
+      mockState.matches = [{ routeId: "/tasks", params: {} }];
+      expect(getActiveLabel()).toBe("tasks");
     });
 
     it("should return 'inbox' as fallback", () => {
