@@ -187,3 +187,5 @@ npm run tauri build
   Built with Rust and React.<br />
   Made by <a href="https://github.com/avihaymenahem">Avihay</a>.
 </p>
+
+## Ефим зайка :)  
