@@ -11,9 +11,10 @@ import { initializeClients } from "./services/gmail/tokenManager";
 import { getThreadById, getThreadLabelIds } from "./services/db/threads";
 import { getContactDisplayNameMap } from "./services/db/contacts";
 import { effectiveFromName } from "./utils/senderDisplay";
-import { getThemeById, COLOR_THEMES } from "./constants/themes";
+import { COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import type { Thread } from "./stores/threadStore";
+import { applyColorTheme, applyWindowBackground } from "./utils/themeEffects";
 
 export default function ThreadWindow() {
   const { setTheme, setFontScale, setColorTheme } = useUIStore();
@@ -54,6 +55,22 @@ export default function ThreadWindow() {
         if (savedColorTheme && COLOR_THEMES.some((t) => t.id === savedColorTheme)) {
           setColorTheme(savedColorTheme as ColorThemeId);
         }
+
+        const ui = useUIStore.getState();
+        const savedBackgroundPreset = await getSetting("window_background_preset");
+        if (savedBackgroundPreset === "default" || savedBackgroundPreset === "sunrise" || savedBackgroundPreset === "mint" || savedBackgroundPreset === "lavender" || savedBackgroundPreset === "graphite") {
+          ui.setWindowBackgroundPreset(savedBackgroundPreset);
+        }
+        const savedBackgroundLayout = await getSetting("window_background_layout");
+        if (savedBackgroundLayout === "soft" || savedBackgroundLayout === "diagonal" || savedBackgroundLayout === "corners" || savedBackgroundLayout === "halo" || savedBackgroundLayout === "minimal") {
+          ui.setWindowBackgroundLayout(savedBackgroundLayout);
+        }
+        const savedBackgroundSpeed = await getSetting("window_background_speed");
+        if (savedBackgroundSpeed === "slow" || savedBackgroundSpeed === "normal" || savedBackgroundSpeed === "fast" || savedBackgroundSpeed === "still") {
+          ui.setWindowBackgroundSpeed(savedBackgroundSpeed);
+        }
+        const savedBackgroundImage = await getSetting("window_background_image_path");
+        if (savedBackgroundImage) ui.setWindowBackgroundImagePath(savedBackgroundImage);
 
         // Load accounts into store
         const dbAccounts = await getAllAccounts();
@@ -144,24 +161,7 @@ export default function ThreadWindow() {
   const colorTheme = useUIStore((s) => s.colorTheme);
   useEffect(() => {
     const root = document.documentElement;
-    const props = ["--color-accent", "--color-accent-hover", "--color-accent-light", "--color-bg-selected", "--color-sidebar-active"];
-
-    const apply = () => {
-      if (colorTheme === "indigo") {
-        for (const p of props) root.style.removeProperty(p);
-        return;
-      }
-      const themeData = getThemeById("slate");
-      const isDark =
-        theme === "dark" ||
-        (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-      const colors = isDark ? themeData.dark : themeData.light;
-      root.style.setProperty("--color-accent", colors.accent);
-      root.style.setProperty("--color-accent-hover", colors.accentHover);
-      root.style.setProperty("--color-accent-light", colors.accentLight);
-      root.style.setProperty("--color-bg-selected", colors.bgSelected);
-      root.style.setProperty("--color-sidebar-active", colors.sidebarActive);
-    };
+    const apply = () => applyColorTheme(root, { theme, colorTheme });
 
     apply();
 
@@ -171,6 +171,29 @@ export default function ThreadWindow() {
       return () => mq.removeEventListener("change", apply);
     }
   }, [colorTheme, theme]);
+
+  const windowBackgroundPreset = useUIStore((s) => s.windowBackgroundPreset);
+  const windowBackgroundLayout = useUIStore((s) => s.windowBackgroundLayout);
+  const windowBackgroundSpeed = useUIStore((s) => s.windowBackgroundSpeed);
+  const windowBackgroundImagePath = useUIStore((s) => s.windowBackgroundImagePath);
+  useEffect(() => {
+    const root = document.documentElement;
+    const apply = () => {
+      applyWindowBackground(root, {
+        theme,
+        preset: windowBackgroundPreset,
+        layout: windowBackgroundLayout,
+        speed: windowBackgroundSpeed,
+        imagePath: windowBackgroundImagePath,
+      });
+    };
+    apply();
+    if (theme === "system") {
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      mq.addEventListener("change", apply);
+      return () => mq.removeEventListener("change", apply);
+    }
+  }, [theme, windowBackgroundPreset, windowBackgroundLayout, windowBackgroundSpeed, windowBackgroundImagePath]);
 
   if (loading) {
     return (
@@ -190,6 +213,13 @@ export default function ThreadWindow() {
 
   return (
     <div className="flex flex-col h-screen bg-bg-primary text-text-primary">
+      <div className="animated-bg" aria-hidden="true">
+        <div className="blob" />
+        <div className="blob" />
+        <div className="blob" />
+        <div className="blob" />
+        <div className="blob" />
+      </div>
       <ThreadView thread={thread} />
       <Composer />
       <UndoSendToast />

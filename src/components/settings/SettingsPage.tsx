@@ -32,6 +32,8 @@ import {
   Scale,
   Globe,
   Download,
+  Image,
+  Palette,
   ChevronUp,
   ChevronDown,
   RotateCcw,
@@ -59,7 +61,12 @@ import {
   type SendAsAlias,
 } from "@/services/db/sendAsAliases";
 import { ALL_NAV_ITEMS } from "@/components/layout/Sidebar";
-import type { SidebarNavItem } from "@/stores/uiStore";
+import type {
+  SidebarNavItem,
+  WindowBackgroundLayout,
+  WindowBackgroundPreset,
+  WindowBackgroundSpeed,
+} from "@/stores/uiStore";
 import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
 import appIcon from "@/assets/icon.png";
@@ -84,6 +91,41 @@ const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: "about", label: "About", icon: Info },
 ];
 
+const BACKGROUND_PRESETS: { id: WindowBackgroundPreset; label: string; swatchClasses: string[] }[] = [
+  { id: "default", label: "Текущий светлый", swatchClasses: ["bg-[#fafafa]", "bg-[#e5e5e5]", "bg-white"] },
+  { id: "sunrise", label: "Тёплый рассвет", swatchClasses: ["bg-orange-50", "bg-amber-100", "bg-rose-100"] },
+  { id: "mint", label: "Мятная свежесть", swatchClasses: ["bg-teal-50", "bg-green-100", "bg-cyan-100"] },
+  { id: "lavender", label: "Лавандовый", swatchClasses: ["bg-purple-50", "bg-violet-100", "bg-pink-100"] },
+  { id: "graphite", label: "Графит", swatchClasses: ["bg-slate-50", "bg-slate-300", "bg-slate-500"] },
+];
+
+const BACKGROUND_LAYOUTS: { id: WindowBackgroundLayout; label: string }[] = [
+  { id: "soft", label: "Мягко" },
+  { id: "diagonal", label: "Диагональ" },
+  { id: "corners", label: "По углам" },
+  { id: "halo", label: "Ореол" },
+  { id: "minimal", label: "Минимально" },
+];
+
+const BACKGROUND_SPEEDS: { id: WindowBackgroundSpeed; label: string }[] = [
+  { id: "slow", label: "Медленно" },
+  { id: "normal", label: "Обычно" },
+  { id: "fast", label: "Быстро" },
+  { id: "still", label: "Без движения" },
+];
+
+const COLOR_THEME_SWATCH_CLASSES: Record<string, string> = {
+  neutral: "bg-neutral-600",
+  indigo: "bg-indigo-600",
+  rose: "bg-rose-600",
+  emerald: "bg-emerald-600",
+  amber: "bg-amber-600",
+  sky: "bg-sky-600",
+  violet: "bg-violet-600",
+  orange: "bg-orange-600",
+  slate: "bg-slate-600",
+};
+
 export function SettingsPage() {
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
@@ -95,6 +137,14 @@ export function SettingsPage() {
   const setFontScale = useUIStore((s) => s.setFontScale);
   const colorTheme = useUIStore((s) => s.colorTheme);
   const setColorTheme = useUIStore((s) => s.setColorTheme);
+  const windowBackgroundPreset = useUIStore((s) => s.windowBackgroundPreset);
+  const setWindowBackgroundPreset = useUIStore((s) => s.setWindowBackgroundPreset);
+  const windowBackgroundLayout = useUIStore((s) => s.windowBackgroundLayout);
+  const setWindowBackgroundLayout = useUIStore((s) => s.setWindowBackgroundLayout);
+  const windowBackgroundSpeed = useUIStore((s) => s.windowBackgroundSpeed);
+  const setWindowBackgroundSpeed = useUIStore((s) => s.setWindowBackgroundSpeed);
+  const windowBackgroundImagePath = useUIStore((s) => s.windowBackgroundImagePath);
+  const setWindowBackgroundImagePath = useUIStore((s) => s.setWindowBackgroundImagePath);
   const defaultReplyMode = useUIStore((s) => s.defaultReplyMode);
   const setDefaultReplyMode = useUIStore((s) => s.setDefaultReplyMode);
   const markAsReadBehavior = useUIStore((s) => s.markAsReadBehavior);
@@ -310,6 +360,34 @@ export function SettingsPage() {
     configureNotificationSound({ path: "" });
     await setSetting("notification_sound_path", "");
   }, []);
+
+  const handleChooseBackgroundImage = useCallback(async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({
+      multiple: false,
+      filters: [
+        {
+          name: "Images",
+          extensions: ["png", "jpg", "jpeg", "webp", "bmp", "gif"],
+        },
+      ],
+    });
+    const path = Array.isArray(selected) ? selected[0] : selected;
+    if (!path) return;
+    setWindowBackgroundImagePath(path);
+  }, [setWindowBackgroundImagePath]);
+
+  const handleResetWindowBackground = useCallback(() => {
+    setWindowBackgroundPreset("default");
+    setWindowBackgroundLayout("soft");
+    setWindowBackgroundSpeed("normal");
+    setWindowBackgroundImagePath("");
+  }, [
+    setWindowBackgroundImagePath,
+    setWindowBackgroundLayout,
+    setWindowBackgroundPreset,
+    setWindowBackgroundSpeed,
+  ]);
 
   const handleUndoDelayChange = useCallback(async (value: string) => {
     setUndoSendDelay(value);
@@ -560,15 +638,9 @@ export function SettingsPage() {
                               title={t.name}
                               className={`relative w-7 h-7 rounded-full transition-all ${
                                 isSelected
-                                  ? "ring-2 ring-offset-2 ring-offset-bg-primary scale-110"
+                                  ? "ring-2 ring-accent ring-offset-2 ring-offset-bg-primary scale-110"
                                   : "hover:scale-105"
-                              }`}
-                              style={{
-                                backgroundColor: t.swatch,
-                                boxShadow: isSelected
-                                  ? `0 0 0 2px var(--color-bg-primary), 0 0 0 4px ${t.swatch}`
-                                  : undefined,
-                              }}
+                              } ${COLOR_THEME_SWATCH_CLASSES[t.id]}`}
                             >
                               {isSelected && (
                                 <Check size={14} className="absolute inset-0 m-auto text-white drop-shadow-sm" />
@@ -578,6 +650,117 @@ export function SettingsPage() {
                         })}
                       </div>
                     </SettingRow>
+                    <div className="rounded-xl border border-border-primary bg-bg-secondary/60 p-4">
+                      <div className="mb-3 flex items-start justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
+                            <Palette size={15} className="text-accent" />
+                            Фон окон
+                          </div>
+                          <p className="mt-1 text-xs text-text-tertiary">
+                            Выберите цветовую основу, расположение пятен, скорость движения или собственное изображение.
+                          </p>
+                        </div>
+                        <Button variant="ghost" size="xs" icon={<RotateCcw size={13} />} onClick={handleResetWindowBackground}>
+                          Сбросить
+                        </Button>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <span className="text-xs font-medium text-text-secondary">Цвет фона</span>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            {BACKGROUND_PRESETS.map((preset) => {
+                              const isSelected = windowBackgroundPreset === preset.id;
+                              return (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  onClick={() => setWindowBackgroundPreset(preset.id)}
+                                  className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+                                    isSelected
+                                      ? "border-accent bg-accent/10 text-accent"
+                                      : "border-border-primary bg-bg-primary/70 text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                                  }`}
+                                >
+                                  <span>{preset.label}</span>
+                                  <span className="flex -space-x-1">
+                                    {preset.swatchClasses.map((swatchClass) => (
+                                      <span
+                                        key={swatchClass}
+                                        className={`h-4 w-4 rounded-full border border-white/60 ${swatchClass}`}
+                                      />
+                                    ))}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <label className="text-xs text-text-secondary">
+                            Стиль пятен
+                            <select
+                              value={windowBackgroundLayout}
+                              title="Стиль расположения фоновых пятен"
+                              onChange={(e) => setWindowBackgroundLayout(e.target.value as WindowBackgroundLayout)}
+                              className="mt-1 w-full bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+                            >
+                              {BACKGROUND_LAYOUTS.map((layout) => (
+                                <option key={layout.id} value={layout.id}>{layout.label}</option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <label className="text-xs text-text-secondary">
+                            Скорость движения
+                            <select
+                              value={windowBackgroundSpeed}
+                              title="Скорость движения фоновых пятен"
+                              onChange={(e) => setWindowBackgroundSpeed(e.target.value as WindowBackgroundSpeed)}
+                              className="mt-1 w-full bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+                            >
+                              {BACKGROUND_SPEEDS.map((speed) => (
+                                <option key={speed.id} value={speed.id}>{speed.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 rounded-lg bg-bg-primary/70 px-3 py-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 text-xs font-medium text-text-secondary">
+                              <Image size={14} className="text-accent" />
+                              Своё изображение
+                            </div>
+                            <p className="mt-0.5 truncate text-xs text-text-tertiary">
+                              {windowBackgroundImagePath
+                                ? windowBackgroundImagePath.split(/[\\/]/).pop()
+                                : "Не выбрано. Изображение будет высветлено и размыто как фон."}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <Button variant="secondary" size="xs" onClick={handleChooseBackgroundImage}>
+                              Загрузить
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => setWindowBackgroundImagePath("")}
+                              disabled={!windowBackgroundImagePath}
+                            >
+                              Убрать
+                            </Button>
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-text-tertiary">
+                          Дополнительно можно использовать: «Рассвет» для тёплого интерфейса, «Мяту» для спокойного рабочего режима,
+                          «Лавандовый» для мягкого акцента или «Графит» для строгого оформления.
+                        </p>
+                      </div>
+                    </div>
                     <SettingRow label="Inbox view mode">
                       <select
                         value={inboxViewMode}

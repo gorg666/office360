@@ -11,6 +11,9 @@ export type MarkAsReadBehavior = "instant" | "2s" | "manual";
 export type FontScale = "small" | "default" | "large" | "xlarge";
 export type InboxViewMode = "unified" | "split";
 export type AppLocale = "en" | "ru";
+export type WindowBackgroundPreset = "default" | "sunrise" | "mint" | "lavender" | "graphite";
+export type WindowBackgroundLayout = "soft" | "diagonal" | "corners" | "halo" | "minimal";
+export type WindowBackgroundSpeed = "slow" | "normal" | "fast" | "still";
 
 export interface SidebarNavItem {
   id: string;
@@ -29,6 +32,10 @@ interface UIState {
   markAsReadBehavior: MarkAsReadBehavior;
   fontScale: FontScale;
   colorTheme: ColorThemeId;
+  windowBackgroundPreset: WindowBackgroundPreset;
+  windowBackgroundLayout: WindowBackgroundLayout;
+  windowBackgroundSpeed: WindowBackgroundSpeed;
+  windowBackgroundImagePath: string;
   sendAndArchive: boolean;
   inboxViewMode: InboxViewMode;
   taskSidebarVisible: boolean;
@@ -53,6 +60,10 @@ interface UIState {
   setMarkAsReadBehavior: (behavior: MarkAsReadBehavior) => void;
   setFontScale: (scale: FontScale) => void;
   setColorTheme: (theme: ColorThemeId) => void;
+  setWindowBackgroundPreset: (preset: WindowBackgroundPreset) => void;
+  setWindowBackgroundLayout: (layout: WindowBackgroundLayout) => void;
+  setWindowBackgroundSpeed: (speed: WindowBackgroundSpeed) => void;
+  setWindowBackgroundImagePath: (path: string) => void;
   setSendAndArchive: (enabled: boolean) => void;
   setInboxViewMode: (mode: InboxViewMode) => void;
   toggleTaskSidebar: () => void;
@@ -80,7 +91,11 @@ export const useUIStore = create<UIState>((set) => ({
   defaultReplyMode: "reply",
   markAsReadBehavior: "instant",
   fontScale: "default",
-  colorTheme: "indigo",
+  colorTheme: "neutral",
+  windowBackgroundPreset: "default",
+  windowBackgroundLayout: "soft",
+  windowBackgroundSpeed: "normal",
+  windowBackgroundImagePath: "",
   sendAndArchive: false,
   inboxViewMode: "unified",
   taskSidebarVisible: false,
@@ -138,6 +153,22 @@ export const useUIStore = create<UIState>((set) => ({
   setColorTheme: (colorTheme) => {
     setSetting("color_theme", colorTheme).catch(() => {});
     set({ colorTheme });
+  },
+  setWindowBackgroundPreset: (windowBackgroundPreset) => {
+    setSetting("window_background_preset", windowBackgroundPreset).catch(() => {});
+    set({ windowBackgroundPreset });
+  },
+  setWindowBackgroundLayout: (windowBackgroundLayout) => {
+    setSetting("window_background_layout", windowBackgroundLayout).catch(() => {});
+    set({ windowBackgroundLayout });
+  },
+  setWindowBackgroundSpeed: (windowBackgroundSpeed) => {
+    setSetting("window_background_speed", windowBackgroundSpeed).catch(() => {});
+    set({ windowBackgroundSpeed });
+  },
+  setWindowBackgroundImagePath: (windowBackgroundImagePath) => {
+    setSetting("window_background_image_path", windowBackgroundImagePath).catch(() => {});
+    set({ windowBackgroundImagePath });
   },
   setSendAndArchive: (sendAndArchive) => {
     setSetting("send_and_archive", String(sendAndArchive)).catch(() => {});

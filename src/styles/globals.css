@@ -34,6 +34,21 @@
   --glass-shadow-elevated: 0 16px 48px rgba(0, 0, 0, 0.14);
   --glass-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.4);
   --backdrop-blur-overlay: 16px;
+
+  --app-window-gradient: linear-gradient(135deg, #fafafa 0%, #f5f5f5 35%, #eeeeee 70%, #ffffff 100%);
+  --app-background-image-url: none;
+  --app-background-image-opacity: 0.24;
+  --app-background-image-filter: blur(10px) brightness(1.18) saturate(0.75);
+  --app-blob-1: radial-gradient(circle, #f5f5f5 0%, #d4d4d4 50%, transparent 70%);
+  --app-blob-2: radial-gradient(circle, #eeeeee 0%, #d6d3d1 50%, transparent 70%);
+  --app-blob-3: radial-gradient(circle, #ffffff 0%, #e5e5e5 50%, transparent 70%);
+  --app-blob-4: radial-gradient(circle, #e7e5e4 0%, #d6d3d1 50%, transparent 70%);
+  --app-blob-5: radial-gradient(circle, #fafafa 0%, #e5e5e5 50%, transparent 70%);
+  --app-bg-duration-1: 22s;
+  --app-bg-duration-2: 18s;
+  --app-bg-duration-3: 25s;
+  --app-bg-duration-4: 20s;
+  --app-bg-duration-5: 24s;
 }
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -88,7 +103,7 @@ body {
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, sans-serif;
-  background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 35%, #eeeeee 70%, #ffffff 100%);
+  background: var(--app-window-gradient);
   background-attachment: fixed;
   color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
@@ -97,7 +112,7 @@ body {
 }
 
 .dark body {
-  background-image: linear-gradient(135deg, #0a0a0a 0%, #171717 45%, #262626 100%);
+  background-image: var(--app-window-gradient);
 }
 
 /* Animated gradient blobs behind content */
@@ -107,6 +122,19 @@ body {
   z-index: -1;
   overflow: hidden;
   pointer-events: none;
+}
+
+.animated-bg::before {
+  content: "";
+  position: absolute;
+  inset: -24px;
+  background-image: var(--app-background-image-url);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  filter: var(--app-background-image-filter);
+  opacity: var(--app-background-image-opacity);
+  transform: scale(1.04);
 }
 
 .animated-bg .blob {
@@ -125,50 +153,92 @@ body {
 .animated-bg .blob:nth-child(1) {
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, #f5f5f5 0%, #d4d4d4 50%, transparent 70%);
+  background: var(--app-blob-1);
   top: -10%;
   left: -5%;
-  animation-duration: 22s;
+  animation-duration: var(--app-bg-duration-1);
 }
 
 .animated-bg .blob:nth-child(2) {
   width: 450px;
   height: 450px;
-  background: radial-gradient(circle, #eeeeee 0%, #d6d3d1 50%, transparent 70%);
+  background: var(--app-blob-2);
   top: 30%;
   right: -10%;
-  animation-duration: 18s;
+  animation-duration: var(--app-bg-duration-2);
   animation-delay: -5s;
 }
 
 .animated-bg .blob:nth-child(3) {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, #ffffff 0%, #e5e5e5 50%, transparent 70%);
+  background: var(--app-blob-3);
   bottom: -5%;
   left: 30%;
-  animation-duration: 25s;
+  animation-duration: var(--app-bg-duration-3);
   animation-delay: -10s;
 }
 
 .animated-bg .blob:nth-child(4) {
   width: 350px;
   height: 350px;
-  background: radial-gradient(circle, #e7e5e4 0%, #d6d3d1 50%, transparent 70%);
+  background: var(--app-blob-4);
   bottom: 20%;
   left: -8%;
-  animation-duration: 20s;
+  animation-duration: var(--app-bg-duration-4);
   animation-delay: -3s;
 }
 
 .animated-bg .blob:nth-child(5) {
   width: 300px;
   height: 300px;
-  background: radial-gradient(circle, #fafafa 0%, #e5e5e5 50%, transparent 70%);
+  background: var(--app-blob-5);
   top: 10%;
   left: 50%;
-  animation-duration: 24s;
+  animation-duration: var(--app-bg-duration-5);
   animation-delay: -8s;
+}
+
+.app-bg-speed-slow {
+  --app-bg-duration-1: 36s;
+  --app-bg-duration-2: 32s;
+  --app-bg-duration-3: 40s;
+  --app-bg-duration-4: 34s;
+  --app-bg-duration-5: 38s;
+}
+
+.app-bg-speed-fast {
+  --app-bg-duration-1: 12s;
+  --app-bg-duration-2: 10s;
+  --app-bg-duration-3: 14s;
+  --app-bg-duration-4: 11s;
+  --app-bg-duration-5: 13s;
+}
+
+.app-bg-speed-still .animated-bg .blob {
+  animation: none;
+}
+
+.app-bg-layout-diagonal .animated-bg .blob:nth-child(1) { top: -12%; left: -8%; }
+.app-bg-layout-diagonal .animated-bg .blob:nth-child(2) { top: 8%; right: 18%; }
+.app-bg-layout-diagonal .animated-bg .blob:nth-child(3) { bottom: 18%; left: 28%; }
+.app-bg-layout-diagonal .animated-bg .blob:nth-child(4) { bottom: -14%; right: -8%; left: auto; }
+.app-bg-layout-diagonal .animated-bg .blob:nth-child(5) { top: 42%; left: 62%; }
+
+.app-bg-layout-corners .animated-bg .blob:nth-child(1) { top: -14%; left: -10%; }
+.app-bg-layout-corners .animated-bg .blob:nth-child(2) { top: -12%; right: -10%; }
+.app-bg-layout-corners .animated-bg .blob:nth-child(3) { bottom: -12%; right: -6%; left: auto; }
+.app-bg-layout-corners .animated-bg .blob:nth-child(4) { bottom: -14%; left: -10%; }
+.app-bg-layout-corners .animated-bg .blob:nth-child(5) { top: 34%; left: 38%; }
+
+.app-bg-layout-halo .animated-bg .blob:nth-child(1) { top: 8%; left: 16%; }
+.app-bg-layout-halo .animated-bg .blob:nth-child(2) { top: 10%; right: 14%; }
+.app-bg-layout-halo .animated-bg .blob:nth-child(3) { bottom: 8%; left: 34%; }
+.app-bg-layout-halo .animated-bg .blob:nth-child(4) { bottom: 24%; left: 8%; }
+.app-bg-layout-halo .animated-bg .blob:nth-child(5) { top: 28%; left: 46%; }
+
+.app-bg-layout-minimal .animated-bg .blob:nth-child(n+4) {
+  display: none;
 }
 
 @keyframes blobMove {
@@ -190,29 +260,8 @@ body {
 }
 
 /* Dark mode blobs */
-.dark .animated-bg .blob:nth-child(1) {
-  background: radial-gradient(circle, #262626 0%, #404040 50%, transparent 70%);
-  opacity: 0.3;
-}
-
-.dark .animated-bg .blob:nth-child(2) {
-  background: radial-gradient(circle, #171717 0%, #2f2f2f 50%, transparent 70%);
+.dark .animated-bg .blob {
   opacity: 0.25;
-}
-
-.dark .animated-bg .blob:nth-child(3) {
-  background: radial-gradient(circle, #0a0a0a 0%, #262626 50%, transparent 70%);
-  opacity: 0.2;
-}
-
-.dark .animated-bg .blob:nth-child(4) {
-  background: radial-gradient(circle, #1f1f1f 0%, #3f3f46 50%, transparent 70%);
-  opacity: 0.25;
-}
-
-.dark .animated-bg .blob:nth-child(5) {
-  background: radial-gradient(circle, #111111 0%, #404040 50%, transparent 70%);
-  opacity: 0.2;
 }
 
 /* Prevent text selection on UI chrome (not email content) */

@@ -72,11 +72,12 @@ import { OfflineBanner } from "./components/ui/OfflineBanner";
 import { UpdateToast } from "./components/ui/UpdateToast";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { formatSyncError } from "./utils/networkErrors";
-import { getThemeById, COLOR_THEMES } from "./constants/themes";
+import { COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import { normalizeLocale } from "./i18n";
 import { router } from "./router";
 import { getSelectedThreadId } from "./router/navigate";
+import { applyColorTheme, applyWindowBackground } from "./utils/themeEffects";
 import { Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 
 const LIGHTS_OUT_UNTIL_KEY = "velo_messenger_lights_out_until";
@@ -128,6 +129,10 @@ export default function App() {
   const theme = useUIStore((s) => s.theme);
   const fontScale = useUIStore((s) => s.fontScale);
   const colorTheme = useUIStore((s) => s.colorTheme);
+  const windowBackgroundPreset = useUIStore((s) => s.windowBackgroundPreset);
+  const windowBackgroundLayout = useUIStore((s) => s.windowBackgroundLayout);
+  const windowBackgroundSpeed = useUIStore((s) => s.windowBackgroundSpeed);
+  const windowBackgroundImagePath = useUIStore((s) => s.windowBackgroundImagePath);
   const reduceMotion = useUIStore((s) => s.reduceMotion);
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const [showAddAccount, setShowAddAccount] = useState(false);
@@ -304,6 +309,26 @@ export default function App() {
         const savedColorTheme = await getSetting("color_theme");
         if (savedColorTheme && COLOR_THEMES.some((t) => t.id === savedColorTheme)) {
           ui.setColorTheme(savedColorTheme as ColorThemeId);
+        }
+
+        const savedBackgroundPreset = await getSetting("window_background_preset");
+        if (savedBackgroundPreset === "default" || savedBackgroundPreset === "sunrise" || savedBackgroundPreset === "mint" || savedBackgroundPreset === "lavender" || savedBackgroundPreset === "graphite") {
+          ui.setWindowBackgroundPreset(savedBackgroundPreset);
+        }
+
+        const savedBackgroundLayout = await getSetting("window_background_layout");
+        if (savedBackgroundLayout === "soft" || savedBackgroundLayout === "diagonal" || savedBackgroundLayout === "corners" || savedBackgroundLayout === "halo" || savedBackgroundLayout === "minimal") {
+          ui.setWindowBackgroundLayout(savedBackgroundLayout);
+        }
+
+        const savedBackgroundSpeed = await getSetting("window_background_speed");
+        if (savedBackgroundSpeed === "slow" || savedBackgroundSpeed === "normal" || savedBackgroundSpeed === "fast" || savedBackgroundSpeed === "still") {
+          ui.setWindowBackgroundSpeed(savedBackgroundSpeed);
+        }
+
+        const savedBackgroundImage = await getSetting("window_background_image_path");
+        if (savedBackgroundImage) {
+          ui.setWindowBackgroundImagePath(savedBackgroundImage);
         }
 
         // Restore inbox view mode
@@ -555,25 +580,7 @@ export default function App() {
   // Apply color theme CSS custom properties to <html>
   useEffect(() => {
     const root = document.documentElement;
-    const props = ["--color-accent", "--color-accent-hover", "--color-accent-light", "--color-bg-selected", "--color-sidebar-active"];
-
-    const apply = () => {
-      if (colorTheme === "indigo") {
-        // Default theme — remove inline overrides, let CSS handle it
-        for (const p of props) root.style.removeProperty(p);
-        return;
-      }
-      const themeData = getThemeById("slate");
-      const isDark =
-        theme === "dark" ||
-        (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-      const colors = isDark ? themeData.dark : themeData.light;
-      root.style.setProperty("--color-accent", colors.accent);
-      root.style.setProperty("--color-accent-hover", colors.accentHover);
-      root.style.setProperty("--color-accent-light", colors.accentLight);
-      root.style.setProperty("--color-bg-selected", colors.bgSelected);
-      root.style.setProperty("--color-sidebar-active", colors.sidebarActive);
-    };
+    const apply = () => applyColorTheme(root, { theme, colorTheme });
 
     apply();
 
@@ -583,6 +590,28 @@ export default function App() {
       return () => mq.removeEventListener("change", apply);
     }
   }, [colorTheme, theme]);
+
+  // Apply window background settings to <html>
+  useEffect(() => {
+    const root = document.documentElement;
+    const apply = () => {
+      applyWindowBackground(root, {
+        theme,
+        preset: windowBackgroundPreset,
+        layout: windowBackgroundLayout,
+        speed: windowBackgroundSpeed,
+        imagePath: windowBackgroundImagePath,
+      });
+    };
+
+    apply();
+
+    if (theme === "system") {
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      mq.addEventListener("change", apply);
+      return () => mq.removeEventListener("change", apply);
+    }
+  }, [theme, windowBackgroundPreset, windowBackgroundLayout, windowBackgroundSpeed, windowBackgroundImagePath]);
 
   const handleAddAccountSuccess = useCallback((newAccountId: string) => {
     setShowAddAccount(false);

@@ -230,6 +230,23 @@ function formatMessageTime(timestamp?: number) {
   return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
+function formatConversationTime(timestamp?: number) {
+  if (!timestamp) return "";
+  const normalized = timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp;
+  const date = new Date(normalized);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) {
+    return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(date);
+  }
+  if (date.toDateString() === yesterday.toDateString()) {
+    return "Вчера";
+  }
+  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit" }).format(date);
+}
+
 function formatTargetKind(kind: MessengerConversationKind) {
   if (kind === "user") return "user_id";
   if (kind === "login") return "login";
@@ -436,6 +453,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
   });
   const autoLoadedHistoryRef = useRef(new Set<string>());
   const loadingHistoryRef = useRef(new Set<string>());
+  const stripRootRef = useRef<HTMLDivElement | null>(null);
   const conversationPanelRef = useRef<HTMLElement | null>(null);
   const chatPanelRef = useRef<HTMLElement | null>(null);
   const conversationDividerRef = useRef<HTMLButtonElement | null>(null);
@@ -603,6 +621,15 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
         L = clamp(L, STRIP_PANE_LIMITS.messengerList.min, STRIP_PANE_LIMITS.messengerList.max);
         return { messengerList: L, messengerChat: R };
       });
+    }
+  }, [asideTotalWidth]);
+
+  useEffect(() => {
+    if (!stripRootRef.current) return;
+    if (asideTotalWidth !== undefined) {
+      stripRootRef.current.style.width = `${asideTotalWidth}px`;
+    } else {
+      stripRootRef.current.style.width = "";
     }
   }, [asideTotalWidth]);
 
@@ -1075,8 +1102,8 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
 
   return (
     <div
+      ref={stripRootRef}
       className="relative flex h-full min-h-0 shrink-0 overflow-hidden bg-bg-primary/45"
-      style={asideTotalWidth !== undefined ? { width: asideTotalWidth } : undefined}
     >
       <section
         ref={conversationPanelRef}
@@ -1085,9 +1112,8 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
         <div className="flex h-full flex-col">
           <header className="border-b border-border-primary px-4 py-3">
             <div className="flex items-center justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs font-medium uppercase tracking-[0.16em] text-text-tertiary">Мессенджеры</p>
-                <h1 className="text-base font-semibold text-text-primary">Диалоги</h1>
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -1375,26 +1401,40 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
             </label>
           </header>
 
-          <div className="flex-1 overflow-y-auto p-1.5">
+          <div className="flex-1 overflow-y-auto">
             {visibleConversations.length ? visibleConversations.map((conversation) => {
               const isActive = selectedConversation?.providerId === conversation.providerId && selectedConversation.id === conversation.id && selectedConversation.kind === conversation.kind;
+              const ProviderIcon = conversation.kind === "chat" ? Users : conversation.kind === "login" ? Hash : Bot;
               return (
                 <button
-                  key={`${conversation.kind}:${conversation.id}`}
+                  key={`${conversation.providerId}:${conversation.kind}:${conversation.id}`}
                   type="button"
                   onClick={() => selectConversation(conversation)}
-                  className={`messenger-chat-row mb-1 flex w-full gap-2 rounded-xl px-2 py-1.5 text-left transition-colors ${
-                    isActive ? "bg-bg-tertiary text-text-primary" : "hover:bg-bg-hover text-text-primary"
+                  className={`messenger-chat-row group hover-lift press-scale flex w-full gap-3 border-b border-border-secondary px-4 py-3 text-left transition-colors ${
+                    isActive ? "bg-bg-selected text-text-primary" : "text-text-primary hover:bg-bg-hover"
                   }`}
                 >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-bg-tertiary text-text-secondary">
-                    {conversation.kind === "chat" ? <Users size={14} /> : conversation.kind === "login" ? <Hash size={14} /> : <Bot size={14} />}
+                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${
+                    isActive
+                      ? "bg-accent text-white"
+                      : "bg-bg-tertiary text-text-secondary group-hover:bg-accent/10 group-hover:text-accent"
+                  }`}
+                  >
+                    <ProviderIcon size={15} />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-medium">{conversation.title}</span>
-                    <span className="mt-0.5 block truncate text-[0.6875rem] text-text-tertiary">{conversation.lastText ?? conversation.subtitle}</span>
-                    <span className="block text-[0.625rem] uppercase tracking-wide text-text-tertiary">
-                      {formatTargetKind(conversation.kind)} · {conversation.id}
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-semibold text-text-primary">{conversation.title}</span>
+                      <span className="shrink-0 whitespace-nowrap text-xs text-text-tertiary">
+                        {formatConversationTime(conversation.updatedAt)}
+                      </span>
+                    </span>
+                    <span className="mt-0.5 block truncate text-sm text-text-secondary">{conversation.lastText ?? conversation.subtitle}</span>
+                    <span className="mt-0.5 flex items-center gap-1.5 text-[0.625rem] uppercase tracking-wide text-text-tertiary">
+                      <span className="truncate">{formatTargetKind(conversation.kind)} · {conversation.id}</span>
+                      <span className="shrink-0 rounded-full bg-bg-tertiary px-1.5 normal-case tracking-normal">
+                        {PROVIDERS.find((provider) => provider.id === conversation.providerId)?.name ?? conversation.providerId}
+                      </span>
                     </span>
                   </span>
                 </button>

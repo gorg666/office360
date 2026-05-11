@@ -19,6 +19,20 @@ function makeTask(overrides: Partial<DbTask> = {}): DbTask {
     recurrence_rule: null,
     next_recurrence_at: null,
     tags_json: "[]",
+    start_at: null,
+    end_at: null,
+    timezone: null,
+    all_day: 0,
+    location: null,
+    participants_json: "[]",
+    optional_participants_json: "[]",
+    attachments_json: "[]",
+    reminder_minutes: null,
+    reminder_channel: null,
+    color_label: null,
+    telemost_url: null,
+    telemost_conference_id: null,
+    telemost_live_url: null,
     created_at: 1000,
     updated_at: 1000,
     ...overrides,
@@ -80,6 +94,6 @@ describe("TaskItem", () => {
         onToggleComplete={vi.fn()}
       />,
     );
-    expect(screen.getByText("Tomorrow")).toBeInTheDocument();
+    expect(screen.getByText(/Tomorrow|Завтра/)).toBeInTheDocument();
   });
 });

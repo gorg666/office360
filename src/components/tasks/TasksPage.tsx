@@ -21,6 +21,7 @@ import {
 import { handleRecurringTaskCompletion } from "@/services/tasks/taskManager";
 import { TaskItem } from "./TaskItem";
 import { TaskQuickAdd } from "./TaskQuickAdd";
+import { TaskDetailModal } from "./TaskDetailModal";
 import { useUIStore } from "@/stores/uiStore";
 
 const PRIORITY_ORDER: Record<TaskPriority, number> = {
@@ -214,8 +215,9 @@ export function TasksPage() {
 
   const handleDelete = useCallback(async (id: string) => {
     await dbDeleteTask(id);
+    if (selectedTaskId === id) setSelectedTaskId(null);
     await loadTasks();
-  }, [loadTasks]);
+  }, [loadTasks, selectedTaskId, setSelectedTaskId]);
 
   const handleBulkComplete = useCallback(async () => {
     for (const id of selectedIds) {
@@ -230,8 +232,13 @@ export function TasksPage() {
       await dbDeleteTask(id);
     }
     setSelectedIds(new Set());
+    if (selectedTaskId && selectedIds.has(selectedTaskId)) setSelectedTaskId(null);
     await loadTasks();
-  }, [selectedIds, loadTasks]);
+  }, [selectedIds, loadTasks, selectedTaskId, setSelectedTaskId]);
+
+  const selectedTask = selectedTaskId
+    ? tasks.find((task) => task.id === selectedTaskId) ?? null
+    : null;
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-bg-primary/50">
@@ -265,6 +272,7 @@ export function TasksPage() {
           {/* Filters */}
           <select
             value={filterStatus}
+            title={locale === "ru" ? "Фильтр статуса задач" : "Task status filter"}
             onChange={(e) => setFilterStatus(e.target.value as TaskFilterStatus)}
             className="bg-bg-tertiary text-text-primary text-xs px-2.5 py-1.5 rounded-lg border border-border-primary"
           >
@@ -275,6 +283,7 @@ export function TasksPage() {
 
           <select
             value={filterPriority}
+            title={locale === "ru" ? "Фильтр приоритета задач" : "Task priority filter"}
             onChange={(e) => setFilterPriority(e.target.value as TaskPriority | "all")}
             className="bg-bg-tertiary text-text-primary text-xs px-2.5 py-1.5 rounded-lg border border-border-primary"
           >
@@ -289,6 +298,7 @@ export function TasksPage() {
           {/* Group by */}
           <select
             value={groupBy}
+            title={locale === "ru" ? "Группировка задач" : "Task grouping"}
             onChange={(e) => setGroupBy(e.target.value as TaskGroupBy)}
             className="bg-bg-tertiary text-text-primary text-xs px-2.5 py-1.5 rounded-lg border border-border-primary"
           >
@@ -376,6 +386,15 @@ export function TasksPage() {
           </div>
         )}
       </div>
+      {selectedTask ? (
+        <TaskDetailModal
+          key={selectedTask.id}
+          task={selectedTask}
+          accountId={accountId}
+          onClose={() => setSelectedTaskId(null)}
+          onSaved={loadTasks}
+        />
+      ) : null}
     </div>
   );
 }

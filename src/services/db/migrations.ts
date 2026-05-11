@@ -783,6 +783,27 @@ const MIGRATIONS = [
       UPDATE settings SET value = 'false' WHERE key = 'block_remote_images' AND value = 'true';
     `,
   },
+  {
+    version: 25,
+    description: "Task detail event fields and Telemost links",
+    sql: `
+      ALTER TABLE tasks ADD COLUMN start_at INTEGER;
+      ALTER TABLE tasks ADD COLUMN end_at INTEGER;
+      ALTER TABLE tasks ADD COLUMN timezone TEXT;
+      ALTER TABLE tasks ADD COLUMN all_day INTEGER DEFAULT 0;
+      ALTER TABLE tasks ADD COLUMN location TEXT;
+      ALTER TABLE tasks ADD COLUMN participants_json TEXT DEFAULT '[]';
+      ALTER TABLE tasks ADD COLUMN optional_participants_json TEXT DEFAULT '[]';
+      ALTER TABLE tasks ADD COLUMN attachments_json TEXT DEFAULT '[]';
+      ALTER TABLE tasks ADD COLUMN reminder_minutes INTEGER;
+      ALTER TABLE tasks ADD COLUMN reminder_channel TEXT;
+      ALTER TABLE tasks ADD COLUMN color_label TEXT;
+      ALTER TABLE tasks ADD COLUMN telemost_url TEXT;
+      ALTER TABLE tasks ADD COLUMN telemost_conference_id TEXT;
+      ALTER TABLE tasks ADD COLUMN telemost_live_url TEXT;
+      CREATE INDEX IF NOT EXISTS idx_tasks_start_at ON tasks(start_at);
+    `,
+  },
 ];
 
 /**
