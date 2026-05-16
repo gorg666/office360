@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import type { Thread } from "@/stores/threadStore";
 import { useThreadStore } from "@/stores/threadStore";
@@ -20,13 +20,25 @@ interface ThreadCardProps {
   thread: Thread;
   isSelected: boolean;
   onClick: (thread: Thread) => void;
+  onDoubleClick?: (thread: Thread) => void;
   onContextMenu?: (e: React.MouseEvent, threadId: string) => void;
   category?: string;
   showCategoryBadge?: boolean;
   hasFollowUp?: boolean;
 }
 
-export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick, onContextMenu, category, showCategoryBadge, hasFollowUp }: ThreadCardProps) {
+const SINGLE_CLICK_DELAY_MS = 250;
+
+export const ThreadCard = memo(function ThreadCard({
+  thread,
+  isSelected,
+  onClick,
+  onDoubleClick,
+  onContextMenu,
+  category,
+  showCategoryBadge,
+  hasFollowUp,
+}: ThreadCardProps) {
   const isMultiSelected = useThreadStore((s) => s.selectedThreadIds.has(thread.id));
   const hasMultiSelect = useThreadStore((s) => s.selectedThreadIds.size > 0);
   const toggleThreadSelection = useThreadStore((s) => s.toggleThreadSelection);
@@ -48,6 +60,20 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
     data: dragData,
   });
 
+  const singleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (singleClickTimerRef.current) {
+        clearTimeout(singleClickTimerRef.current);
+      }
+    };
+  }, []);
+
+  const runSingleClickAction = () => {
+    onClick(thread);
+  };
+
   const handleClick = (e: React.MouseEvent) => {
     if (e.shiftKey) {
       e.preventDefault();
@@ -57,9 +83,29 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
       toggleThreadSelection(thread.id);
     } else if (hasMultiSelect) {
       toggleThreadSelection(thread.id);
+    } else if (onDoubleClick) {
+      if (singleClickTimerRef.current) {
+        clearTimeout(singleClickTimerRef.current);
+      }
+      singleClickTimerRef.current = setTimeout(() => {
+        singleClickTimerRef.current = null;
+        runSingleClickAction();
+      }, SINGLE_CLICK_DELAY_MS);
     } else {
-      onClick(thread);
+      runSingleClickAction();
     }
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    if (!onDoubleClick) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (singleClickTimerRef.current) {
+      clearTimeout(singleClickTimerRef.current);
+      singleClickTimerRef.current = null;
+    }
+    if (e.shiftKey || e.ctrlKey || e.metaKey || hasMultiSelect) return;
+    onDoubleClick(thread);
   };
 
   const handleContextMenu = onContextMenu
@@ -78,6 +124,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
       {...attributes}
       {...listeners}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
       aria-label={`${thread.isRead ? "" : "Unread "}email from ${thread.fromName ?? thread.fromAddress ?? "Unknown"}: ${thread.subject ?? "(No subject)"}`}
       aria-selected={isSelected}

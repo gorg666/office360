@@ -29,6 +29,7 @@ import type { AppLocale } from "@/stores/uiStore";
 import { EmptyState } from "../ui/EmptyState";
 import { markThreadRead } from "@/services/emailActions";
 import { updateBadgeCount } from "@/services/badgeManager";
+import { openThreadPopOut } from "@/utils/openThreadWindow";
 import {
   InboxClearIllustration,
   NoSearchResultsIllustration,
@@ -190,6 +191,14 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
     }
   }, [activeLabel, handleDraftClick, onThreadOpen]);
 
+  const handleThreadDoubleClick = useCallback(
+    (thread: Thread) => {
+      if (activeLabel === "drafts") return;
+      void openThreadPopOut(thread, () => handleThreadClick(thread));
+    },
+    [activeLabel, handleThreadClick],
+  );
+
   const handleBulkDelete = async () => {
     if (!activeAccountId || multiSelectCount === 0) return;
     const isTrashView = activeLabel === "trash";
@@ -276,12 +285,12 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
     if (searchThreadIds !== null) {
       filtered = filtered.filter((t) => searchThreadIds.has(t.id));
     }
-    // Apply read filter
-    if (readFilter === "unread") filtered = filtered.filter((t) => !t.isRead);
+    // Apply read filter (incl. smart folder "is:unread" — same unread-only preview)
+    if (isUnreadView) filtered = filtered.filter((t) => !t.isRead);
     else if (readFilter === "read") filtered = filtered.filter((t) => t.isRead);
     // Category filtering is now server-side (Phase 4) — no client-side filter needed
     return filtered;
-  }, [threads, readFilter, searchThreadIds]);
+  }, [threads, readFilter, searchThreadIds, isUnreadView]);
   const canMarkAllRead = Boolean(activeAccountId && isUnreadView && filteredThreads.some((thread) => !thread.isRead));
 
   // Pre-compute bundled category Set for O(1) lookups in filter
@@ -759,6 +768,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
                         thread={thread}
                         isSelected={thread.id === selectedThreadId}
                         onClick={handleThreadClick}
+                        onDoubleClick={handleThreadDoubleClick}
                         onContextMenu={handleThreadContextMenu}
                         category={rule.category}
                         hasFollowUp={followUpThreadIds.has(thread.id)}
@@ -787,6 +797,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
                     thread={thread}
                     isSelected={thread.id === selectedThreadId}
                     onClick={handleThreadClick}
+                    onDoubleClick={handleThreadDoubleClick}
                     onContextMenu={handleThreadContextMenu}
                     category={categoryMap.get(thread.id)}
                     showCategoryBadge={activeLabel === "inbox" && activeCategory === "All"}
