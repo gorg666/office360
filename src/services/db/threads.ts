@@ -199,9 +199,13 @@ export async function getThreadCountForAccount(accountId: string): Promise<numbe
 export async function getUnreadInboxCount(): Promise<number> {
   const db = await getDb();
   const rows = await db.select<{ count: number }[]>(
-    `SELECT COUNT(*) as count FROM threads t
+    `SELECT COUNT(DISTINCT t.id) as count FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
-     WHERE tl.label_id = 'INBOX' AND t.is_read = 0`,
+     WHERE tl.label_id = 'INBOX'
+       AND EXISTS (
+         SELECT 1 FROM messages m
+         WHERE m.account_id = t.account_id AND m.thread_id = t.id AND m.is_read = 0
+       )`,
   );
   return rows[0]?.count ?? 0;
 }
@@ -215,9 +219,13 @@ export async function getUnreadInboxCountsByAccount(accountIds?: string[]): Prom
     ? `AND t.account_id IN (${accountIds.map((_, index) => `$${index + 1}`).join(", ")})`
     : "";
   const rows = await db.select<{ account_id: string; count: number }[]>(
-    `SELECT t.account_id, COUNT(*) as count FROM threads t
+    `SELECT t.account_id, COUNT(DISTINCT t.id) as count FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
-     WHERE tl.label_id = 'INBOX' AND t.is_read = 0
+     WHERE tl.label_id = 'INBOX'
+       AND EXISTS (
+         SELECT 1 FROM messages m
+         WHERE m.account_id = t.account_id AND m.thread_id = t.id AND m.is_read = 0
+       )
        ${accountFilter}
      GROUP BY t.account_id`,
     params,

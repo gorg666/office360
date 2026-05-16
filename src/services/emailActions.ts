@@ -7,6 +7,7 @@ import { triggerSync } from "@/services/gmail/syncManager";
 import { classifyError, formatEmailSendOrDraftError } from "@/utils/networkErrors";
 import { getDb } from "@/services/db/connection";
 import { navigateToThread, getSelectedThreadId } from "@/router/navigate";
+import { updateBadgeCount } from "@/services/badgeManager";
 
 // ---------------------------------------------------------------------------
 // Action types
@@ -239,6 +240,21 @@ async function applyLocalDbUpdate(
 // Core execution
 // ---------------------------------------------------------------------------
 
+function actionAffectsUnreadBadge(action: EmailAction): boolean {
+  switch (action.type) {
+    case "markRead":
+    case "archive":
+    case "trash":
+    case "permanentDelete":
+    case "spam":
+      return true;
+    case "removeLabel":
+      return action.labelId === "INBOX";
+    default:
+      return false;
+  }
+}
+
 function getResourceId(action: EmailAction): string {
   if ("threadId" in action && action.threadId) return action.threadId;
   if ("draftId" in action) return action.draftId;
@@ -316,6 +332,9 @@ export async function executeEmailAction(
   // 2. Local DB update
   try {
     await applyLocalDbUpdate(accountId, action);
+    if (actionAffectsUnreadBadge(action)) {
+      void updateBadgeCount();
+    }
   } catch (err) {
     console.warn("Local DB update failed:", err);
   }
