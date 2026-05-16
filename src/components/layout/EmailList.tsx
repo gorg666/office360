@@ -30,6 +30,7 @@ import { EmptyState } from "../ui/EmptyState";
 import { markThreadRead } from "@/services/emailActions";
 import { updateBadgeCount } from "@/services/badgeManager";
 import { openThreadPopOut } from "@/utils/openThreadWindow";
+import { OutboxList } from "@/components/outbox/OutboxList";
 import {
   InboxClearIllustration,
   NoSearchResultsIllustration,
@@ -97,6 +98,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
   const smartFolders = useSmartFolderStore((s) => s.folders);
 
   // Detect smart folder mode
+  const isOutbox = activeLabel === "outbox";
   const isSmartFolder = activeLabel.startsWith("smart-folder:");
   const smartFolderId = isSmartFolder ? activeLabel.replace("smart-folder:", "") : null;
   const activeSmartFolder = smartFolderId ? smartFolders.find((f) => f.id === smartFolderId) ?? null : null;
@@ -360,6 +362,14 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
       return;
     }
 
+    if (activeLabel === "outbox") {
+      clearSearch();
+      setThreads([]);
+      setLoading(false);
+      setHasMore(false);
+      return;
+    }
+
     clearSearch();
     setLoading(true);
     setHasMore(true);
@@ -610,18 +620,23 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
         <div>
           <h2 className="text-sm font-semibold text-text-primary capitalize flex items-center gap-1.5">
             {isSmartFolder && <FolderSearch size={14} className="text-accent shrink-0" />}
-            {isSmartFolder
-              ? activeSmartFolder?.name ?? "Smart Folder"
-              : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
-                ? `Inbox — ${activeCategory}`
-                : LABEL_MAP[activeLabel] !== undefined
-                  ? activeLabel
-                  : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
+            {isOutbox
+              ? "Исходящие"
+              : isSmartFolder
+                ? activeSmartFolder?.name ?? "Smart Folder"
+                : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
+                  ? `Inbox — ${activeCategory}`
+                  : LABEL_MAP[activeLabel] !== undefined
+                    ? activeLabel
+                    : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
           </h2>
-          <span className="text-xs text-text-tertiary">
-            {formatConversationCount(filteredThreads.length, locale)}
-          </span>
+          {!isOutbox && (
+            <span className="text-xs text-text-tertiary">
+              {formatConversationCount(filteredThreads.length, locale)}
+            </span>
+          )}
         </div>
+        {!isOutbox && (
         <div className="flex items-center gap-2">
           {isUnreadView && (
             <button
@@ -646,6 +661,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
             <option value="read">Read</option>
           </select>
         </div>
+        )}
       </div>
 
       {/* Category tabs (inbox + split mode only) */}
@@ -708,7 +724,9 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
 
       {/* Thread list */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-        {isLoading && threads.length === 0 ? (
+        {isOutbox ? (
+          <OutboxList />
+        ) : isLoading && threads.length === 0 ? (
           <EmailListSkeleton />
         ) : filteredThreads.length === 0 && bundleRules.length === 0 ? (
           <EmptyStateForContext

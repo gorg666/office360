@@ -347,6 +347,9 @@ export async function executeEmailAction(
       getResourceId(action),
       actionToParams(action),
     );
+    if (action.type === "sendMessage") {
+      window.dispatchEvent(new Event("velo-outbox-changed"));
+    }
     return { success: true, queued: true };
   }
 
@@ -365,6 +368,9 @@ export async function executeEmailAction(
         getResourceId(action),
         actionToParams(action),
       );
+      if (action.type === "sendMessage") {
+        window.dispatchEvent(new Event("velo-outbox-changed"));
+      }
       return { success: true, queued: true };
     }
 

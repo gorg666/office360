@@ -168,7 +168,7 @@ export default function App() {
 
     const handleOnline = () => {
       setOnline(true);
-      triggerQueueFlush();
+      void triggerQueueFlush();
       const accounts = useAccountStore.getState().accounts;
       const activeAccountId = useAccountStore.getState().activeAccountId;
       const accountIds = getSyncableAccountIds(accounts, activeAccountId);
