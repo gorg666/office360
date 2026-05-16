@@ -18,6 +18,14 @@ const IMAP_CMD_TIMEOUT: Duration = Duration::from_secs(30);
 const IMAP_FETCH_TIMEOUT: Duration = Duration::from_secs(120);
 const IMAP_SEARCH_TIMEOUT: Duration = Duration::from_secs(60);
 const OVERALL_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
+/// Max UIDs per UID FETCH on a single raw-TCP session (one connection, multiple FETCH commands).
+const RAW_UID_BATCH_SIZE: usize = 25;
+
+const UID_FETCH_BODY_QUERIES: &[&str] = &[
+    "UID FLAGS INTERNALDATE BODY.PEEK[]",
+    "UID FLAGS INTERNALDATE RFC822",
+    "UID FLAGS INTERNALDATE BODY[]",
+];
 
 /// Some servers return an empty `UID SEARCH N:*` even when new messages exist, or the search
 /// fails transiently. After a successful SELECT, `UIDNEXT` is the next UID to assign, so any
@@ -256,6 +264,50 @@ pub async fn list_folders(session: &mut ImapSession) -> Result<Vec<ImapFolder>, 
     Ok(folders)
 }
 
+async fn collect_uid_fetch_stream(
+    session: &mut ImapSession,
+    folder: &str,
+    uid_range: &str,
+    query: &str,
+) -> Result<Vec<async_imap::types::Fetch>, String> {
+    let fetches = tokio::time::timeout(IMAP_FETCH_TIMEOUT, async {
+        let stream = session
+            .uid_fetch(uid_range, query)
+            .await
+            .map_err(|e| format!("UID FETCH {folder} uids={uid_range} query={query} failed: {e}"))?;
+        Ok::<_, String>(stream.collect::<Vec<_>>().await)
+    })
+    .await
+    .map_err(|_| {
+        format!(
+            "UID FETCH {folder} timed out after {}s — check your server settings or network connection",
+            IMAP_FETCH_TIMEOUT.as_secs()
+        )
+    })?;
+
+    let raw_fetches: Vec<_> = fetches?;
+    let mut collected = Vec::new();
+    for r in raw_fetches {
+        match r {
+            Ok(f) => collected.push(f),
+            Err(e) => log::warn!("IMAP fetch stream error in {folder}: {e}"),
+        }
+    }
+    Ok(collected)
+}
+
+fn parse_uid_set(uid_range: &str) -> Vec<u32> {
+    uid_range
+        .split(',')
+        .filter_map(|part| part.trim().parse::<u32>().ok())
+        .collect()
+}
+
+fn raw_fetch_read_timeout_for_batch(batch_len: usize) -> Duration {
+    let secs = 60u64.saturating_add((batch_len as u64).saturating_mul(5));
+    Duration::from_secs(secs.min(300))
+}
+
 /// Fetch messages from a folder by UID range (e.g. "1:100" or "500:*").
 pub async fn fetch_messages(
     session: &mut ImapSession,
@@ -282,35 +334,25 @@ pub async fn fetch_messages(
         mailbox.uid_next.unwrap_or(0),
     );
 
-    // Try UID FETCH first; if the stream is empty, fall back to sequence-number FETCH.
-    // Some IMAP servers return empty streams for UID FETCH despite valid UIDs.
-    let fetches = tokio::time::timeout(IMAP_FETCH_TIMEOUT, async {
-        let stream = session
-            .uid_fetch(uid_range, "UID FLAGS INTERNALDATE BODY.PEEK[]")
-            .await
-            .map_err(|e| format!("UID FETCH {folder} uids={uid_range} failed: {e}"))?;
-        Ok::<_, String>(stream.collect::<Vec<_>>().await)
-    })
-    .await
-    .map_err(|_| format!("UID FETCH {folder} timed out after {}s — check your server settings or network connection", IMAP_FETCH_TIMEOUT.as_secs()))?;
-
-    let raw_fetches: Vec<_> = fetches?;
-    let mut fetch_ok = 0u32;
-    let mut fetch_err = 0u32;
-    let mut fetches = Vec::new();
-    for r in raw_fetches {
-        match r {
-            Ok(f) => {
-                fetch_ok += 1;
-                fetches.push(f);
-            }
-            Err(e) => {
-                fetch_err += 1;
-                log::warn!("IMAP fetch stream error in {folder}: {e}");
-            }
+    // Yandex and some servers return an empty async-imap stream for BODY.PEEK[] but accept RFC822/BODY[].
+    let mut fetches: Vec<async_imap::types::Fetch> = Vec::new();
+    let mut last_query = UID_FETCH_BODY_QUERIES[0];
+    for query in UID_FETCH_BODY_QUERIES {
+        last_query = query;
+        let collected = collect_uid_fetch_stream(session, folder, uid_range, query).await?;
+        let fetch_ok = collected.len() as u32;
+        log::info!(
+            "IMAP FETCH {folder}: query={query} -> {fetch_ok} items from uid_fetch"
+        );
+        if !collected.is_empty() {
+            fetches = collected;
+            break;
         }
     }
-    log::info!("IMAP FETCH {folder}: {fetch_ok} ok, {fetch_err} errors from uid_fetch");
+    let fetch_ok = fetches.len() as u32;
+    log::info!(
+        "IMAP FETCH {folder}: {fetch_ok} ok, 0 stream errors (last query={last_query})"
+    );
 
     // If async-imap returned nothing but messages exist, fallback to raw TCP fetch
     if fetches.is_empty() && mailbox.exists > 0 {
@@ -1193,13 +1235,19 @@ pub async fn raw_fetch_messages(
     folder: &str,
     uid_range: &str,
 ) -> Result<ImapFetchResult, String> {
+    let uids = parse_uid_set(uid_range);
+    if uids.is_empty() {
+        return Err("No UIDs provided for raw fetch".to_string());
+    }
+
     log::info!(
-        "RAW IMAP FETCH: connecting to {}:{} for folder {folder}, UIDs {uid_range}",
+        "RAW IMAP FETCH: connecting to {}:{} for folder {folder}, {} UID(s) in {} batch(es)",
         config.host,
-        config.port
+        config.port,
+        uids.len(),
+        uids.len().div_ceil(RAW_UID_BATCH_SIZE)
     );
 
-    // Connect
     let stream = if config.security == "starttls" {
         raw_connect_starttls(config).await?
     } else {
@@ -1208,7 +1256,6 @@ pub async fn raw_fetch_messages(
 
     let mut reader = BufReader::new(stream);
 
-    // Read greeting (for non-STARTTLS)
     if config.security != "starttls" {
         let mut line = String::new();
         reader
@@ -1217,9 +1264,7 @@ pub async fn raw_fetch_messages(
             .map_err(|e| format!("greeting: {e}"))?;
     }
 
-    // LOGIN
     let login_cmd = if config.auth_method == "oauth2" {
-        // XOAUTH2: AUTHENTICATE XOAUTH2 <base64>
         let xoauth2 = format!(
             "user={}\x01auth=Bearer {}\x01\x01",
             config.username, config.password
@@ -1237,11 +1282,9 @@ pub async fn raw_fetch_messages(
     };
     raw_send_and_wait(&mut reader, login_cmd.as_bytes(), "a1").await?;
 
-    // SELECT
     let select_cmd = format!("a2 SELECT \"{folder}\"\r\n");
     let select_response = raw_send_and_wait(&mut reader, select_cmd.as_bytes(), "a2").await?;
 
-    // Parse SELECT response for UIDVALIDITY, EXISTS, UNSEEN
     let mut exists = 0u32;
     let mut uidvalidity = 0u32;
     let mut unseen = 0u32;
@@ -1269,45 +1312,70 @@ pub async fn raw_fetch_messages(
         highest_modseq: None,
     };
 
-    // UID FETCH with full body
-    let fetch_cmd = format!("a3 UID FETCH {uid_range} (UID FLAGS INTERNALDATE BODY.PEEK[])\r\n");
-    reader
-        .get_mut()
-        .write_all(fetch_cmd.as_bytes())
-        .await
-        .map_err(|e| format!("FETCH write: {e}"))?;
-
-    // Parse FETCH responses with literal handling
-    let raw_messages = raw_parse_fetch_responses(&mut reader, "a3").await?;
-
-    log::info!(
-        "RAW IMAP FETCH {folder}: parsed {} raw messages",
-        raw_messages.len()
-    );
-
-    // Parse each raw message
     let parser = MessageParser::default();
     let mut messages = Vec::new();
+    let mut tag_num: u32 = 3;
 
-    for raw_msg in &raw_messages {
-        match parse_message(
-            &parser,
-            &raw_msg.body,
-            raw_msg.uid,
-            folder,
-            raw_msg.body.len() as u32,
-            raw_msg.is_read,
-            raw_msg.is_starred,
-            raw_msg.is_draft,
-            raw_msg.internal_date,
-        ) {
-            Ok(msg) => messages.push(msg),
-            Err(e) => log::warn!("RAW FETCH: failed to parse UID {}: {e}", raw_msg.uid),
+    for batch in uids.chunks(RAW_UID_BATCH_SIZE) {
+        let batch_set: String = batch
+            .iter()
+            .map(|uid| uid.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let tag = format!("a{tag_num}");
+        tag_num += 1;
+
+        log::info!(
+            "[imap] raw fallback batch start folder={folder} count={}",
+            batch.len()
+        );
+
+        let fetch_cmd =
+            format!("{tag} UID FETCH {batch_set} (UID FLAGS INTERNALDATE BODY.PEEK[])\r\n");
+        reader
+            .get_mut()
+            .write_all(fetch_cmd.as_bytes())
+            .await
+            .map_err(|e| format!("FETCH write: {e}"))?;
+
+        let read_timeout = raw_fetch_read_timeout_for_batch(batch.len());
+        let raw_messages =
+            raw_parse_fetch_responses(&mut reader, &tag, read_timeout).await?;
+
+        log::info!(
+            "[imap] raw fallback parsed {}/{} folder={folder}",
+            raw_messages.len(),
+            batch.len()
+        );
+
+        for raw_msg in &raw_messages {
+            match parse_message(
+                &parser,
+                &raw_msg.body,
+                raw_msg.uid,
+                folder,
+                raw_msg.body.len() as u32,
+                raw_msg.is_read,
+                raw_msg.is_starred,
+                raw_msg.is_draft,
+                raw_msg.internal_date,
+            ) {
+                Ok(msg) => messages.push(msg),
+                Err(e) => log::warn!("RAW FETCH: failed to parse UID {}: {e}", raw_msg.uid),
+            }
         }
     }
 
-    // LOGOUT
-    let _ = reader.get_mut().write_all(b"a4 LOGOUT\r\n").await;
+    log::info!(
+        "RAW IMAP FETCH {folder}: parsed {} message(s) total from raw TCP",
+        messages.len()
+    );
+
+    let logout_tag = format!("a{tag_num}");
+    let _ = reader
+        .get_mut()
+        .write_all(format!("{logout_tag} LOGOUT\r\n").as_bytes())
+        .await;
 
     Ok(ImapFetchResult {
         messages,
@@ -1400,7 +1468,8 @@ pub async fn raw_fetch_message_headers(
         .await
         .map_err(|e| format!("HEADER FETCH write: {e}"))?;
 
-    let raw_messages = raw_parse_fetch_responses(&mut reader, "a3").await?;
+    let raw_messages =
+        raw_parse_fetch_responses(&mut reader, "a3", Duration::from_secs(60)).await?;
     log::info!(
         "RAW IMAP HEADER FETCH {folder}: parsed {} raw headers",
         raw_messages.len()
@@ -1661,6 +1730,7 @@ fn extract_bracket_number(line: &str, keyword: &str) -> Option<u32> {
 async fn raw_parse_fetch_responses(
     reader: &mut tokio::io::BufReader<ImapStream>,
     tag: &str,
+    line_timeout: Duration,
 ) -> Result<Vec<RawFetchedMessage>, String> {
     let mut messages: Vec<RawFetchedMessage> = Vec::new();
     let tag_ok = format!("{tag} OK");
@@ -1669,11 +1739,7 @@ async fn raw_parse_fetch_responses(
 
     loop {
         let mut line = String::new();
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(60),
-            reader.read_line(&mut line),
-        )
-        .await
+        match tokio::time::timeout(line_timeout, reader.read_line(&mut line)).await
         {
             Ok(Ok(0)) => return Err("Connection closed during FETCH".to_string()),
             Ok(Ok(_)) => {
