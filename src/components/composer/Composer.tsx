@@ -483,11 +483,7 @@ export function Composer() {
   return (
     <CSSTransition nodeRef={overlayRef} in={isOpen} timeout={200} classNames="slide-up" unmountOnExit>
     <div ref={overlayRef} className={`fixed inset-0 z-50 flex ${isFullpage ? "items-stretch justify-center p-4" : "items-end justify-center pb-4"} pointer-events-none`}>
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 pointer-events-auto backdrop-animate"
-        onClick={closeComposer}
-      />
+      {/* No fullscreen dim/blur layer: avoids “disabled app” look while clicks pass through to the main UI */}
 
       {/* Composer window */}
       <div
