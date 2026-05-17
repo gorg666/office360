@@ -6,6 +6,34 @@ const SYSTEM_LABELS = new Set([
   "inbox", "starred", "snoozed", "outbox", "sent", "drafts", "trash", "spam", "all",
 ]);
 
+type SettingsReturnSnapshot = {
+  pathname: string;
+  search: Record<string, unknown>;
+  messengersPanelsOpen: boolean;
+};
+
+let settingsReturnSnapshot: SettingsReturnSnapshot | null = null;
+
+function isSettingsPath(pathname: string): boolean {
+  return /^\/settings(\/|$)/.test(pathname);
+}
+
+function captureSettingsReturnLocation(): void {
+  const { pathname, search } = router.state.location;
+  if (isSettingsPath(pathname)) return;
+
+  settingsReturnSnapshot = {
+    pathname,
+    search: { ...(search as Record<string, unknown>) },
+    messengersPanelsOpen: useUIStore.getState().messengersPanelsOpen,
+  };
+}
+
+function navigateToInboxFallback(): void {
+  useUIStore.getState().setMessengersPanelsOpen(false);
+  router.navigate({ to: "/mail/$label", params: { label: "inbox" } });
+}
+
 /**
  * Navigate to a label/view. Handles routing for system labels, custom labels,
  * smart folders, and special views (settings, calendar).
@@ -15,7 +43,7 @@ export function navigateToLabel(
   opts?: { category?: string; threadId?: string },
 ): void {
   if (label === "settings") {
-    router.navigate({ to: "/settings/$tab", params: { tab: "general" } });
+    navigateToSettings("general");
     return;
   }
 
@@ -150,7 +178,113 @@ export function navigateToThread(threadId: string): void {
  * Navigate to settings with an optional tab.
  */
 export function navigateToSettings(tab = "general"): void {
+  captureSettingsReturnLocation();
   router.navigate({ to: "/settings/$tab", params: { tab } });
+}
+
+/**
+ * Leave settings and return to the route the user came from (or inbox fallback).
+ */
+export function navigateBackFromSettings(): void {
+  const snapshot = settingsReturnSnapshot;
+  settingsReturnSnapshot = null;
+
+  if (!snapshot || isSettingsPath(snapshot.pathname)) {
+    navigateToInboxFallback();
+    return;
+  }
+
+  useUIStore.getState().setMessengersPanelsOpen(snapshot.messengersPanelsOpen);
+
+  const { pathname } = snapshot;
+  const search = snapshot.search as Record<string, string>;
+
+  const mailThreadMatch = pathname.match(/^\/mail\/([^/]+)\/thread\/([^/]+)$/);
+  if (mailThreadMatch) {
+    router.navigate({
+      to: "/mail/$label/thread/$threadId",
+      params: { label: mailThreadMatch[1]!, threadId: mailThreadMatch[2]! },
+      search,
+    });
+    return;
+  }
+
+  const mailMatch = pathname.match(/^\/mail\/([^/]+)$/);
+  if (mailMatch) {
+    router.navigate({
+      to: "/mail/$label",
+      params: { label: mailMatch[1]! },
+      search,
+    });
+    return;
+  }
+
+  const labelThreadMatch = pathname.match(/^\/label\/([^/]+)\/thread\/([^/]+)$/);
+  if (labelThreadMatch) {
+    router.navigate({
+      to: "/label/$labelId/thread/$threadId",
+      params: { labelId: labelThreadMatch[1]!, threadId: labelThreadMatch[2]! },
+      search,
+    });
+    return;
+  }
+
+  const labelMatch = pathname.match(/^\/label\/([^/]+)$/);
+  if (labelMatch) {
+    router.navigate({
+      to: "/label/$labelId",
+      params: { labelId: labelMatch[1]! },
+      search,
+    });
+    return;
+  }
+
+  const smartFolderThreadMatch = pathname.match(/^\/smart-folder\/([^/]+)\/thread\/([^/]+)$/);
+  if (smartFolderThreadMatch) {
+    router.navigate({
+      to: "/smart-folder/$folderId/thread/$threadId",
+      params: { folderId: smartFolderThreadMatch[1]!, threadId: smartFolderThreadMatch[2]! },
+      search,
+    });
+    return;
+  }
+
+  const smartFolderMatch = pathname.match(/^\/smart-folder\/([^/]+)$/);
+  if (smartFolderMatch) {
+    router.navigate({
+      to: "/smart-folder/$folderId",
+      params: { folderId: smartFolderMatch[1]! },
+      search,
+    });
+    return;
+  }
+
+  if (pathname === "/attachments") {
+    router.navigate({ to: "/attachments" });
+    return;
+  }
+
+  if (pathname === "/calendar") {
+    router.navigate({ to: "/calendar" });
+    return;
+  }
+
+  if (pathname === "/tasks") {
+    router.navigate({ to: "/tasks" });
+    return;
+  }
+
+  const helpMatch = pathname.match(/^\/help(?:\/([^/]+))?$/);
+  if (helpMatch) {
+    router.navigate({
+      to: "/help/$topic",
+      params: { topic: helpMatch[1] ?? "getting-started" },
+      search,
+    });
+    return;
+  }
+
+  navigateToInboxFallback();
 }
 
 /**

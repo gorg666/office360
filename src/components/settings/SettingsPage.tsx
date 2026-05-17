@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useUIStore } from "@/stores/uiStore";
-import { navigateToLabel, navigateToSettings } from "@/router/navigate";
+import { navigateBackFromSettings, navigateToSettings } from "@/router/navigate";
 import { useAccountStore } from "@/stores/accountStore";
 import { getSetting, setSetting, getSecureSetting, setSecureSetting } from "@/services/db/settings";
 import { PROVIDER_MODELS } from "@/services/ai/types";
@@ -508,9 +508,9 @@ export function SettingsPage() {
       {/* Header */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-border-primary shrink-0 bg-bg-primary/60 backdrop-blur-sm">
         <button
-          onClick={() => navigateToLabel("inbox")}
+          onClick={() => navigateBackFromSettings()}
           className="p-1.5 -ml-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
-          title="Back to Inbox"
+          title="Назад"
         >
           <ArrowLeft size={18} />
         </button>
