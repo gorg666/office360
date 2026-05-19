@@ -45,6 +45,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useTaskStore } from "@/stores/taskStore";
+import { navLabelKey, useT } from "@/i18n";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -55,13 +56,13 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = 
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "starred", label: "Starred", icon: Star },
   { id: "snoozed", label: "Snoozed", icon: Clock },
-  { id: "outbox", label: "Исходящие", icon: SendHorizontal },
+  { id: "outbox", label: "Outbox", icon: SendHorizontal },
   { id: "sent", label: "Sent", icon: Send },
   { id: "drafts", label: "Drafts", icon: FileEdit },
   { id: "trash", label: "Trash", icon: Trash2 },
   { id: "spam", label: "Spam", icon: Ban },
   { id: "all", label: "All Mail", icon: Mail },
-  { id: "messengers", label: "Мессенджеры", icon: MessageCircle },
+  { id: "messengers", label: "Messengers", icon: MessageCircle },
   { id: "tasks", label: "Tasks", icon: CheckSquare },
   { id: "calendar", label: "Calendar", icon: Calendar },
   { id: "attachments", label: "Attachments", icon: Paperclip },
@@ -211,6 +212,7 @@ const LABELS_COLLAPSED_COUNT = 3;
 const SERVICE_NAV_IDS = new Set(["messengers", "tasks", "calendar", "attachments"]);
 
 export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
+  const t = useT();
   const activeLabel = useActiveLabel();
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const sidebarNavConfig = useUIStore((s) => s.sidebarNavConfig);
@@ -367,7 +369,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
           ) : (
             <>
               <Mail size={18} className="shrink-0" />
-              <span className="text-base font-medium">Новое письмо</span>
+              <span className="text-base font-medium">{t("nav.compose")}</span>
             </>
           )}
         </button>
@@ -386,7 +388,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
               {shouldShowServicesHeader && (
                 <div className="flex items-center justify-between px-3 pt-4 pb-1">
                   <span className="text-xs font-medium text-sidebar-text/60 uppercase tracking-wider">
-                    Сервисы
+                    {t("nav.services")}
                   </span>
                 </div>
               )}
@@ -416,7 +418,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                   }
                 }}
                 onContextMenu={(e) => handleNavContextMenu(e, item.id)}
-                title={collapsed ? item.label : undefined}
+                title={collapsed ? t(navLabelKey(item.id)) : undefined}
               >
                 {() => (
                   <>
@@ -426,7 +428,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                       <Icon size={18} className="shrink-0" />
                     )}
                     {!collapsed && (
-                      <span className="flex-1 truncate">{item.label}</span>
+                      <span className="flex-1 truncate">{t(navLabelKey(item.id))}</span>
                     )}
                     {item.id === "tasks" && taskIncompleteCount > 0 && !collapsed && (
                       <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
@@ -496,7 +498,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             {!collapsed && (
               <div className="flex items-center justify-between px-3 pt-4 pb-1">
                 <span className="text-xs font-medium text-sidebar-text/60 uppercase tracking-wider">
-                  Smart Folders
+                  {t("nav.smartFolders")}
                 </span>
                 <button
                   onClick={handleAddSmartFolder}
@@ -551,7 +553,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             {!collapsed && (
               <div className="flex items-center justify-between px-3 pt-4 pb-1">
                 <span className="text-xs font-medium text-sidebar-text/60 uppercase tracking-wider">
-                  Labels
+                  {t("nav.labels")}
                 </span>
                 <button
                   onClick={handleAddLabel}
@@ -659,10 +661,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
               ? "bg-accent/10 text-accent font-medium"
               : "text-sidebar-text hover:bg-sidebar-hover"
           }`}
-          title="Settings"
+          title={t("nav.settings")}
         >
           <Settings size={18} className="shrink-0" />
-          {!collapsed && <span>Settings</span>}
+          {!collapsed && <span>{t("nav.settings")}</span>}
         </button>
         <button
           onClick={() => navigateToLabel("help")}

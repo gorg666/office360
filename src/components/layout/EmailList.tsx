@@ -37,6 +37,7 @@ import {
   NoAccountIllustration,
   GenericEmptyIllustration,
 } from "../ui/illustrations";
+import { useT } from "@/i18n";
 
 const PAGE_SIZE = 50;
 const MARK_ALL_READ_BATCH_SIZE = 10;
@@ -94,6 +95,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
   const setReadFilter = useUIStore((s) => s.setReadFilter);
   const readingPanePosition = useUIStore((s) => s.readingPanePosition);
   const locale = useUIStore((s) => s.locale);
+  const t = useT();
   const userLabels = useLabelStore((s) => s.labels);
   const smartFolders = useSmartFolderStore((s) => s.folders);
 
@@ -826,12 +828,12 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
             })}
             {loadingMore && (
               <div className="px-4 py-3 text-center text-xs text-text-tertiary">
-                Loading more...
+                {t("emailList.loadingMore")}
               </div>
             )}
             {!hasMore && threads.length > PAGE_SIZE && (
               <div className="px-4 py-3 text-center text-xs text-text-tertiary">
-                All conversations loaded
+                {t("emailList.allLoaded")}
               </div>
             )}
           </>
@@ -854,48 +856,104 @@ function EmptyStateForContext({
   readFilter: string;
   activeCategory: string;
 }) {
+  const t = useT();
+
   if (searchQuery) {
-    return <EmptyState illustration={NoSearchResultsIllustration} title="No results found" subtitle="Try a different search term" />;
+    return (
+      <EmptyState
+        illustration={NoSearchResultsIllustration}
+        title={t("emailList.noResultsTitle")}
+        subtitle={t("emailList.noResultsSubtitle")}
+      />
+    );
   }
   if (readFilter !== "all") {
-    return <EmptyState icon={Filter} title={`No ${readFilter} emails`} subtitle="Try changing the filter" />;
+    return (
+      <EmptyState
+        icon={Filter}
+        title={readFilter === "unread" ? t("emailList.noUnreadEmails") : t("emailList.noReadEmails")}
+        subtitle={t("emailList.changeFilterSubtitle")}
+      />
+    );
   }
   if (!activeAccountId) {
-    return <EmptyState illustration={NoAccountIllustration} title="No account connected" subtitle="Add a Gmail account to get started" />;
+    return (
+      <EmptyState
+        illustration={NoAccountIllustration}
+        title={t("emailList.noAccountTitle")}
+        subtitle={t("emailList.noAccountSubtitle")}
+      />
+    );
   }
 
   switch (activeLabel) {
     case "inbox":
       if (activeCategory !== "All") {
         const categoryMessages: Record<string, { title: string; subtitle: string }> = {
-          Primary: { title: "Primary is clear", subtitle: "No important conversations" },
-          Updates: { title: "No updates", subtitle: "Notifications and transactional emails appear here" },
-          Promotions: { title: "No promotions", subtitle: "Marketing and promotional emails appear here" },
-          Social: { title: "No social emails", subtitle: "Social network notifications appear here" },
-          Newsletters: { title: "No newsletters", subtitle: "Newsletters and subscriptions appear here" },
+          Primary: { title: t("emailList.categoryPrimaryTitle"), subtitle: t("emailList.categoryPrimarySubtitle") },
+          Updates: { title: t("emailList.categoryUpdatesTitle"), subtitle: t("emailList.categoryUpdatesSubtitle") },
+          Promotions: { title: t("emailList.categoryPromotionsTitle"), subtitle: t("emailList.categoryPromotionsSubtitle") },
+          Social: { title: t("emailList.categorySocialTitle"), subtitle: t("emailList.categorySocialSubtitle") },
+          Newsletters: { title: t("emailList.categoryNewslettersTitle"), subtitle: t("emailList.categoryNewslettersSubtitle") },
         };
         const msg = categoryMessages[activeCategory];
         if (msg) return <EmptyState illustration={InboxClearIllustration} title={msg.title} subtitle={msg.subtitle} />;
       }
-      return <EmptyState illustration={InboxClearIllustration} title="You're all caught up" subtitle="No new conversations" />;
+      return (
+        <EmptyState
+          illustration={InboxClearIllustration}
+          title={t("emailList.inboxCaughtUpTitle")}
+          subtitle={t("emailList.inboxCaughtUpSubtitle")}
+        />
+      );
     case "starred":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No starred conversations" subtitle="Star emails to find them here" />;
+      return (
+        <EmptyState
+          illustration={GenericEmptyIllustration}
+          title={t("emailList.noStarredTitle")}
+          subtitle={t("emailList.noStarredSubtitle")}
+        />
+      );
     case "snoozed":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No snoozed emails" subtitle="Snoozed emails will appear here" />;
+      return (
+        <EmptyState
+          illustration={GenericEmptyIllustration}
+          title={t("emailList.noSnoozedTitle")}
+          subtitle={t("emailList.noSnoozedSubtitle")}
+        />
+      );
     case "sent":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No sent messages" />;
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("emailList.noSentTitle")} />;
     case "drafts":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No drafts" />;
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("emailList.noDraftsTitle")} />;
     case "trash":
-      return <EmptyState illustration={GenericEmptyIllustration} title="Trash is empty" />;
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("emailList.trashEmptyTitle")} />;
     case "spam":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No spam" subtitle="Looking good!" />;
+      return (
+        <EmptyState
+          illustration={GenericEmptyIllustration}
+          title={t("emailList.noSpamTitle")}
+          subtitle={t("emailList.noSpamSubtitle")}
+        />
+      );
     case "all":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No emails yet" />;
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("emailList.noEmailsTitle")} />;
     default:
       if (activeLabel.startsWith("smart-folder:")) {
-        return <EmptyState icon={FolderSearch} title="No matching emails" subtitle="Try adjusting the smart folder query" />;
+        return (
+          <EmptyState
+            icon={FolderSearch}
+            title={t("emailList.smartFolderEmptyTitle")}
+            subtitle={t("emailList.smartFolderEmptySubtitle")}
+          />
+        );
       }
-      return <EmptyState illustration={GenericEmptyIllustration} title="Nothing here" subtitle="No conversations with this label" />;
+      return (
+        <EmptyState
+          illustration={GenericEmptyIllustration}
+          title={t("emailList.labelEmptyTitle")}
+          subtitle={t("emailList.labelEmptySubtitle")}
+        />
+      );
   }
 }

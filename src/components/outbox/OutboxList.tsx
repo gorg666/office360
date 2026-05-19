@@ -11,6 +11,7 @@ import { triggerQueueFlush } from "@/services/queue/queueProcessor";
 import { parseOutboxSendPreview } from "@/utils/outboxSendPreview";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { GenericEmptyIllustration } from "@/components/ui/illustrations";
+import { useT, type I18nKey } from "@/i18n";
 
 export type OutboxDisplayStatus = "pending" | "sending" | "failed";
 
@@ -20,22 +21,18 @@ function mapOutboxStatus(op: PendingOperation): OutboxDisplayStatus {
   return "pending";
 }
 
-function statusLabel(status: OutboxDisplayStatus): string {
-  switch (status) {
-    case "pending":
-      return "Ожидает отправки";
-    case "sending":
-      return "Отправляется";
-    case "failed":
-      return "Ошибка отправки";
-  }
-}
+const OUTBOX_STATUS_KEYS: Record<OutboxDisplayStatus, I18nKey> = {
+  pending: "outbox.status.pending",
+  sending: "outbox.status.sending",
+  failed: "outbox.status.failed",
+};
 
 function formatOutboxDate(unixSec: number): string {
   return new Date(unixSec * 1000).toLocaleString();
 }
 
 export function OutboxList() {
+  const t = useT();
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const pendingOpsCount = useUIStore((s) => s.pendingOpsCount);
   const [items, setItems] = useState<PendingOperation[]>([]);
@@ -91,8 +88,8 @@ export function OutboxList() {
     return (
       <EmptyState
         illustration={GenericEmptyIllustration}
-        title="Нет подключённого аккаунта"
-        subtitle="Добавьте почтовый аккаунт"
+        title={t("outbox.noAccountTitle")}
+        subtitle={t("outbox.noAccountSubtitle")}
       />
     );
   }
@@ -109,8 +106,8 @@ export function OutboxList() {
     return (
       <EmptyState
         icon={Send}
-        title="Исходящих писем нет"
-        subtitle="Письма, ожидающие отправки, появятся здесь"
+        title={t("outbox.emptyTitle")}
+        subtitle={t("outbox.emptySubtitle")}
       />
     );
   }
@@ -150,7 +147,7 @@ export function OutboxList() {
                           : "bg-bg-tertiary text-text-secondary"
                     }`}
                   >
-                    {statusLabel(displayStatus)}
+                    {t(OUTBOX_STATUS_KEYS[displayStatus])}
                   </span>
                 </div>
                 <p className="text-xs text-text-secondary truncate mt-0.5">
@@ -173,7 +170,7 @@ export function OutboxList() {
                   className="shrink-0 flex items-center gap-1 text-xs text-accent hover:text-accent/80 disabled:opacity-50 press-scale px-2 py-1 rounded"
                 >
                   <RefreshCw size={14} className={retryingId === op.id ? "animate-spin" : ""} />
-                  Повторить
+                  {t("outbox.retry")}
                 </button>
               )}
             </div>
