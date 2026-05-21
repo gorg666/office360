@@ -13,6 +13,10 @@ vi.mock("@/services/db/threads", () => ({
   getThreadById: vi.fn(),
 }));
 
+vi.mock("@/services/db/contacts", () => ({
+  getContactDisplayNameMap: vi.fn().mockResolvedValue(new Map<string, string>()),
+}));
+
 const mockGetThreadLabelIds = vi.mocked(getThreadLabelIds);
 const mockGetThreadById = vi.mocked(getThreadById);
 
@@ -104,7 +108,7 @@ describe("getSmartFolderUnreadCount", () => {
 
   it("generates a COUNT query", () => {
     const { sql } = getSmartFolderUnreadCount("has:attachment", "acc-1");
-    expect(sql).toContain("COUNT(DISTINCT m.id)");
+    expect(sql).toContain("COUNT(DISTINCT m.thread_id)");
   });
 
   it("includes unread filter", () => {
@@ -120,7 +124,7 @@ describe("getSmartFolderUnreadCount", () => {
   it("does not corrupt FROM keyword by matching column names like from_name", () => {
     const { sql } = getSmartFolderUnreadCount("is:unread", "acc-1");
     // The regex should replace up to the SQL FROM keyword, not stop at "from" in "from_name"
-    expect(sql).toMatch(/^SELECT COUNT\(DISTINCT m\.id\) as count\s+FROM\b/i);
+    expect(sql).toMatch(/^SELECT COUNT\(DISTINCT m\.thread_id\) as count\s+FROM\b/i);
     expect(sql).not.toContain("from_name");
     expect(sql).not.toContain("from_address");
   });
@@ -136,6 +140,7 @@ describe("mapSmartFolderRows", () => {
     from_address: "alice@example.com",
     snippet: "Hello...",
     date: 1700000000,
+    is_read: 0,
     ...overrides,
   });
 
@@ -165,7 +170,7 @@ describe("mapSmartFolderRows", () => {
       from_address: "alice@example.com",
     });
 
-    const result = await mapSmartFolderRows([makeRow()]);
+    const result = await mapSmartFolderRows([makeRow({ is_read: 1 })]);
 
     expect(result).toHaveLength(1);
     expect(result[0]!.isRead).toBe(true);
@@ -203,6 +208,31 @@ describe("mapSmartFolderRows", () => {
     expect(result[0]!.isPinned).toBe(false);
     expect(result[0]!.isMuted).toBe(true);
     expect(result[0]!.hasAttachments).toBe(false);
+  });
+
+  it("uses message is_read for list preview, not thread aggregate", async () => {
+    mockGetThreadById.mockResolvedValue({
+      id: "thread-1",
+      account_id: "acc-1",
+      subject: "Test subject",
+      snippet: "Hello...",
+      last_message_at: 1700000000,
+      message_count: 2,
+      is_read: 1,
+      is_starred: 0,
+      is_important: 0,
+      has_attachments: 0,
+      is_snoozed: 0,
+      snooze_until: null,
+      is_pinned: 0,
+      is_muted: 0,
+      from_name: "Alice",
+      from_address: "alice@example.com",
+    });
+
+    const result = await mapSmartFolderRows([makeRow({ is_read: 0 })]);
+
+    expect(result[0]!.isRead).toBe(false);
   });
 
   it("defaults to safe values when thread not found in DB", async () => {
