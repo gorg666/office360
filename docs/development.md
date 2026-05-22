@@ -93,6 +93,25 @@ For non-Gmail providers (Outlook, Yahoo, iCloud, Fastmail, etc.):
 
 > No Google Cloud project or Client ID needed. Passwords are encrypted with AES-256-GCM in the local database. Some providers (e.g., Gmail, Yahoo) require an app-specific password instead of your main password.
 
+### Yandex Mail (OAuth, dev builds)
+
+**Connect with Yandex ID** needs mail OAuth scopes, not only login scopes:
+
+- `mail:imap_full` — IMAP sync
+- `mail:smtp` — send mail
+
+Without them, OAuth can succeed but the app **will not save** the account (see `057c64f`). The UI shows an error and offers **Sign in again** or manual IMAP/SMTP with an app password.
+
+**Build-time env** (copy from `.env.example`):
+
+```bash
+VITE_YANDEX_OAUTH_SCOPES=mail:imap_full,mail:smtp,calendar:all,login:email,login:info,login:avatar
+```
+
+Optional: `VITE_YANDEX_OAUTH_CLIENT_ID` — your Yandex ID public client ID (otherwise a bundled fallback is used).
+
+**Yandex ID app** ([oauth.yandex.ru](https://oauth.yandex.ru)): enable the same scopes on the application and add redirect URI `http://localhost:17248`. Default scopes in code are only `login:email`, `login:info`, `login:avatar` until `VITE_YANDEX_OAUTH_SCOPES` is set.
+
 ## AI Setup (Optional)
 
 To enable AI features, add your API key for one or more providers in Settings:
