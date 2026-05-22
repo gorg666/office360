@@ -532,6 +532,12 @@ const ru: Record<string, string> = {
   "Tauri version": "Версия Tauri",
   "WebView version": "Версия WebView",
   "Platform": "Платформа",
+  "Check and install client updates": "Проверка и установка обновлений клиента",
+  "Up to date": "Установлена актуальная версия",
+  "Click \"Check for Updates\" to find a new version.": "Нажмите «Проверить обновления», чтобы найти новую версию.",
+  "Update & Restart": "Обновить и перезапустить",
+  "Corporate desktop email client for work. Mail and settings stay on your device — no cloud profile sync.": "Корпоративный почтовый клиент для рабочего стола. Письма и настройки остаются на вашем устройстве — без облачной синхронизации профиля.",
+  "Upload a custom image for the interface. It will be used in the theme preview.": "Загрузите собственное изображение для оформления интерфейса. Оно будет использоваться в предпросмотре темы.",
 };
 
 const enOverrides: Record<string, string> = {
@@ -570,6 +576,8 @@ function translatePattern(trimmed: string, locale: AppLocale) {
     if (officeUnread) return `Офис360 - непрочитанных: ${officeUnread[1]}`;
     const update = trimmed.match(/^Office360 v(.+) is available$/);
     if (update) return `Доступна версия Офис360 v${update[1]}`;
+    const vAvailable = trimmed.match(/^v(.+) available$/);
+    if (vAvailable) return `Доступна версия ${vAvailable[1]}`;
     const inboxCategory = trimmed.match(/^Inbox — (.+)$/);
     if (inboxCategory) return `Входящие — ${translateText(inboxCategory[1] ?? "", locale)}`;
     const conversations = trimmed.match(/^(\d+) conversations?$/);
