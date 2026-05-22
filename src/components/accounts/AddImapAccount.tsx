@@ -70,6 +70,8 @@ interface FormState {
   oauthExpiresAt: number | null;
   oauthEmail: string | null;
   oauthPicture: string | null;
+  /** Space/comma-separated scopes from token response (never logged in full). */
+  oauthGrantedScopes: string | null;
 }
 
 const initialFormState: FormState = {
@@ -95,6 +97,7 @@ const initialFormState: FormState = {
   oauthExpiresAt: null,
   oauthEmail: null,
   oauthPicture: null,
+  oauthGrantedScopes: null,
 };
 
 const steps: Step[] = ["basic", "imap", "smtp", "test"];
@@ -125,7 +128,19 @@ const labelClass = "block text-xs font-medium text-text-secondary mb-1";
 const selectClass =
   "w-full px-3 py-2 bg-bg-secondary border border-border-primary rounded-lg text-sm text-text-primary outline-none focus:border-accent transition-colors appearance-none";
 const IMAP_TEST_TIMEOUT_MS = 35_000;
+/** UI + belt-and-suspenders around hung lettre `test_connection` (Rust also enforces ~20s). */
+const SMTP_TEST_TIMEOUT_MS = 20_000;
 const REQUIRED_YANDEX_MAIL_SCOPES = ["mail:imap_full", "mail:smtp"];
+
+const SMTP_SCOPE_MISSING =
+  "This token does not include SMTP access. Use an app password or sign in again with the required permissions.";
+
+const SMTP_YANDEX_APP_PASSWORD_HINT =
+  "For Yandex Mail you may need an app password. Enable app passwords in Yandex ID security settings and use it instead of your account password.";
+
+function smtpTestTimeoutMessage(seconds: number): string {
+  return `SMTP test did not complete within ${seconds} seconds. Check server, port, SSL/TLS, and auth method.`;
+}
 
 function parseScopeSet(scopeValue: string | undefined): Set<string> {
   if (!scopeValue) return new Set();
@@ -164,10 +179,35 @@ function normalizeKnownSmtpProviderPort(host: string, port: number): number {
 
 function formatSmtpTestError(err: unknown, host: string, port: number): string {
   const message = err instanceof Error ? err.message : String(err);
-  if (/refused|отверг запрос|os error 10061/i.test(message)) {
-    return `SMTP-сервер ${host}:${port} отверг TCP-подключение. Проверьте порт и тип защиты: для Яндекса обычно smtp.yandex.ru, порт 465, SSL/TLS. Если настройки верные, порт блокируется сетью, VPN, прокси или антивирусом.`;
+  if (/refused|connection refused|отверг запрос|os error 10061/i.test(message)) {
+    return `SMTP server ${host}:${port} refused the TCP connection. Check port and security type: for Yandex Mail use smtp.yandex.ru, port 465, SSL/TLS. If settings are correct, the port may be blocked by network, VPN, proxy, or antivirus.`;
   }
   return message;
+}
+
+function enrichSmtpTestUserFacingMessage(
+  raw: string,
+  ctx: { authMode: AuthMode; smtpHost: string; smtpPort: number },
+): string {
+  if (/SMTP test did not complete within|SMTP test timed out after/i.test(raw)) {
+    return raw;
+  }
+  let m = formatSmtpTestError(raw, ctx.smtpHost, ctx.smtpPort);
+  if (ctx.authMode === "oauth2") {
+    if (/5\.7\.8|535|authentication failed|auth.*fail|xoauth2|invalid.*credential|expected.*AUTH/i.test(raw)) {
+      return SMTP_SCOPE_MISSING;
+    }
+  }
+  if (ctx.authMode === "password") {
+    const h = ctx.smtpHost.toLowerCase();
+    if (
+      (h.includes("yandex.ru") || h.includes("yandex.com")) &&
+      /auth|535|invalid|password|credentials|5\.7\.|authentication/i.test(m)
+    ) {
+      return SMTP_YANDEX_APP_PASSWORD_HINT;
+    }
+  }
+  return m;
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -202,6 +242,7 @@ export function AddImapAccount({
       authMode: "oauth2",
       oauthProvider: oauthPreset.providerId,
       acceptInvalidCerts: discovered?.acceptInvalidCerts ?? false,
+      oauthGrantedScopes: null,
     };
   });
   const [imapTest, setImapTest] = useState<TestStatus>({ state: "idle" });
@@ -484,6 +525,7 @@ export function AddImapAccount({
         oauthProvider: providerId,
         oauthClientId: clientId,
         oauthClientSecret: provider.publicClientId ? "" : form.oauthClientSecret,
+        oauthGrantedScopes: tokens.scope ?? null,
       };
 
       setForm(nextForm);
@@ -539,39 +581,113 @@ export function AddImapAccount({
 
   const testSmtpConnection = async () => {
     setSmtpTest({ state: "testing" });
+    const smtpHost = form.smtpHost.trim();
+    const smtpPort = normalizeKnownSmtpProviderPort(smtpHost, form.smtpPort);
+    const username =
+      form.imapUsername.trim() ||
+      (isOAuth ? (form.oauthEmail ?? form.email).trim() : form.email.trim());
+    const authMethod: "oauth2" | "password" = isOAuth ? "oauth2" : "password";
+    const t0 = performance.now();
+
+    const logSmtpDiag = (phase: "start" | "success" | "error", detail?: string) => {
+      const elapsedMs = Math.round(performance.now() - t0);
+      console.info(
+        "[smtp:test]",
+        JSON.stringify({
+          phase,
+          elapsedMs,
+          host: smtpHost,
+          port: smtpPort,
+          security: form.smtpSecurity,
+          securityMapped: mapSecurity(form.smtpSecurity),
+          authMethod,
+          username,
+          ...(detail ? { detail } : {}),
+        }),
+      );
+    };
+
+    logSmtpDiag("start");
+
     try {
-      const smtpPort = normalizeKnownSmtpProviderPort(form.smtpHost, form.smtpPort);
+      if (
+        isOAuth &&
+        (smtpHost.toLowerCase().includes("yandex") || form.oauthProvider === "yandex") &&
+        form.oauthGrantedScopes
+      ) {
+        const scopes = parseScopeSet(form.oauthGrantedScopes);
+        if (!scopes.has("mail:smtp")) {
+          const msg = SMTP_SCOPE_MISSING;
+          setSmtpTest({ state: "error", message: msg });
+          logSmtpDiag("error", msg);
+          return;
+        }
+      }
+
       const smtpPassword = isOAuth
         ? (form.oauthAccessToken ?? "")
         : form.samePassword
           ? form.password
           : form.smtpPassword;
-      const result = await invoke<{ success: boolean; message: string }>(
-        "smtp_test_connection",
-        {
+
+      const result = await withTimeout(
+        invoke<{ success: boolean; message: string }>("smtp_test_connection", {
           config: {
-            host: form.smtpHost,
+            host: smtpHost,
             port: smtpPort,
             security: mapSecurity(form.smtpSecurity),
-            username: form.imapUsername || (isOAuth ? (form.oauthEmail ?? form.email) : form.email),
+            username,
             password: smtpPassword,
-            auth_method: isOAuth ? "oauth2" : "password",
+            auth_method: authMethod,
             accept_invalid_certs: form.acceptInvalidCerts,
           },
-        },
+        }),
+        SMTP_TEST_TIMEOUT_MS,
+        smtpTestTimeoutMessage(SMTP_TEST_TIMEOUT_MS / 1000),
       );
+
+      if (!result.success) {
+        const rawMsg = result.message || "SMTP check failed";
+        const message = enrichSmtpTestUserFacingMessage(rawMsg, {
+          authMode: form.authMode,
+          smtpHost,
+          smtpPort,
+        });
+        setSmtpTest({ state: "error", message });
+        logSmtpDiag("error", message);
+        return;
+      }
+
       setSmtpTest({
-        state: result.success ? "success" : "error",
+        state: "success",
         message: result.message,
       });
+      logSmtpDiag("success", result.message);
     } catch (err) {
-      const smtpPort = normalizeKnownSmtpProviderPort(form.smtpHost, form.smtpPort);
-      const message = formatSmtpTestError(err, form.smtpHost, smtpPort);
+      const raw = err instanceof Error ? err.message : String(err);
+      const message = enrichSmtpTestUserFacingMessage(raw, {
+        authMode: form.authMode,
+        smtpHost,
+        smtpPort,
+      });
       setSmtpTest({ state: "error", message });
+      logSmtpDiag("error", message);
     }
   };
 
   const testBothConnections = async () => {
+    const imapOk = imapTest.state === "success";
+    const smtpOk = smtpTest.state === "success";
+
+    if (imapOk && !smtpOk) {
+      await testSmtpConnection();
+      return;
+    }
+    if (!imapOk && smtpOk) {
+      await testImapConnection();
+      return;
+    }
+
     await Promise.all([testImapConnection(), testSmtpConnection()]);
   };
 
@@ -1077,7 +1193,7 @@ export function AddImapAccount({
         className="w-full px-4 py-2 text-sm bg-bg-secondary border border-border-primary rounded-lg text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {imapTest.state === "testing" || smtpTest.state === "testing"
-          ? "Testing..."
+          ? "Checking..."
           : imapTest.state === "idle" && smtpTest.state === "idle"
             ? "Test Connection"
             : "Re-test Connection"}
