@@ -231,3 +231,11 @@ Draft
 2. `fix(mail): make composer non-blocking`
 3. `feat(mail): open messages in separate window on double click`
 4. `feat(mail): add outbox send queue view`
+
+## Сопутствующая стабилизация
+
+Коммиты на `office360-mail-workflow` вне scope мини-спринта (composer / double-click / outbox):
+
+* **`c52a868`** `fix(search): correct unread counts for smart folders and categories` — счётчики непрочитанных для smart folders и категорий; `COUNT(DISTINCT thread_id)` и учёт `message.is_read` на уровне сообщений. Влияет на split inbox / smart folders, не отдельная mail workflow фича.
+* **`c9701da`** `feat(settings): restore i18n for about panel` — i18n Settings/About: EN в JSX + `TranslationLayer` / `i18n.ts`; `Г—` → `×` в shortcuts; EN для подсказки своего фона темы.
+* **`3f4456c`** `fix(accounts): localize smtp test errors and timeouts` — EN user-facing ошибки SMTP test, RU через `i18n.ts`; таймаут проверки 20 с (UI + Rust); надёжность setup аккаунта, не mail workflow.
