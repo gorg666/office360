@@ -540,6 +540,12 @@ const ru: Record<string, string> = {
   "Upload a custom image for the interface. It will be used in the theme preview.": "Загрузите собственное изображение для оформления интерфейса. Оно будет использоваться в предпросмотре темы.",
   "This token does not include SMTP access. Use an app password or sign in again with the required permissions.": "У токена нет доступа к SMTP. Используйте пароль приложения или повторите вход с нужными правами.",
   "For Yandex Mail you may need an app password. Enable app passwords in Yandex ID security settings and use it instead of your account password.": "Для Яндекс Почты может потребоваться пароль приложения. Создайте пароль приложения в настройках Яндекса и используйте его вместо обычного пароля.",
+  "Yandex ID connected, but mail permissions are missing.": "Яндекс ID подключён, но нет прав на почту.",
+  "Mail permissions are required to sync and send email.": "Для синхронизации и отправки писем нужны права на почту.",
+  "Sign in again with mail access enabled, or use an app password with manual IMAP/SMTP setup.": "Войдите снова с доступом к почте или используйте пароль приложения с ручной настройкой IMAP/SMTP.",
+  "Sign in again": "Войти снова",
+  "Use app password": "Пароль приложения",
+  "Set up manually": "Настроить вручную",
 };
 
 const enOverrides: Record<string, string> = {
