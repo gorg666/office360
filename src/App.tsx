@@ -76,7 +76,12 @@ import { COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import { normalizeLocale } from "./i18n";
 import { router } from "./router";
-import { getSelectedThreadId } from "./router/navigate";
+import {
+  getSelectedThreadId,
+  navigateToLabel,
+  navigateToSettings,
+} from "./router/navigate";
+import { useComposerStore } from "./stores/composerStore";
 import { applyColorTheme, applyWindowBackground } from "./utils/themeEffects";
 import { AlertTriangle, X } from "lucide-react";
 
@@ -213,20 +218,41 @@ export default function App() {
     };
   }, []);
 
-  // Listen for tray "Check for Mail" button
+  // Tray menu actions (labels in src-tauri/src/lib.rs)
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    const unlisteners: (() => void)[] = [];
     import("@tauri-apps/api/event").then(({ listen }) => {
-      listen("tray-check-mail", () => {
+      void listen("tray-check-mail", () => {
         const accounts = useAccountStore.getState().accounts;
         const activeAccountId = useAccountStore.getState().activeAccountId;
         const accountIds = getSyncableAccountIds(accounts, activeAccountId);
         if (accountIds.length > 0) {
           triggerSync(accountIds);
         }
-      }).then((fn) => { unlisten = fn; });
+      }).then((fn) => {
+        unlisteners.push(fn);
+      });
+      void listen("tray-compose", () => {
+        useComposerStore.getState().openComposer();
+      }).then((fn) => {
+        unlisteners.push(fn);
+      });
+      void listen("tray-open-unread", () => {
+        navigateToLabel("smart-folder:sf-unread");
+      }).then((fn) => {
+        unlisteners.push(fn);
+      });
+      void listen("tray-open-settings", () => {
+        navigateToSettings("general");
+      }).then((fn) => {
+        unlisteners.push(fn);
+      });
     });
-    return () => { unlisten?.(); };
+    return () => {
+      for (const unlisten of unlisteners) {
+        unlisten();
+      }
+    };
   }, []);
 
   // Initialize database, load accounts, start sync

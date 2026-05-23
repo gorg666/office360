@@ -1,9 +1,22 @@
 #[cfg(not(target_os = "linux"))]
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{TrayIconBuilder, TrayIconId},
 };
 use tauri::{Emitter, Manager};
+
+fn focus_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn emit_to_main(app: &tauri::AppHandle, event: &str) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.emit(event, ());
+    }
+}
 use tauri_plugin_autostart::MacosLauncher;
 
 mod commands;
@@ -148,11 +161,30 @@ pub fn run() {
             #[cfg(not(target_os = "linux"))]
             {
                 // Build system tray menu
-                let show = MenuItem::with_id(app, "show", "Show Office360", true, None::<&str>)?;
+                let show = MenuItem::with_id(app, "show", "Открыть Офис360", true, None::<&str>)?;
+                let compose =
+                    MenuItem::with_id(app, "compose", "Написать письмо", true, None::<&str>)?;
                 let check_mail =
-                    MenuItem::with_id(app, "check_mail", "Check for Mail", true, None::<&str>)?;
-                let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-                let menu = Menu::with_items(app, &[&show, &check_mail, &quit])?;
+                    MenuItem::with_id(app, "check_mail", "Проверить почту", true, None::<&str>)?;
+                let unread =
+                    MenuItem::with_id(app, "unread", "Непрочитанные", true, None::<&str>)?;
+                let settings =
+                    MenuItem::with_id(app, "settings", "Настройки", true, None::<&str>)?;
+                let separator = PredefinedMenuItem::separator(app)?;
+                let quit =
+                    MenuItem::with_id(app, "quit", "Выйти из Офис360", true, None::<&str>)?;
+                let menu = Menu::with_items(
+                    app,
+                    &[
+                        &show,
+                        &compose,
+                        &check_mail,
+                        &unread,
+                        &settings,
+                        &separator,
+                        &quit,
+                    ],
+                )?;
 
                 let icon = app
                     .default_window_icon()
@@ -165,16 +197,19 @@ pub fn run() {
                     .menu(&menu)
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id.as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                        "show" => focus_main_window(app),
+                        "compose" => {
+                            focus_main_window(app);
+                            emit_to_main(app, "tray-compose");
                         }
-                        "check_mail" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.emit("tray-check-mail", ());
-                            }
+                        "check_mail" => emit_to_main(app, "tray-check-mail"),
+                        "unread" => {
+                            focus_main_window(app);
+                            emit_to_main(app, "tray-open-unread");
+                        }
+                        "settings" => {
+                            focus_main_window(app);
+                            emit_to_main(app, "tray-open-settings");
                         }
                         "quit" => {
                             app.exit(0);
@@ -183,11 +218,7 @@ pub fn run() {
                     })
                     .on_tray_icon_event(|tray, event| {
                         if let tauri::tray::TrayIconEvent::DoubleClick { .. } = event {
-                            let app = tray.app_handle();
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                            focus_main_window(tray.app_handle());
                         }
                     })
                     .build(app)?;
@@ -210,29 +241,48 @@ pub fn run() {
                         };
 
                     let app_handle_show = app_handle.clone();
-                    if let Err(e) = tray.add_menu_item("Show Office360", move || {
-                        if let Some(window) = app_handle_show.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                    if let Err(e) = tray.add_menu_item("Открыть Офис360", move || {
+                        focus_main_window(&app_handle_show);
                     }) {
-                        log::warn!("Failed to add tray menu item 'Show Office360': {e}");
+                        log::warn!("Failed to add tray menu item 'Открыть Офис360': {e}");
+                    }
+
+                    let app_handle_compose = app_handle.clone();
+                    if let Err(e) = tray.add_menu_item("Написать письмо", move || {
+                        focus_main_window(&app_handle_compose);
+                        emit_to_main(&app_handle_compose, "tray-compose");
+                    }) {
+                        log::warn!("Failed to add tray menu item 'Написать письмо': {e}");
                     }
 
                     let app_handle_check = app_handle.clone();
-                    if let Err(e) = tray.add_menu_item("Check for Mail", move || {
-                        if let Some(window) = app_handle_check.get_webview_window("main") {
-                            let _ = window.emit("tray-check-mail", ());
-                        }
+                    if let Err(e) = tray.add_menu_item("Проверить почту", move || {
+                        emit_to_main(&app_handle_check, "tray-check-mail");
                     }) {
-                        log::warn!("Failed to add tray menu item 'Check for Mail': {e}");
+                        log::warn!("Failed to add tray menu item 'Проверить почту': {e}");
+                    }
+
+                    let app_handle_unread = app_handle.clone();
+                    if let Err(e) = tray.add_menu_item("Непрочитанные", move || {
+                        focus_main_window(&app_handle_unread);
+                        emit_to_main(&app_handle_unread, "tray-open-unread");
+                    }) {
+                        log::warn!("Failed to add tray menu item 'Непрочитанные': {e}");
+                    }
+
+                    let app_handle_settings = app_handle.clone();
+                    if let Err(e) = tray.add_menu_item("Настройки", move || {
+                        focus_main_window(&app_handle_settings);
+                        emit_to_main(&app_handle_settings, "tray-open-settings");
+                    }) {
+                        log::warn!("Failed to add tray menu item 'Настройки': {e}");
                     }
 
                     let app_handle_quit = app_handle.clone();
-                    if let Err(e) = tray.add_menu_item("Quit", move || {
+                    if let Err(e) = tray.add_menu_item("Выйти из Офис360", move || {
                         app_handle_quit.exit(0);
                     }) {
-                        log::warn!("Failed to add tray menu item 'Quit': {e}");
+                        log::warn!("Failed to add tray menu item 'Выйти из Офис360': {e}");
                     }
 
                     loop {
