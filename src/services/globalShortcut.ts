@@ -1,18 +1,12 @@
 import { register, unregister, isRegistered } from "@tauri-apps/plugin-global-shortcut";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getSetting, setSetting } from "./db/settings";
-import { useComposerStore } from "../stores/composerStore";
+import { openNewCompose } from "@/utils/openComposeWindow";
 
 const DEFAULT_SHORTCUT = "CmdOrCtrl+Shift+M";
 let currentShortcut: string | null = null;
 
 async function handleComposeShortcut(): Promise<void> {
-  const mainWindow = await WebviewWindow.getByLabel("main");
-  if (mainWindow) {
-    await mainWindow.show();
-    await mainWindow.setFocus();
-  }
-  useComposerStore.getState().openComposer();
+  await openNewCompose();
 }
 
 export async function initGlobalShortcut(): Promise<void> {

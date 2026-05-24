@@ -4,13 +4,13 @@ import { AccountSwitcher } from "../accounts/AccountSwitcher";
 import { LabelForm } from "../labels/LabelForm";
 import { InputDialog } from "../ui/InputDialog";
 import { useUIStore } from "@/stores/uiStore";
-import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { useActiveLabel, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToLabel } from "@/router/navigate";
+import { openNewCompose } from "@/utils/openComposeWindow";
 import {
   Inbox,
   Star,
@@ -220,7 +220,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const messengersPanelsOpen = useUIStore((s) => s.messengersPanelsOpen);
   const setMessengersPanelsOpen = useUIStore((s) => s.setMessengersPanelsOpen);
   const activeCategory = useActiveCategory();
-  const openComposer = useComposerStore((s) => s.openComposer);
+  const openComposer = useCallback(() => {
+    void openNewCompose();
+  }, []);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const labels = useLabelStore((s) => s.labels);
   const loadLabels = useLabelStore((s) => s.loadLabels);

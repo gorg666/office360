@@ -198,10 +198,7 @@ pub fn run() {
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id.as_ref() {
                         "show" => focus_main_window(app),
-                        "compose" => {
-                            focus_main_window(app);
-                            emit_to_main(app, "tray-compose");
-                        }
+                        "compose" => emit_to_main(app, "tray-compose"),
                         "check_mail" => emit_to_main(app, "tray-check-mail"),
                         "unread" => {
                             focus_main_window(app);
@@ -249,7 +246,6 @@ pub fn run() {
 
                     let app_handle_compose = app_handle.clone();
                     if let Err(e) = tray.add_menu_item("Написать письмо", move || {
-                        focus_main_window(&app_handle_compose);
                         emit_to_main(&app_handle_compose, "tray-compose");
                     }) {
                         log::warn!("Failed to add tray menu item 'Написать письмо': {e}");

@@ -28,6 +28,7 @@ import { getDefaultSignature } from "@/services/db/signatures";
 import { getAliasesForAccount, mapDbAlias, type SendAsAlias } from "@/services/db/sendAsAliases";
 import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
 import { resolveFromAddress } from "@/utils/resolveFromAddress";
+import { openComposeWindow } from "@/utils/openComposeWindow";
 import { startAutoSave, stopAutoSave } from "@/services/composer/draftAutoSave";
 import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates";
 import { readFileAsBase64 } from "@/utils/fileUtils";
@@ -423,43 +424,25 @@ export function Composer() {
   }, [activeAccountId, closeComposer]);
 
   const handlePopOutComposer = useCallback(async () => {
-    try {
-      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      const state = useComposerStore.getState();
-      const params = new URLSearchParams();
-      params.set("compose", "true");
-      params.set("mode", state.mode);
-      if (state.to.length > 0) params.set("to", state.to.join(","));
-      if (state.cc.length > 0) params.set("cc", state.cc.join(","));
-      if (state.bcc.length > 0) params.set("bcc", state.bcc.join(","));
-      if (state.subject) params.set("subject", state.subject);
-      if (state.threadId) params.set("threadId", state.threadId);
-      if (state.inReplyToMessageId) params.set("inReplyToMessageId", state.inReplyToMessageId);
-      if (state.draftId) params.set("draftId", state.draftId);
-      if (state.fromEmail) params.set("fromEmail", state.fromEmail);
-      // Encode body as base64 to safely pass HTML
-      const bodyHtml = editor?.getHTML() ?? "";
-      if (bodyHtml) params.set("body", btoa(unescape(encodeURIComponent(bodyHtml))));
+    const state = useComposerStore.getState();
+    const bodyHtml = editor?.getHTML() ?? state.bodyHtml;
+    const result = await openComposeWindow({
+      mode: state.mode,
+      to: state.to,
+      cc: state.cc,
+      bcc: state.bcc,
+      subject: state.subject,
+      bodyHtml,
+      threadId: state.threadId,
+      inReplyToMessageId: state.inReplyToMessageId,
+      draftId: state.draftId,
+      fromEmail: state.fromEmail,
+      title: state.subject || undefined,
+    });
 
-      const windowLabel = `compose-${Date.now()}`;
-      const existing = await WebviewWindow.getByLabel(windowLabel);
-      if (existing) {
-        await existing.setFocus();
-        return;
-      }
-
-      new WebviewWindow(windowLabel, {
-        url: `index.html?${params.toString()}`,
-        title: state.subject || "Новое сообщение",
-        width: 700,
-        height: 650,
-        center: true,
-      });
-
+    if (result !== "fallback") {
       stopAutoSave();
       closeComposer();
-    } catch (err) {
-      console.error("Failed to pop out composer:", err);
     }
   }, [editor, closeComposer]);
 

@@ -9,6 +9,7 @@ import { ShortcutsHelp } from "./components/search/ShortcutsHelp";
 import { useUIStore } from "./stores/uiStore";
 import { useAccountStore } from "./stores/accountStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { openNewCompose } from "@/utils/openComposeWindow";
 import { runMigrations } from "./services/db/migrations";
 import { getAllAccounts } from "./services/db/accounts";
 import { getSetting } from "./services/db/settings";
@@ -81,7 +82,6 @@ import {
   navigateToLabel,
   navigateToSettings,
 } from "./router/navigate";
-import { useComposerStore } from "./stores/composerStore";
 import { applyColorTheme, applyWindowBackground } from "./utils/themeEffects";
 import { AlertTriangle, X } from "lucide-react";
 
@@ -233,7 +233,7 @@ export default function App() {
         unlisteners.push(fn);
       });
       void listen("tray-compose", () => {
-        useComposerStore.getState().openComposer();
+        void openNewCompose();
       }).then((fn) => {
         unlisteners.push(fn);
       });

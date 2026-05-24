@@ -17,7 +17,7 @@ import { getGmailClient } from "@/services/gmail/tokenManager";
 import { useLabelStore } from "@/stores/labelStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
-import { useComposerStore } from "@/stores/composerStore";
+import { openNewCompose } from "@/utils/openComposeWindow";
 import { getMessagesForThread } from "@/services/db/messages";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
 import { parseFirstAddressFromList } from "@/utils/emailAddressParse";
@@ -131,7 +131,6 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
   const openMenu = useContextMenuStore((s) => s.openMenu);
   const multiSelectCount = selectedThreadIds.size;
 
-  const openComposer = useComposerStore((s) => s.openComposer);
   const multiSelectBarRef = useRef<HTMLDivElement>(null);
 
   const handleThreadContextMenu = useCallback((e: React.MouseEvent, threadId: string) => {
@@ -168,8 +167,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
         ? draftMsg.bcc_addresses.split(",").map((a) => a.trim()).filter(Boolean)
         : [];
 
-      openComposer({
-        mode: "new",
+      void openNewCompose({
         to,
         cc,
         bcc,
@@ -181,7 +179,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
     } catch (err) {
       console.error("Failed to open draft:", err);
     }
-  }, [activeAccountId, openComposer]);
+  }, [activeAccountId]);
 
   const handleThreadClick = useCallback((thread: Thread) => {
     if (activeLabel === "drafts") {
