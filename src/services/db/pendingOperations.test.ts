@@ -21,6 +21,7 @@ import {
   compactQueue,
   clearFailedOperations,
   retryFailedOperations,
+  getOutboxSendCount,
 } from "./pendingOperations";
 import { createMockDb } from "@/test/mocks";
 
@@ -216,6 +217,37 @@ describe("pendingOperations DB service", () => {
       expect(mockDb.execute).toHaveBeenCalledWith(
         expect.stringContaining("SET status = 'pending'"),
       );
+    });
+  });
+
+  describe("getOutboxSendCount", () => {
+    it("counts sendMessage in pending, executing, and failed only", async () => {
+      mockDb.select.mockResolvedValueOnce([{ count: 3 }]);
+      const count = await getOutboxSendCount("acct-1");
+      expect(count).toBe(3);
+      expect(mockDb.select).toHaveBeenCalledWith(
+        expect.stringContaining("operation_type = 'sendMessage'"),
+        expect.arrayContaining(["pending", "executing", "failed", "acct-1"]),
+      );
+    });
+
+    it("counts all accounts when accountId is omitted", async () => {
+      mockDb.select.mockResolvedValueOnce([{ count: 5 }]);
+      const count = await getOutboxSendCount();
+      expect(count).toBe(5);
+      expect(mockDb.select).toHaveBeenCalledWith(
+        expect.stringContaining("operation_type = 'sendMessage'"),
+        expect.arrayContaining(["pending", "executing", "failed"]),
+      );
+      expect(mockDb.select).toHaveBeenCalledWith(
+        expect.not.stringContaining("account_id"),
+        expect.any(Array),
+      );
+    });
+
+    it("returns 0 when no rows", async () => {
+      mockDb.select.mockResolvedValueOnce([]);
+      await expect(getOutboxSendCount("acct-1")).resolves.toBe(0);
     });
   });
 });

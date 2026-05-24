@@ -45,6 +45,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useTaskStore } from "@/stores/taskStore";
+import { getOutboxSendCount } from "@/services/db/pendingOperations";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -55,7 +56,7 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = 
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "starred", label: "Starred", icon: Star },
   { id: "snoozed", label: "Snoozed", icon: Clock },
-  { id: "outbox", label: "Исходящие", icon: SendHorizontal },
+  { id: "outbox", label: "Outbox", icon: SendHorizontal },
   { id: "sent", label: "Sent", icon: Send },
   { id: "drafts", label: "Drafts", icon: FileEdit },
   { id: "trash", label: "Trash", icon: Trash2 },
@@ -260,6 +261,29 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, [sidebarNavConfig]);
 
   const [labelsExpanded, setLabelsExpanded] = useState(false);
+  const [outboxSendCount, setOutboxSendCount] = useState(0);
+
+  const refreshOutboxCount = useCallback(async () => {
+    if (!activeAccountId) {
+      setOutboxSendCount(0);
+      return;
+    }
+    setOutboxSendCount(await getOutboxSendCount(activeAccountId));
+  }, [activeAccountId]);
+
+  useEffect(() => {
+    void refreshOutboxCount();
+  }, [refreshOutboxCount]);
+
+  useEffect(() => {
+    const handler = () => void refreshOutboxCount();
+    window.addEventListener("velo-outbox-changed", handler);
+    window.addEventListener("online", handler);
+    return () => {
+      window.removeEventListener("velo-outbox-changed", handler);
+      window.removeEventListener("online", handler);
+    };
+  }, [refreshOutboxCount]);
 
   // Inline label editing state
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
@@ -433,6 +457,11 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                     {item.id === "tasks" && taskIncompleteCount > 0 && !collapsed && (
                       <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
                         {taskIncompleteCount}
+                      </span>
+                    )}
+                    {item.id === "outbox" && outboxSendCount > 0 && !collapsed && (
+                      <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+                        {outboxSendCount}
                       </span>
                     )}
                     {isInbox && !collapsed && (

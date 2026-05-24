@@ -89,14 +89,26 @@ Draft
 
 **Реализация:** `f908ac4` feat(mail): add outbox send queue view
 
-**Итог:**
+**Семантика Outbox (фаза 2):** `01b5e47` feat(mail): clarify outbox send queue status — Outbox = очередь pending/failed retryable отправки, **не** Sent.
 
-* добавлена папка `Исходящие`;
-* отображаются письма из очереди отправки;
-* статусы: `Ожидает отправки`, `Отправляется`, `Ошибка отправки`;
+* offline send → Outbox;
+* online retryable send error → Outbox;
+* failed after retry limit → Outbox (статус failed, retry в UI);
+* online success → **не** показывается в Outbox; письмо появляется в Sent после sync;
+* scheduled send (`scheduled_emails`) → отдельно, **не** смешивается с Outbox.
+
+**Send feedback (фаза 1):** `701a127` fix(mail): preserve drafts on send failure — composer/inline reply обрабатывают `ActionResult`: success/queued очищают draft/reply; failed сохраняет черновик и показывает toast.
+
+**Итог UI (фаза 2):**
+
+* добавлена папка `Outbox` / «Исходящие»;
+* отображаются только `sendMessage` из `pending_operations` (pending / executing / failed);
+* статусы EN: `Waiting to send`, `Sending…`, `Send failed`;
+* описание и empty state объясняют, что это очередь отправки, а не Sent;
+* badge в sidebar считает только outbox send ops (`getOutboxSendCount`);
 * после восстановления сети очередь повторяет отправку;
-* после успешной отправки письмо исчезает из `Исходящих`;
-* при ошибке доступен retry.
+* после успешной отправки письмо исчезает из Outbox;
+* при ошибке доступен retry; для pending после backoff показывается «Last attempt failed».
 
 #### Проблема
 
@@ -231,6 +243,8 @@ Draft
 2. `fix(mail): make composer non-blocking`
 3. `feat(mail): open messages in separate window on double click`
 4. `feat(mail): add outbox send queue view`
+5. `701a127` `fix(mail): preserve drafts on send failure`
+6. `01b5e47` `feat(mail): clarify outbox send queue status`
 
 ## Сопутствующая стабилизация
 
