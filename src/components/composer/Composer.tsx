@@ -4,7 +4,7 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
-import { Clock, Maximize2, Minimize2, ExternalLink } from "lucide-react";
+import { Clock } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { AddressInput } from "./AddressInput";
@@ -15,6 +15,7 @@ import { ScheduleSendDialog } from "./ScheduleSendDialog";
 import { SignatureSelector } from "./SignatureSelector";
 import { TemplatePicker } from "./TemplatePicker";
 import { FromSelector } from "./FromSelector";
+import { ComposerHeader } from "./ComposerHeader";
 import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
@@ -28,7 +29,7 @@ import { getDefaultSignature } from "@/services/db/signatures";
 import { getAliasesForAccount, mapDbAlias, type SendAsAlias } from "@/services/db/sendAsAliases";
 import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
 import { resolveFromAddress } from "@/utils/resolveFromAddress";
-import { openComposeWindow } from "@/utils/openComposeWindow";
+import { openComposeWindow, isComposeStandaloneWindow } from "@/utils/openComposeWindow";
 import { startAutoSave, stopAutoSave } from "@/services/composer/draftAutoSave";
 import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates";
 import { readFileAsBase64 } from "@/utils/fileUtils";
@@ -446,6 +447,20 @@ export function Composer() {
     }
   }, [editor, closeComposer]);
 
+  const isStandalone = isComposeStandaloneWindow();
+
+  const handleCloseStandalone = useCallback(async () => {
+    stopAutoSave();
+    closeComposer();
+    if (!isStandalone) return;
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().close();
+    } catch {
+      // Browser dev fallback
+    }
+  }, [closeComposer, isStandalone]);
+
   const isFullpage = viewMode === "fullpage";
 
   const modeLabel =
@@ -465,14 +480,18 @@ export function Composer() {
 
   return (
     <CSSTransition nodeRef={overlayRef} in={isOpen} timeout={200} classNames="slide-up" unmountOnExit>
-    <div ref={overlayRef} className={`fixed inset-0 z-50 flex ${isFullpage ? "items-stretch justify-center p-4" : "items-end justify-center pb-4"} pointer-events-none`}>
+    <div ref={overlayRef} className={`fixed inset-0 z-50 flex ${isFullpage ? "items-stretch justify-center" : "items-end justify-center pb-4"} ${isFullpage && !isStandalone ? "p-4" : ""} pointer-events-none`}>
       {/* No fullscreen dim/blur layer: avoids “disabled app” look while clicks pass through to the main UI */}
 
       {/* Composer window */}
       <div
-        className={`relative bg-bg-primary border rounded-lg glass-modal pointer-events-auto flex flex-col slide-up-panel ${
-          isFullpage ? "w-full h-full max-w-5xl" : "w-full max-w-2xl max-h-[80vh]"
-        } ${isDragging ? "border-accent border-2" : "border-border-primary"}`}
+        className={`relative bg-bg-primary glass-modal pointer-events-auto flex flex-col slide-up-panel ${
+          isStandalone
+            ? "w-full h-full border-0 rounded-none"
+            : isFullpage
+              ? "w-full h-full max-w-5xl border rounded-lg"
+              : "w-full max-w-2xl max-h-[80vh] border rounded-lg"
+        } ${isDragging ? "border-accent border-2" : isStandalone ? "" : "border-border-primary"}`}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
@@ -484,34 +503,14 @@ export function Composer() {
           </div>
         )}
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border-primary bg-bg-secondary rounded-t-lg">
-          <span className="text-sm font-medium text-text-primary">
-            {modeLabel}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setViewMode(isFullpage ? "modal" : "fullpage")}
-              className="text-text-tertiary hover:text-text-primary p-1 rounded transition-colors"
-              title={isFullpage ? "Свернуть" : "Развернуть"}
-            >
-              {isFullpage ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            </button>
-            <button
-              onClick={handlePopOutComposer}
-              className="text-text-tertiary hover:text-text-primary p-1 rounded transition-colors"
-              title="Открыть в новом окне"
-            >
-              <ExternalLink size={14} />
-            </button>
-            <button
-              onClick={closeComposer}
-              className="text-text-tertiary hover:text-text-primary text-lg leading-none p-1"
-            >
-              ×
-            </button>
-          </div>
-        </div>
+        <ComposerHeader
+          modeLabel={modeLabel}
+          isFullpage={isFullpage}
+          onToggleViewMode={() => setViewMode(isFullpage ? "modal" : "fullpage")}
+          onPopOut={handlePopOutComposer}
+          onCloseEmbedded={closeComposer}
+          onCloseStandalone={() => void handleCloseStandalone()}
+        />
 
         {/* Address fields */}
         <div className="px-3 py-2 space-y-1.5 border-b border-border-secondary">

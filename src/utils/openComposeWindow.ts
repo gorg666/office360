@@ -74,6 +74,29 @@ export function getComposeWindowTitle(options: OpenComposeWindowOptions): string
   return "Новое сообщение";
 }
 
+/** True when running inside a dedicated compose WebviewWindow (`?compose=true`). */
+export function isComposeStandaloneWindow(): boolean {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).has("compose");
+}
+
+export function buildComposeWebviewWindowOptions(url: string, title: string) {
+  return {
+    url,
+    title,
+    width: 700,
+    height: 650,
+    minWidth: 520,
+    minHeight: 420,
+    center: true,
+    resizable: true,
+    visible: true,
+    focus: true,
+    decorations: false,
+    dragDropEnabled: false,
+  };
+}
+
 /**
  * Open composer in a dedicated Tauri window, or focus an existing one.
  * Reuses `ComposerWindow` entry (`index.html?compose=true&…`).
@@ -102,14 +125,10 @@ export async function openComposeWindow(
       return "focused";
     }
 
-    const win = new WebviewWindow(windowLabel, {
-      url,
-      title: getComposeWindowTitle(options),
-      width: 700,
-      height: 650,
-      center: true,
-      dragDropEnabled: false,
-    });
+    const win = new WebviewWindow(
+      windowLabel,
+      buildComposeWebviewWindowOptions(url, getComposeWindowTitle(options)),
+    );
 
     win.once("tauri://error", (e) => {
       console.error("[compose-window] Failed to create pop-out window:", e);

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   buildComposeWindowUrl,
+  buildComposeWebviewWindowOptions,
   getComposeWindowLabel,
   openComposeWindow,
   openNewCompose,
@@ -102,8 +103,18 @@ describe("openComposeWindow", () => {
       expect.objectContaining({
         url: expect.stringContaining("compose=true"),
         title: "Новое сообщение",
+        decorations: false,
+        resizable: true,
+        focus: true,
       }),
     );
+  });
+
+  it("buildComposeWebviewWindowOptions disables system decorations", () => {
+    const opts = buildComposeWebviewWindowOptions("index.html?compose=true", "Test");
+    expect(opts.decorations).toBe(false);
+    expect(opts.resizable).toBe(true);
+    expect(opts.focus).toBe(true);
   });
 });
 
