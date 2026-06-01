@@ -80,6 +80,17 @@ export function isComposeStandaloneWindow(): boolean {
   return new URLSearchParams(window.location.search).has("compose");
 }
 
+/** Close the current Tauri window when running in standalone compose mode. No-op otherwise. */
+export async function closeStandaloneComposeWindow(): Promise<void> {
+  if (!isComposeStandaloneWindow()) return;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().close();
+  } catch {
+    // Browser dev fallback — embedded closeComposer already ran
+  }
+}
+
 export function buildComposeWebviewWindowOptions(url: string, title: string) {
   return {
     url,

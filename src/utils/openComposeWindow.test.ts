@@ -2,7 +2,9 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   buildComposeWindowUrl,
   buildComposeWebviewWindowOptions,
+  closeStandaloneComposeWindow,
   getComposeWindowLabel,
+  isComposeStandaloneWindow,
   openComposeWindow,
   openNewCompose,
 } from "./openComposeWindow";
@@ -10,6 +12,7 @@ import {
 const mockSetFocus = vi.fn();
 const mockGetByLabel = vi.fn();
 const mockWebviewWindowCtor = vi.fn();
+const mockCloseCurrentWindow = vi.fn();
 const openComposerMock = vi.fn();
 
 vi.mock("@tauri-apps/api/webviewWindow", () => ({
@@ -20,6 +23,10 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
     }
     once = vi.fn();
   },
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ close: mockCloseCurrentWindow }),
 }));
 
 vi.mock("./openThreadWindow", () => ({
@@ -35,6 +42,40 @@ vi.mock("@/stores/composerStore", () => ({
 }));
 
 import { isTauriRuntime } from "./openThreadWindow";
+
+describe("isComposeStandaloneWindow", () => {
+  it("returns true when compose query param is present", () => {
+    vi.stubGlobal("location", { search: "?compose=true&mode=new" });
+    expect(isComposeStandaloneWindow()).toBe(true);
+  });
+
+  it("returns false without compose query param", () => {
+    vi.stubGlobal("location", { search: "?thread=abc" });
+    expect(isComposeStandaloneWindow()).toBe(false);
+  });
+});
+
+describe("closeStandaloneComposeWindow", () => {
+  beforeEach(() => {
+    mockCloseCurrentWindow.mockClear();
+  });
+
+  it("closes current Tauri window in standalone compose mode", async () => {
+    vi.stubGlobal("location", { search: "?compose=true" });
+
+    await closeStandaloneComposeWindow();
+
+    expect(mockCloseCurrentWindow).toHaveBeenCalledOnce();
+  });
+
+  it("does not close window in embedded compose mode", async () => {
+    vi.stubGlobal("location", { search: "" });
+
+    await closeStandaloneComposeWindow();
+
+    expect(mockCloseCurrentWindow).not.toHaveBeenCalled();
+  });
+});
 
 describe("getComposeWindowLabel", () => {
   it("uses stable label for empty new compose", () => {

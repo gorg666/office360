@@ -29,7 +29,7 @@ import { getDefaultSignature } from "@/services/db/signatures";
 import { getAliasesForAccount, mapDbAlias, type SendAsAlias } from "@/services/db/sendAsAliases";
 import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
 import { resolveFromAddress } from "@/utils/resolveFromAddress";
-import { openComposeWindow, isComposeStandaloneWindow } from "@/utils/openComposeWindow";
+import { openComposeWindow, isComposeStandaloneWindow, closeStandaloneComposeWindow } from "@/utils/openComposeWindow";
 import { startAutoSave, stopAutoSave } from "@/services/composer/draftAutoSave";
 import { notifySendEmailOutcome } from "@/utils/handleSendEmailResult";
 import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates";
@@ -456,6 +456,7 @@ export function Composer() {
       } catch { /* ignore */ }
     }
     closeComposer();
+    await closeStandaloneComposeWindow();
   }, [activeAccountId, closeComposer]);
 
   const handlePopOutComposer = useCallback(async () => {
@@ -486,14 +487,8 @@ export function Composer() {
   const handleCloseStandalone = useCallback(async () => {
     stopAutoSave();
     closeComposer();
-    if (!isStandalone) return;
-    try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      await getCurrentWindow().close();
-    } catch {
-      // Browser dev fallback
-    }
-  }, [closeComposer, isStandalone]);
+    await closeStandaloneComposeWindow();
+  }, [closeComposer]);
 
   const isFullpage = viewMode === "fullpage";
 
