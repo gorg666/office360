@@ -3,15 +3,19 @@
  * Preserves data: and cid: URIs, only blocks http/https remote images.
  */
 
+const TRANSPARENT_PIXEL =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
 /**
  * Strip remote images from HTML by moving src to data-blocked-src.
  * Also strips remote url() references in inline styles.
  */
 export function stripRemoteImages(html: string): string {
-  // Replace <img src="http..."> with data-blocked-src
+  // Replace <img src="http..."> with data-blocked-src and a harmless data URI.
+  // Leaving src empty makes Chromium render the familiar broken image icon.
   let result = html.replace(
     /(<img\b[^>]*?)(\ssrc\s*=\s*)(["'])(https?:\/\/[^"']*)\3/gi,
-    '$1 data-blocked-src=$3$4$3 src=$3$3',
+    `$1 data-blocked-src=$3$4$3 src=$3${TRANSPARENT_PIXEL}$3`,
   );
 
   // Replace background-image: url(http...) in inline styles

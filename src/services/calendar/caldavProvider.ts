@@ -1,3 +1,4 @@
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { DAVClient, type DAVCalendar, type DAVObject } from "tsdav";
 import type {
   CalendarProvider,
@@ -10,6 +11,8 @@ import type {
 } from "./types";
 import { generateVEvent, parseVEvent } from "./icalHelper";
 import { getAccount } from "@/services/db/accounts";
+import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
+import { isYandexOAuthCalendarAccount, YANDEX_CALDAV_URL } from "./yandex";
 
 export class CalDAVProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "caldav";
@@ -23,23 +26,38 @@ export class CalDAVProvider implements CalendarProvider {
     const account = await getAccount(this.accountId);
     if (!account) throw new Error("Account not found");
 
-    const serverUrl = account.caldav_url;
+    const usesYandexOAuth = isYandexOAuthCalendarAccount(account);
+    const serverUrl = account.caldav_url ?? (usesYandexOAuth ? YANDEX_CALDAV_URL : null);
     const username = account.caldav_username ?? account.email;
     const password = account.caldav_password;
 
-    if (!serverUrl || !password) {
+    if (!serverUrl) {
       throw new Error("CalDAV credentials not configured");
     }
 
-    this.client = new DAVClient({
-      serverUrl,
-      credentials: { username, password },
-      authMethod: "Basic",
-      defaultAccountType: "caldav",
-    });
+    let client: DAVClient;
 
-    await this.client.login();
-    return this.client;
+    if (usesYandexOAuth) {
+      const accessToken = await ensureFreshToken(account);
+      const { loginYandexCalDavClient } = await import("./yandexCalDavAuth");
+      client = await loginYandexCalDavClient(serverUrl, accessToken);
+    } else {
+      if (!password) {
+        throw new Error("CalDAV credentials not configured");
+      }
+
+      client = new DAVClient({
+        serverUrl,
+        credentials: { username, password },
+        authMethod: "Basic",
+        defaultAccountType: "caldav",
+        fetch: tauriFetch,
+      });
+      await client.login();
+    }
+
+    this.client = client;
+    return client;
   }
 
   async listCalendars(): Promise<CalendarInfo[]> {
@@ -80,13 +98,14 @@ export class CalDAVProvider implements CalendarProvider {
     const icalData = generateVEvent(event, uid);
     const filename = `${uid}.ics`;
 
-    await client.createCalendarObject({
+    const response = await client.createCalendarObject({
       calendar: { url: calendarRemoteId } as DAVCalendar,
       filename,
       iCalString: icalData,
     });
+    await assertDavResponseOk(response, "create event");
 
-    const parsed = parseVEvent(icalData, `${calendarRemoteId}${filename}`);
+    const parsed = parseVEvent(icalData, joinCalendarObjectUrl(calendarRemoteId, filename));
     return parsed;
   }
 
@@ -123,7 +142,7 @@ export class CalDAVProvider implements CalendarProvider {
     const headers: Record<string, string> = {};
     if (etag) headers["If-Match"] = etag;
 
-    await client.updateCalendarObject({
+    const response = await client.updateCalendarObject({
       calendarObject: {
         url: remoteEventId,
         data: icalData,
@@ -131,6 +150,7 @@ export class CalDAVProvider implements CalendarProvider {
       } as DAVObject,
       headers,
     });
+    await assertDavResponseOk(response, "update event");
 
     const result = parseVEvent(icalData, remoteEventId);
     return result;
@@ -142,13 +162,14 @@ export class CalDAVProvider implements CalendarProvider {
     const headers: Record<string, string> = {};
     if (etag) headers["If-Match"] = etag;
 
-    await client.deleteCalendarObject({
+    const response = await client.deleteCalendarObject({
       calendarObject: {
         url: remoteEventId,
         etag: etag ?? undefined,
       } as DAVObject,
       headers,
     });
+    await assertDavResponseOk(response, "delete event");
   }
 
   async syncEvents(calendarRemoteId: string, _syncToken?: string): Promise<CalendarSyncResult> {
@@ -203,4 +224,27 @@ function extractCalendarColor(cal: DAVCalendar): string | null {
   const props = cal as unknown as Record<string, unknown>;
   if (typeof props.calendarColor === "string") return props.calendarColor;
   return null;
+}
+
+async function assertDavResponseOk(response: Response, action: string): Promise<void> {
+  if (response.ok) return;
+
+  let details = response.statusText;
+  try {
+    const text = await response.text();
+    if (text.trim()) details = text.trim();
+  } catch {
+    // Keep the status text when the response body cannot be read.
+  }
+
+  throw new Error(`CalDAV ${action} failed (${response.status}): ${details}`);
+}
+
+function joinCalendarObjectUrl(calendarRemoteId: string, filename: string): string {
+  try {
+    return new URL(filename, calendarRemoteId).href;
+  } catch {
+    const separator = calendarRemoteId.endsWith("/") ? "" : "/";
+    return `${calendarRemoteId}${separator}${filename}`;
+  }
 }

@@ -5,12 +5,47 @@ use crate::imap::types::{
 };
 use crate::smtp::client as smtp_client;
 use crate::smtp::types::{SmtpConfig, SmtpSendResult};
+use std::backtrace::Backtrace;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+async fn connect_imap_with_diagnostic(origin: &str, config: &ImapConfig) -> Result<imap_client::ImapSession, String> {
+    let ts_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    log::warn!(
+        "[reconnect-diagnostic] ts_ms={} origin={} host={}:{} security={} auth_method={} username={}",
+        ts_ms,
+        origin,
+        config.host,
+        config.port,
+        config.security,
+        config.auth_method,
+        config.username
+    );
+    let backtrace = Backtrace::capture();
+    log::warn!("[reconnect-diagnostic] backend stack ({origin}): {backtrace}");
+    imap_client::connect(config).await
+}
 
 // ---------- IMAP commands ----------
 
 #[tauri::command]
 pub async fn imap_test_connection(config: ImapConfig) -> Result<String, String> {
-    imap_client::test_connection(&config).await
+    log::info!(
+        "IMAP test connection: host={}:{} security={} auth_method={} username={}",
+        config.host,
+        config.port,
+        config.security,
+        config.auth_method,
+        config.username
+    );
+    let result = imap_client::test_connection(&config).await;
+    match &result {
+        Ok(message) => log::info!("IMAP test connection succeeded: {message}"),
+        Err(error) => log::warn!("IMAP test connection failed: {error}"),
+    }
+    result
 }
 
 #[tauri::command]
@@ -38,7 +73,7 @@ pub async fn imap_fetch_messages(
         .collect::<Vec<_>>()
         .join(",");
 
-    let mut session = imap_client::connect(&config).await?;
+    let mut session = connect_imap_with_diagnostic("imap_fetch_messages", &config).await?;
     let result = imap_client::fetch_messages(&mut session, &folder, &uid_set).await;
     let _ = session.logout().await;
 
@@ -48,6 +83,36 @@ pub async fn imap_fetch_messages(
             // async-imap can't parse this server's responses — use raw TCP fallback
             log::info!("Falling back to raw TCP fetch for folder {folder}");
             imap_client::raw_fetch_messages(&config, &folder, &uid_set).await
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[tauri::command]
+pub async fn imap_fetch_message_headers(
+    config: ImapConfig,
+    folder: String,
+    uids: Vec<u32>,
+) -> Result<ImapFetchResult, String> {
+    if uids.is_empty() {
+        return Err("No UIDs provided".to_string());
+    }
+
+    let uid_set: String = uids
+        .iter()
+        .map(|u| u.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let mut session = imap_client::connect(&config).await?;
+    let result = imap_client::fetch_message_headers(&mut session, &folder, &uid_set).await;
+    let _ = session.logout().await;
+
+    match result {
+        Ok(r) => Ok(r),
+        Err(e) if e.starts_with("ASYNC_IMAP_EMPTY:") => {
+            log::info!("Falling back to raw TCP header fetch for folder {folder}");
+            imap_client::raw_fetch_message_headers(&config, &folder, &uid_set).await
         }
         Err(e) => Err(e),
     }
@@ -66,10 +131,7 @@ pub async fn imap_fetch_new_uids(
 }
 
 #[tauri::command]
-pub async fn imap_search_all_uids(
-    config: ImapConfig,
-    folder: String,
-) -> Result<Vec<u32>, String> {
+pub async fn imap_search_all_uids(config: ImapConfig, folder: String) -> Result<Vec<u32>, String> {
     let mut session = imap_client::connect(&config).await?;
     let uids = imap_client::search_all_uids(&mut session, &folder).await?;
     let _ = session.logout().await;
@@ -247,7 +309,7 @@ pub async fn imap_search_folder(
     folder: String,
     since_date: Option<String>,
 ) -> Result<ImapFolderSearchResult, String> {
-    let mut session = imap_client::connect(&config).await?;
+    let mut session = connect_imap_with_diagnostic("imap_search_folder", &config).await?;
     let result = imap_client::search_folder(&mut session, &folder, since_date).await;
     let _ = session.logout().await;
     result
@@ -280,7 +342,7 @@ pub async fn imap_delta_check(
     config: ImapConfig,
     folders: Vec<DeltaCheckRequest>,
 ) -> Result<Vec<DeltaCheckResult>, String> {
-    let mut session = imap_client::connect(&config).await?;
+    let mut session = connect_imap_with_diagnostic("imap_delta_check", &config).await?;
     let results = imap_client::delta_check_folders(&mut session, &folders).await?;
     let _ = session.logout().await;
     Ok(results)

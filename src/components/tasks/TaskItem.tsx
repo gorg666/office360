@@ -10,6 +10,7 @@ import {
   Link2,
 } from "lucide-react";
 import type { DbTask, TaskPriority } from "@/services/db/tasks";
+import { useUIStore } from "@/stores/uiStore";
 
 const PRIORITY_COLORS: Record<TaskPriority, string> = {
   none: "text-text-tertiary",
@@ -27,18 +28,18 @@ const PRIORITY_DOT_COLORS: Record<TaskPriority, string> = {
   urgent: "bg-red-500",
 };
 
-function formatDueDate(timestamp: number): string {
+function formatDueDate(timestamp: number, locale: "en" | "ru"): string {
   const date = new Date(timestamp * 1000);
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const dueStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const diffDays = Math.floor((dueStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
 
-  if (diffDays < 0) return `${Math.abs(diffDays)}d overdue`;
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Tomorrow";
-  if (diffDays <= 7) return `${diffDays}d`;
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (diffDays < 0) return locale === "ru" ? `${Math.abs(diffDays)} дн. просрочено` : `${Math.abs(diffDays)}d overdue`;
+  if (diffDays === 0) return locale === "ru" ? "Сегодня" : "Today";
+  if (diffDays === 1) return locale === "ru" ? "Завтра" : "Tomorrow";
+  if (diffDays <= 7) return locale === "ru" ? `${diffDays} дн.` : `${diffDays}d`;
+  return date.toLocaleDateString(locale === "ru" ? "ru-RU" : "en-US", { month: "short", day: "numeric" });
 }
 
 function getDueDateColor(timestamp: number): string {
@@ -68,6 +69,7 @@ export function TaskItem({
   isSelected,
   compact,
 }: TaskItemProps) {
+  const locale = useUIStore((state) => state.locale);
   const [expanded, setExpanded] = useState(false);
   const tags: string[] = (() => {
     try {
@@ -128,7 +130,7 @@ export function TaskItem({
               {task.due_date && (
                 <span className={`inline-flex items-center gap-1 text-[0.6875rem] px-1.5 py-0.5 rounded ${getDueDateColor(task.due_date)}`}>
                   <Calendar size={10} />
-                  {formatDueDate(task.due_date)}
+                  {formatDueDate(task.due_date, locale)}
                 </span>
               )}
               {hasRecurrence && (

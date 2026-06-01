@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
+import { useUIStore } from "@/stores/uiStore";
 
 interface DayViewProps {
   currentDate: Date;
@@ -10,6 +11,8 @@ interface DayViewProps {
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
+  const locale = useUIStore((state) => state.locale);
+  const intlLocale = locale === "ru" ? "ru-RU" : "en-US";
   const dayStart = new Date(currentDate);
   dayStart.setHours(0, 0, 0, 0);
 
@@ -49,7 +52,7 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
           {currentDate.getDate()}
         </div>
         <div className="text-sm text-text-secondary">
-          {currentDate.toLocaleDateString(undefined, { weekday: "long" })}
+          {new Intl.DateTimeFormat(intlLocale, { weekday: "long" }).format(currentDate)}
         </div>
       </div>
 
@@ -62,7 +65,7 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
               onClick={() => onEventClick(e)}
               className="w-full text-left text-xs px-2 py-1.5 rounded bg-accent/10 text-accent hover:bg-accent/20 transition-colors"
             >
-              {e.summary ?? "Event"} · All day
+              {e.summary ?? (locale === "ru" ? "Событие" : "Event")} · {locale === "ru" ? "весь день" : "All day"}
             </button>
           ))}
         </div>
@@ -86,7 +89,7 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
                     onClick={() => onEventClick(e)}
                     className="w-full text-left text-xs px-2 py-1 rounded bg-accent/15 text-accent truncate hover:bg-accent/25 transition-colors mb-0.5"
                   >
-                    {e.summary ?? "Event"}
+                    {e.summary ?? (locale === "ru" ? "Событие" : "Event")}
                     {e.location && <span className="text-text-tertiary"> · {e.location}</span>}
                   </button>
                 ))}

@@ -71,6 +71,9 @@ export async function backfillSmartLabels(
       listUnsubscribe: null,
       listUnsubscribePost: null,
       authResults: null,
+      messageIdHeader: null,
+      referencesHeader: null,
+      inReplyToHeader: null,
     }));
 
     const matches = await matchSmartLabels(accountId, messages);

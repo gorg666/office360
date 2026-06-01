@@ -4,6 +4,7 @@ import {
 } from "../db/scheduledEmails";
 import { getGmailClient } from "../gmail/tokenManager";
 import { buildRawEmail, type EmailAttachment } from "@/utils/emailBuilder";
+import { buildReplyHeadersForMessageId } from "@/utils/replyHeaders";
 import { getAccount } from "../db/accounts";
 import { createBackgroundChecker } from "../backgroundCheckers";
 
@@ -36,6 +37,10 @@ async function checkScheduledEmails(): Promise<void> {
         }
       }
 
+      const replyHeaders = await buildReplyHeadersForMessageId(
+        email.account_id,
+        email.reply_to_message_id,
+      );
       const raw = buildRawEmail({
         from: account.email,
         to: email.to_addresses.split(",").map((a) => a.trim()),
@@ -47,6 +52,8 @@ async function checkScheduledEmails(): Promise<void> {
           : undefined,
         subject: email.subject ?? "",
         htmlBody: email.body_html,
+        inReplyTo: replyHeaders.inReplyTo,
+        references: replyHeaders.references,
         threadId: email.thread_id ?? undefined,
         attachments,
       });

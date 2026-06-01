@@ -17,7 +17,7 @@ export function AttachmentPicker() {
   const handleFiles = async (files: FileList) => {
     for (const file of Array.from(files)) {
       if (totalSize + file.size > MAX_TOTAL_SIZE) {
-        console.warn("Attachment size limit exceeded (24MB)");
+        console.warn("Превышен лимит вложений (24 МБ)");
         break;
       }
       const content = await readFileAsBase64(file);
@@ -42,6 +42,8 @@ export function AttachmentPicker() {
         type="file"
         multiple
         className="hidden"
+        aria-label="Выбрать файлы для вложения"
+        title="Выбрать файлы для вложения"
         onChange={(e) => {
           if (e.target.files) handleFiles(e.target.files);
         }}
@@ -52,10 +54,10 @@ export function AttachmentPicker() {
           type="button"
           onClick={() => inputRef.current?.click()}
           className="flex items-center gap-1 text-xs text-text-tertiary hover:text-text-primary transition-colors py-1"
-          title="Attach files"
+          title="Прикрепить файлы"
         >
           <Paperclip size={14} />
-          <span>Attach</span>
+          <span>Прикрепить</span>
         </button>
 
         {attachments.map((att) => (
@@ -72,6 +74,8 @@ export function AttachmentPicker() {
             <button
               onClick={() => removeAttachment(att.id)}
               className="text-text-tertiary hover:text-text-primary"
+              aria-label={`Удалить вложение ${att.filename}`}
+              title="Удалить вложение"
             >
               <X size={12} />
             </button>
@@ -80,7 +84,7 @@ export function AttachmentPicker() {
 
         {attachments.length > 0 && (
           <span className="text-xs text-text-tertiary">
-            {formatFileSize(totalSize)} total
+            {formatFileSize(totalSize)} всего
           </span>
         )}
       </div>

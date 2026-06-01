@@ -1,10 +1,13 @@
 import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore } from "@/stores/threadStore";
 import { getEmailProvider } from "@/services/email/providerFactory";
+import { getAccount } from "@/services/db/accounts";
 import { enqueuePendingOperation } from "@/services/db/pendingOperations";
-import { classifyError } from "@/utils/networkErrors";
+import { triggerSync } from "@/services/gmail/syncManager";
+import { classifyError, formatEmailSendOrDraftError } from "@/utils/networkErrors";
 import { getDb } from "@/services/db/connection";
 import { navigateToThread, getSelectedThreadId } from "@/router/navigate";
+import { updateBadgeCount } from "@/services/badgeManager";
 
 // ---------------------------------------------------------------------------
 // Action types
@@ -151,6 +154,10 @@ async function applyLocalDbUpdate(
         "UPDATE threads SET is_read = $1 WHERE account_id = $2 AND id = $3",
         [action.read ? 1 : 0, accountId, action.threadId],
       );
+      await db.execute(
+        "UPDATE messages SET is_read = $1 WHERE account_id = $2 AND thread_id = $3",
+        [action.read ? 1 : 0, accountId, action.threadId],
+      );
       break;
     case "star":
       await db.execute(
@@ -233,6 +240,21 @@ async function applyLocalDbUpdate(
 // Core execution
 // ---------------------------------------------------------------------------
 
+function actionAffectsUnreadBadge(action: EmailAction): boolean {
+  switch (action.type) {
+    case "markRead":
+    case "archive":
+    case "trash":
+    case "permanentDelete":
+    case "spam":
+      return true;
+    case "removeLabel":
+      return action.labelId === "INBOX";
+    default:
+      return false;
+  }
+}
+
 function getResourceId(action: EmailAction): string {
   if ("threadId" in action && action.threadId) return action.threadId;
   if ("draftId" in action) return action.draftId;
@@ -310,6 +332,9 @@ export async function executeEmailAction(
   // 2. Local DB update
   try {
     await applyLocalDbUpdate(accountId, action);
+    if (actionAffectsUnreadBadge(action)) {
+      void updateBadgeCount();
+    }
   } catch (err) {
     console.warn("Local DB update failed:", err);
   }
@@ -322,6 +347,9 @@ export async function executeEmailAction(
       getResourceId(action),
       actionToParams(action),
     );
+    if (action.type === "sendMessage") {
+      window.dispatchEvent(new Event("velo-outbox-changed"));
+    }
     return { success: true, queued: true };
   }
 
@@ -340,13 +368,22 @@ export async function executeEmailAction(
         getResourceId(action),
         actionToParams(action),
       );
+      if (action.type === "sendMessage") {
+        window.dispatchEvent(new Event("velo-outbox-changed"));
+      }
       return { success: true, queued: true };
     }
 
     // Permanent error — revert optimistic update
     revertOptimisticUpdate(action);
     console.error(`Email action ${action.type} failed permanently:`, err);
-    return { success: false, error: classified.message };
+    const userMessage =
+      action.type === "sendMessage" ||
+      action.type === "createDraft" ||
+      action.type === "updateDraft"
+        ? formatEmailSendOrDraftError(classified.message)
+        : classified.message;
+    return { success: false, error: userMessage };
   }
 }
 
@@ -494,9 +531,15 @@ export async function sendEmail(
     threadId,
   });
 
-  // Notify the UI to refresh (so sent message appears in Sent folder)
   if (result.success) {
-    window.dispatchEvent(new Event("velo-sync-done"));
+    const account = await getAccount(accountId);
+    if (account?.provider === "imap") {
+      window.dispatchEvent(new Event("velo-sync-done"));
+    }
+    // Только аккаунт отправителя: дельта с провайдером (IMAP/Gmail), без синка чужих ящиков.
+    void triggerSync([accountId]).catch((err) => {
+      console.warn("[sendEmail] post-send sync failed:", err);
+    });
   }
 
   return result;

@@ -12,7 +12,7 @@ export function AddressInput({
   label,
   addresses,
   onChange,
-  placeholder = "Add recipients...",
+  placeholder = "Добавьте получателей...",
 }: AddressInputProps) {
   const [inputValue, setInputValue] = useState("");
   const [suggestions, setSuggestions] = useState<DbContact[]>([]);

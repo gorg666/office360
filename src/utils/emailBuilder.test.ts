@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildRawEmail } from "./emailBuilder";
+import { decodeMimeWords } from "./mimeHeaderDecode";
 
 describe("emailBuilder", () => {
   it("builds a basic email", () => {
@@ -149,6 +150,36 @@ describe("emailBuilder", () => {
     const decoded = decodeBase64Url(raw);
     expect(decoded).toContain("multipart/alternative");
     expect(decoded).not.toContain("multipart/mixed");
+  });
+
+  it("encodes non-ASCII subject as RFC 2047 encoded-word", () => {
+    const raw = buildRawEmail({
+      from: "sender@example.com",
+      to: ["recipient@example.com"],
+      subject: "кек чек чебурек",
+      htmlBody: "<p>Привет</p>",
+    });
+
+    const decoded = decodeBase64Url(raw);
+    const subjectHeader = decoded.match(/^Subject: (.+)$/m)?.[1];
+    expect(subjectHeader).toMatch(/^=\?UTF-8\?B\?.+\?=$/);
+    expect(subjectHeader).not.toContain("кек");
+    expect(decodeMimeWords(subjectHeader)).toBe("кек чек чебурек");
+  });
+
+  it("encodes non-ASCII address display names", () => {
+    const raw = buildRawEmail({
+      from: "Ефим Подоляк <sender@example.com>",
+      to: ["Получатель <recipient@example.com>"],
+      subject: "Test",
+      htmlBody: "<p>Hello</p>",
+    });
+
+    const decoded = decodeBase64Url(raw);
+    expect(decoded).toContain("From: =?UTF-8?B?");
+    expect(decoded).toContain("<sender@example.com>");
+    expect(decoded).toContain("To: =?UTF-8?B?");
+    expect(decoded).toContain("<recipient@example.com>");
   });
 });
 

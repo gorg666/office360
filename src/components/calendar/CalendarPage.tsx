@@ -29,6 +29,8 @@ export function CalendarPage() {
   const [showCalendarList, setShowCalendarList] = useState(false);
   const [hasCalendar, setHasCalendar] = useState(true);
   const reauthDoneRef = useRef(false);
+  const calendarApiEnableUrl =
+    "https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com";
 
   const getRange = useCallback((): { start: Date; end: Date } => {
     const d = new Date(currentDate);
@@ -137,13 +139,25 @@ export function CalendarPage() {
       setCalendarError(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      const lowerMessage = message.toLowerCase();
+      const isCalendarApiDisabled =
+        lowerMessage.includes("service_disabled") ||
+        lowerMessage.includes("not been used") ||
+        lowerMessage.includes("not enabled") ||
+        lowerMessage.includes("accessnotconfigured");
       if (message.includes("403") || message.includes("insufficient")) {
-        if (reauthDoneRef.current) {
+        if (isCalendarApiDisabled) {
+          setNeedsReauth(false);
+          setCalendarError(
+            "Google Calendar API выключен в проекте Google Cloud. " +
+            "Откройте Google Cloud Console и включите Google Calendar API для проекта с вашим Client ID.",
+          );
+        } else if (reauthDoneRef.current) {
           reauthDoneRef.current = false;
           setCalendarError(
-            "Calendar access is still denied after re-authorization. " +
-            "Make sure the Google Calendar API is enabled in your Google Cloud Console project. " +
-            "Visit console.cloud.google.com → APIs & Services → Enable the \"Google Calendar API\".",
+            "Доступ к календарю всё ещё запрещён после повторной авторизации. " +
+            "Включите Google Calendar API в проекте Google Cloud Console: " +
+            "APIs & Services -> Library -> Google Calendar API -> Enable.",
           );
         } else {
           setNeedsReauth(true);
@@ -197,12 +211,29 @@ export function CalendarPage() {
     if (!activeAccountId) return;
     try {
       const provider = await getCalendarProvider(activeAccountId);
+      let availableCalendars = calendars;
+
+      if (availableCalendars.length === 0) {
+        const providerCalendars = await provider.listCalendars();
+        for (const cal of providerCalendars) {
+          await upsertCalendar({
+            accountId: activeAccountId,
+            provider: provider.type,
+            remoteId: cal.remoteId,
+            displayName: cal.displayName,
+            color: cal.color,
+            isPrimary: cal.isPrimary,
+          });
+        }
+        availableCalendars = await getCalendarsForAccount(activeAccountId);
+        setCalendars(availableCalendars);
+      }
 
       // Find the target calendar
       let calendarRemoteId: string | undefined;
       let calendarDbId: string | undefined;
       if (eventData.calendarId) {
-        const cal = calendars.find((c) => c.id === eventData.calendarId);
+        const cal = availableCalendars.find((c) => c.id === eventData.calendarId);
         if (cal) {
           calendarRemoteId = cal.remote_id;
           calendarDbId = cal.id;
@@ -211,7 +242,7 @@ export function CalendarPage() {
 
       // Fallback to primary calendar
       if (!calendarRemoteId) {
-        const primary = calendars.find((c) => c.is_primary) ?? calendars[0];
+        const primary = availableCalendars.find((c) => c.is_primary) ?? availableCalendars[0];
         if (primary) {
           calendarRemoteId = primary.remote_id;
           calendarDbId = primary.id;
@@ -219,7 +250,9 @@ export function CalendarPage() {
       }
 
       if (!calendarRemoteId) {
-        // For Google, use "primary" as fallback
+        if (provider.type !== "google_api") {
+          throw new Error("Не найден календарь для создания события. Обновите список календарей и попробуйте ещё раз.");
+        }
         calendarRemoteId = "primary";
       }
 
@@ -240,6 +273,7 @@ export function CalendarPage() {
       loadEvents();
     } catch (err) {
       console.error("Failed to create event:", err);
+      throw err;
     }
   }, [activeAccountId, calendars, loadEvents]);
 
@@ -255,7 +289,7 @@ export function CalendarPage() {
   if (!activeAccountId) {
     return (
       <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
-        Connect an account to use Calendar
+        Подключите аккаунт, чтобы использовать календарь
       </div>
     );
   }
@@ -264,8 +298,8 @@ export function CalendarPage() {
     return (
       <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
         <div className="text-center">
-          <p>Calendar is not configured for this account.</p>
-          <p className="mt-1 text-xs">For IMAP accounts, configure CalDAV in Settings.</p>
+          <p>Календарь не настроен для этого аккаунта.</p>
+          <p className="mt-1 text-xs">Для IMAP-аккаунтов настройте CalDAV в параметрах.</p>
         </div>
       </div>
     );
@@ -301,15 +335,24 @@ export function CalendarPage() {
       {calendarError && !needsReauth && (
         <div className="mx-6 my-4 p-4 rounded-lg bg-danger/10 border border-danger/30 flex items-start gap-3">
           <div>
-            <p className="text-sm font-medium text-text-primary">Calendar access error</p>
+            <p className="text-sm font-medium text-text-primary">Ошибка доступа к календарю</p>
             <p className="text-xs text-text-secondary mt-1">{calendarError}</p>
+            <button
+              onClick={async () => {
+                const { openUrl } = await import("@tauri-apps/plugin-opener");
+                await openUrl(calendarApiEnableUrl);
+              }}
+              className="mt-3 px-3 py-1.5 text-xs font-medium bg-accent text-white rounded-md hover:bg-accent-hover transition-colors"
+            >
+              Открыть Google Calendar API
+            </button>
           </div>
         </div>
       )}
 
       {loading && events.length === 0 && (
         <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
-          Loading calendar...
+          Загрузка календаря...
         </div>
       )}
 

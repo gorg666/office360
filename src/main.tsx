@@ -4,11 +4,15 @@ import { RouterProvider } from "@tanstack/react-router";
 import { router } from "./router";
 import ThreadWindow from "./ThreadWindow";
 import ComposerWindow from "./ComposerWindow";
+import { TranslationLayer } from "./components/i18n/TranslationLayer";
+import { getInitialLocale } from "./i18n";
+import { useUIStore } from "./stores/uiStore";
 import "./styles/globals.css";
 
 const params = new URLSearchParams(window.location.search);
 const isThreadWindow = params.has("thread") && params.has("account");
 const isComposerWindow = params.has("compose");
+useUIStore.getState().restoreLocale(getInitialLocale());
 
 function Root() {
   if (isThreadWindow) return <ThreadWindow />;
@@ -18,6 +22,7 @@ function Root() {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
+    <TranslationLayer />
     <Root />
   </StrictMode>,
 );

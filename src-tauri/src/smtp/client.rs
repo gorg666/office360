@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use lettre::{
     transport::smtp::{
@@ -9,6 +11,9 @@ use lettre::{
 
 use super::types::{SmtpConfig, SmtpSendResult};
 
+/// Hard cap for SMTP verify — without this, TCP/TLS/auth can hang indefinitely in the UI.
+const SMTP_TEST_TIMEOUT: Duration = Duration::from_secs(20);
+
 /// Decode a base64url-encoded string (Gmail format) to raw bytes.
 fn decode_base64url(input: &str) -> Result<Vec<u8>, String> {
     URL_SAFE_NO_PAD
@@ -17,9 +22,7 @@ fn decode_base64url(input: &str) -> Result<Vec<u8>, String> {
 }
 
 /// Build an async SMTP transport from the given config.
-fn build_transport(
-    config: &SmtpConfig,
-) -> Result<AsyncSmtpTransport<Tokio1Executor>, String> {
+fn build_transport(config: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, String> {
     let credentials = Credentials::new(config.username.clone(), config.password.clone());
 
     // For OAuth2, force XOAUTH2 mechanism; for password, use default mechanisms
@@ -160,27 +163,65 @@ pub async fn send_raw_email(
         .await
         .map(|_response| SmtpSendResult {
             success: true,
-            message: "Email sent successfully".to_string(),
+            message: "Письмо отправлено".to_string(),
         })
         .map_err(|e| format!("SMTP send error: {}", e))
 }
 
 /// Test SMTP connectivity by connecting, authenticating, and disconnecting.
 pub async fn test_connection(config: &SmtpConfig) -> Result<SmtpSendResult, String> {
+    log::info!(
+        target: "app.smtp",
+        "smtp_test_connection start host={} port={} security={} auth_method={} username_len={} accept_invalid_certs={}",
+        config.host,
+        config.port,
+        config.security,
+        config.auth_method,
+        config.username.len(),
+        config.accept_invalid_certs
+    );
+    let started = Instant::now();
     let transport = build_transport(config)?;
 
-    transport
-        .test_connection()
-        .await
-        .map(|success| SmtpSendResult {
-            success,
-            message: if success {
-                "Connection successful".to_string()
-            } else {
-                "Connection failed".to_string()
-            },
-        })
-        .map_err(|e| format!("SMTP test error: {}", e))
+    let outcome = tokio::time::timeout(SMTP_TEST_TIMEOUT, transport.test_connection()).await;
+
+    let elapsed_ms = started.elapsed().as_millis();
+    match outcome {
+        Err(_) => {
+            log::warn!(
+                target: "app.smtp",
+                "smtp_test_connection timeout after {}ms (limit {}s) host={}:{}",
+                elapsed_ms,
+                SMTP_TEST_TIMEOUT.as_secs(),
+                config.host,
+                config.port
+            );
+            Err(format!(
+                "SMTP test timed out after {} seconds. Check server, port, SSL/TLS, and sign-in method.",
+                SMTP_TEST_TIMEOUT.as_secs()
+            ))
+        }
+        Ok(result) => {
+            let mapped = result
+                .map(|success| SmtpSendResult {
+                    success,
+                    message: if success {
+                        "Connection successful".to_string()
+                    } else {
+                        "Connection failed".to_string()
+                    },
+                })
+                .map_err(|e| format!("SMTP test error: {}", e));
+            let ok_flag = mapped.as_ref().map(|r| r.success).unwrap_or(false);
+            log::info!(
+                target: "app.smtp",
+                "smtp_test_connection end elapsed_ms={} success={}",
+                elapsed_ms,
+                ok_flag
+            );
+            mapped
+        }
+    }
 }
 
 #[cfg(test)]

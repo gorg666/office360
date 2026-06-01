@@ -119,6 +119,7 @@ export function buildSearchQuery(
     m.from_address,
     m.snippet,
     m.date,
+    m.is_read as is_read,
     ${needsFts ? "rank" : "0 as rank"}
   ${fromClause}
   ${whereStr}

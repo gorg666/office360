@@ -148,6 +148,18 @@ export async function imapFetchMessages(
 }
 
 /**
+ * Fetch message headers/metadata from a folder by UID list.
+ * This avoids downloading full bodies and attachments during initial sync.
+ */
+export async function imapFetchMessageHeaders(
+  config: ImapConfig,
+  folder: string,
+  uids: number[]
+): Promise<ImapFetchResult> {
+  return invoke<ImapFetchResult>('imap_fetch_message_headers', { config, folder, uids });
+}
+
+/**
  * Get UIDs of messages newer than `sinceUid` in the given folder.
  */
 export async function imapFetchNewUids(

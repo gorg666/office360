@@ -1,4 +1,4 @@
-import { getDb } from "./connection";
+import { executeWrite, getDb } from "./connection";
 
 export interface DbLabel {
   id: string;
@@ -33,8 +33,7 @@ export async function upsertLabel(label: {
   imapFolderPath?: string | null;
   imapSpecialUse?: string | null;
 }): Promise<void> {
-  const db = await getDb();
-  await db.execute(
+  await executeWrite(
     `INSERT INTO labels (id, account_id, name, type, color_bg, color_fg, imap_folder_path, imap_special_use)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT(account_id, id) DO UPDATE SET
@@ -57,16 +56,14 @@ export async function upsertLabel(label: {
 export async function deleteLabelsForAccount(
   accountId: string,
 ): Promise<void> {
-  const db = await getDb();
-  await db.execute("DELETE FROM labels WHERE account_id = $1", [accountId]);
+  await executeWrite("DELETE FROM labels WHERE account_id = $1", [accountId]);
 }
 
 export async function deleteLabel(
   accountId: string,
   labelId: string,
 ): Promise<void> {
-  const db = await getDb();
-  await db.execute(
+  await executeWrite(
     "DELETE FROM labels WHERE account_id = $1 AND id = $2",
     [accountId, labelId],
   );

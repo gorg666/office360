@@ -5,6 +5,7 @@ import {
   installUpdate,
   getAvailableUpdate,
 } from "@/services/updateManager";
+import { APP_NAME_EN } from "@/i18n";
 
 export function UpdateToast() {
   const [version, setVersion] = useState<string | null>(null);
@@ -48,7 +49,7 @@ export function UpdateToast() {
       >
         <div className="px-4 py-3 space-y-2">
           <p className="text-sm font-medium text-text-primary">
-            Velo v{version} is available
+            {APP_NAME_EN} v{version} is available
           </p>
           <div className="flex items-center gap-2">
             <button

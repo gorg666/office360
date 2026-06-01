@@ -9,7 +9,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
-import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb } from "@/services/db/threads";
+import { getThreadsForAccount, getThreadsForCategory, getThreadById, getThreadLabelIds, getUnreadThreadIdsForAccount, deleteThread as deleteThreadFromDb } from "@/services/db/threads";
 import { getCategoriesForThreads, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
@@ -17,12 +17,20 @@ import { getGmailClient } from "@/services/gmail/tokenManager";
 import { useLabelStore } from "@/stores/labelStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
-import { useComposerStore } from "@/stores/composerStore";
+import { openNewCompose } from "@/utils/openComposeWindow";
 import { getMessagesForThread } from "@/services/db/messages";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
+import { parseFirstAddressFromList } from "@/utils/emailAddressParse";
+import { effectiveFromName } from "@/utils/senderDisplay";
+import { getContactDisplayNameMap } from "@/services/db/contacts";
 import { getDb } from "@/services/db/connection";
-import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch } from "lucide-react";
+import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch, CheckCheck } from "lucide-react";
+import type { AppLocale } from "@/stores/uiStore";
 import { EmptyState } from "../ui/EmptyState";
+import { markThreadRead } from "@/services/emailActions";
+import { updateBadgeCount } from "@/services/badgeManager";
+import { openThreadPopOut } from "@/utils/openThreadWindow";
+import { OutboxList } from "@/components/outbox/OutboxList";
 import {
   InboxClearIllustration,
   NoSearchResultsIllustration,
@@ -31,6 +39,23 @@ import {
 } from "../ui/illustrations";
 
 const PAGE_SIZE = 50;
+const MARK_ALL_READ_BATCH_SIZE = 10;
+
+function formatConversationCount(count: number, locale: AppLocale): string {
+  if (locale !== "ru") {
+    return `${count} conversation${count !== 1 ? "s" : ""}`;
+  }
+
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  const word = mod10 === 1 && mod100 !== 11
+    ? "переписка"
+    : [2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)
+      ? "переписки"
+      : "переписок";
+
+  return `${count} ${word}`;
+}
 
 // Map sidebar labels to Gmail label IDs
 const LABEL_MAP: Record<string, string> = {
@@ -44,9 +69,18 @@ const LABEL_MAP: Record<string, string> = {
   all: "", // no filter
 };
 
-export function EmailList({ width, listRef }: { width?: number; listRef?: React.Ref<HTMLDivElement> }) {
+type EmailListProps = {
+  width?: number;
+  listRef?: React.Ref<HTMLDivElement>;
+  selectedThreadIdOverride?: string | null;
+  onThreadOpen?: (thread: Thread) => void;
+  disableGlass?: boolean;
+};
+
+export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOpen, disableGlass = false }: EmailListProps) {
   const threads = useThreadStore((s) => s.threads);
-  const selectedThreadId = useSelectedThreadId();
+  const routeSelectedThreadId = useSelectedThreadId();
+  const selectedThreadId = selectedThreadIdOverride ?? routeSelectedThreadId;
   const selectedThreadIds = useThreadStore((s) => s.selectedThreadIds);
   const isLoading = useThreadStore((s) => s.isLoading);
   const setThreads = useThreadStore((s) => s.setThreads);
@@ -59,10 +93,12 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const readFilter = useUIStore((s) => s.readFilter);
   const setReadFilter = useUIStore((s) => s.setReadFilter);
   const readingPanePosition = useUIStore((s) => s.readingPanePosition);
+  const locale = useUIStore((s) => s.locale);
   const userLabels = useLabelStore((s) => s.labels);
   const smartFolders = useSmartFolderStore((s) => s.folders);
 
   // Detect smart folder mode
+  const isOutbox = activeLabel === "outbox";
   const isSmartFolder = activeLabel.startsWith("smart-folder:");
   const smartFolderId = isSmartFolder ? activeLabel.replace("smart-folder:", "") : null;
   const activeSmartFolder = smartFolderId ? smartFolders.find((f) => f.id === smartFolderId) ?? null : null;
@@ -70,11 +106,15 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const inboxViewMode = useUIStore((s) => s.inboxViewMode);
   const routerCategory = useActiveCategory();
 
-  // In split mode, use the router's category; in unified mode, always use "All"
   const activeCategory = inboxViewMode === "split" ? routerCategory : "All";
-  const setActiveCategory = inboxViewMode === "split"
-    ? (cat: string) => navigateToLabel("inbox", { category: cat })
-    : () => {};
+
+  const setActiveCategory = useCallback(
+    (cat: string) => {
+      if (inboxViewMode !== "split") return;
+      navigateToLabel("inbox", { category: cat });
+    },
+    [inboxViewMode],
+  );
 
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -86,11 +126,11 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const [heldThreadIds, setHeldThreadIds] = useState<Set<string>>(() => new Set());
   const [expandedBundles, setExpandedBundles] = useState<Set<string>>(() => new Set());
   const [bundleSummaries, setBundleSummaries] = useState<Map<string, { count: number; latestSubject: string | null; latestSender: string | null }>>(() => new Map());
+  const [markingAllRead, setMarkingAllRead] = useState(false);
 
   const openMenu = useContextMenuStore((s) => s.openMenu);
   const multiSelectCount = selectedThreadIds.size;
 
-  const openComposer = useComposerStore((s) => s.openComposer);
   const multiSelectBarRef = useRef<HTMLDivElement>(null);
 
   const handleThreadContextMenu = useCallback((e: React.MouseEvent, threadId: string) => {
@@ -127,8 +167,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         ? draftMsg.bcc_addresses.split(",").map((a) => a.trim()).filter(Boolean)
         : [];
 
-      openComposer({
-        mode: "new",
+      void openNewCompose({
         to,
         cc,
         bcc,
@@ -140,15 +179,25 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     } catch (err) {
       console.error("Failed to open draft:", err);
     }
-  }, [activeAccountId, openComposer]);
+  }, [activeAccountId]);
 
   const handleThreadClick = useCallback((thread: Thread) => {
     if (activeLabel === "drafts") {
       handleDraftClick(thread);
+    } else if (onThreadOpen) {
+      onThreadOpen(thread);
     } else {
       navigateToThread(thread.id);
     }
-  }, [activeLabel, handleDraftClick]);
+  }, [activeLabel, handleDraftClick, onThreadOpen]);
+
+  const handleThreadDoubleClick = useCallback(
+    (thread: Thread) => {
+      if (activeLabel === "drafts") return;
+      void openThreadPopOut(thread, () => handleThreadClick(thread));
+    },
+    [activeLabel, handleThreadClick],
+  );
 
   const handleBulkDelete = async () => {
     if (!activeAccountId || multiSelectCount === 0) return;
@@ -199,6 +248,34 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     }
   };
 
+  const isUnreadView = readFilter === "unread" || activeSmartFolder?.query.trim().toLowerCase() === "is:unread";
+
+  const handleMarkAllRead = useCallback(async () => {
+    if (!activeAccountId || markingAllRead) return;
+
+    setMarkingAllRead(true);
+    try {
+      const labelId = !isSmartFolder ? LABEL_MAP[activeLabel] ?? activeLabel : undefined;
+      const unreadThreadIds = await getUnreadThreadIdsForAccount(
+        activeAccountId,
+        labelId || undefined,
+      );
+
+      for (let index = 0; index < unreadThreadIds.length; index += MARK_ALL_READ_BATCH_SIZE) {
+        const batch = unreadThreadIds.slice(index, index + MARK_ALL_READ_BATCH_SIZE);
+        await Promise.all(batch.map((threadId) => markThreadRead(activeAccountId, threadId, [], true)));
+      }
+
+      clearMultiSelect();
+      await updateBadgeCount();
+      window.dispatchEvent(new Event("velo-sync-done"));
+    } catch (err) {
+      console.error("Failed to mark all unread threads as read:", err);
+    } finally {
+      setMarkingAllRead(false);
+    }
+  }, [activeAccountId, activeLabel, clearMultiSelect, isSmartFolder, markingAllRead]);
+
   const searchThreadIds = useThreadStore((s) => s.searchThreadIds);
   const searchQuery = useThreadStore((s) => s.searchQuery);
 
@@ -208,12 +285,13 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     if (searchThreadIds !== null) {
       filtered = filtered.filter((t) => searchThreadIds.has(t.id));
     }
-    // Apply read filter
-    if (readFilter === "unread") filtered = filtered.filter((t) => !t.isRead);
+    // Apply read filter (incl. smart folder "is:unread" — same unread-only preview)
+    if (isUnreadView) filtered = filtered.filter((t) => !t.isRead);
     else if (readFilter === "read") filtered = filtered.filter((t) => t.isRead);
     // Category filtering is now server-side (Phase 4) — no client-side filter needed
     return filtered;
-  }, [threads, readFilter, searchThreadIds]);
+  }, [threads, readFilter, searchThreadIds, isUnreadView]);
+  const canMarkAllRead = Boolean(activeAccountId && isUnreadView && filteredThreads.some((thread) => !thread.isRead));
 
   // Pre-compute bundled category Set for O(1) lookups in filter
   const bundledCategorySet = useMemo(
@@ -233,9 +311,27 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   }, [filteredThreads, activeLabel, activeCategory, categoryMap, bundledCategorySet, heldThreadIds]);
 
   const mapDbThreads = useCallback(async (dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>): Promise<Thread[]> => {
+    const isSentList = activeLabel === "sent";
+    const contactLookupEmails: string[] = [];
+    for (const t of dbThreads) {
+      const addr = isSentList ? parseFirstAddressFromList(t.to_addresses).address : t.from_address;
+      if (addr) contactLookupEmails.push(addr);
+    }
+    const contactNames = await getContactDisplayNameMap(contactLookupEmails);
+
     return Promise.all(
       dbThreads.map(async (t) => {
         const labelIds = await getThreadLabelIds(t.account_id, t.id);
+        let fromName = t.from_name;
+        let fromAddress = t.from_address;
+        if (isSentList && t.to_addresses) {
+          const first = parseFirstAddressFromList(t.to_addresses);
+          if (first.address) {
+            fromName = first.name;
+            fromAddress = first.address;
+          }
+        }
+        fromName = effectiveFromName(fromName, fromAddress, contactNames);
         return {
           id: t.id,
           accountId: t.account_id,
@@ -249,18 +345,26 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           isMuted: t.is_muted === 1,
           hasAttachments: t.has_attachments === 1,
           labelIds,
-          fromName: t.from_name,
-          fromAddress: t.from_address,
+          fromName,
+          fromAddress,
         };
       }),
     );
-  }, []);
+  }, [activeLabel]);
 
   const clearSearch = useThreadStore((s) => s.clearSearch);
 
   const loadThreads = useCallback(async () => {
     if (!activeAccountId) {
       setThreads([]);
+      return;
+    }
+
+    if (activeLabel === "outbox") {
+      clearSearch();
+      setThreads([]);
+      setLoading(false);
+      setHasMore(false);
       return;
     }
 
@@ -281,7 +385,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         setThreads(mapped);
         setHasMore(false); // Smart folders load all at once
       } else {
-        let dbThreads;
+        let dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>;
         // Server-side category filtering for inbox
         if (activeLabel === "inbox" && activeCategory !== "All") {
           dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, 0);
@@ -295,16 +399,24 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           );
         }
 
+        const fetchedCount = dbThreads.length;
+        if (selectedThreadId && !dbThreads.some((thread) => thread.id === selectedThreadId)) {
+          const selectedThread = await getThreadById(activeAccountId, selectedThreadId);
+          if (selectedThread) {
+            dbThreads = [selectedThread, ...dbThreads];
+          }
+        }
+
         const mapped = await mapDbThreads(dbThreads);
         setThreads(mapped);
-        setHasMore(dbThreads.length === PAGE_SIZE);
+        setHasMore(fetchedCount === PAGE_SIZE);
       }
     } catch (err) {
       console.error("Failed to load threads:", err);
     } finally {
       setLoading(false);
     }
-  }, [activeAccountId, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, setThreads, setLoading, mapDbThreads, clearSearch]);
+  }, [activeAccountId, activeLabel, activeCategory, selectedThreadId, isSmartFolder, activeSmartFolder, setThreads, setLoading, mapDbThreads, clearSearch]);
 
   const loadMore = useCallback(async () => {
     if (!activeAccountId || loadingMore || !hasMore) return;
@@ -457,7 +569,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     let timer: ReturnType<typeof setTimeout> | null = null;
     const handler = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => loadThreads(), 500);
+      timer = setTimeout(() => loadThreads(), 250);
     };
     window.addEventListener("velo-sync-done", handler);
     return () => {
@@ -482,17 +594,19 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     return () => container.removeEventListener("scroll", handleScroll);
   }, [loadMore]);
 
+  const layoutClassName = disableGlass
+    ? "min-w-0 w-full flex-1 overflow-hidden"
+    : readingPanePosition === "right"
+      ? "h-full min-h-0 min-w-[240px] shrink-0"
+      : readingPanePosition === "bottom"
+        ? "w-full border-b border-border-primary h-[40%] min-h-[200px]"
+        : "w-full flex-1";
+
   return (
     <div
       ref={listRef}
-      className={`flex flex-col bg-bg-secondary/50 glass-panel ${
-        readingPanePosition === "right"
-          ? "min-w-[240px] shrink-0"
-          : readingPanePosition === "bottom"
-            ? "w-full border-b border-border-primary h-[40%] min-h-[200px]"
-            : "w-full flex-1"
-      }`}
-      style={readingPanePosition === "right" && width ? { width } : undefined}
+      className={`flex flex-col bg-bg-secondary/50 ${disableGlass ? "shadow-none" : "glass-panel"} ${layoutClassName}`}
+      style={!disableGlass && readingPanePosition === "right" && width ? { width } : undefined}
     >
       {/* Search */}
       <div className="px-3 py-2 border-b border-border-secondary">
@@ -504,27 +618,48 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         <div>
           <h2 className="text-sm font-semibold text-text-primary capitalize flex items-center gap-1.5">
             {isSmartFolder && <FolderSearch size={14} className="text-accent shrink-0" />}
-            {isSmartFolder
-              ? activeSmartFolder?.name ?? "Smart Folder"
-              : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
-                ? `Inbox — ${activeCategory}`
-                : LABEL_MAP[activeLabel] !== undefined
-                  ? activeLabel
-                  : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
+            {isOutbox
+              ? "Исходящие"
+              : isSmartFolder
+                ? activeSmartFolder?.name ?? "Smart Folder"
+                : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
+                  ? `Inbox — ${activeCategory}`
+                  : LABEL_MAP[activeLabel] !== undefined
+                    ? activeLabel
+                    : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
           </h2>
-          <span className="text-xs text-text-tertiary">
-            {filteredThreads.length} conversation{filteredThreads.length !== 1 ? "s" : ""}
-          </span>
+          {!isOutbox && (
+            <span className="text-xs text-text-tertiary">
+              {formatConversationCount(filteredThreads.length, locale)}
+            </span>
+          )}
         </div>
-        <select
-          value={readFilter}
-          onChange={(e) => setReadFilter(e.target.value as "all" | "read" | "unread")}
-          className="text-xs bg-bg-tertiary text-text-secondary px-2 py-1 rounded border border-border-primary"
-        >
-          <option value="all">All</option>
-          <option value="unread">Unread</option>
-          <option value="read">Read</option>
-        </select>
+        {!isOutbox && (
+        <div className="flex items-center gap-2">
+          {isUnreadView && (
+            <button
+              type="button"
+              onClick={handleMarkAllRead}
+              disabled={!canMarkAllRead || markingAllRead}
+              className="inline-flex items-center gap-1.5 rounded border border-border-primary bg-bg-tertiary px-2 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-bg-tertiary disabled:hover:text-text-secondary"
+              title="Пометить все непрочитанные письма как прочитанные"
+            >
+              <CheckCheck size={13} />
+              {markingAllRead ? "Читаем..." : "Прочитать все"}
+            </button>
+          )}
+          <select
+            value={readFilter}
+            title="Read filter"
+            onChange={(e) => setReadFilter(e.target.value as "all" | "read" | "unread")}
+            className="text-xs bg-bg-tertiary text-text-secondary px-2 py-1 rounded border border-border-primary"
+          >
+            <option value="all">All</option>
+            <option value="unread">Unread</option>
+            <option value="read">Read</option>
+          </select>
+        </div>
+        )}
       </div>
 
       {/* Category tabs (inbox + split mode only) */}
@@ -587,7 +722,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
 
       {/* Thread list */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-        {isLoading && threads.length === 0 ? (
+        {isOutbox ? (
+          <OutboxList />
+        ) : isLoading && threads.length === 0 ? (
           <EmailListSkeleton />
         ) : filteredThreads.length === 0 && bundleRules.length === 0 ? (
           <EmptyStateForContext
@@ -647,6 +784,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                         thread={thread}
                         isSelected={thread.id === selectedThreadId}
                         onClick={handleThreadClick}
+                        onDoubleClick={handleThreadDoubleClick}
                         onContextMenu={handleThreadContextMenu}
                         category={rule.category}
                         hasFollowUp={followUpThreadIds.has(thread.id)}
@@ -675,6 +813,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                     thread={thread}
                     isSelected={thread.id === selectedThreadId}
                     onClick={handleThreadClick}
+                    onDoubleClick={handleThreadDoubleClick}
                     onContextMenu={handleThreadContextMenu}
                     category={categoryMap.get(thread.id)}
                     showCategoryBadge={activeLabel === "inbox" && activeCategory === "All"}

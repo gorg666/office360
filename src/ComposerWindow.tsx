@@ -8,15 +8,19 @@ import { runMigrations } from "./services/db/migrations";
 import { getAllAccounts } from "./services/db/accounts";
 import { getSetting } from "./services/db/settings";
 import { initializeClients } from "./services/gmail/tokenManager";
-import { getThemeById, COLOR_THEMES } from "./constants/themes";
+import { COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import type { ComposerMode } from "./stores/composerStore";
+import { applyColorTheme, applyWindowBackground } from "./utils/themeEffects";
+import { ComposerEditorContextMenuPortal } from "./components/composer/ComposerEditorContextMenu";
+import { useSuppressBrowserContextMenu } from "./hooks/useSuppressBrowserContextMenu";
 
 export default function ComposerWindow() {
   const { setTheme, setFontScale, setColorTheme } = useUIStore();
   const { setAccounts } = useAccountStore();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  useSuppressBrowserContextMenu();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -43,6 +47,22 @@ export default function ComposerWindow() {
           setColorTheme(savedColorTheme as ColorThemeId);
         }
 
+        const ui = useUIStore.getState();
+        const savedBackgroundPreset = await getSetting("window_background_preset");
+        if (savedBackgroundPreset === "default" || savedBackgroundPreset === "sunrise" || savedBackgroundPreset === "mint" || savedBackgroundPreset === "lavender" || savedBackgroundPreset === "graphite") {
+          ui.setWindowBackgroundPreset(savedBackgroundPreset);
+        }
+        const savedBackgroundLayout = await getSetting("window_background_layout");
+        if (savedBackgroundLayout === "soft" || savedBackgroundLayout === "diagonal" || savedBackgroundLayout === "corners" || savedBackgroundLayout === "halo" || savedBackgroundLayout === "minimal") {
+          ui.setWindowBackgroundLayout(savedBackgroundLayout);
+        }
+        const savedBackgroundSpeed = await getSetting("window_background_speed");
+        if (savedBackgroundSpeed === "slow" || savedBackgroundSpeed === "normal" || savedBackgroundSpeed === "fast" || savedBackgroundSpeed === "still") {
+          ui.setWindowBackgroundSpeed(savedBackgroundSpeed);
+        }
+        const savedBackgroundImage = await getSetting("window_background_image_path");
+        if (savedBackgroundImage) ui.setWindowBackgroundImagePath(savedBackgroundImage);
+
         // Load accounts into store
         const dbAccounts = await getAllAccounts();
         const mapped = dbAccounts.map((a) => ({
@@ -53,10 +73,8 @@ export default function ComposerWindow() {
           isActive: a.is_active === 1,
           provider: a.provider,
         }));
-        setAccounts(mapped);
-
-        // Initialize Gmail clients
-        await initializeClients();
+        const savedAccountId = await getSetting("active_account_id");
+        setAccounts(mapped, savedAccountId);
 
         // Parse composer state from URL params
         const mode = (params.get("mode") as ComposerMode) ?? "new";
@@ -98,11 +116,16 @@ export default function ComposerWindow() {
           useComposerStore.getState().setFromEmail(fromEmail);
         }
         useComposerStore.getState().setViewMode("fullpage");
+        setLoading(false);
+
+        initializeClients().catch((err) => {
+          console.warn("Failed to initialize clients in composer window:", err);
+        });
       } catch (err) {
         console.error("Failed to initialize composer window:", err);
         setError("Failed to load composer");
+        setLoading(false);
       }
-      setLoading(false);
     }
 
     init();
@@ -141,24 +164,7 @@ export default function ComposerWindow() {
   const colorTheme = useUIStore((s) => s.colorTheme);
   useEffect(() => {
     const root = document.documentElement;
-    const props = ["--color-accent", "--color-accent-hover", "--color-accent-light", "--color-bg-selected", "--color-sidebar-active"];
-
-    const apply = () => {
-      if (colorTheme === "indigo") {
-        for (const p of props) root.style.removeProperty(p);
-        return;
-      }
-      const themeData = getThemeById(colorTheme);
-      const isDark =
-        theme === "dark" ||
-        (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-      const colors = isDark ? themeData.dark : themeData.light;
-      root.style.setProperty("--color-accent", colors.accent);
-      root.style.setProperty("--color-accent-hover", colors.accentHover);
-      root.style.setProperty("--color-accent-light", colors.accentLight);
-      root.style.setProperty("--color-bg-selected", colors.bgSelected);
-      root.style.setProperty("--color-sidebar-active", colors.sidebarActive);
-    };
+    const apply = () => applyColorTheme(root, { theme, colorTheme });
 
     apply();
 
@@ -168,6 +174,29 @@ export default function ComposerWindow() {
       return () => mq.removeEventListener("change", apply);
     }
   }, [colorTheme, theme]);
+
+  const windowBackgroundPreset = useUIStore((s) => s.windowBackgroundPreset);
+  const windowBackgroundLayout = useUIStore((s) => s.windowBackgroundLayout);
+  const windowBackgroundSpeed = useUIStore((s) => s.windowBackgroundSpeed);
+  const windowBackgroundImagePath = useUIStore((s) => s.windowBackgroundImagePath);
+  useEffect(() => {
+    const root = document.documentElement;
+    const apply = () => {
+      applyWindowBackground(root, {
+        theme,
+        preset: windowBackgroundPreset,
+        layout: windowBackgroundLayout,
+        speed: windowBackgroundSpeed,
+        imagePath: windowBackgroundImagePath,
+      });
+    };
+    apply();
+    if (theme === "system") {
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      mq.addEventListener("change", apply);
+      return () => mq.removeEventListener("change", apply);
+    }
+  }, [theme, windowBackgroundPreset, windowBackgroundLayout, windowBackgroundSpeed, windowBackgroundImagePath]);
 
   if (loading) {
     return (
@@ -187,8 +216,16 @@ export default function ComposerWindow() {
 
   return (
     <div className="flex flex-col h-screen bg-bg-primary text-text-primary">
+      <div className="animated-bg" aria-hidden="true">
+        <div className="blob" />
+        <div className="blob" />
+        <div className="blob" />
+        <div className="blob" />
+        <div className="blob" />
+      </div>
       <Composer />
       <UndoSendToast />
+      <ComposerEditorContextMenuPortal />
     </div>
   );
 }

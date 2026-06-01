@@ -6,10 +6,10 @@ import { Composer } from "./components/composer/Composer";
 import { UndoSendToast } from "./components/composer/UndoSendToast";
 import { CommandPalette } from "./components/search/CommandPalette";
 import { ShortcutsHelp } from "./components/search/ShortcutsHelp";
-import { AskInbox } from "./components/search/AskInbox";
 import { useUIStore } from "./stores/uiStore";
 import { useAccountStore } from "./stores/accountStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { openNewCompose } from "@/utils/openComposeWindow";
 import { runMigrations } from "./services/db/migrations";
 import { getAllAccounts } from "./services/db/accounts";
 import { getSetting } from "./services/db/settings";
@@ -19,8 +19,10 @@ import {
   syncAccount,
   triggerSync,
   onSyncStatus,
+  markSyncDatabaseReady,
 } from "./services/gmail/syncManager";
 import { initializeClients } from "./services/gmail/tokenManager";
+import { refreshYandexImapAccountAvatars } from "./services/oauth/yandexProfile";
 import {
   startSnoozeChecker,
   stopSnoozeChecker,
@@ -66,15 +68,50 @@ import { useShortcutStore } from "./stores/shortcutStore";
 import { getIncompleteTaskCount } from "./services/db/tasks";
 import { useTaskStore } from "./stores/taskStore";
 import { ContextMenuPortal } from "./components/ui/ContextMenuPortal";
+import { useSuppressBrowserContextMenu } from "./hooks/useSuppressBrowserContextMenu";
 import { MoveToFolderDialog } from "./components/email/MoveToFolderDialog";
 import { OfflineBanner } from "./components/ui/OfflineBanner";
 import { UpdateToast } from "./components/ui/UpdateToast";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { formatSyncError } from "./utils/networkErrors";
-import { getThemeById, COLOR_THEMES } from "./constants/themes";
+import { COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
+import { normalizeLocale } from "./i18n";
 import { router } from "./router";
-import { getSelectedThreadId } from "./router/navigate";
+import {
+  getSelectedThreadId,
+  navigateToLabel,
+  navigateToSettings,
+} from "./router/navigate";
+import { applyColorTheme, applyWindowBackground } from "./utils/themeEffects";
+import { AlertTriangle, X } from "lucide-react";
+
+const LIGHTS_OUT_UNTIL_KEY = "velo_messenger_lights_out_until";
+const LIGHTS_OUT_CHANGED_EVENT = "velo-messenger-lights-out-changed";
+
+function getSyncableAccountIds(
+  accounts: Array<{ id: string; provider?: string }>,
+  preferredAccountId?: string | null,
+): string[] {
+  const ids = accounts
+    .filter((account) => account.provider !== "caldav")
+    .map((account) => account.id);
+
+  if (!preferredAccountId || !ids.includes(preferredAccountId)) {
+    return ids;
+  }
+
+  return [preferredAccountId, ...ids.filter((id) => id !== preferredAccountId)];
+}
+
+function hasMessengerLightsOutOverride(): boolean {
+  try {
+    const value = localStorage.getItem(LIGHTS_OUT_UNTIL_KEY);
+    return value ? Date.now() < Number(value) : false;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Sync bridge: subscribes to router state changes and writes the selected
@@ -98,16 +135,31 @@ export default function App() {
   const theme = useUIStore((s) => s.theme);
   const fontScale = useUIStore((s) => s.fontScale);
   const colorTheme = useUIStore((s) => s.colorTheme);
+  const windowBackgroundPreset = useUIStore((s) => s.windowBackgroundPreset);
+  const windowBackgroundLayout = useUIStore((s) => s.windowBackgroundLayout);
+  const windowBackgroundSpeed = useUIStore((s) => s.windowBackgroundSpeed);
+  const windowBackgroundImagePath = useUIStore((s) => s.windowBackgroundImagePath);
   const reduceMotion = useUIStore((s) => s.reduceMotion);
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [initialized, setInitialized] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
-  const [showAskInbox, setShowAskInbox] = useState(false);
   const [moveToFolderState, setMoveToFolderState] = useState<{ open: boolean; threadIds: string[] }>({ open: false, threadIds: [] });
   const deepLinkCleanupRef = useRef<(() => void) | undefined>(undefined);
+  const accountsForSync = useAccountStore((s) => s.accounts);
+  const activeAccountIdForSync = useAccountStore((s) => s.activeAccountId);
+  const previousActiveAccountIdRef = useRef<string | null>(null);
+  const syncErrorClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialSyncAccountIdRef = useRef<string | null>(null);
+
+  const clearSyncErrorTimer = useCallback(() => {
+    if (syncErrorClearTimerRef.current) {
+      clearTimeout(syncErrorClearTimerRef.current);
+      syncErrorClearTimerRef.current = null;
+    }
+  }, []);
 
   // Sync bridge: router state → Zustand stores (temporary)
   useRouterSyncBridge();
@@ -122,10 +174,11 @@ export default function App() {
 
     const handleOnline = () => {
       setOnline(true);
-      triggerQueueFlush();
+      void triggerQueueFlush();
       const accounts = useAccountStore.getState().accounts;
-      const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
-      if (activeIds.length > 0) triggerSync(activeIds);
+      const activeAccountId = useAccountStore.getState().activeAccountId;
+      const accountIds = getSyncableAccountIds(accounts, activeAccountId);
+      if (accountIds.length > 0) triggerSync(accountIds);
     };
     const handleOffline = () => setOnline(false);
 
@@ -137,51 +190,61 @@ export default function App() {
     };
   }, []);
 
-  // Suppress default browser context menu globally (Tauri app should feel native)
-  // Elements with data-native-context-menu opt out so the browser menu is available
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if ((e.target as HTMLElement).closest?.("[data-native-context-menu]")) return;
-      e.preventDefault();
-    };
-    document.addEventListener("contextmenu", handler);
-    return () => document.removeEventListener("contextmenu", handler);
-  }, []);
+  useSuppressBrowserContextMenu();
 
   // Listen for command palette / shortcuts help toggle events
   useEffect(() => {
     const togglePalette = () => setShowCommandPalette((p) => !p);
     const toggleHelp = () => setShowShortcutsHelp((p) => !p);
-    const toggleAskInbox = () => setShowAskInbox((p) => !p);
     const handleMoveToFolder = (e: Event) => {
       const detail = (e as CustomEvent<{ threadIds: string[] }>).detail;
       setMoveToFolderState({ open: true, threadIds: detail.threadIds });
     };
     window.addEventListener("velo-toggle-command-palette", togglePalette);
     window.addEventListener("velo-toggle-shortcuts-help", toggleHelp);
-    window.addEventListener("velo-toggle-ask-inbox", toggleAskInbox);
     window.addEventListener("velo-move-to-folder", handleMoveToFolder);
     return () => {
       window.removeEventListener("velo-toggle-command-palette", togglePalette);
       window.removeEventListener("velo-toggle-shortcuts-help", toggleHelp);
-      window.removeEventListener("velo-toggle-ask-inbox", toggleAskInbox);
       window.removeEventListener("velo-move-to-folder", handleMoveToFolder);
     };
   }, []);
 
-  // Listen for tray "Check for Mail" button
+  // Tray menu actions (labels in src-tauri/src/lib.rs)
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    const unlisteners: (() => void)[] = [];
     import("@tauri-apps/api/event").then(({ listen }) => {
-      listen("tray-check-mail", () => {
+      void listen("tray-check-mail", () => {
         const accounts = useAccountStore.getState().accounts;
-        const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
-        if (activeIds.length > 0) {
-          triggerSync(activeIds);
+        const activeAccountId = useAccountStore.getState().activeAccountId;
+        const accountIds = getSyncableAccountIds(accounts, activeAccountId);
+        if (accountIds.length > 0) {
+          triggerSync(accountIds);
         }
-      }).then((fn) => { unlisten = fn; });
+      }).then((fn) => {
+        unlisteners.push(fn);
+      });
+      void listen("tray-compose", () => {
+        void openNewCompose();
+      }).then((fn) => {
+        unlisteners.push(fn);
+      });
+      void listen("tray-open-unread", () => {
+        navigateToLabel("smart-folder:sf-unread");
+      }).then((fn) => {
+        unlisteners.push(fn);
+      });
+      void listen("tray-open-settings", () => {
+        navigateToSettings("general");
+      }).then((fn) => {
+        unlisteners.push(fn);
+      });
     });
-    return () => { unlisten?.(); };
+    return () => {
+      for (const unlisten of unlisteners) {
+        unlisten();
+      }
+    };
   }, []);
 
   // Initialize database, load accounts, start sync
@@ -189,8 +252,12 @@ export default function App() {
     async function init() {
       try {
         await runMigrations();
+        markSyncDatabaseReady();
 
         const ui = useUIStore.getState();
+
+        const savedLocale = normalizeLocale(await getSetting("ui_locale"));
+        if (savedLocale) ui.restoreLocale(savedLocale);
 
         // Restore persisted theme
         const savedTheme = await getSetting("theme");
@@ -265,6 +332,26 @@ export default function App() {
           ui.setColorTheme(savedColorTheme as ColorThemeId);
         }
 
+        const savedBackgroundPreset = await getSetting("window_background_preset");
+        if (savedBackgroundPreset === "default" || savedBackgroundPreset === "sunrise" || savedBackgroundPreset === "mint" || savedBackgroundPreset === "lavender" || savedBackgroundPreset === "graphite") {
+          ui.setWindowBackgroundPreset(savedBackgroundPreset);
+        }
+
+        const savedBackgroundLayout = await getSetting("window_background_layout");
+        if (savedBackgroundLayout === "soft" || savedBackgroundLayout === "diagonal" || savedBackgroundLayout === "corners" || savedBackgroundLayout === "halo" || savedBackgroundLayout === "minimal") {
+          ui.setWindowBackgroundLayout(savedBackgroundLayout);
+        }
+
+        const savedBackgroundSpeed = await getSetting("window_background_speed");
+        if (savedBackgroundSpeed === "slow" || savedBackgroundSpeed === "normal" || savedBackgroundSpeed === "fast" || savedBackgroundSpeed === "still") {
+          ui.setWindowBackgroundSpeed(savedBackgroundSpeed);
+        }
+
+        const savedBackgroundImage = await getSetting("window_background_image_path");
+        if (savedBackgroundImage) {
+          ui.setWindowBackgroundImagePath(savedBackgroundImage);
+        }
+
         // Restore inbox view mode
         const savedViewMode = await getSetting("inbox_view_mode");
         if (savedViewMode === "unified" || savedViewMode === "split") {
@@ -281,6 +368,11 @@ export default function App() {
         const savedTaskSidebar = await getSetting("task_sidebar_visible");
         if (savedTaskSidebar === "true") {
           ui.setTaskSidebarVisible(true);
+        }
+
+        const savedMessengerPanels = await getSetting("messengers_panels_open");
+        if (savedMessengerPanels === "true") {
+          useUIStore.setState({ messengersPanelsOpen: true });
         }
 
         // Restore sidebar nav config
@@ -310,21 +402,25 @@ export default function App() {
         // Initialize Gmail clients for existing accounts
         await initializeClients();
 
-        // Fetch send-as aliases for each active email account (skip CalDAV-only)
-        const activeIds = mapped.filter((a) => a.isActive).map((a) => a.id);
-        const emailAccountIds = mapped.filter((a) => a.isActive && a.provider !== "caldav").map((a) => a.id);
-        for (const accountId of emailAccountIds) {
+        void refreshYandexImapAccountAvatars(dbAccounts).catch((err) => {
+          console.warn("[yandex-profile] Startup avatar refresh failed:", err);
+        });
+
+        // Fetch Gmail send-as aliases only for the restored active Gmail account.
+        const activeAccountId = useAccountStore.getState().activeAccountId;
+        const activeAccount = mapped.find((account) => account.id === activeAccountId);
+        if (activeAccount?.provider === "gmail_api") {
           try {
-            const client = await getGmailClient(accountId);
-            await fetchSendAsAliases(client, accountId);
+            const client = await getGmailClient(activeAccount.id);
+            await fetchSendAsAliases(client, activeAccount.id);
           } catch (err) {
-            console.warn(`Failed to fetch send-as aliases for ${accountId}:`, err);
+            console.warn(`Failed to fetch send-as aliases for ${activeAccount.id}:`, err);
           }
         }
 
-        // Start background sync for active accounts
-        if (activeIds.length > 0) {
-          startBackgroundSync(activeIds);
+        const syncableAccountIds = getSyncableAccountIds(mapped, activeAccountId);
+        if (syncableAccountIds.length > 0) {
+          startBackgroundSync(syncableAccountIds);
         }
 
         // Start snooze, scheduled send, follow-up, bundle, and queue checkers
@@ -383,26 +479,34 @@ export default function App() {
   // Listen for sync status updates
   const backfillDoneRef = useRef(false);
   useEffect(() => {
-    const unsub = onSyncStatus((accountId, status, progress, error) => {
-      if (status === "syncing") {
-        if (progress) {
-          if (progress.phase === "messages") {
-            setSyncStatus(
-              `Syncing: ${progress.current}/${progress.total} messages`,
-            );
-          } else if (progress.phase === "labels") {
-            setSyncStatus("Syncing labels...");
-          } else if (progress.phase === "threads") {
-            setSyncStatus(`Building threads... (${progress.current}/${progress.total})`);
-          }
-        } else {
-          setSyncStatus("Syncing...");
-        }
-      } else if (status === "done") {
-        setSyncStatus("Sync complete");
-        setTimeout(() => setSyncStatus(null), 2_000);
+    const unsub = onSyncStatus((accountId, status, _progress, error) => {
+      if (status === "done") {
         window.dispatchEvent(new Event("velo-sync-done"));
         updateBadgeCount();
+      } else if (status === "error") {
+        window.dispatchEvent(new Event("velo-sync-done"));
+        updateBadgeCount();
+      }
+
+      if (accountId !== useAccountStore.getState().activeAccountId) {
+        return;
+      }
+
+      const isInitialSync = initialSyncAccountIdRef.current === accountId;
+
+      if (status === "syncing") {
+        clearSyncErrorTimer();
+        setSyncErrorMessage(null);
+      } else if (status === "done") {
+        clearSyncErrorTimer();
+        if (isInitialSync) {
+          initialSyncAccountIdRef.current = null;
+        }
+        setSyncErrorMessage(null);
+
+        void getAllAccounts()
+          .then(refreshYandexImapAccountAvatars)
+          .catch((err) => console.warn("[yandex-profile] Post-sync avatar refresh:", err));
 
         // Backfill uncategorized threads after first successful sync
         if (!backfillDoneRef.current) {
@@ -412,27 +516,57 @@ export default function App() {
             .catch((err) => console.error("Backfill error:", err));
         }
       } else if (status === "error") {
-        setSyncStatus(error ? `Sync failed: ${formatSyncError(error)}` : "Sync failed");
-        // Still dispatch sync-done so the UI refreshes with any partially stored data
-        window.dispatchEvent(new Event("velo-sync-done"));
-        // Auto-clear the error after 8 seconds
-        setTimeout(() => setSyncStatus(null), 8_000);
+        clearSyncErrorTimer();
+        if (isInitialSync) {
+          initialSyncAccountIdRef.current = null;
+        }
+        const detail = error
+          ? formatSyncError(error)
+          : "Проверьте подключение к интернету и настройки аккаунта.";
+        setSyncErrorMessage(detail);
+        syncErrorClearTimerRef.current = setTimeout(() => {
+          setSyncErrorMessage(null);
+          syncErrorClearTimerRef.current = null;
+        }, 8_000);
       }
     });
     return unsub;
-  }, []);
+  }, [clearSyncErrorTimer]);
+
+  useEffect(() => {
+    if (!initialized) {
+      previousActiveAccountIdRef.current = activeAccountIdForSync;
+      return;
+    }
+
+    const accountIds = getSyncableAccountIds(accountsForSync, activeAccountIdForSync);
+    if (accountIds.length > 0) {
+      startBackgroundSync(accountIds, true);
+    }
+
+    if (
+      activeAccountIdForSync
+      && previousActiveAccountIdRef.current !== activeAccountIdForSync
+      && accountIds.includes(activeAccountIdForSync)
+    ) {
+      void triggerSync([activeAccountIdForSync]);
+    }
+
+    previousActiveAccountIdRef.current = activeAccountIdForSync;
+  }, [accountsForSync, activeAccountIdForSync, initialized]);
 
   // Sync theme class to <html> element
   useEffect(() => {
     const root = document.documentElement;
+    const isLightsOut = () => hasMessengerLightsOutOverride();
     if (theme === "dark") {
       root.classList.add("dark");
     } else if (theme === "light") {
-      root.classList.remove("dark");
+      root.classList.toggle("dark", isLightsOut());
     } else {
       const mq = window.matchMedia("(prefers-color-scheme: dark)");
       const apply = () => {
-        if (mq.matches) {
+        if (mq.matches || isLightsOut()) {
           root.classList.add("dark");
         } else {
           root.classList.remove("dark");
@@ -440,8 +574,18 @@ export default function App() {
       };
       apply();
       mq.addEventListener("change", apply);
-      return () => mq.removeEventListener("change", apply);
+      window.addEventListener(LIGHTS_OUT_CHANGED_EVENT, apply);
+      return () => {
+        mq.removeEventListener("change", apply);
+        window.removeEventListener(LIGHTS_OUT_CHANGED_EVENT, apply);
+      };
     }
+
+    const applyLightsOut = () => {
+      if (theme === "light") root.classList.toggle("dark", isLightsOut());
+    };
+    window.addEventListener(LIGHTS_OUT_CHANGED_EVENT, applyLightsOut);
+    return () => window.removeEventListener(LIGHTS_OUT_CHANGED_EVENT, applyLightsOut);
   }, [theme]);
 
   // Sync font-scale class to <html> element
@@ -460,25 +604,7 @@ export default function App() {
   // Apply color theme CSS custom properties to <html>
   useEffect(() => {
     const root = document.documentElement;
-    const props = ["--color-accent", "--color-accent-hover", "--color-accent-light", "--color-bg-selected", "--color-sidebar-active"];
-
-    const apply = () => {
-      if (colorTheme === "indigo") {
-        // Default theme — remove inline overrides, let CSS handle it
-        for (const p of props) root.style.removeProperty(p);
-        return;
-      }
-      const themeData = getThemeById(colorTheme);
-      const isDark =
-        theme === "dark" ||
-        (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-      const colors = isDark ? themeData.dark : themeData.light;
-      root.style.setProperty("--color-accent", colors.accent);
-      root.style.setProperty("--color-accent-hover", colors.accentHover);
-      root.style.setProperty("--color-accent-light", colors.accentLight);
-      root.style.setProperty("--color-bg-selected", colors.bgSelected);
-      root.style.setProperty("--color-sidebar-active", colors.sidebarActive);
-    };
+    const apply = () => applyColorTheme(root, { theme, colorTheme });
 
     apply();
 
@@ -489,40 +615,80 @@ export default function App() {
     }
   }, [colorTheme, theme]);
 
-  const handleAddAccountSuccess = useCallback(async () => {
-    setShowAddAccount(false);
-    const dbAccounts = await getAllAccounts();
-    const mapped = dbAccounts.map((a) => ({
-      id: a.id,
-      email: a.email,
-      displayName: a.display_name,
-      avatarUrl: a.avatar_url,
-      isActive: a.is_active === 1,
-      provider: a.provider,
-    }));
-    useAccountStore.getState().setAccounts(mapped);
+  // Apply window background settings to <html>
+  useEffect(() => {
+    const root = document.documentElement;
+    const apply = () => {
+      applyWindowBackground(root, {
+        theme,
+        preset: windowBackgroundPreset,
+        layout: windowBackgroundLayout,
+        speed: windowBackgroundSpeed,
+        imagePath: windowBackgroundImagePath,
+      });
+    };
 
-    // Re-initialize clients for the new account
-    await initializeClients();
+    apply();
 
-    const newest = mapped[mapped.length - 1];
-    if (newest) {
-      // Sync the new account immediately — before restarting the background
-      // timer so it doesn't queue behind delta syncs for existing accounts.
-      syncAccount(newest.id);
-
-      // Fetch send-as aliases in the background (non-blocking, skip CalDAV-only accounts)
-      if (newest.provider !== "caldav") {
-        getGmailClient(newest.id)
-          .then((client) => fetchSendAsAliases(client, newest.id))
-          .catch((err) => console.warn(`Failed to fetch send-as aliases for new account:`, err));
-      }
+    if (theme === "system") {
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      mq.addEventListener("change", apply);
+      return () => mq.removeEventListener("change", apply);
     }
+  }, [theme, windowBackgroundPreset, windowBackgroundLayout, windowBackgroundSpeed, windowBackgroundImagePath]);
 
-    // Restart background sync for all accounts, but skip the immediate run
-    // since we already triggered the new account's sync above.
-    const activeIds = mapped.filter((a) => a.isActive).map((a) => a.id);
-    startBackgroundSync(activeIds, true);
+  useEffect(() => () => {
+    clearSyncErrorTimer();
+  }, [clearSyncErrorTimer]);
+
+  const handleAddAccountSuccess = useCallback((newAccountId: string) => {
+    setShowAddAccount(false);
+
+    void (async () => {
+      const dbAccounts = await getAllAccounts();
+      const mapped = dbAccounts.map((a) => ({
+        id: a.id,
+        email: a.email,
+        displayName: a.display_name,
+        avatarUrl: a.avatar_url,
+        isActive: a.is_active === 1,
+        provider: a.provider,
+      }));
+
+      useAccountStore.getState().setAccounts(mapped, newAccountId);
+
+      // Re-initialize clients for the new account
+      await initializeClients();
+
+      void refreshYandexImapAccountAvatars(dbAccounts).catch((err) => {
+        console.warn("[yandex-profile] Avatar refresh after add-account failed:", err);
+      });
+
+      if (newAccountId) {
+        initialSyncAccountIdRef.current = newAccountId;
+        syncAccount(newAccountId).catch((err) => {
+          console.error("Initial sync failed for new account:", err);
+          if (initialSyncAccountIdRef.current === newAccountId) {
+            initialSyncAccountIdRef.current = null;
+          }
+        });
+
+        const added = mapped.find((a) => a.id === newAccountId);
+        if (added?.provider === "gmail_api") {
+          getGmailClient(added.id)
+            .then((client) => fetchSendAsAliases(client, added.id))
+            .catch((err) => console.warn(`Failed to fetch send-as aliases for new account:`, err));
+        }
+      }
+
+      // Restart background sync for all mail accounts, but skip the immediate run
+      // since the new account's sync was already started above.
+      const activeAccountId = useAccountStore.getState().activeAccountId;
+      const syncableAccountIds = getSyncableAccountIds(mapped, activeAccountId);
+      if (syncableAccountIds.length > 0) {
+        startBackgroundSync(syncableAccountIds, true);
+      }
+    })();
   }, []);
 
   if (!initialized) {
@@ -551,7 +717,7 @@ export default function App() {
         <div className="blob" />
       </div>
       <TitleBar />
-      <div className="flex flex-1 min-w-0 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <DndProvider>
           <ErrorBoundary name="Sidebar">
             <Sidebar
@@ -563,14 +729,31 @@ export default function App() {
         </DndProvider>
       </div>
 
-      {/* Sync status bar */}
-      {syncStatus && (
+      {/* Sync errors only: no banner for background / manual success */}
+      {syncErrorMessage && (
         <div
-          className={`fixed bottom-0 left-0 right-0 glass-panel text-white text-xs px-4 py-1.5 text-center z-40 animate-[slideUp_200ms_ease-out,fadeIn_200ms_ease-out] ${
-            syncStatus.startsWith("Sync failed") ? "bg-danger/90" : "bg-accent/90"
-          }`}
+          className="fixed bottom-3 right-3 z-40 max-w-[min(22rem,calc(100vw-1.5rem))] animate-[fadeIn_200ms_ease-out]"
+          role="alert"
+          aria-live="assertive"
         >
-          {syncStatus}
+          <div className="flex items-start gap-2 rounded-lg border border-danger/40 bg-danger/30 px-2.5 py-2 text-xs text-red-50 shadow-md backdrop-blur-md">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 opacity-90" aria-hidden />
+            <div className="min-w-0 flex-1 leading-snug">
+              <div className="font-semibold">Синхронизация не удалась</div>
+              <div className="mt-0.5 text-[0.6875rem] text-red-100/95">{syncErrorMessage}</div>
+            </div>
+            <button
+              type="button"
+              className="shrink-0 rounded p-0.5 text-red-100/90 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-white/80"
+              aria-label="Закрыть уведомление"
+              onClick={() => {
+                clearSyncErrorTimer();
+                setSyncErrorMessage(null);
+              }}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -596,12 +779,6 @@ export default function App() {
         isOpen={showShortcutsHelp}
         onClose={() => setShowShortcutsHelp(false)}
       />
-      <ErrorBoundary name="AskInbox">
-        <AskInbox
-          isOpen={showAskInbox}
-          onClose={() => setShowAskInbox(false)}
-        />
-      </ErrorBoundary>
       <ContextMenuPortal />
       <MoveToFolderDialog
         isOpen={moveToFolderState.open}

@@ -1,4 +1,5 @@
 export type ColorThemeId =
+  | "neutral"
   | "indigo"
   | "rose"
   | "emerald"
@@ -25,6 +26,25 @@ export interface ColorTheme {
 }
 
 export const COLOR_THEMES: ColorTheme[] = [
+  {
+    id: "neutral",
+    name: "Neutral",
+    swatch: "#525252",
+    light: {
+      accent: "#525252",
+      accentHover: "#404040",
+      accentLight: "#e5e5e5",
+      bgSelected: "rgba(229, 231, 235, 0.78)",
+      sidebarActive: "#525252",
+    },
+    dark: {
+      accent: "#d4d4d4",
+      accentHover: "#f5f5f5",
+      accentLight: "#262626",
+      bgSelected: "rgba(82, 82, 82, 0.68)",
+      sidebarActive: "#d4d4d4",
+    },
+  },
   {
     id: "indigo",
     name: "Indigo",
@@ -179,7 +199,7 @@ export const COLOR_THEMES: ColorTheme[] = [
   },
 ];
 
-export const DEFAULT_COLOR_THEME: ColorThemeId = "indigo";
+export const DEFAULT_COLOR_THEME: ColorThemeId = "neutral";
 
 export function getThemeById(id: string): ColorTheme {
   return (

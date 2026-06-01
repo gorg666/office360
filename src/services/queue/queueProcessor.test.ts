@@ -27,6 +27,10 @@ vi.mock("@/utils/networkErrors", () => ({
   })),
 }));
 
+vi.mock("../gmail/syncManager", () => ({
+  triggerSync: vi.fn(() => Promise.resolve()),
+}));
+
 vi.mock("../backgroundCheckers", () => ({
   createBackgroundChecker: vi.fn((_name: string, fn: () => Promise<void>) => ({
     start: () => fn(),
@@ -59,12 +63,28 @@ describe("queueProcessor", () => {
   });
 
   it("skips processing when offline", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
     vi.mocked(useUIStore.getState).mockReturnValue(createMockUIStoreState({
       isOnline: false,
       setPendingOpsCount: mockSetPendingOpsCount,
     }) as never);
     await triggerQueueFlush();
     expect(getPendingOperations).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("flushes queue when navigator is online but store was stuck offline", async () => {
+    const setOnline = vi.fn();
+    vi.stubGlobal("navigator", { onLine: true });
+    vi.mocked(useUIStore.getState).mockReturnValue(createMockUIStoreState({
+      isOnline: false,
+      setOnline,
+      setPendingOpsCount: mockSetPendingOpsCount,
+    }) as never);
+    await triggerQueueFlush();
+    expect(setOnline).toHaveBeenCalledWith(true);
+    expect(compactQueue).toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it("compacts queue before processing", async () => {

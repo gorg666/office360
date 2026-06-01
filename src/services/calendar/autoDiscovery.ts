@@ -1,3 +1,7 @@
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import type { DbAccount } from "@/services/db/accounts";
+import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
+
 interface CalDavPreset {
   name: string;
   domains: string[];
@@ -16,6 +20,12 @@ const PRESETS: CalDavPreset[] = [
     name: "iCloud",
     domains: ["icloud.com", "me.com", "mac.com"],
     caldavUrl: "https://caldav.icloud.com",
+    authMethod: "basic",
+  },
+  {
+    name: "Yandex",
+    domains: ["yandex.ru", "ya.ru", "yandex.com", "yandex.by", "yandex.kz", "yandex.uz"],
+    caldavUrl: "https://caldav.yandex.ru/",
     authMethod: "basic",
   },
   {
@@ -151,6 +161,7 @@ export async function testCalDavConnection(
       credentials: { username, password },
       authMethod: "Basic",
       defaultAccountType: "caldav",
+      fetch: tauriFetch,
     });
 
     await client.login();
@@ -163,6 +174,52 @@ export async function testCalDavConnection(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Connection failed";
+    return { success: false, message };
+  }
+}
+
+/**
+ * Test CalDAV using the OAuth token already stored on an IMAP account.
+ * Yandex: try `OAuth` then `Bearer` (see yandexCalDavAuth). Others: Bearer.
+ */
+export async function testCalDavOAuthConnection(
+  account: DbAccount,
+  url: string,
+): Promise<{ success: boolean; message: string; calendarCount?: number }> {
+  try {
+    const accessToken = await ensureFreshToken(account);
+    let client: InstanceType<Awaited<typeof import("tsdav")>["DAVClient"]>;
+    if (account.oauth_provider === "yandex") {
+      const { loginYandexCalDavClient } = await import("./yandexCalDavAuth");
+      client = await loginYandexCalDavClient(url, accessToken);
+    } else {
+      const { DAVClient } = await import("tsdav");
+      client = new DAVClient({
+        serverUrl: url,
+        credentials: { accessToken },
+        authMethod: "Bearer",
+        defaultAccountType: "caldav",
+        fetch: tauriFetch,
+      });
+      await client.login();
+    }
+
+    const calendars = await client.fetchCalendars();
+
+    return {
+      success: true,
+      message: `Connected — found ${calendars.length} calendar${calendars.length !== 1 ? "s" : ""}`,
+      calendarCount: calendars.length,
+    };
+  } catch (err) {
+    let message = err instanceof Error ? err.message : "Connection failed";
+    if (
+      account.oauth_provider === "yandex" &&
+      /invalid credentials|401|cannot find homeurl/i.test(message)
+    ) {
+      message +=
+        " Для Яндекса включите в приложении oauth.yandex.ru доступ к календарю (calendar:all) и нажмите «Авторизовать заново», либо укажите пароль приложения для CalDAV.";
+    }
     return { success: false, message };
   }
 }

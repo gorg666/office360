@@ -1,4 +1,4 @@
-import { getDb } from "@/services/db/connection";
+import { executeWrite, getDb } from "@/services/db/connection";
 import { getSetting } from "@/services/db/settings";
 
 const CACHE_DIR = "attachment_cache";
@@ -37,8 +37,7 @@ export async function cacheAttachment(
     await fsWriteFile(relPath, data, { baseDir });
 
     // Update DB — store relative path under AppData
-    const db = await getDb();
-    await db.execute(
+    await executeWrite(
       "UPDATE attachments SET local_path = $1, cached_at = unixepoch(), cache_size = $2 WHERE id = $3",
       [relPath, data.length, attachmentId],
     );
@@ -95,7 +94,7 @@ export async function evictOldestCached(): Promise<void> {
       // file may not exist
     }
 
-    await db.execute(
+    await executeWrite(
       "UPDATE attachments SET local_path = NULL, cached_at = NULL, cache_size = NULL WHERE id = $1",
       [row.id],
     );
@@ -116,8 +115,7 @@ export async function clearAllCache(): Promise<void> {
     // ignore
   }
 
-  const db = await getDb();
-  await db.execute(
+  await executeWrite(
     "UPDATE attachments SET local_path = NULL, cached_at = NULL, cache_size = NULL WHERE cached_at IS NOT NULL",
   );
 }

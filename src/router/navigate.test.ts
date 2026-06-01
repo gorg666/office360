@@ -16,10 +16,22 @@ vi.mock("./index", () => ({
   },
 }));
 
+const mockSetMessengersPanelsOpen = vi.fn();
+let mockMessengersPanelsOpen = false;
+vi.mock("@/stores/uiStore", () => ({
+  useUIStore: {
+    getState: () => ({
+      messengersPanelsOpen: mockMessengersPanelsOpen,
+      setMessengersPanelsOpen: mockSetMessengersPanelsOpen,
+    }),
+  },
+}));
+
 import {
   navigateToLabel,
   navigateToThread,
   navigateToSettings,
+  navigateBackFromSettings,
   navigateBack,
   getActiveLabel,
   getSelectedThreadId,
@@ -28,6 +40,8 @@ import {
 describe("navigate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSetMessengersPanelsOpen.mockClear();
+    mockMessengersPanelsOpen = false;
     mockState.location = { pathname: "/mail/inbox", search: {} };
     mockState.matches = [];
   });
@@ -39,6 +53,23 @@ describe("navigate", () => {
         to: "/mail/$label",
         params: { label: "inbox" },
         search: {},
+      });
+    });
+
+    it("should open messenger panels on mail shell without extra navigation", () => {
+      mockState.location.pathname = "/mail/starred";
+      navigateToLabel("messengers");
+      expect(mockSetMessengersPanelsOpen).toHaveBeenCalledWith(true);
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it("should open messenger panels and go to inbox when outside mail shell", () => {
+      mockState.location.pathname = "/calendar";
+      navigateToLabel("messengers");
+      expect(mockSetMessengersPanelsOpen).toHaveBeenCalledWith(true);
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/mail/$label",
+        params: { label: "inbox" },
       });
     });
 
@@ -181,6 +212,51 @@ describe("navigate", () => {
       expect(mockNavigate).toHaveBeenCalledWith({
         to: "/settings/$tab",
         params: { tab: "ai" },
+      });
+    });
+
+    it("should not overwrite return snapshot when switching settings tabs", () => {
+      mockState.location.pathname = "/mail/outbox";
+      navigateToSettings();
+      mockState.location.pathname = "/settings/general";
+      navigateToSettings("ai");
+      navigateBackFromSettings();
+      expect(mockNavigate).toHaveBeenLastCalledWith({
+        to: "/mail/$label",
+        params: { label: "outbox" },
+        search: {},
+      });
+    });
+  });
+
+  describe("navigateBackFromSettings", () => {
+    it("should return to the route captured before opening settings", () => {
+      mockState.location.pathname = "/attachments";
+      navigateToSettings();
+      navigateBackFromSettings();
+      expect(mockNavigate).toHaveBeenLastCalledWith({ to: "/attachments" });
+    });
+
+    it("should restore messengers panel state when captured from mail shell", () => {
+      mockState.location.pathname = "/mail/inbox";
+      mockMessengersPanelsOpen = true;
+      navigateToSettings();
+      navigateBackFromSettings();
+      expect(mockSetMessengersPanelsOpen).toHaveBeenCalledWith(true);
+      expect(mockNavigate).toHaveBeenLastCalledWith({
+        to: "/mail/$label",
+        params: { label: "inbox" },
+        search: {},
+      });
+    });
+
+    it("should fall back to inbox when no snapshot exists", () => {
+      mockState.location.pathname = "/settings/general";
+      navigateBackFromSettings();
+      expect(mockSetMessengersPanelsOpen).toHaveBeenCalledWith(false);
+      expect(mockNavigate).toHaveBeenLastCalledWith({
+        to: "/mail/$label",
+        params: { label: "inbox" },
       });
     });
   });

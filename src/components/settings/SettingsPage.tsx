@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useUIStore } from "@/stores/uiStore";
-import { navigateToLabel, navigateToSettings } from "@/router/navigate";
+import { navigateBackFromSettings, navigateToSettings } from "@/router/navigate";
 import { useAccountStore } from "@/stores/accountStore";
 import { getSetting, setSetting, getSecureSetting, setSecureSetting } from "@/services/db/settings";
 import { PROVIDER_MODELS } from "@/services/ai/types";
@@ -27,16 +27,15 @@ import {
   Check,
   Mail,
   Info,
-  ExternalLink,
-  Github,
-  Scale,
   Globe,
-  Download,
+  Image,
+  Palette,
   ChevronUp,
   ChevronDown,
   RotateCcw,
   type LucideIcon,
 } from "lucide-react";
+import { SettingsAboutPanel } from "./SettingsAboutPanel";
 import { SignatureEditor } from "./SignatureEditor";
 import { TemplateEditor } from "./TemplateEditor";
 import { FilterEditor } from "./FilterEditor";
@@ -46,9 +45,12 @@ import { SubscriptionManager } from "./SubscriptionManager";
 import { SmartFolderEditor } from "./SmartFolderEditor";
 import { QuickStepEditor } from "./QuickStepEditor";
 import { SmartLabelEditor } from "./SmartLabelEditor";
+import { ImapCredentialsEditor } from "./ImapCredentialsEditor";
+import { Yandex360AdminPanel } from "./yandex360/Yandex360AdminPanel";
 import { SHORTCUTS, getDefaultKeyMap } from "@/constants/shortcuts";
 import { useShortcutStore } from "@/stores/shortcutStore";
 import { COLOR_THEMES } from "@/constants/themes";
+import { LOCALE_LABELS } from "@/i18n";
 import {
   getAliasesForAccount,
   setDefaultAlias,
@@ -56,12 +58,21 @@ import {
   type SendAsAlias,
 } from "@/services/db/sendAsAliases";
 import { ALL_NAV_ITEMS } from "@/components/layout/Sidebar";
-import type { SidebarNavItem } from "@/stores/uiStore";
+import type {
+  SidebarNavItem,
+  WindowBackgroundLayout,
+  WindowBackgroundPreset,
+  WindowBackgroundSpeed,
+} from "@/stores/uiStore";
 import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
-import appIcon from "@/assets/icon.png";
+import { isValidGoogleOAuthClientIdFormat } from "@/utils/googleCredentials";
+import {
+  configureNotificationSound,
+  playConfiguredNewEmailSound,
+} from "@/services/notifications/notificationManager";
 
-type SettingsTab = "general" | "notifications" | "composing" | "mail-rules" | "people" | "accounts" | "shortcuts" | "ai" | "about";
+type SettingsTab = "general" | "notifications" | "composing" | "mail-rules" | "people" | "accounts" | "yandex360" | "shortcuts" | "ai" | "about";
 
 const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: "general", label: "General", icon: Settings },
@@ -70,10 +81,46 @@ const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: "mail-rules", label: "Mail Rules", icon: Filter },
   { id: "people", label: "People", icon: Users },
   { id: "accounts", label: "Accounts", icon: UserCircle },
+  { id: "yandex360", label: "Яндекс 360", icon: Globe },
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
   { id: "ai", label: "AI", icon: Sparkles },
   { id: "about", label: "About", icon: Info },
 ];
+
+const BACKGROUND_PRESETS: { id: WindowBackgroundPreset; label: string; swatchClasses: string[] }[] = [
+  { id: "default", label: "Текущий светлый", swatchClasses: ["bg-[#fafafa]", "bg-[#e5e5e5]", "bg-white"] },
+  { id: "sunrise", label: "Тёплый рассвет", swatchClasses: ["bg-orange-50", "bg-amber-100", "bg-rose-100"] },
+  { id: "mint", label: "Мятная свежесть", swatchClasses: ["bg-teal-50", "bg-green-100", "bg-cyan-100"] },
+  { id: "lavender", label: "Лавандовый", swatchClasses: ["bg-purple-50", "bg-violet-100", "bg-pink-100"] },
+  { id: "graphite", label: "Графит", swatchClasses: ["bg-slate-50", "bg-slate-300", "bg-slate-500"] },
+];
+
+const BACKGROUND_LAYOUTS: { id: WindowBackgroundLayout; label: string }[] = [
+  { id: "soft", label: "Мягко" },
+  { id: "diagonal", label: "Диагональ" },
+  { id: "corners", label: "По углам" },
+  { id: "halo", label: "Ореол" },
+  { id: "minimal", label: "Минимально" },
+];
+
+const BACKGROUND_SPEEDS: { id: WindowBackgroundSpeed; label: string }[] = [
+  { id: "slow", label: "Медленно" },
+  { id: "normal", label: "Обычно" },
+  { id: "fast", label: "Быстро" },
+  { id: "still", label: "Без движения" },
+];
+
+const COLOR_THEME_SWATCH_CLASSES: Record<string, string> = {
+  neutral: "bg-neutral-600",
+  indigo: "bg-indigo-600",
+  rose: "bg-rose-600",
+  emerald: "bg-emerald-600",
+  amber: "bg-amber-600",
+  sky: "bg-sky-600",
+  violet: "bg-violet-600",
+  orange: "bg-orange-600",
+  slate: "bg-slate-600",
+};
 
 export function SettingsPage() {
   const theme = useUIStore((s) => s.theme);
@@ -86,6 +133,14 @@ export function SettingsPage() {
   const setFontScale = useUIStore((s) => s.setFontScale);
   const colorTheme = useUIStore((s) => s.colorTheme);
   const setColorTheme = useUIStore((s) => s.setColorTheme);
+  const windowBackgroundPreset = useUIStore((s) => s.windowBackgroundPreset);
+  const setWindowBackgroundPreset = useUIStore((s) => s.setWindowBackgroundPreset);
+  const windowBackgroundLayout = useUIStore((s) => s.windowBackgroundLayout);
+  const setWindowBackgroundLayout = useUIStore((s) => s.setWindowBackgroundLayout);
+  const windowBackgroundSpeed = useUIStore((s) => s.windowBackgroundSpeed);
+  const setWindowBackgroundSpeed = useUIStore((s) => s.setWindowBackgroundSpeed);
+  const windowBackgroundImagePath = useUIStore((s) => s.windowBackgroundImagePath);
+  const setWindowBackgroundImagePath = useUIStore((s) => s.setWindowBackgroundImagePath);
   const defaultReplyMode = useUIStore((s) => s.defaultReplyMode);
   const setDefaultReplyMode = useUIStore((s) => s.setDefaultReplyMode);
   const markAsReadBehavior = useUIStore((s) => s.markAsReadBehavior);
@@ -96,6 +151,8 @@ export function SettingsPage() {
   const setInboxViewMode = useUIStore((s) => s.setInboxViewMode);
   const reduceMotion = useUIStore((s) => s.reduceMotion);
   const setReduceMotion = useUIStore((s) => s.setReduceMotion);
+  const locale = useUIStore((s) => s.locale);
+  const setLocale = useUIStore((s) => s.setLocale);
   const accounts = useAccountStore((s) => s.accounts);
   const removeAccountFromStore = useAccountStore((s) => s.removeAccount);
   const { tab } = useParams({ strict: false }) as { tab?: string };
@@ -106,9 +163,10 @@ export function SettingsPage() {
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [apiSettingsSaved, setApiSettingsSaved] = useState(false);
+  const [apiSettingsError, setApiSettingsError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncPeriodDays, setSyncPeriodDays] = useState("365");
-  const [blockRemoteImages, setBlockRemoteImages] = useState(true);
+  const [blockRemoteImages, setBlockRemoteImages] = useState(false);
   const [phishingDetectionEnabled, setPhishingDetectionEnabled] = useState(true);
   const [phishingSensitivity, setPhishingSensitivity] = useState<"low" | "default" | "high">("default");
   const [autostartEnabled, setAutostartEnabled] = useState(false);
@@ -119,9 +177,10 @@ export function SettingsPage() {
   const [copilotApiKey, setCopilotApiKey] = useState("");
   const [ollamaServerUrl, setOllamaServerUrl] = useState("http://localhost:11434");
   const [ollamaModel, setOllamaModel] = useState("llama3.2");
+  const [ollamaApiKey, setOllamaApiKey] = useState("");
   const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5-20251001");
   const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
-  const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash-preview-05-20");
+  const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash");
   const [copilotModel, setCopilotModel] = useState("openai/gpt-4o-mini");
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiAutoCategorize, setAiAutoCategorize] = useState(true);
@@ -129,6 +188,7 @@ export function SettingsPage() {
   const [aiKeySaved, setAiKeySaved] = useState(false);
   const [aiTesting, setAiTesting] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<"success" | "fail" | null>(null);
+  const [aiTestMessage, setAiTestMessage] = useState("");
   const [aiAutoDraftEnabled, setAiAutoDraftEnabled] = useState(true);
   const [aiWritingStyleEnabled, setAiWritingStyleEnabled] = useState(true);
   const [styleAnalyzing, setStyleAnalyzing] = useState(false);
@@ -138,11 +198,15 @@ export function SettingsPage() {
   const [clearingCache, setClearingCache] = useState(false);
   const [reauthStatus, setReauthStatus] = useState<Record<string, "idle" | "authorizing" | "done" | "error">>({});
   const [resyncStatus, setResyncStatus] = useState<Record<string, "idle" | "syncing" | "done" | "error">>({});
+  const [editingImapAccountId, setEditingImapAccountId] = useState<string | null>(null);
   const [autoArchiveCategories, setAutoArchiveCategories] = useState<Set<string>>(() => new Set());
   const [smartNotifications, setSmartNotifications] = useState(true);
   const [notifyCategories, setNotifyCategories] = useState<Set<string>>(() => new Set(["Primary"]));
+  const [notificationSoundVolume, setNotificationSoundVolume] = useState("80");
+  const [notificationSoundPath, setNotificationSoundPath] = useState("");
   const [vipSenders, setVipSenders] = useState<{ email_address: string; display_name: string | null }[]>([]);
   const [newVipEmail, setNewVipEmail] = useState("");
+  const activeMailAccount = accounts.find((a) => a.isActive && a.provider !== "caldav");
 
   // Load settings from DB
   useEffect(() => {
@@ -179,6 +243,8 @@ export function SettingsPage() {
       if (ollamaUrl) setOllamaServerUrl(ollamaUrl);
       const ollamaModelVal = await getSetting("ollama_model");
       if (ollamaModelVal) setOllamaModel(ollamaModelVal);
+      const ollamaKey = await getSecureSetting("ollama_api_key");
+      setOllamaApiKey(ollamaKey ?? "");
       const claudeModelVal = await getSetting("claude_model");
       if (claudeModelVal) setClaudeModel(claudeModelVal);
       const openaiModelVal = await getSetting("openai_model");
@@ -219,6 +285,16 @@ export function SettingsPage() {
       if (notifCats) {
         setNotifyCategories(new Set(notifCats.split(",").map((s) => s.trim()).filter(Boolean)));
       }
+      const soundVolume = await getSetting("notification_sound_volume");
+      const soundPath = await getSetting("notification_sound_path");
+      const normalizedSoundVolume = soundVolume ?? "80";
+      const normalizedSoundPath = soundPath ?? "";
+      setNotificationSoundVolume(normalizedSoundVolume);
+      setNotificationSoundPath(normalizedSoundPath);
+      configureNotificationSound({
+        volume: normalizedSoundVolume,
+        path: normalizedSoundPath,
+      });
       try {
         const { getAllVipSenders } = await import("@/services/db/notificationVips");
         const activeId = accounts.find((a) => a.isActive)?.id;
@@ -250,6 +326,65 @@ export function SettingsPage() {
     await setSetting("notifications_enabled", newVal ? "true" : "false");
   }, [notificationsEnabled]);
 
+  const handleNotificationSoundVolumeChange = useCallback(async (value: string) => {
+    setNotificationSoundVolume(value);
+    configureNotificationSound({ volume: value });
+    await setSetting("notification_sound_volume", value);
+  }, []);
+
+  const handleChooseNotificationSound = useCallback(async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({
+      multiple: false,
+      filters: [
+        {
+          name: "Audio",
+          extensions: ["mp3", "wav", "ogg", "m4a", "aac", "flac"],
+        },
+      ],
+    });
+    const path = Array.isArray(selected) ? selected[0] : selected;
+    if (!path) return;
+
+    setNotificationSoundPath(path);
+    configureNotificationSound({ path });
+    await setSetting("notification_sound_path", path);
+  }, []);
+
+  const handleResetNotificationSound = useCallback(async () => {
+    setNotificationSoundPath("");
+    configureNotificationSound({ path: "" });
+    await setSetting("notification_sound_path", "");
+  }, []);
+
+  const handleChooseBackgroundImage = useCallback(async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({
+      multiple: false,
+      filters: [
+        {
+          name: "Images",
+          extensions: ["png", "jpg", "jpeg", "webp", "bmp", "gif"],
+        },
+      ],
+    });
+    const path = Array.isArray(selected) ? selected[0] : selected;
+    if (!path) return;
+    setWindowBackgroundImagePath(path);
+  }, [setWindowBackgroundImagePath]);
+
+  const handleResetWindowBackground = useCallback(() => {
+    setWindowBackgroundPreset("default");
+    setWindowBackgroundLayout("soft");
+    setWindowBackgroundSpeed("normal");
+    setWindowBackgroundImagePath("");
+  }, [
+    setWindowBackgroundImagePath,
+    setWindowBackgroundLayout,
+    setWindowBackgroundPreset,
+    setWindowBackgroundSpeed,
+  ]);
+
   const handleUndoDelayChange = useCallback(async (value: string) => {
     setUndoSendDelay(value);
     await setSetting("undo_send_delay_seconds", value);
@@ -257,6 +392,15 @@ export function SettingsPage() {
 
   const handleSaveApiSettings = useCallback(async () => {
     const trimmedId = clientId.trim();
+    if (trimmedId && !isValidGoogleOAuthClientIdFormat(trimmedId)) {
+      setApiSettingsError(
+        locale === "ru"
+          ? "Неверный формат Client ID. Скопируйте значение из Google Cloud Console → Учётные данные → OAuth 2.0 (тип «Компьютерное приложение»). Оно выглядит как 123456789012-xxx.apps.googleusercontent.com"
+          : "Invalid Client ID format. Copy it from Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID (Desktop). It should look like 123456789012-xxx.apps.googleusercontent.com",
+      );
+      return;
+    }
+    setApiSettingsError(null);
     if (trimmedId) {
       await setSetting("google_client_id", trimmedId);
     }
@@ -266,7 +410,7 @@ export function SettingsPage() {
     }
     setApiSettingsSaved(true);
     setTimeout(() => setApiSettingsSaved(false), 2000);
-  }, [clientId, clientSecret]);
+  }, [clientId, clientSecret, locale]);
 
   const handleManualSync = useCallback(async () => {
     const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
@@ -360,9 +504,9 @@ export function SettingsPage() {
       {/* Header */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-border-primary shrink-0 bg-bg-primary/60 backdrop-blur-sm">
         <button
-          onClick={() => navigateToLabel("inbox")}
+          onClick={() => navigateBackFromSettings()}
           className="p-1.5 -ml-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
-          title="Back to Inbox"
+          title="Назад"
         >
           <ArrowLeft size={18} />
         </button>
@@ -372,7 +516,7 @@ export function SettingsPage() {
       {/* Body: sidebar nav + content */}
       <div className="flex flex-1 min-h-0">
         {/* Vertical tab sidebar */}
-        <nav className="w-48 border-r border-border-primary py-2 overflow-y-auto shrink-0 bg-bg-primary/30">
+        <nav className="w-[232px] shrink-0 border-r border-border-primary bg-bg-primary/30 py-2 overflow-y-auto">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -393,9 +537,9 @@ export function SettingsPage() {
           })}
         </nav>
 
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl px-8 py-6">
+        {/* Scrollable content — centered column, comfortable max width */}
+        <div className="flex flex-1 justify-center overflow-y-auto bg-bg-primary/40">
+          <div className="w-full max-w-[960px] px-6 py-8 lg:px-8">
             {/* Tab title */}
             {activeTabDef && (
               <div className="mb-6">
@@ -405,13 +549,25 @@ export function SettingsPage() {
               </div>
             )}
 
-            <div className="space-y-8">
+            <div className="space-y-6">
               {activeTab === "general" && (
                 <>
                   <Section title="Appearance">
+                    <SettingRow label="Language">
+                      <select
+                        value={locale}
+                        title="Language"
+                        onChange={(e) => setLocale(e.target.value as "ru" | "en")}
+                        className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+                      >
+                        <option value="ru">{LOCALE_LABELS.ru}</option>
+                        <option value="en">{LOCALE_LABELS.en}</option>
+                      </select>
+                    </SettingRow>
                     <SettingRow label="Theme">
                       <select
                         value={theme}
+                        title="Theme"
                         onChange={(e) => {
                           const val = e.target.value as "light" | "dark" | "system";
                           setTheme(val);
@@ -427,6 +583,7 @@ export function SettingsPage() {
                     <SettingRow label="Reading pane">
                       <select
                         value={readingPanePosition}
+                        title="Reading pane"
                         onChange={(e) => {
                           setReadingPanePosition(e.target.value as "right" | "bottom" | "hidden");
                         }}
@@ -440,6 +597,7 @@ export function SettingsPage() {
                     <SettingRow label="Email density">
                       <select
                         value={emailDensity}
+                        title="Email density"
                         onChange={(e) => {
                           setEmailDensity(e.target.value as "compact" | "default" | "spacious");
                         }}
@@ -453,6 +611,7 @@ export function SettingsPage() {
                     <SettingRow label="Font size">
                       <select
                         value={fontScale}
+                        title="Font size"
                         onChange={(e) => {
                           setFontScale(e.target.value as "small" | "default" | "large" | "xlarge");
                         }}
@@ -475,15 +634,9 @@ export function SettingsPage() {
                               title={t.name}
                               className={`relative w-7 h-7 rounded-full transition-all ${
                                 isSelected
-                                  ? "ring-2 ring-offset-2 ring-offset-bg-primary scale-110"
+                                  ? "ring-2 ring-accent ring-offset-2 ring-offset-bg-primary scale-110"
                                   : "hover:scale-105"
-                              }`}
-                              style={{
-                                backgroundColor: t.swatch,
-                                boxShadow: isSelected
-                                  ? `0 0 0 2px var(--color-bg-primary), 0 0 0 4px ${t.swatch}`
-                                  : undefined,
-                              }}
+                              } ${COLOR_THEME_SWATCH_CLASSES[t.id]}`}
                             >
                               {isSelected && (
                                 <Check size={14} className="absolute inset-0 m-auto text-white drop-shadow-sm" />
@@ -493,9 +646,121 @@ export function SettingsPage() {
                         })}
                       </div>
                     </SettingRow>
+                    <div className="rounded-xl border border-border-primary bg-bg-secondary/60 p-4">
+                      <div className="mb-3 flex items-start justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
+                            <Palette size={15} className="text-accent" />
+                            Фон окон
+                          </div>
+                          <p className="mt-1 text-xs text-text-tertiary">
+                            Выберите цветовую основу, расположение пятен, скорость движения или собственное изображение.
+                          </p>
+                        </div>
+                        <Button variant="ghost" size="xs" icon={<RotateCcw size={13} />} onClick={handleResetWindowBackground}>
+                          Сбросить
+                        </Button>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <span className="text-xs font-medium text-text-secondary">Цвет фона</span>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            {BACKGROUND_PRESETS.map((preset) => {
+                              const isSelected = windowBackgroundPreset === preset.id;
+                              return (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  onClick={() => setWindowBackgroundPreset(preset.id)}
+                                  className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+                                    isSelected
+                                      ? "border-accent bg-accent/10 text-accent"
+                                      : "border-border-primary bg-bg-primary/70 text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                                  }`}
+                                >
+                                  <span>{preset.label}</span>
+                                  <span className="flex -space-x-1">
+                                    {preset.swatchClasses.map((swatchClass) => (
+                                      <span
+                                        key={swatchClass}
+                                        className={`h-4 w-4 rounded-full border border-white/60 ${swatchClass}`}
+                                      />
+                                    ))}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <label className="text-xs text-text-secondary">
+                            Стиль пятен
+                            <select
+                              value={windowBackgroundLayout}
+                              title="Стиль расположения фоновых пятен"
+                              onChange={(e) => setWindowBackgroundLayout(e.target.value as WindowBackgroundLayout)}
+                              className="mt-1 w-full bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+                            >
+                              {BACKGROUND_LAYOUTS.map((layout) => (
+                                <option key={layout.id} value={layout.id}>{layout.label}</option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <label className="text-xs text-text-secondary">
+                            Скорость движения
+                            <select
+                              value={windowBackgroundSpeed}
+                              title="Скорость движения фоновых пятен"
+                              onChange={(e) => setWindowBackgroundSpeed(e.target.value as WindowBackgroundSpeed)}
+                              className="mt-1 w-full bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+                            >
+                              {BACKGROUND_SPEEDS.map((speed) => (
+                                <option key={speed.id} value={speed.id}>{speed.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 rounded-lg bg-bg-primary/70 px-3 py-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 text-xs font-medium text-text-secondary">
+                              <Image size={14} className="text-accent" />
+                              Своё изображение
+                            </div>
+                            <p className="mt-0.5 truncate text-xs text-text-tertiary">
+                              {windowBackgroundImagePath
+                                ? windowBackgroundImagePath.split(/[\\/]/).pop()
+                                : "Upload a custom image for the interface. It will be used in the theme preview."}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <Button variant="secondary" size="xs" onClick={handleChooseBackgroundImage}>
+                              Загрузить
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => setWindowBackgroundImagePath("")}
+                              disabled={!windowBackgroundImagePath}
+                            >
+                              Убрать
+                            </Button>
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-text-tertiary">
+                          Дополнительно можно использовать: «Рассвет» для тёплого интерфейса, «Мяту» для спокойного рабочего режима,
+                          «Лавандовый» для мягкого акцента или «Графит» для строгого оформления.
+                        </p>
+                      </div>
+                    </div>
                     <SettingRow label="Inbox view mode">
                       <select
                         value={inboxViewMode}
+                        title="Inbox view mode"
                         onChange={(e) => {
                           setInboxViewMode(e.target.value as "unified" | "split");
                         }}
@@ -518,7 +783,7 @@ export function SettingsPage() {
                   <Section title="Startup">
                     <ToggleRow
                       label="Launch at login"
-                      description="Start Velo automatically when you log in (minimized to tray)"
+                      description="Start Office360 automatically when you log in (minimized to tray)"
                       checked={autostartEnabled}
                       onToggle={handleAutostartToggle}
                     />
@@ -527,7 +792,7 @@ export function SettingsPage() {
                   <Section title="Privacy & Security">
                     <ToggleRow
                       label="Block remote images"
-                      description="Hides tracking pixels and remote images until you choose to load them"
+                      description="Hides tracking pixels and remote images until you choose to load them (Spam always blocks remote images)"
                       checked={blockRemoteImages}
                       onToggle={async () => {
                         const newVal = !blockRemoteImages;
@@ -549,6 +814,7 @@ export function SettingsPage() {
                       <SettingRow label="Detection sensitivity">
                         <select
                           value={phishingSensitivity}
+                          title="Detection sensitivity"
                           onChange={async (e) => {
                             const val = e.target.value as "low" | "default" | "high";
                             setPhishingSensitivity(val);
@@ -595,6 +861,7 @@ export function SettingsPage() {
                     <SettingRow label="Max cache size">
                       <select
                         value={cacheMaxMb}
+                        title="Max cache size"
                         onChange={async (e) => {
                           const val = e.target.value;
                           setCacheMaxMb(val);
@@ -631,6 +898,41 @@ export function SettingsPage() {
                         await setSetting("smart_notifications", newVal ? "true" : "false");
                       }}
                     />
+                  </Section>
+
+                  <Section title="Notification Sound">
+                    <SettingRow label="Volume" description={`${notificationSoundVolume}%`}>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        value={notificationSoundVolume}
+                        onChange={(e) => {
+                          void handleNotificationSoundVolumeChange(e.target.value);
+                        }}
+                        className="w-48 accent-accent"
+                        aria-label="Notification sound volume"
+                      />
+                    </SettingRow>
+                    <SettingRow label="Sound file" description={notificationSoundPath ? notificationSoundPath.split(/[\\/]/).pop() : "Default sound"}>
+                      <div className="flex items-center gap-2">
+                        <Button variant="secondary" onClick={handleChooseNotificationSound}>
+                          Choose file
+                        </Button>
+                        <Button variant="ghost" onClick={handleResetNotificationSound} disabled={!notificationSoundPath}>
+                          Reset
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            playConfiguredNewEmailSound();
+                          }}
+                        >
+                          Test
+                        </Button>
+                      </div>
+                    </SettingRow>
                   </Section>
 
                   {smartNotifications && (
@@ -732,6 +1034,7 @@ export function SettingsPage() {
                     <SettingRow label="Undo send delay">
                       <select
                         value={undoSendDelay}
+                        title="Undo send delay"
                         onChange={(e) => handleUndoDelayChange(e.target.value)}
                         className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
                       >
@@ -752,6 +1055,7 @@ export function SettingsPage() {
                     <SettingRow label="Default reply action">
                       <select
                         value={defaultReplyMode}
+                        title="Default reply action"
                         onChange={(e) => {
                           setDefaultReplyMode(e.target.value as "reply" | "replyAll");
                         }}
@@ -764,6 +1068,7 @@ export function SettingsPage() {
                     <SettingRow label="Mark as read">
                       <select
                         value={markAsReadBehavior}
+                        title="Mark as read"
                         onChange={(e) => {
                           setMarkAsReadBehavior(e.target.value as "instant" | "2s" | "manual");
                         }}
@@ -872,16 +1177,27 @@ export function SettingsPage() {
                                 </div>
                               </div>
                               <div className="flex items-center gap-3">
-                                <button
-                                  onClick={() => handleReauthorizeAccount(account.id, account.email)}
-                                  disabled={reauthStatus[account.id] === "authorizing"}
-                                  className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50"
-                                >
-                                  {reauthStatus[account.id] === "authorizing" && "Waiting..."}
-                                  {reauthStatus[account.id] === "done" && "Done!"}
-                                  {reauthStatus[account.id] === "error" && "Failed"}
-                                  {(!reauthStatus[account.id] || reauthStatus[account.id] === "idle") && "Re-authorize"}
-                                </button>
+                                {account.provider === "imap" ? (
+                                  <button
+                                    onClick={() => setEditingImapAccountId(
+                                      editingImapAccountId === account.id ? null : account.id,
+                                    )}
+                                    className="text-xs text-accent hover:text-accent-hover transition-colors"
+                                  >
+                                    {locale === "ru" ? "Авторизовать заново" : "Re-authorize"}
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => handleReauthorizeAccount(account.id, account.email)}
+                                    disabled={reauthStatus[account.id] === "authorizing"}
+                                    className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50"
+                                  >
+                                    {reauthStatus[account.id] === "authorizing" && (locale === "ru" ? "Ожидание..." : "Waiting...")}
+                                    {reauthStatus[account.id] === "done" && (locale === "ru" ? "Готово!" : "Done!")}
+                                    {reauthStatus[account.id] === "error" && (locale === "ru" ? "Ошибка" : "Failed")}
+                                    {(!reauthStatus[account.id] || reauthStatus[account.id] === "idle") && (locale === "ru" ? "Авторизовать заново" : "Re-authorize")}
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => handleResyncAccount(account.id)}
                                   disabled={resyncStatus[account.id] === "syncing"}
@@ -905,6 +1221,13 @@ export function SettingsPage() {
                       </div>
                     )}
                   </Section>
+
+                  {editingImapAccountId && (
+                    <ImapCredentialsEditor
+                      accountId={editingImapAccountId}
+                      onClose={() => setEditingImapAccountId(null)}
+                    />
+                  )}
 
                   {accounts.some((a) => a.provider === "caldav") && (
                     <Section title="Calendar Accounts">
@@ -941,34 +1264,47 @@ export function SettingsPage() {
 
                   <ImapCalDavSection />
 
-                  <Section title="Google API">
-                    <div className="space-y-3">
-                      <TextField
-                        label="Client ID"
-                        size="md"
-                        type="text"
-                        value={clientId}
-                        onChange={(e) => setClientId(e.target.value)}
-                        placeholder="Google OAuth Client ID"
-                      />
-                      <TextField
-                        label="Client Secret"
-                        size="md"
-                        type="password"
-                        value={clientSecret}
-                        onChange={(e) => setClientSecret(e.target.value)}
-                        placeholder="Google OAuth Client Secret"
-                      />
-                      <Button
-                        variant="primary"
-                        size="md"
-                        onClick={handleSaveApiSettings}
-                        disabled={!clientId.trim()}
-                      >
-                        {apiSettingsSaved ? "Saved!" : "Save"}
-                      </Button>
-                    </div>
-                  </Section>
+                  {activeMailAccount?.provider !== "imap" && (
+                    <Section title="Google API">
+                      <div className="space-y-3">
+                        <TextField
+                          label="Client ID"
+                          size="md"
+                          type="text"
+                          value={clientId}
+                          onChange={(e) => {
+                            setApiSettingsError(null);
+                            setClientId(e.target.value);
+                          }}
+                          placeholder="Google OAuth Client ID"
+                        />
+                        <TextField
+                          label="Client Secret"
+                          size="md"
+                          type="password"
+                          value={clientSecret}
+                          onChange={(e) => setClientSecret(e.target.value)}
+                          placeholder="Google OAuth Client Secret"
+                        />
+                        <p className="text-xs text-text-tertiary">
+                          {locale === "ru"
+                            ? "Эти поля нужны только для Gmail OAuth и не относятся к IMAP/Яндекс-аккаунтам."
+                            : "These fields are only for Gmail OAuth and do not apply to IMAP/Yandex accounts."}
+                        </p>
+                        {apiSettingsError && (
+                          <p className="text-xs text-danger">{apiSettingsError}</p>
+                        )}
+                        <Button
+                          variant="primary"
+                          size="md"
+                          onClick={handleSaveApiSettings}
+                          disabled={!clientId.trim()}
+                        >
+                          {apiSettingsSaved ? (locale === "ru" ? "Сохранено!" : "Saved!") : (locale === "ru" ? "Сохранить" : "Save")}
+                        </Button>
+                      </div>
+                    </Section>
+                  )}
 
                   <Section title="Sync">
                     <div className="flex items-center justify-between">
@@ -1011,6 +1347,7 @@ export function SettingsPage() {
                     <SettingRow label="Sync emails from">
                       <select
                         value={syncPeriodDays}
+                        title="Sync emails from"
                         onChange={async (e) => {
                           const val = e.target.value;
                           setSyncPeriodDays(val);
@@ -1033,6 +1370,12 @@ export function SettingsPage() {
                 </>
               )}
 
+              {activeTab === "yandex360" && (
+                <Section title="Яндекс 360 Admin API">
+                  <Yandex360AdminPanel />
+                </Section>
+              )}
+
               {activeTab === "shortcuts" && (
                 <ShortcutsTab />
               )}
@@ -1046,10 +1389,12 @@ export function SettingsPage() {
                     <SettingRow label="AI Provider">
                       <select
                         value={aiProvider}
+                        title="AI Provider"
                         onChange={async (e) => {
                           const val = e.target.value as "claude" | "openai" | "gemini" | "ollama" | "copilot";
                           setAiProvider(val);
                           setAiTestResult(null);
+                          setAiTestMessage("");
                           await setSetting("ai_provider", val);
                           const { clearProviderClients } = await import("@/services/ai/providerManager");
                           clearProviderClients();
@@ -1089,6 +1434,14 @@ export function SettingsPage() {
                           onChange={(e) => setOllamaModel(e.target.value)}
                           placeholder="llama3.2"
                         />
+                        <TextField
+                          label="API Key / Token (optional)"
+                          size="md"
+                          type="password"
+                          value={ollamaApiKey}
+                          onChange={(e) => setOllamaApiKey(e.target.value)}
+                          placeholder="LM Studio token, if authentication is enabled"
+                        />
                         <div className="flex items-center gap-2">
                           <Button
                             variant="primary"
@@ -1096,6 +1449,7 @@ export function SettingsPage() {
                             onClick={async () => {
                               await setSetting("ollama_server_url", ollamaServerUrl.trim());
                               await setSetting("ollama_model", ollamaModel.trim());
+                              await setSecureSetting("ollama_api_key", ollamaApiKey.trim());
                               const { clearProviderClients } = await import("@/services/ai/providerManager");
                               clearProviderClients();
                               setAiKeySaved(true);
@@ -1111,12 +1465,24 @@ export function SettingsPage() {
                             onClick={async () => {
                               setAiTesting(true);
                               setAiTestResult(null);
+                              setAiTestMessage("");
                               try {
-                                const { testConnection } = await import("@/services/ai/aiService");
-                                const ok = await testConnection();
-                                setAiTestResult(ok ? "success" : "fail");
-                              } catch {
+                                await setSetting("ollama_server_url", ollamaServerUrl.trim());
+                                await setSetting("ollama_model", ollamaModel.trim());
+                                await setSecureSetting("ollama_api_key", ollamaApiKey.trim());
+                                const { clearProviderClients } = await import("@/services/ai/providerManager");
+                                clearProviderClients();
+                                const { testOllamaConnection } = await import("@/services/ai/providers/ollamaProvider");
+                                const result = await testOllamaConnection(
+                                  ollamaServerUrl.trim(),
+                                  ollamaModel.trim(),
+                                  ollamaApiKey.trim() || undefined,
+                                );
+                                setAiTestResult(result.success ? "success" : "fail");
+                                setAiTestMessage(result.message);
+                              } catch (err) {
                                 setAiTestResult("fail");
+                                setAiTestMessage(err instanceof Error ? err.message : String(err));
                               } finally {
                                 setAiTesting(false);
                               }
@@ -1127,10 +1493,12 @@ export function SettingsPage() {
                             {aiTesting ? "Testing..." : "Test Connection"}
                           </Button>
                           {aiTestResult === "success" && (
-                            <span className="text-xs text-success">Connected!</span>
+                            <span className="text-xs text-success">Подключено!</span>
                           )}
                           {aiTestResult === "fail" && (
-                            <span className="text-xs text-danger">Connection failed</span>
+                            <span className="text-xs text-danger">
+                              {aiTestMessage || "Не удалось подключиться"}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -1174,6 +1542,7 @@ export function SettingsPage() {
                               : aiProvider === "copilot" ? copilotModel
                               : geminiModel
                             }
+                            title="Model"
                             onChange={async (e) => {
                               const val = e.target.value;
                               const modelSettingMap = {
@@ -1236,12 +1605,14 @@ export function SettingsPage() {
                             onClick={async () => {
                               setAiTesting(true);
                               setAiTestResult(null);
+                              setAiTestMessage("");
                               try {
                                 const { testConnection } = await import("@/services/ai/aiService");
                                 const ok = await testConnection();
                                 setAiTestResult(ok ? "success" : "fail");
-                              } catch {
+                              } catch (err) {
                                 setAiTestResult("fail");
+                                setAiTestMessage(err instanceof Error ? err.message : String(err));
                               } finally {
                                 setAiTesting(false);
                               }
@@ -1257,10 +1628,12 @@ export function SettingsPage() {
                             {aiTesting ? "Testing..." : "Test Connection"}
                           </Button>
                           {aiTestResult === "success" && (
-                            <span className="text-xs text-success">Connected!</span>
+                            <span className="text-xs text-success">Подключено!</span>
                           )}
                           {aiTestResult === "fail" && (
-                            <span className="text-xs text-danger">Connection failed</span>
+                            <span className="text-xs text-danger">
+                              {aiTestMessage || "Не удалось подключиться"}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -1391,12 +1764,7 @@ export function SettingsPage() {
                 </>
               )}
 
-              {activeTab === "about" && (
-                <>
-                  <DeveloperTab />
-                  <AboutTab />
-                </>
-              )}
+              {activeTab === "about" && <SettingsAboutPanel />}
             </div>
           </div>
         </div>
@@ -1574,261 +1942,6 @@ function SyncOfflineSection() {
   );
 }
 
-function DeveloperTab() {
-  const [appVersion, setAppVersion] = useState("");
-  const [tauriVersion, setTauriVersion] = useState("");
-  const [webviewVersion, setWebviewVersion] = useState("");
-  const [platformLabel, setPlatformLabel] = useState("...");
-  const [checkingForUpdate, setCheckingForUpdate] = useState(false);
-  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
-  const [updateCheckDone, setUpdateCheckDone] = useState(false);
-  const [installingUpdate, setInstallingUpdate] = useState(false);
-
-  useEffect(() => {
-    async function load() {
-      const { getVersion, getTauriVersion } = await import("@tauri-apps/api/app");
-      setAppVersion(await getVersion());
-      setTauriVersion(await getTauriVersion());
-
-      // Extract WebView version from user agent
-      const ua = navigator.userAgent;
-      const edgMatch = /Edg\/(\S+)/.exec(ua);
-      const chromeMatch = /Chrome\/(\S+)/.exec(ua);
-      const webkitMatch = /AppleWebKit\/(\S+)/.exec(ua);
-      setWebviewVersion(edgMatch?.[1] ?? chromeMatch?.[1] ?? webkitMatch?.[1] ?? "Unknown");
-
-      // Detect platform via Tauri OS plugin (reliable native arch detection)
-      const { platform, arch } = await import("@tauri-apps/plugin-os");
-      const p = platform();
-      const a = arch();
-      const archLabel = a === "aarch64" || a === "arm" ? "ARM" : a === "x86_64" ? "x64" : a;
-      if (p === "macos") {
-        setPlatformLabel(a === "aarch64" ? "macOS (Apple Silicon)" : `macOS (${archLabel})`);
-      } else if (p === "windows") {
-        setPlatformLabel(`Windows (${archLabel})`);
-      } else if (p === "linux") {
-        setPlatformLabel(`Linux (${archLabel})`);
-      } else {
-        setPlatformLabel(`${p} (${archLabel})`);
-      }
-
-      // Check if there's already a known update
-      const { getAvailableUpdate } = await import("@/services/updateManager");
-      const existing = getAvailableUpdate();
-      if (existing) setUpdateVersion(existing.version);
-    }
-    load();
-  }, []);
-
-  const handleCheckForUpdate = async () => {
-    setCheckingForUpdate(true);
-    setUpdateCheckDone(false);
-    setUpdateVersion(null);
-    try {
-      const { checkForUpdateNow } = await import("@/services/updateManager");
-      const result = await checkForUpdateNow();
-      if (result) {
-        setUpdateVersion(result.version);
-      } else {
-        setUpdateCheckDone(true);
-      }
-    } catch (err) {
-      console.error("Update check failed:", err);
-      setUpdateCheckDone(true);
-    } finally {
-      setCheckingForUpdate(false);
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    setInstallingUpdate(true);
-    try {
-      const { installUpdate } = await import("@/services/updateManager");
-      await installUpdate();
-    } catch (err) {
-      console.error("Update install failed:", err);
-      setInstallingUpdate(false);
-    }
-  };
-
-  return (
-    <>
-      <Section title="App Info">
-        <InfoRow label="App version" value={appVersion || "..."} />
-        <InfoRow label="Tauri version" value={tauriVersion || "..."} />
-        <InfoRow label="WebView version" value={webviewVersion || "..."} />
-        <InfoRow label="Platform" value={platformLabel} />
-      </Section>
-
-      <Section title="Updates">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-sm text-text-secondary">Software updates</span>
-            {updateVersion && (
-              <p className="text-xs text-accent mt-0.5">
-                v{updateVersion} available
-              </p>
-            )}
-            {updateCheckDone && !updateVersion && (
-              <p className="text-xs text-success mt-0.5">Up to date</p>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {updateVersion ? (
-              <Button
-                variant="primary"
-                size="md"
-                icon={<Download size={14} />}
-                onClick={handleInstallUpdate}
-                disabled={installingUpdate}
-              >
-                {installingUpdate ? "Updating..." : "Update & Restart"}
-              </Button>
-            ) : (
-              <Button
-                variant="secondary"
-                size="md"
-                icon={<RefreshCw size={14} className={checkingForUpdate ? "animate-spin" : ""} />}
-                onClick={handleCheckForUpdate}
-                disabled={checkingForUpdate}
-                className="bg-bg-tertiary text-text-primary border border-border-primary"
-              >
-                {checkingForUpdate ? "Checking..." : "Check for Updates"}
-              </Button>
-            )}
-          </div>
-        </div>
-      </Section>
-
-      <Section title="Developer Tools">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-sm text-text-secondary">Open DevTools</span>
-            <p className="text-xs text-text-tertiary mt-0.5">
-              Open the WebView developer tools inspector
-            </p>
-          </div>
-          <Button
-            variant="secondary"
-            size="md"
-            onClick={async () => {
-              const { invoke } = await import("@tauri-apps/api/core");
-              await invoke("open_devtools");
-            }}
-            className="bg-bg-tertiary text-text-primary border border-border-primary"
-          >
-            Open DevTools
-          </Button>
-        </div>
-      </Section>
-    </>
-  );
-}
-
-function AboutTab() {
-  const [appVersion, setAppVersion] = useState("");
-
-  useEffect(() => {
-    import("@tauri-apps/api/app").then(({ getVersion }) =>
-      getVersion().then(setAppVersion),
-    );
-  }, []);
-
-  const openExternal = async (url: string) => {
-    const { openUrl } = await import("@tauri-apps/plugin-opener");
-    await openUrl(url);
-  };
-
-  return (
-    <>
-      <Section title="Velo Mail">
-        <div className="flex items-center gap-3 mb-2">
-          <img src={appIcon} alt="Velo" className="w-12 h-12 rounded-xl" />
-          <div>
-            <h3 className="text-base font-semibold text-text-primary">Velo</h3>
-            <p className="text-sm text-text-tertiary">
-              {appVersion ? `Version ${appVersion}` : "Loading..."}
-            </p>
-          </div>
-        </div>
-        <p className="text-sm text-text-secondary leading-relaxed">
-          A fast, open-source desktop email client built with privacy in mind. Your emails stay on your machine — no cloud, no tracking.
-        </p>
-      </Section>
-
-      <Section title="Links">
-        <div className="space-y-1">
-          <button
-            onClick={() => openExternal("https://velomail.app")}
-            className="flex items-center gap-3 w-full px-4 py-2.5 rounded-lg bg-bg-secondary hover:bg-bg-hover transition-colors text-left"
-          >
-            <Globe size={16} className="text-text-tertiary shrink-0" />
-            <div className="min-w-0 flex-1">
-              <span className="text-sm text-text-primary">Website</span>
-              <p className="text-xs text-text-tertiary">velomail.app</p>
-            </div>
-            <ExternalLink size={14} className="text-text-tertiary shrink-0" />
-          </button>
-
-          <button
-            onClick={() => openExternal("https://github.com/avihaymenahem/velo")}
-            className="flex items-center gap-3 w-full px-4 py-2.5 rounded-lg bg-bg-secondary hover:bg-bg-hover transition-colors text-left"
-          >
-            <Github size={16} className="text-text-tertiary shrink-0" />
-            <div className="min-w-0 flex-1">
-              <span className="text-sm text-text-primary">GitHub Repository</span>
-              <p className="text-xs text-text-tertiary">avihaymenahem/velo</p>
-            </div>
-            <ExternalLink size={14} className="text-text-tertiary shrink-0" />
-          </button>
-
-          <button
-            onClick={() => openExternal("mailto:info@velomail.app")}
-            className="flex items-center gap-3 w-full px-4 py-2.5 rounded-lg bg-bg-secondary hover:bg-bg-hover transition-colors text-left"
-          >
-            <Mail size={16} className="text-text-tertiary shrink-0" />
-            <div className="min-w-0 flex-1">
-              <span className="text-sm text-text-primary">Contact</span>
-              <p className="text-xs text-text-tertiary">info@velomail.app</p>
-            </div>
-            <ExternalLink size={14} className="text-text-tertiary shrink-0" />
-          </button>
-        </div>
-      </Section>
-
-      <Section title="License">
-        <div className="px-4 py-3 bg-bg-secondary rounded-lg">
-          <div className="flex items-center gap-2 mb-2">
-            <Scale size={15} className="text-text-tertiary" />
-            <span className="text-sm font-medium text-text-primary">Apache License 2.0</span>
-          </div>
-          <p className="text-xs text-text-secondary leading-relaxed mb-3">
-            Licensed under the Apache License, Version 2.0. You may obtain a copy of the License at{" "}
-            <button
-              onClick={() => openExternal("https://www.apache.org/licenses/LICENSE-2.0")}
-              className="text-accent hover:text-accent-hover transition-colors"
-            >
-              apache.org/licenses/LICENSE-2.0
-            </button>
-          </p>
-          <p className="text-xs text-text-tertiary leading-relaxed">
-            Copyright 2025 Velo Mail. You may use, distribute, and modify this software under the terms of the Apache 2.0 license. This software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
-          </p>
-        </div>
-      </Section>
-    </>
-  );
-}
-
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm text-text-secondary">{label}</span>
-      <span className="text-sm text-text-primary font-mono">{value}</span>
-    </div>
-  );
-}
 
 function ShortcutsTab() {
   const keyMap = useShortcutStore((s) => s.keyMap);
@@ -2158,14 +2271,23 @@ function Section({
 
 function SettingRow({
   label,
+  description,
   children,
 }: {
   label: string;
+  description?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex items-center justify-between">
-      <label className="text-sm text-text-secondary">{label}</label>
+      <div>
+        <label className="text-sm text-text-secondary">{label}</label>
+        {description && (
+          <p className="mt-0.5 max-w-xs truncate text-xs text-text-tertiary" title={description}>
+            {description}
+          </p>
+        )}
+      </div>
       {children}
     </div>
   );
@@ -2270,6 +2392,7 @@ function BundleSettings() {
                   <span className="text-xs text-text-tertiary">at</span>
                   <input
                     type="time"
+                    aria-label={`${cat} delivery time`}
                     value={`${String(rule.hour).padStart(2, "0")}:${String(rule.minute).padStart(2, "0")}`}
                     onChange={(e) => {
                       const [h, m] = e.target.value.split(":").map(Number);
@@ -2308,6 +2431,7 @@ function ToggleRow({
       </div>
       <button
         onClick={onToggle}
+        aria-label={label}
         className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ml-4 ${
           checked ? "bg-accent" : "bg-bg-tertiary"
         }`}

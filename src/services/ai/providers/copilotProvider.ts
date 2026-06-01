@@ -20,10 +20,14 @@ export function createCopilotProvider(apiKey: string, model: string): AiProvider
       const response = await client.chat.completions.create({
         model,
         max_tokens: req.maxTokens ?? 1024,
-        messages: [
+        temperature: req.temperature,
+        top_p: req.topP,
+        presence_penalty: req.presencePenalty,
+        frequency_penalty: req.frequencyPenalty,
+        messages: (req.messages ?? [
           { role: "system", content: req.systemPrompt },
           { role: "user", content: req.userContent },
-        ],
+        ]) as never,
       });
 
       return response.choices[0]?.message?.content ?? "";

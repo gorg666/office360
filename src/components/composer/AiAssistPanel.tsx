@@ -46,7 +46,7 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages }: AiAssistP
       applyToEditor(result);
       setPrompt("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI generation failed");
+      setError(err instanceof Error ? err.message : "Не удалось сгенерировать текст");
     } finally {
       setLoading(false);
     }
@@ -61,7 +61,7 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages }: AiAssistP
       applyToEditor(result);
       setPrompt("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI generation failed");
+      setError(err instanceof Error ? err.message : "Не удалось сгенерировать ответ");
     } finally {
       setLoading(false);
     }
@@ -77,7 +77,7 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages }: AiAssistP
       const result = await transformText(html, type);
       applyToEditor(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI transform failed");
+      setError(err instanceof Error ? err.message : "Не удалось преобразовать текст");
     } finally {
       setLoading(false);
     }
@@ -87,7 +87,7 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages }: AiAssistP
     <div className="px-3 py-2 border-b border-border-secondary bg-accent/5">
       <div className="flex items-center gap-2 mb-2">
         <Sparkles size={12} className="text-accent" />
-        <span className="text-xs font-medium text-accent">AI Assist</span>
+        <span className="text-xs font-medium text-accent">ИИ-помощник</span>
       </div>
 
       {/* Prompt input */}
@@ -103,7 +103,7 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages }: AiAssistP
               else handleCompose();
             }
           }}
-          placeholder={isReplyMode ? "Instructions for reply (optional)..." : "Describe what to write..."}
+          placeholder={isReplyMode ? "Инструкции для ответа (необязательно)..." : "Опишите, что написать..."}
           className="flex-1 px-2 py-1 text-xs bg-bg-tertiary border border-border-primary rounded outline-none focus:border-accent text-text-primary placeholder:text-text-tertiary"
           disabled={loading}
         />
@@ -113,7 +113,7 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages }: AiAssistP
             disabled={loading || !threadMessages?.length}
             className="px-2 py-1 text-xs bg-accent text-white rounded hover:bg-accent-hover transition-colors disabled:opacity-50 flex items-center gap-1"
           >
-            {loading ? "..." : "Generate Reply"}
+            {loading ? "..." : "Сгенерировать ответ"}
           </button>
         ) : (
           <button
@@ -121,29 +121,29 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages }: AiAssistP
             disabled={loading || !prompt.trim()}
             className="px-2 py-1 text-xs bg-accent text-white rounded hover:bg-accent-hover transition-colors disabled:opacity-50 flex items-center gap-1"
           >
-            {loading ? "..." : "Generate"}
+            {loading ? "..." : "Сгенерировать"}
           </button>
         )}
       </div>
 
       {/* Quick actions */}
       <div className="flex items-center gap-1.5">
-        <span className="text-xs text-text-tertiary mr-1">Transform:</span>
+        <span className="text-xs text-text-tertiary mr-1">Преобразовать:</span>
         <QuickAction
           icon={<Wand2 size={11} />}
-          label="Improve"
+          label="Улучшить"
           onClick={() => handleTransform("improve")}
           disabled={loading}
         />
         <QuickAction
           icon={<ArrowDown size={11} />}
-          label="Shorter"
+          label="Короче"
           onClick={() => handleTransform("shorten")}
           disabled={loading}
         />
         <QuickAction
           icon={<Briefcase size={11} />}
-          label="Formal"
+          label="Формально"
           onClick={() => handleTransform("formalize")}
           disabled={loading}
         />

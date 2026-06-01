@@ -4,7 +4,7 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
-import { Clock, Maximize2, Minimize2, ExternalLink } from "lucide-react";
+import { Clock } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { AddressInput } from "./AddressInput";
@@ -15,22 +15,49 @@ import { ScheduleSendDialog } from "./ScheduleSendDialog";
 import { SignatureSelector } from "./SignatureSelector";
 import { TemplatePicker } from "./TemplatePicker";
 import { FromSelector } from "./FromSelector";
+import { ComposerHeader } from "./ComposerHeader";
 import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
+import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { sendEmail, archiveThread, deleteDraft as deleteDraftAction } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
+import { buildReplyHeadersForMessageId } from "@/utils/replyHeaders";
 import { upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
 import { insertScheduledEmail } from "@/services/db/scheduledEmails";
 import { getDefaultSignature } from "@/services/db/signatures";
 import { getAliasesForAccount, mapDbAlias, type SendAsAlias } from "@/services/db/sendAsAliases";
+import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
 import { resolveFromAddress } from "@/utils/resolveFromAddress";
+import { openComposeWindow, isComposeStandaloneWindow } from "@/utils/openComposeWindow";
 import { startAutoSave, stopAutoSave } from "@/services/composer/draftAutoSave";
 import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates";
 import { readFileAsBase64 } from "@/utils/fileUtils";
 import { interpolateVariables } from "@/utils/templateVariables";
 import { sanitizeHtml } from "@/utils/sanitize";
+
+function htmlToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatMessageForAiReply(message: DbMessage): string {
+  const from = message.from_name
+    ? `${message.from_name} <${message.from_address ?? ""}>`
+    : (message.from_address ?? "Unknown");
+  const date = new Date(message.date).toLocaleString("ru-RU");
+  const body = (message.body_text ?? (message.body_html ? htmlToText(message.body_html) : message.snippet) ?? "").trim();
+  return `From: ${from}\nDate: ${date}\nSubject: ${message.subject ?? ""}\n\n${body}`;
+}
 
 export function Composer() {
   // Individual selectors — only re-render when each specific value changes
@@ -40,6 +67,7 @@ export function Composer() {
   const cc = useComposerStore((s) => s.cc);
   const bcc = useComposerStore((s) => s.bcc);
   const subject = useComposerStore((s) => s.subject);
+  const threadId = useComposerStore((s) => s.threadId);
   const showCcBcc = useComposerStore((s) => s.showCcBcc);
   const fromEmail = useComposerStore((s) => s.fromEmail);
   const viewMode = useComposerStore((s) => s.viewMode);
@@ -57,6 +85,7 @@ export function Composer() {
   const setFromEmail = useComposerStore((s) => s.setFromEmail);
   const setViewMode = useComposerStore((s) => s.setViewMode);
   const addAttachment = useComposerStore((s) => s.addAttachment);
+  const openContextMenu = useContextMenuStore((s) => s.openMenu);
 
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const accounts = useAccountStore((s) => s.accounts);
@@ -64,6 +93,7 @@ export function Composer() {
   const sendingRef = useRef(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showAiAssist, setShowAiAssist] = useState(false);
+  const [replyThreadMessages, setReplyThreadMessages] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [aliases, setAliases] = useState<SendAsAlias[]>([]);
   const templateShortcutsRef = useRef<DbTemplate[]>([]);
@@ -77,7 +107,7 @@ export function Composer() {
         link: { openOnClick: false },
       }),
       Placeholder.configure({
-        placeholder: "Write your message...",
+        placeholder: "Напишите сообщение...",
       }),
       Image.configure({
         inline: true,
@@ -139,6 +169,30 @@ export function Composer() {
       },
     },
   });
+
+  const isReplyMode = mode === "reply" || mode === "replyAll";
+
+  useEffect(() => {
+    if (!showAiAssist || !isReplyMode || !activeAccountId || !threadId) {
+      setReplyThreadMessages([]);
+      return;
+    }
+
+    let cancelled = false;
+    getMessagesForThread(activeAccountId, threadId)
+      .then((messages) => {
+        if (cancelled) return;
+        setReplyThreadMessages(messages.map(formatMessageForAiReply));
+      })
+      .catch((err) => {
+        console.error("Failed to load thread messages for AI reply:", err);
+        if (!cancelled) setReplyThreadMessages([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAccountId, isReplyMode, showAiAssist, threadId]);
 
   // Load signature, aliases, and templates in parallel when composer opens
   useEffect(() => {
@@ -227,6 +281,20 @@ export function Composer() {
     }
   }, [addAttachment]);
 
+  const isStandalone = isComposeStandaloneWindow();
+
+  const closeComposerSurface = useCallback(async () => {
+    closeComposer();
+    if (!isStandalone) return;
+
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().close();
+    } catch {
+      // Browser dev fallback
+    }
+  }, [closeComposer, isStandalone]);
+
   const getFullHtml = useCallback(() => {
     const editorHtml = editor?.getHTML() ?? "";
     if (!signatureHtml) return editorHtml;
@@ -243,6 +311,7 @@ export function Composer() {
 
     const html = getFullHtml();
     const senderEmail = state.fromEmail ?? activeAccount.email;
+    const replyHeaders = await buildReplyHeadersForMessageId(activeAccountId, state.inReplyToMessageId);
     const raw = buildRawEmail({
       from: senderEmail,
       to: state.to,
@@ -250,7 +319,8 @@ export function Composer() {
       bcc: state.bcc.length > 0 ? state.bcc : undefined,
       subject: state.subject,
       htmlBody: html,
-      inReplyTo: state.inReplyToMessageId ?? undefined,
+      inReplyTo: replyHeaders.inReplyTo,
+      references: replyHeaders.references,
       threadId: state.threadId ?? undefined,
       attachments: state.attachments.length > 0
         ? state.attachments.map((a) => ({
@@ -296,8 +366,8 @@ export function Composer() {
     }, delay);
 
     state.setUndoSendTimer(timer);
-    closeComposer();
-  }, [activeAccountId, activeAccount, closeComposer, getFullHtml]);
+    void closeComposerSurface();
+  }, [activeAccountId, activeAccount, closeComposerSurface, getFullHtml]);
 
   const handleSchedule = useCallback(async (scheduledAt: number) => {
     if (!activeAccountId || !activeAccount) return;
@@ -355,8 +425,8 @@ export function Composer() {
     }
 
     setShowSchedule(false);
-    closeComposer();
-  }, [activeAccountId, activeAccount, closeComposer, getFullHtml]);
+    await closeComposerSurface();
+  }, [activeAccountId, activeAccount, closeComposerSurface, getFullHtml]);
 
   const handleDiscard = useCallback(async () => {
     stopAutoSave();
@@ -367,81 +437,73 @@ export function Composer() {
         await deleteDraftAction(activeAccountId, currentDraftId);
       } catch { /* ignore */ }
     }
-    closeComposer();
-  }, [activeAccountId, closeComposer]);
+    await closeComposerSurface();
+  }, [activeAccountId, closeComposerSurface]);
 
   const handlePopOutComposer = useCallback(async () => {
-    try {
-      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      const state = useComposerStore.getState();
-      const params = new URLSearchParams();
-      params.set("compose", "true");
-      params.set("mode", state.mode);
-      if (state.to.length > 0) params.set("to", state.to.join(","));
-      if (state.cc.length > 0) params.set("cc", state.cc.join(","));
-      if (state.bcc.length > 0) params.set("bcc", state.bcc.join(","));
-      if (state.subject) params.set("subject", state.subject);
-      if (state.threadId) params.set("threadId", state.threadId);
-      if (state.inReplyToMessageId) params.set("inReplyToMessageId", state.inReplyToMessageId);
-      if (state.draftId) params.set("draftId", state.draftId);
-      if (state.fromEmail) params.set("fromEmail", state.fromEmail);
-      // Encode body as base64 to safely pass HTML
-      const bodyHtml = editor?.getHTML() ?? "";
-      if (bodyHtml) params.set("body", btoa(unescape(encodeURIComponent(bodyHtml))));
+    const state = useComposerStore.getState();
+    const bodyHtml = editor?.getHTML() ?? state.bodyHtml;
+    const result = await openComposeWindow({
+      mode: state.mode,
+      to: state.to,
+      cc: state.cc,
+      bcc: state.bcc,
+      subject: state.subject,
+      bodyHtml,
+      threadId: state.threadId,
+      inReplyToMessageId: state.inReplyToMessageId,
+      draftId: state.draftId,
+      fromEmail: state.fromEmail,
+      title: state.subject || undefined,
+    });
 
-      const windowLabel = `compose-${Date.now()}`;
-      const existing = await WebviewWindow.getByLabel(windowLabel);
-      if (existing) {
-        await existing.setFocus();
-        return;
-      }
-
-      new WebviewWindow(windowLabel, {
-        url: `index.html?${params.toString()}`,
-        title: state.subject || "New Message",
-        width: 700,
-        height: 650,
-        center: true,
-      });
-
+    if (result !== "fallback") {
       stopAutoSave();
-      closeComposer();
-    } catch (err) {
-      console.error("Failed to pop out composer:", err);
+      void closeComposerSurface();
     }
-  }, [editor, closeComposer]);
+  }, [editor, closeComposerSurface]);
+
+  const handleEditorContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!editor) return;
+    const target = e.target as HTMLElement;
+    if (!target.closest(".ProseMirror")) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    openContextMenu("composerEditor", { x: e.clientX, y: e.clientY }, { editor });
+  }, [editor, openContextMenu]);
 
   const isFullpage = viewMode === "fullpage";
 
   const modeLabel =
     mode === "reply"
-      ? "Reply"
+      ? "Ответ"
       : mode === "replyAll"
-        ? "Reply All"
+        ? "Ответить всем"
         : mode === "forward"
-          ? "Forward"
-          : "New Message";
+          ? "Переслать"
+          : "Новое сообщение";
 
   const savedLabel = isSaving
-    ? "Saving..."
+    ? "Сохранение черновика…"
     : lastSavedAt
-      ? "Draft saved"
+      ? "Черновик сохранён"
       : null;
 
   return (
     <CSSTransition nodeRef={overlayRef} in={isOpen} timeout={200} classNames="slide-up" unmountOnExit>
-    <div ref={overlayRef} className={`fixed inset-0 z-50 flex ${isFullpage ? "items-stretch justify-center p-4" : "items-end justify-center pb-4"} pointer-events-none`}>
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 pointer-events-auto backdrop-animate"
-        onClick={closeComposer}
-      />
+    <div ref={overlayRef} className={`fixed inset-0 z-50 flex ${isFullpage ? "items-stretch justify-center" : "items-end justify-center pb-4"} ${isFullpage && !isStandalone ? "p-4" : ""} pointer-events-none`}>
+      {/* No fullscreen dim/blur layer: avoids “disabled app” look while clicks pass through to the main UI */}
 
       {/* Composer window */}
       <div
-        className={`relative bg-bg-primary border rounded-lg glass-modal pointer-events-auto flex flex-col slide-up-panel ${
-          isFullpage ? "w-full h-full max-w-5xl" : "w-full max-w-2xl max-h-[80vh]"
-        } ${isDragging ? "border-accent border-2" : "border-border-primary"}`}
+        className={`relative bg-bg-primary glass-modal pointer-events-auto flex flex-col slide-up-panel ${
+          isStandalone
+            ? "w-full h-full border-0 rounded-none"
+            : isFullpage
+              ? "w-full h-full max-w-5xl border rounded-lg"
+              : "w-full max-w-2xl max-h-[80vh] border rounded-lg"
+        } ${isDragging ? "border-accent border-2" : isStandalone ? "" : "border-border-primary"}`}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
@@ -449,38 +511,17 @@ export function Composer() {
       >
         {isDragging && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-accent/10 rounded-lg pointer-events-none">
-            <span className="text-sm font-medium text-accent">Drop files to attach</span>
+            <span className="text-sm font-medium text-accent">Перетащите файлы, чтобы прикрепить</span>
           </div>
         )}
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border-primary bg-bg-secondary rounded-t-lg">
-          <span className="text-sm font-medium text-text-primary">
-            {modeLabel}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setViewMode(isFullpage ? "modal" : "fullpage")}
-              className="text-text-tertiary hover:text-text-primary p-1 rounded transition-colors"
-              title={isFullpage ? "Collapse" : "Expand"}
-            >
-              {isFullpage ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            </button>
-            <button
-              onClick={handlePopOutComposer}
-              className="text-text-tertiary hover:text-text-primary p-1 rounded transition-colors"
-              title="Open in new window"
-            >
-              <ExternalLink size={14} />
-            </button>
-            <button
-              onClick={closeComposer}
-              className="text-text-tertiary hover:text-text-primary text-lg leading-none p-1"
-            >
-              ×
-            </button>
-          </div>
-        </div>
+        <ComposerHeader
+          modeLabel={modeLabel}
+          isFullpage={isFullpage}
+          onToggleViewMode={() => setViewMode(isFullpage ? "modal" : "fullpage")}
+          onPopOut={handlePopOutComposer}
+          onCloseEmbedded={closeComposer}
+        />
 
         {/* Address fields */}
         <div className="px-3 py-2 space-y-1.5 border-b border-border-secondary">
@@ -489,7 +530,7 @@ export function Composer() {
             selectedEmail={fromEmail ?? activeAccount?.email ?? ""}
             onChange={(alias) => setFromEmail(alias.email)}
           />
-          <AddressInput label="To" addresses={to} onChange={setTo} />
+          <AddressInput label="Кому" addresses={to} onChange={setTo} />
           {showCcBcc ? (
             <>
               <AddressInput label="Cc" addresses={cc} onChange={setCc} />
@@ -509,13 +550,13 @@ export function Composer() {
         <div className="px-3 py-1.5 border-b border-border-secondary">
           <div className="flex items-center gap-2">
             <span className="text-xs text-text-tertiary w-8 shrink-0">
-              Sub
+              Тема
             </span>
             <input
               type="text"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder="Subject"
+              placeholder="Тема"
               className="flex-1 bg-transparent text-sm text-text-primary outline-none placeholder:text-text-tertiary"
             />
           </div>
@@ -532,12 +573,13 @@ export function Composer() {
         {showAiAssist && (
           <AiAssistPanel
             editor={editor}
-            isReplyMode={mode === "reply" || mode === "replyAll"}
+            isReplyMode={isReplyMode}
+            threadMessages={replyThreadMessages}
           />
         )}
 
         {/* Editor */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" onContextMenu={handleEditorContextMenu}>
           <EditorContent editor={editor} />
           {signatureHtml && (
             <div
@@ -556,7 +598,7 @@ export function Composer() {
         <div className="flex items-center justify-between px-4 py-2.5 border-t border-border-primary bg-bg-secondary rounded-b-lg">
           <div className="flex items-center gap-3">
             <div className="text-xs text-text-tertiary">
-              {fromEmail ?? activeAccount?.email ?? "No account"}
+              {fromEmail ?? activeAccount?.email ?? "Нет аккаунта"}
             </div>
             {savedLabel && (
               <span className={`text-xs text-text-tertiary italic transition-opacity duration-200 ${isSaving ? "animate-pulse" : ""}`}>
@@ -571,7 +613,7 @@ export function Composer() {
               variant="secondary"
               onClick={handleDiscard}
             >
-              Discard
+              Отменить
             </Button>
             <div className="flex items-center">
               <button
@@ -579,13 +621,13 @@ export function Composer() {
                 disabled={to.length === 0}
                 className="px-4 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-l-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Send
+                Отправить
               </button>
               <button
                 onClick={() => setShowSchedule(true)}
                 disabled={to.length === 0}
                 className="px-2 py-1.5 text-white bg-accent hover:bg-accent-hover border-l border-white/20 rounded-r-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Schedule send"
+                title="Запланировать отправку"
               >
                 <Clock size={12} />
               </button>

@@ -4,18 +4,19 @@ import { AccountSwitcher } from "../accounts/AccountSwitcher";
 import { LabelForm } from "../labels/LabelForm";
 import { InputDialog } from "../ui/InputDialog";
 import { useUIStore } from "@/stores/uiStore";
-import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { useActiveLabel, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToLabel } from "@/router/navigate";
+import { openNewCompose } from "@/utils/openComposeWindow";
 import {
   Inbox,
   Star,
   Clock,
   Send,
+  SendHorizontal,
   FileEdit,
   Trash2,
   Ban,
@@ -40,6 +41,7 @@ import {
   Paperclip,
   FolderSearch,
   Loader2,
+  MessageCircle,
   type LucideIcon,
 } from "lucide-react";
 import { useTaskStore } from "@/stores/taskStore";
@@ -53,11 +55,13 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = 
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "starred", label: "Starred", icon: Star },
   { id: "snoozed", label: "Snoozed", icon: Clock },
+  { id: "outbox", label: "Исходящие", icon: SendHorizontal },
   { id: "sent", label: "Sent", icon: Send },
   { id: "drafts", label: "Drafts", icon: FileEdit },
   { id: "trash", label: "Trash", icon: Trash2 },
   { id: "spam", label: "Spam", icon: Ban },
   { id: "all", label: "All Mail", icon: Mail },
+  { id: "messengers", label: "Мессенджеры", icon: MessageCircle },
   { id: "tasks", label: "Tasks", icon: CheckSquare },
   { id: "calendar", label: "Calendar", icon: Calendar },
   { id: "attachments", label: "Attachments", icon: Paperclip },
@@ -204,6 +208,7 @@ function getSmartFolderIcon(iconName: string): LucideIcon {
 }
 
 const LABELS_COLLAPSED_COUNT = 3;
+const SERVICE_NAV_IDS = new Set(["messengers", "tasks", "calendar", "attachments"]);
 
 export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const activeLabel = useActiveLabel();
@@ -212,8 +217,12 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const taskIncompleteCount = useTaskStore((s) => s.incompleteCount);
   const inboxViewMode = useUIStore((s) => s.inboxViewMode);
   const setInboxViewMode = useUIStore((s) => s.setInboxViewMode);
+  const messengersPanelsOpen = useUIStore((s) => s.messengersPanelsOpen);
+  const setMessengersPanelsOpen = useUIStore((s) => s.setMessengersPanelsOpen);
   const activeCategory = useActiveCategory();
-  const openComposer = useComposerStore((s) => s.openComposer);
+  const openComposer = useCallback(() => {
+    void openNewCompose();
+  }, []);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const labels = useLabelStore((s) => s.labels);
   const loadLabels = useLabelStore((s) => s.loadLabels);
@@ -347,29 +356,61 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         collapsed ? "w-16" : "w-60"
       }`}
     >
-      <AccountSwitcher collapsed={collapsed} onAddAccount={onAddAccount} />
-
       {/* Compose button */}
-      <div className="px-3 py-2">
+      <div className="px-0 py-0">
         <button
           onClick={() => openComposer()}
-          className="w-full flex items-center justify-center gap-2 bg-accent hover:bg-accent-hover text-white rounded-lg py-2 text-sm font-medium interactive-btn"
+          className={`w-full flex items-center text-sidebar-text hover:bg-sidebar-hover transition-colors press-scale ${
+            collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-4 py-3 text-left"
+          }`}
         >
-          {collapsed ? <Plus size={16} /> : "Compose"}
+          {collapsed ? (
+            <Plus size={18} />
+          ) : (
+            <>
+              <Mail size={18} className="shrink-0" />
+              <span className="text-base font-medium">Новое письмо</span>
+            </>
+          )}
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-2">
-        {visibleNavItems.map((item) => {
+      <nav className="flex-1 overflow-y-auto pt-0 pb-2">
+        {visibleNavItems.map((item, index) => {
           const Icon = item.icon;
           const isInbox = item.id === "inbox";
+          const previousItem = visibleNavItems[index - 1];
+          const shouldShowServicesHeader = !collapsed
+            && SERVICE_NAV_IDS.has(item.id)
+            && (!previousItem || !SERVICE_NAV_IDS.has(previousItem.id));
           return (
             <div key={item.id}>
+              {shouldShowServicesHeader && (
+                <div className="flex items-center justify-between px-3 pt-4 pb-1">
+                  <span className="text-xs font-medium text-sidebar-text/60 uppercase tracking-wider">
+                    Сервисы
+                  </span>
+                </div>
+              )}
               <DroppableNavItem
                 id={item.id}
-                isActive={isInbox ? (activeLabel === "inbox" && (inboxViewMode === "unified" || activeCategory === "Primary")) : activeLabel === item.id}
+                isActive={
+                  item.id === "messengers"
+                    ? messengersPanelsOpen
+                    : isInbox
+                      ? (activeLabel === "inbox" && (inboxViewMode === "unified" || activeCategory === "Primary"))
+                      : activeLabel === item.id
+                }
                 collapsed={collapsed}
                 onClick={() => {
+                  if (item.id === "messengers") {
+                    if (messengersPanelsOpen) {
+                      setMessengersPanelsOpen(false);
+                    } else {
+                      navigateToLabel("messengers");
+                    }
+                    return;
+                  }
                   if (isInbox && inboxViewMode === "split") {
                     navigateToLabel(item.id, { category: "Primary" });
                   } else {
@@ -601,8 +642,16 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         )}
       </nav>
 
+      <div className="border-t border-border-primary pt-1">
+        <AccountSwitcher
+          collapsed={collapsed}
+          onAddAccount={onAddAccount}
+          dropdownPlacement="up"
+        />
+      </div>
+
       {/* Bottom bar: Settings + collapse toggle */}
-      <div className={`py-2 border-t border-border-primary flex ${collapsed ? "flex-col items-center gap-1 px-2" : "items-center gap-1 px-3"}`}>
+      <div className={`pb-2 flex ${collapsed ? "flex-col items-center gap-1 px-2" : "items-center gap-1 px-3"}`}>
         <button
           onClick={() => navigateToLabel("settings")}
           className={`flex items-center text-sm rounded-md transition-colors ${
@@ -674,7 +723,7 @@ function PendingOpsIndicator({ collapsed }: { collapsed: boolean }) {
         </div>
       ) : (
         <div className="text-xs text-text-secondary">
-          {pendingOpsCount} pending {pendingOpsCount === 1 ? "change" : "changes"}
+          В очереди операций: {pendingOpsCount}
         </div>
       )}
     </div>

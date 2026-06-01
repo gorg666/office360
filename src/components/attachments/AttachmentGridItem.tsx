@@ -1,5 +1,8 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Eye, ExternalLink } from "lucide-react";
-import { formatFileSize, getFileIcon, canPreview } from "@/utils/fileTypeHelpers";
+import { getEmailProvider } from "@/services/email/providerFactory";
+import { base64UrlToUint8Array, uint8ArrayToBase64DataUrl } from "@/utils/base64url";
+import { formatFileSize, getFileIcon, canPreview, isImage } from "@/utils/fileTypeHelpers";
 import type { AttachmentWithContext } from "@/services/db/attachments";
 
 interface AttachmentGridItemProps {
@@ -26,18 +29,21 @@ function formatRelativeDate(timestamp: number | null): string {
 export function AttachmentGridItem({ attachment, onPreview, onDownload, onJumpToEmail }: AttachmentGridItemProps) {
   const previewable = canPreview(attachment.mime_type, attachment.filename);
   const senderName = attachment.from_name || attachment.from_address || "Unknown";
+  const isImageAttachment = isImage(attachment.mime_type, attachment.filename);
 
   return (
     <div className="group relative flex flex-col border border-border-primary rounded-lg hover:border-border-secondary hover:bg-bg-hover transition-colors overflow-hidden">
-      {/* Icon area */}
       <button
         onClick={previewable ? onPreview : onDownload}
-        className="flex items-center justify-center h-24 bg-bg-secondary text-3xl"
+        className="flex items-center justify-center h-24 bg-bg-secondary text-3xl overflow-hidden"
       >
-        {getFileIcon(attachment.mime_type)}
+        {isImageAttachment ? (
+          <ImageThumbnail attachment={attachment} />
+        ) : (
+          getFileIcon(attachment.mime_type, attachment.filename)
+        )}
       </button>
 
-      {/* Info */}
       <div className="px-3 py-2 flex flex-col gap-0.5 min-w-0">
         <span className="text-xs font-medium text-text-primary truncate" title={attachment.filename ?? undefined}>
           {attachment.filename ?? "Unnamed"}
@@ -51,7 +57,6 @@ export function AttachmentGridItem({ attachment, onPreview, onDownload, onJumpTo
         </div>
       </div>
 
-      {/* Hover actions */}
       <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         {previewable && (
           <button
@@ -79,4 +84,80 @@ export function AttachmentGridItem({ attachment, onPreview, onDownload, onJumpTo
       </div>
     </div>
   );
+}
+
+function ImageThumbnail({ attachment }: { attachment: AttachmentWithContext }) {
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const containerRef = useRef<HTMLSpanElement | null>(null);
+  const loadedRef = useRef(false);
+
+  const loadThumbnail = useCallback(async () => {
+    if (loadedRef.current || !attachment.gmail_attachment_id) return;
+    loadedRef.current = true;
+
+    try {
+      const provider = await getEmailProvider(attachment.account_id);
+      const response = await provider.fetchAttachment(
+        attachment.message_id,
+        attachment.gmail_attachment_id,
+      );
+      const raw = String(response.data ?? "").replace(/\s/g, "");
+      if (!raw) throw new Error("Empty attachment payload");
+
+      const bytes = base64UrlToUint8Array(raw);
+      const mime = getEffectiveImageMimeType(attachment);
+      setThumbnailUrl(uint8ArrayToBase64DataUrl(mime, bytes));
+    } catch (err) {
+      console.error("Failed to load attachment thumbnail:", err);
+      setFailed(true);
+    }
+  }, [attachment]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadThumbnail();
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "120px" },
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadThumbnail]);
+
+  if (thumbnailUrl && !failed) {
+    return (
+      <img
+        src={thumbnailUrl}
+        alt={attachment.filename ?? "Attachment preview"}
+        className="w-full h-full object-cover"
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <span ref={containerRef} className="text-text-tertiary">
+      {getFileIcon(attachment.mime_type, attachment.filename)}
+    </span>
+  );
+}
+
+function getEffectiveImageMimeType(attachment: AttachmentWithContext): string {
+  if (attachment.mime_type?.startsWith("image/")) return attachment.mime_type;
+  const filename = attachment.filename?.toLowerCase() ?? "";
+  if (filename.endsWith(".png")) return "image/png";
+  if (filename.endsWith(".gif")) return "image/gif";
+  if (filename.endsWith(".webp")) return "image/webp";
+  if (filename.endsWith(".svg")) return "image/svg+xml";
+  if (filename.endsWith(".bmp")) return "image/bmp";
+  return "image/jpeg";
 }

@@ -88,19 +88,21 @@ export function formatSyncError(rawError: string): string {
   const lower = rawError.toLowerCase();
 
   if (AUTH_PATTERNS.some((p) => lower.includes(p))) {
-    return "Authentication failed \u2014 check your password";
+    return lower.includes("oauth") || lower.includes("token")
+      ? "Ошибка авторизации OAuth — войдите в аккаунт заново"
+      : "Ошибка авторизации — проверьте пароль или пароль приложения";
   }
   if (lower.includes("timed out") || lower.includes("timeout")) {
-    return "Connection timed out \u2014 check your internet or server settings";
+    return "Сервер не ответил вовремя — проверьте интернет и настройки почты";
   }
   if (lower.includes("tls") || lower.includes("ssl") || lower.includes("certificate")) {
-    return "Secure connection failed \u2014 check security settings";
+    return "Не удалось установить защищённое соединение — проверьте тип защиты";
   }
   if (lower.includes("econnrefused") || lower.includes("connection refused")) {
-    return "Could not reach mail server \u2014 check address and port";
+    return "Почтовый сервер недоступен — проверьте адрес и порт";
   }
   if (lower.includes("dns") || lower.includes("enotfound") || lower.includes("server not found")) {
-    return "Server not found \u2014 check hostname";
+    return "Сервер не найден — проверьте имя хоста";
   }
 
   // Fallback: truncate long technical errors
@@ -108,4 +110,56 @@ export function formatSyncError(rawError: string): string {
     return rawError.slice(0, 100) + "\u2026";
   }
   return rawError;
+}
+
+/**
+ * User-facing Russian text for compose send / draft save failures (SMTP, IMAP, Gmail).
+ */
+export function formatEmailSendOrDraftError(rawError: string): string {
+  const trimmed = rawError.trim();
+  const lower = trimmed.toLowerCase();
+
+  if (lower.includes("no recipients found in email")) {
+    return "Укажите получателя";
+  }
+  if (lower.includes("no from address found in email")) {
+    return "Не указан адрес отправителя в письме";
+  }
+  if (lower.includes("failed to parse email for envelope")) {
+    return "Не удалось разобрать письмо для отправки";
+  }
+  if (lower.includes("invalid from address")) {
+    return "Некорректный адрес отправителя";
+  }
+  if (lower.includes("envelope error")) {
+    return "Ошибка формирования конверта письма";
+  }
+  if (lower.includes("base64 decode error")) {
+    return "Ошибка кодирования письма";
+  }
+
+  const smtpSendFailed = /^smtp\s+send\s+failed:\s*(.+)$/i.exec(trimmed);
+  if (smtpSendFailed?.[1]) {
+    return `Ошибка отправки. ${formatSyncError(smtpSendFailed[1].trim())}`;
+  }
+
+  if (lower.includes("imap ok, but smtp failed")) {
+    const inner = trimmed.replace(/^imap ok, but smtp failed:\s*/i, "").trim();
+    return `Ошибка SMTP при сохранении на сервере. ${formatSyncError(inner)}`;
+  }
+
+  const smtpSendErrIdx = lower.indexOf("smtp send error:");
+  if (smtpSendErrIdx !== -1) {
+    const inner = trimmed.slice(smtpSendErrIdx + "smtp send error:".length).trim();
+    return `Ошибка отправки SMTP. ${formatSyncError(inner)}`;
+  }
+
+  if (lower.includes("subject required") || lower.includes("missing subject")) {
+    return "Укажите тему";
+  }
+  if (lower.includes("recipient required") || lower.includes("missing recipient")) {
+    return "Укажите получателя";
+  }
+
+  return formatSyncError(trimmed);
 }

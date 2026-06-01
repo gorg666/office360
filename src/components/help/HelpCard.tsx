@@ -69,7 +69,7 @@ export function HelpCard({ card, isExpanded, onToggle }: HelpCardProps) {
                 }}
                 className="text-xs text-accent hover:text-accent-hover transition-colors"
               >
-                Open in Settings &rarr;
+                Открыть в настройках &rarr;
               </button>
             )}
           </div>

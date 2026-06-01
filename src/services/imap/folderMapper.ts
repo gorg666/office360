@@ -20,6 +20,22 @@ const SPECIAL_USE_MAP: Record<string, { labelId: string; labelName: string; type
  * Well-known folder names (case-insensitive) for servers that don't
  * report special-use attributes.
  */
+/**
+ * Яндекс Почта / Яндекс 360 часто не отдаёт SPECIAL-USE для папок с локализованными
+ * именами (например «Входящие» вместо INBOX). Без этого сообщения получают ярлык
+ * `folder-...` и не попадают в системное «Входящие» в UI.
+ */
+const LOCALIZED_FOLDER_NAME_TO_SPECIAL: Record<string, string> = {
+  входящие: "\\Inbox",
+  исходящие: "\\Sent",
+  отправленные: "\\Sent",
+  удалённые: "\\Trash",
+  удаленные: "\\Trash",
+  спам: "\\Junk",
+  черновики: "\\Drafts",
+  архив: "\\Archive",
+};
+
 const FOLDER_NAME_MAP: Record<string, string> = {
   inbox: "\\Inbox",
   sent: "\\Sent",
@@ -75,6 +91,15 @@ export function mapFolderToLabel(folder: ImapFolder): FolderLabelMapping {
   // Fall back to name-based detection
   const lowerPath = folder.path.toLowerCase();
   const lowerName = folder.name.toLowerCase();
+
+  const localizedSpecial =
+    LOCALIZED_FOLDER_NAME_TO_SPECIAL[lowerPath] ?? LOCALIZED_FOLDER_NAME_TO_SPECIAL[lowerName];
+  if (localizedSpecial) {
+    const mapping = SPECIAL_USE_MAP[localizedSpecial];
+    if (mapping) {
+      return mapping;
+    }
+  }
 
   const specialUse = FOLDER_NAME_MAP[lowerPath] ?? FOLDER_NAME_MAP[lowerName];
   if (specialUse) {

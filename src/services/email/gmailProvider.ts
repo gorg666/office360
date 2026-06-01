@@ -1,6 +1,7 @@
 import type { EmailProvider, EmailFolder, SyncResult } from "./types";
 import type { GmailClient } from "../gmail/client";
 import { parseGmailMessage, type ParsedMessage } from "../gmail/messageParser";
+import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
 
 /** Map Gmail system label IDs to IMAP special-use flags */
 const GMAIL_SPECIAL_USE: Record<string, string | null> = {
@@ -140,7 +141,7 @@ export class GmailApiProvider implements EmailProvider {
   async fetchRawMessage(messageId: string): Promise<string> {
     // Gmail API with format=raw returns a { raw: string } field (base64url-encoded RFC822)
     const resp = await this.client.getMessage(messageId, "raw") as unknown as { raw: string };
-    const base64 = resp.raw.replace(/-/g, "+").replace(/_/g, "/");
+    const base64 = normalizeBase64UrlToStandardBase64(resp.raw);
     return atob(base64);
   }
 

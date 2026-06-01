@@ -21,12 +21,12 @@ export function UndoSendToast() {
     <CSSTransition nodeRef={toastRef} in={undoSendVisible} timeout={200} classNames="toast" unmountOnExit>
       <div ref={toastRef} className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-text-primary text-bg-primary rounded-lg shadow-lg overflow-hidden">
         <div className="px-4 py-2.5 flex items-center gap-3">
-          <span className="text-sm">Sending email...</span>
+          <span className="text-sm">Отправка письма…</span>
           <button
             onClick={handleUndo}
             className="text-sm font-medium text-accent hover:text-accent-hover underline"
           >
-            Undo
+            Отменить
           </button>
         </div>
         <div className="h-0.5 bg-white/20">

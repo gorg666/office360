@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Velo",
+  "productName": "Office360",
   "version": "0.4.21",
-  "identifier": "com.velomail.app",
+  "identifier": "com.office360.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Velo",
+        "title": "Office360",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
@@ -39,7 +39,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://www.googleapis.com https://oauth2.googleapis.com https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com https://www.gravatar.com https://login.microsoftonline.com https://graph.microsoft.com https://api.login.yahoo.com http://localhost:11434 http://localhost:1234 http://127.0.0.1:11434 http://127.0.0.1:1234 https://models.github.ai; img-src 'self' data: https://www.gravatar.com https://lh3.googleusercontent.com https://*.googleusercontent.com; font-src 'self' data:; frame-src 'self'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' blob: data: https://www.googleapis.com https://oauth2.googleapis.com https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com https://www.gravatar.com https://login.microsoftonline.com https://graph.microsoft.com https://api.login.yahoo.com https://oauth.yandex.ru https://login.yandex.ru https://cloud-api.yandex.net https://caldav.yandex.ru https://caldav.icloud.com https://caldav.fastmail.com https://caldav.gmx.net https://platform-api.max.ru http://localhost:11434 http://localhost:1234 http://127.0.0.1:11434 http://127.0.0.1:1234 https://models.github.ai https:; img-src 'self' data: http: https: blob: asset: http://asset.localhost https://asset.localhost; media-src 'self' data: blob: asset: http://asset.localhost https://asset.localhost; font-src 'self' data:; frame-src 'self' blob: data:"
     },
     "trayIcon": null
   },
@@ -61,13 +61,13 @@
   "plugins": {
     "sql": {
       "preload": [
-        "sqlite:velo.db"
+        "sqlite:office360.db"
       ]
     },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM0NjlFREYzMjVBRDYwRjMKUldUellLMGw4KzFwTkJ4RmJ0ejArWUNTZTEzT01SMnJveHc4K3ErNHVIdEVuYmZmYW94U295QzcK",
       "endpoints": [
-        "https://github.com/avihaymenahem/velo/releases/latest/download/latest.json"
+        "https://github.com/office360/office360/releases/latest/download/latest.json"
       ]
     },
     "deep-link": {

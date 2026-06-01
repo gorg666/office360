@@ -16,47 +16,77 @@ import { AttachmentListItem } from "./AttachmentListItem";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { isImage, isPdf, isDocument, isSpreadsheet, isArchive } from "@/utils/fileTypeHelpers";
 import { navigateToLabel } from "@/router/navigate";
+import { useUIStore } from "@/stores/uiStore";
+import { base64UrlToUint8Array } from "@/utils/base64url";
 
 type TypeFilter = "all" | "images" | "pdfs" | "documents" | "spreadsheets" | "archives" | "other";
 type DateFilter = "all" | "today" | "week" | "month" | "year";
 type SizeFilter = "all" | "small" | "medium" | "large";
 type ViewMode = "grid" | "list";
 
-const TYPE_OPTIONS: { value: TypeFilter; label: string }[] = [
-  { value: "all", label: "All types" },
-  { value: "images", label: "Images" },
-  { value: "pdfs", label: "PDFs" },
-  { value: "documents", label: "Documents" },
-  { value: "spreadsheets", label: "Spreadsheets" },
-  { value: "archives", label: "Archives" },
-  { value: "other", label: "Other" },
-];
+const TYPE_LABELS: Record<"en" | "ru", Record<TypeFilter, string>> = {
+  en: {
+    all: "All types",
+    images: "Images",
+    pdfs: "PDFs",
+    documents: "Documents",
+    spreadsheets: "Spreadsheets",
+    archives: "Archives",
+    other: "Other",
+  },
+  ru: {
+    all: "Все типы",
+    images: "Изображения",
+    pdfs: "PDF",
+    documents: "Документы",
+    spreadsheets: "Таблицы",
+    archives: "Архивы",
+    other: "Другое",
+  },
+};
 
-const DATE_OPTIONS: { value: DateFilter; label: string }[] = [
-  { value: "all", label: "Any time" },
-  { value: "today", label: "Today" },
-  { value: "week", label: "Past week" },
-  { value: "month", label: "Past month" },
-  { value: "year", label: "Past year" },
-];
+const DATE_LABELS: Record<"en" | "ru", Record<DateFilter, string>> = {
+  en: {
+    all: "Any time",
+    today: "Today",
+    week: "Past week",
+    month: "Past month",
+    year: "Past year",
+  },
+  ru: {
+    all: "Любое время",
+    today: "Сегодня",
+    week: "За неделю",
+    month: "За месяц",
+    year: "За год",
+  },
+};
 
-const SIZE_OPTIONS: { value: SizeFilter; label: string }[] = [
-  { value: "all", label: "Any size" },
-  { value: "small", label: "< 1 MB" },
-  { value: "medium", label: "1–10 MB" },
-  { value: "large", label: "> 10 MB" },
-];
+const SIZE_LABELS: Record<"en" | "ru", Record<SizeFilter, string>> = {
+  en: {
+    all: "Any size",
+    small: "< 1 MB",
+    medium: "1–10 MB",
+    large: "> 10 MB",
+  },
+  ru: {
+    all: "Любой размер",
+    small: "< 1 МБ",
+    medium: "1–10 МБ",
+    large: "> 10 МБ",
+  },
+};
 
 function matchesType(att: AttachmentWithContext, filter: TypeFilter): boolean {
   switch (filter) {
     case "all": return true;
-    case "images": return isImage(att.mime_type);
+    case "images": return isImage(att.mime_type, att.filename);
     case "pdfs": return isPdf(att.mime_type, att.filename);
     case "documents": return isDocument(att.mime_type, att.filename);
     case "spreadsheets": return isSpreadsheet(att.mime_type, att.filename);
     case "archives": return isArchive(att.mime_type);
     case "other":
-      return !isImage(att.mime_type) && !isPdf(att.mime_type, att.filename) &&
+      return !isImage(att.mime_type, att.filename) && !isPdf(att.mime_type, att.filename) &&
         !isDocument(att.mime_type, att.filename) && !isSpreadsheet(att.mime_type, att.filename) &&
         !isArchive(att.mime_type);
   }
@@ -86,8 +116,10 @@ function matchesSize(att: AttachmentWithContext, filter: SizeFilter): boolean {
 
 export function AttachmentLibrary() {
   const accounts = useAccountStore((s) => s.accounts);
-  const activeAccount = accounts.find((a) => a.isActive);
+  const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const activeAccount = accounts.find((a) => a.id === activeAccountId);
   const accountId = activeAccount?.id ?? null;
+  const locale = useUIStore((state) => state.locale);
 
   const [attachments, setAttachments] = useState<AttachmentWithContext[]>([]);
   const [senders, setSenders] = useState<AttachmentSender[]>([]);
@@ -165,12 +197,7 @@ export function AttachmentLibrary() {
 
       const provider = await getEmailProvider(accountId);
       const response = await provider.fetchAttachment(att.message_id, att.gmail_attachment_id);
-      const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
-      const binaryStr = atob(base64);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
+      const bytes = base64UrlToUint8Array(response.data);
       await writeFile(filePath, bytes);
     } catch (err) {
       console.error("Download failed:", err);
@@ -193,7 +220,9 @@ export function AttachmentLibrary() {
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <Paperclip size={18} className="text-text-secondary" />
-            <h1 className="text-base font-semibold text-text-primary">Attachments</h1>
+            <h1 className="text-base font-semibold text-text-primary">
+              {locale === "ru" ? "Вложения" : "Attachments"}
+            </h1>
             <span className="text-xs text-text-tertiary">({filtered.length})</span>
           </div>
 
@@ -205,7 +234,7 @@ export function AttachmentLibrary() {
             <input
               ref={searchRef}
               type="text"
-              placeholder="Search attachments..."
+              placeholder={locale === "ru" ? "Поиск вложений..." : "Search attachments..."}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-8 pr-3 py-1.5 text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent w-48"
@@ -215,20 +244,22 @@ export function AttachmentLibrary() {
           {/* Filters */}
           <select
             value={typeFilter}
+            title={locale === "ru" ? "Тип файла" : "File type"}
             onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
             className="text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent"
           >
-            {TYPE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+            {Object.entries(TYPE_LABELS[locale]).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
             ))}
           </select>
 
           <select
             value={senderFilter}
+            title={locale === "ru" ? "Отправитель" : "Sender"}
             onChange={(e) => setSenderFilter(e.target.value)}
             className="text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent max-w-40"
           >
-            <option value="all">All senders</option>
+            <option value="all">{locale === "ru" ? "Все отправители" : "All senders"}</option>
             {senders.map((s) => (
               <option key={s.from_address} value={s.from_address}>
                 {s.from_name || s.from_address} ({s.count})
@@ -238,21 +269,23 @@ export function AttachmentLibrary() {
 
           <select
             value={dateFilter}
+            title={locale === "ru" ? "Период" : "Time range"}
             onChange={(e) => setDateFilter(e.target.value as DateFilter)}
             className="text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent"
           >
-            {DATE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+            {Object.entries(DATE_LABELS[locale]).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
             ))}
           </select>
 
           <select
             value={sizeFilter}
+            title={locale === "ru" ? "Размер" : "Size"}
             onChange={(e) => setSizeFilter(e.target.value as SizeFilter)}
             className="text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent"
           >
-            {SIZE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+            {Object.entries(SIZE_LABELS[locale]).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
             ))}
           </select>
 
@@ -261,14 +294,14 @@ export function AttachmentLibrary() {
             <button
               onClick={() => setViewMode("grid")}
               className={`p-1.5 ${viewMode === "grid" ? "bg-accent/10 text-accent" : "text-text-tertiary hover:text-text-primary"}`}
-              title="Grid view"
+              title={locale === "ru" ? "Вид плиткой" : "Grid view"}
             >
               <LayoutGrid size={14} />
             </button>
             <button
               onClick={() => setViewMode("list")}
               className={`p-1.5 ${viewMode === "list" ? "bg-accent/10 text-accent" : "text-text-tertiary hover:text-text-primary"}`}
-              title="List view"
+              title={locale === "ru" ? "Вид списком" : "List view"}
             >
               <List size={14} />
             </button>
@@ -280,13 +313,21 @@ export function AttachmentLibrary() {
       <div className="flex-1 overflow-y-auto p-4">
         {loading ? (
           <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-text-tertiary">Loading attachments...</p>
+            <p className="text-sm text-text-tertiary">
+              {locale === "ru" ? "Загрузка вложений..." : "Loading attachments..."}
+            </p>
           </div>
         ) : filtered.length === 0 ? (
           <EmptyState
             icon={Paperclip}
-            title={attachments.length === 0 ? "No attachments yet" : "No matching attachments"}
-            subtitle={attachments.length === 0 ? "Attachments from your emails will appear here" : "Try adjusting your filters or search query"}
+            title={attachments.length === 0
+              ? (locale === "ru" ? "Вложений пока нет" : "No attachments yet")
+              : (locale === "ru" ? "Подходящих вложений нет" : "No matching attachments")
+            }
+            subtitle={attachments.length === 0
+              ? (locale === "ru" ? "Вложения из писем появятся здесь" : "Attachments from your emails will appear here")
+              : (locale === "ru" ? "Измените фильтры или поисковый запрос" : "Try adjusting your filters or search query")
+            }
           />
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">

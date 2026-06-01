@@ -1,25 +1,15 @@
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { listen } from "@tauri-apps/api/event";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { parseMailtoUrl } from "../utils/mailtoParser";
-import { useComposerStore } from "../stores/composerStore";
 import { escapeHtml } from "../utils/sanitize";
+import { openNewCompose } from "@/utils/openComposeWindow";
 
 async function handleUrl(url: string): Promise<void> {
   if (!url.startsWith("mailto:")) return;
 
   const fields = parseMailtoUrl(url);
 
-  // Show and focus the main window
-  const mainWindow = await WebviewWindow.getByLabel("main");
-  if (mainWindow) {
-    await mainWindow.show();
-    await mainWindow.setFocus();
-  }
-
-  // Open composer with parsed fields
-  useComposerStore.getState().openComposer({
-    mode: "new",
+  await openNewCompose({
     to: fields.to,
     cc: fields.cc,
     bcc: fields.bcc,

@@ -39,7 +39,7 @@ Velo follows a **three-layer architecture** with clear separation of concerns.
 ## Data Flow
 
 1. **Sync** -- Background sync every 60s. Gmail accounts use Gmail History API (delta sync, falls back to full sync if history expires ~30 days). IMAP accounts use UIDVALIDITY/last_uid tracking for efficient delta sync.
-2. **Storage** -- All messages, threads, labels, contacts, calendar events, and AI results stored in local SQLite (34 tables) with FTS5 full-text indexing.
+2. **Storage** -- All messages, threads, labels, contacts, calendar events, and AI results stored in local SQLite with FTS5 full-text indexing.
 3. **State** -- Eight Zustand stores manage UI state. No middleware, no persistence needed -- ephemeral state rebuilds from SQLite on startup.
 4. **Rendering** -- Email HTML is sanitized with DOMPurify and rendered in sandboxed iframes. Remote images blocked by default.
 5. **Background services** -- Seven interval checkers run continuously: sync (60s), snooze (60s), scheduled send (60s), follow-up reminders (60s), newsletter bundles (60s), offline queue processor (30s), and attachment pre-cache (15min).
@@ -62,7 +62,7 @@ velo/
 │   │   ├── search/           # CommandPalette, SearchBar, ShortcutsHelp, AskInbox
 │   │   ├── settings/         # SettingsPage, FilterEditor, LabelEditor,
 │   │   │                     # SubscriptionManager, ContactEditor,
-│   │   │                     # QuickStepEditor, SmartFolderEditor
+│   │   │                     # QuickStepEditor, SmartFolderEditor, Yandex 360 admin UI
 │   │   ├── accounts/         # AddAccount, AddImapAccount, AccountSwitcher, SetupClientId
 │   │   ├── calendar/         # CalendarPage, MonthView, WeekView, DayView,
 │   │   │                     # EventCard, EventCreateModal
@@ -85,6 +85,7 @@ velo/
 │   │   ├── ai/               # AI service, 3 providers, categorization, Ask Inbox,
 │   │   │                     # writing style analysis, auto-drafts, task extraction
 │   │   ├── google/           # Google Calendar API
+│   │   ├── yandex360/        # Yandex 360 API catalog, auth, client, admin services
 │   │   ├── composer/         # Draft auto-save
 │   │   ├── search/           # Query parser, SQL builder
 │   │   ├── filters/          # Auto-apply filter engine

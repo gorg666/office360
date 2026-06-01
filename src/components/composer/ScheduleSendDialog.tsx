@@ -26,20 +26,26 @@ function getSchedulePresets(): { label: string; detail: string; timestamp: numbe
   monday.setDate(monday.getDate() + daysUntilMonday);
   monday.setHours(9, 0, 0, 0);
 
+  const dateFmt: Intl.DateTimeFormatOptions = {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  };
+
   return [
     {
-      label: "Tomorrow morning",
-      detail: tomorrowMorning.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) + " 9:00 AM",
+      label: "Завтра утром",
+      detail: `${tomorrowMorning.toLocaleDateString("ru-RU", dateFmt)}, 09:00`,
       timestamp: Math.floor(tomorrowMorning.getTime() / 1000),
     },
     {
-      label: "Tomorrow afternoon",
-      detail: tomorrowAfternoon.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) + " 1:00 PM",
+      label: "Завтра днём",
+      detail: `${tomorrowAfternoon.toLocaleDateString("ru-RU", dateFmt)}, 13:00`,
       timestamp: Math.floor(tomorrowAfternoon.getTime() / 1000),
     },
     {
-      label: "Monday morning",
-      detail: monday.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) + " 9:00 AM",
+      label: "В понедельник утром",
+      detail: `${monday.toLocaleDateString("ru-RU", dateFmt)}, 09:00`,
       timestamp: Math.floor(monday.getTime() / 1000),
     },
   ];
@@ -52,10 +58,10 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
     <DateTimePickerDialog
       isOpen={true}
       onClose={onClose}
-      title="Schedule send"
+      title="Запланировать отправку"
       presets={presets}
       onSelect={onSchedule}
-      submitLabel="Schedule"
+      submitLabel="Запланировать"
       zIndex="z-[60]"
     />
   );

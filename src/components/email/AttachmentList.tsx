@@ -6,6 +6,7 @@ import { getEmailProvider } from "@/services/email/providerFactory";
 import { Modal } from "@/components/ui/Modal";
 import { Download, Eye } from "lucide-react";
 import { formatFileSize, isImage, isPdf, isText, canPreview, getFileIcon } from "@/utils/fileTypeHelpers";
+import { base64UrlToUint8Array, uint8ArrayToBase64DataUrl } from "@/utils/base64url";
 
 /** Dedup attachments by filename+size (content-based) */
 function dedup(attachments: DbAttachment[]): DbAttachment[] {
@@ -31,7 +32,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
   // Filter out CID images rendered in the email body and true inline parts, then dedup
   const fileAttachments = dedup(attachments.filter((a) => {
     // Skip attachments whose CID is referenced in the email body (already rendered inline)
-    if (a.content_id && referencedCids?.has(a.content_id)) return false;
+    if (a.content_id && getContentIdKeys(a.content_id).some((key) => referencedCids?.has(key))) return false;
     // True inline: marked inline with no filename
     if (a.is_inline && !a.filename) return false;
     return true;
@@ -52,7 +53,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
               onClick={() => setPreview(att)}
               className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border border-border-primary hover:bg-bg-hover transition-colors"
             >
-              <span className="text-text-tertiary">{getFileIcon(att.mime_type)}</span>
+              <span className="text-text-tertiary">{getFileIcon(att.mime_type, att.filename)}</span>
               <span className="text-text-secondary truncate max-w-[200px]">
                 {att.filename ?? "Unnamed"}
               </span>
@@ -91,54 +92,63 @@ export function AttachmentPreview({
 }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const bytesRef = useRef<Uint8Array | null>(null);
+  const bytesRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
   const isPreviewable = canPreview(attachment.mime_type, attachment.filename);
 
-  const fetchData = useCallback(async (): Promise<Uint8Array> => {
+  const fetchData = useCallback(async (): Promise<Uint8Array<ArrayBuffer>> => {
     if (bytesRef.current) return bytesRef.current;
 
     const provider = await getEmailProvider(accountId);
     const response = await provider.fetchAttachment(messageId, attachment.gmail_attachment_id!);
+    const raw = String(response.data ?? "").replace(/\s/g, "");
+    if (!raw) throw new Error("Empty attachment payload");
 
-    // Normalize URL-safe base64 (Gmail API) to standard base64
-    const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
-    const binaryStr = atob(base64);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
+    const bytes = base64UrlToUint8Array(raw);
     bytesRef.current = bytes;
     return bytes;
   }, [accountId, messageId, attachment.gmail_attachment_id]);
 
   const handlePreviewLoad = useCallback(async () => {
-    if (!attachment.gmail_attachment_id || !isPreviewable || blobUrl) return;
+    if (!attachment.gmail_attachment_id || !isPreviewable || previewUrl) return;
 
     setLoading(true);
     try {
       const bytes = await fetchData();
       const effectiveMime = isPdf(attachment.mime_type, attachment.filename)
         ? "application/pdf"
-        : (attachment.mime_type ?? "application/octet-stream");
-      const blob = new Blob([bytes.buffer as ArrayBuffer], { type: effectiveMime });
-      setBlobUrl(URL.createObjectURL(blob));
+        : isImage(attachment.mime_type, attachment.filename)
+          ? getEffectiveImageMimeType(attachment)
+          : (attachment.mime_type ?? "application/octet-stream");
+
+      // data: URLs work reliably for raster images in the WebView; blob: can be blocked by CSP.
+      if (isImage(attachment.mime_type, attachment.filename)) {
+        setPreviewUrl(uint8ArrayToBase64DataUrl(effectiveMime, bytes));
+        return;
+      }
+      if (isText(attachment.mime_type)) {
+        setPreviewUrl(uint8ArrayToBase64DataUrl(effectiveMime, bytes));
+        return;
+      }
+
+      const blob = new Blob([bytes], { type: effectiveMime });
+      setPreviewUrl(URL.createObjectURL(blob));
     } catch (err) {
       console.error("Failed to load preview:", err);
       setError("Failed to load preview");
     } finally {
       setLoading(false);
     }
-  }, [attachment, isPreviewable, blobUrl, fetchData]);
+  }, [attachment, isPreviewable, previewUrl, fetchData]);
 
   // Trigger preview load for previewable types
   useEffect(() => {
-    if (isPreviewable && !blobUrl && !loading && !error) {
+    if (isPreviewable && !previewUrl && !loading && !error) {
       handlePreviewLoad();
     }
-  }, [isPreviewable, blobUrl, loading, error, handlePreviewLoad]);
+  }, [isPreviewable, previewUrl, loading, error, handlePreviewLoad]);
 
   const handleDownload = async () => {
     if (!attachment.gmail_attachment_id || saving) return;
@@ -165,14 +175,14 @@ export function AttachmentPreview({
   };
 
   const handleClose = () => {
-    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    if (previewUrl?.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
     onClose();
   };
 
   const header = (
     <div className="px-4 py-3 border-b border-border-primary flex items-center justify-between shrink-0">
       <div className="flex items-center gap-2 min-w-0">
-        <span>{getFileIcon(attachment.mime_type)}</span>
+        <span>{getFileIcon(attachment.mime_type, attachment.filename)}</span>
         <span className="text-sm font-medium text-text-primary truncate">
           {attachment.filename ?? "Unnamed"}
         </span>
@@ -218,22 +228,22 @@ export function AttachmentPreview({
         {error && (
           <p className="text-sm text-text-tertiary">{error}</p>
         )}
-        {!loading && !error && blobUrl && isImage(attachment.mime_type) && (
+        {!loading && !error && previewUrl && isImage(attachment.mime_type, attachment.filename) && (
           <img
-            src={blobUrl}
+            src={previewUrl}
             alt={attachment.filename ?? "Attachment"}
             className="max-w-full max-h-[70vh] object-contain rounded"
           />
         )}
-        {!loading && !error && blobUrl && isPdf(attachment.mime_type, attachment.filename) && (
+        {!loading && !error && previewUrl && isPdf(attachment.mime_type, attachment.filename) && (
           <iframe
-            src={blobUrl}
+            src={previewUrl}
             title={attachment.filename ?? "PDF preview"}
             className="w-full h-[70vh] border-0 rounded"
           />
         )}
-        {!loading && !error && blobUrl && isText(attachment.mime_type) && (
-          <TextPreview url={blobUrl} />
+        {!loading && !error && previewUrl && isText(attachment.mime_type) && (
+          <TextPreview url={previewUrl} />
         )}
         {!isPreviewable && !loading && (
           <div className="flex flex-col items-center gap-3 text-text-tertiary">
@@ -251,7 +261,29 @@ function TextPreview({ url }: { url: string }) {
   const [text, setText] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(url).then((r) => r.text()).then(setText).catch(() => setText("Failed to load text"));
+    if (url.startsWith("data:")) {
+      const mark = ";base64,";
+      const idx = url.indexOf(mark);
+      if (idx === -1) {
+        setText("Failed to load text");
+        return;
+      }
+      try {
+        const raw = url.slice(idx + mark.length);
+        const bin = atob(raw);
+        const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        setText(new TextDecoder().decode(u8));
+      } catch {
+        setText("Failed to load text");
+      }
+      return;
+    }
+
+    fetch(url)
+      .then((r) => r.text())
+      .then(setText)
+      .catch(() => setText("Failed to load text"));
   }, [url]);
 
   return (
@@ -262,3 +294,32 @@ function TextPreview({ url }: { url: string }) {
 }
 
 export { getAttachmentsForMessage };
+
+function normalizeContentId(value: string | null | undefined): string | null {
+  if (!value) return null;
+  let normalized = value.trim().replace(/^cid:/i, "").replace(/[<>]/g, "");
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch {
+    // Keep original when it is not URL encoded.
+  }
+  return normalized.toLowerCase();
+}
+
+function getContentIdKeys(value: string | null | undefined): string[] {
+  const normalized = normalizeContentId(value);
+  if (!normalized) return [];
+  const withoutDomain = normalized.split("@")[0] ?? normalized;
+  return [...new Set([normalized, withoutDomain])];
+}
+
+function getEffectiveImageMimeType(attachment: DbAttachment): string {
+  if (attachment.mime_type?.startsWith("image/")) return attachment.mime_type;
+  const filename = attachment.filename?.toLowerCase() ?? "";
+  if (filename.endsWith(".png")) return "image/png";
+  if (filename.endsWith(".gif")) return "image/gif";
+  if (filename.endsWith(".webp")) return "image/webp";
+  if (filename.endsWith(".svg")) return "image/svg+xml";
+  if (filename.endsWith(".bmp")) return "image/bmp";
+  return "image/jpeg";
+}

@@ -6,6 +6,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useShortcutStore } from "@/stores/shortcutStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { navigateToLabel, navigateToThread, navigateBack, getActiveLabel, getSelectedThreadId } from "@/router/navigate";
+import { openNewCompose } from "@/utils/openComposeWindow";
 import { archiveThread, trashThread, permanentDeleteThread, starThread, spamThread } from "@/services/emailActions";
 import { deleteThread as deleteThreadFromDb, pinThread as pinThreadDb, unpinThread as unpinThreadDb, muteThread as muteThreadDb, unmuteThread as unmuteThreadDb } from "@/services/db/threads";
 import { deleteDraftsForThread } from "@/services/gmail/draftDeletion";
@@ -32,7 +33,7 @@ function matchesKey(binding: string, e: KeyboardEvent): boolean {
 
   // For single character keys, compare case-insensitively
   const keyMatch = key.length === 1
-    ? e.key === key || e.key === key.toLowerCase() || e.key === key.toUpperCase()
+    ? e.key === key || e.key === key.toLowerCase() || e.key === key.toUpperCase() || e.code === `Key${key.toUpperCase()}`
     : e.key === key;
 
   return ctrlMatch && shiftMatch && altMatch && keyMatch;
@@ -69,6 +70,11 @@ function buildReverseMap(keyMap: Record<string, string>): {
 // Cached reverse map to avoid rebuilding on every keypress
 let cachedKeyMap: Record<string, string> | null = null;
 let cachedReverseMap: ReturnType<typeof buildReverseMap> | null = null;
+
+function getCurrentSelectedThreadId(): string | null {
+  const state = useThreadStore.getState();
+  return [...state.selectedThreadIds][0] ?? getSelectedThreadId() ?? state.selectedThreadId;
+}
 
 function getCachedReverseMap(keyMap: Record<string, string>): ReturnType<typeof buildReverseMap> {
   if (cachedKeyMap === keyMap && cachedReverseMap) return cachedReverseMap;
@@ -170,7 +176,7 @@ export function useKeyboardShortcuts() {
       // Arrow keys navigate the thread list when no thread is open full-screen
       // (In split-pane mode or list-only view, arrows move between threads)
       if (key === "ArrowDown" || key === "ArrowUp") {
-        const selectedId = getSelectedThreadId();
+        const selectedId = getCurrentSelectedThreadId();
         const paneOff = useUIStore.getState().readingPanePosition === "hidden";
         // Only handle here if no thread is open in full-screen mode
         // (when pane is off and a thread is selected, ThreadView handles arrows for message nav)
@@ -200,7 +206,7 @@ export function useKeyboardShortcuts() {
 
 async function executeAction(actionId: string): Promise<void> {
   const threads = useThreadStore.getState().threads;
-  const selectedId = getSelectedThreadId();
+  const selectedId = getCurrentSelectedThreadId();
   const currentIdx = threads.findIndex((t) => t.id === selectedId);
   const activeAccountId = useAccountStore.getState().activeAccountId;
 
@@ -279,7 +285,7 @@ async function executeAction(actionId: string): Promise<void> {
       break;
     }
     case "action.compose":
-      useComposerStore.getState().openComposer();
+      void openNewCompose();
       break;
     case "action.reply": {
       if (selectedId) {

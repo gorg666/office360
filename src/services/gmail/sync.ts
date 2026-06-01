@@ -133,6 +133,9 @@ async function processAndStoreThread(
       listUnsubscribe: parsed.listUnsubscribe,
       listUnsubscribePost: parsed.listUnsubscribePost,
       authResults: parsed.authResults,
+      messageIdHeader: parsed.messageIdHeader,
+      referencesHeader: parsed.referencesHeader,
+      inReplyToHeader: parsed.inReplyToHeader,
     });
 
     await Promise.all(parsed.attachments.map((att) =>
@@ -214,38 +217,88 @@ export async function initialSync(
     });
   } while (pageToken);
 
-  // Phase 3: Fetch and store each thread's details
-  let historyId = "0";
-
-  // Load auto-archive categories once for the whole sync
+  // Phase 3: Fetch and store each thread's details (with retries — avoids a too-new
+  // history cursor when some getThread calls fail, which would strand non-INBOX mail
+  // until a manual full resync).
   const autoArchiveCategories = await loadAutoArchiveCategories();
+  const collectedHistoryIds: string[] = [];
+  let messagesProgress = 0;
 
-  let progress = 0;
-  await parallelLimit(
-    threadStubs.map((stub) => async () => {
+  const fetchAndStoreStub = async (stub: { id: string }): Promise<boolean> => {
+    try {
+      const thread = await client.getThread(stub.id, "full");
+      collectedHistoryIds.push(thread.historyId);
+
+      if (!thread.messages || thread.messages.length === 0) {
+        messagesProgress++;
+        onProgress?.({
+          phase: "messages",
+          current: messagesProgress,
+          total: threadStubs.length,
+        });
+        return true;
+      }
+
+      const parsedMessages = thread.messages.map(parseGmailMessage);
+      await processAndStoreThread(thread, accountId, parsedMessages, client, autoArchiveCategories);
+
+      messagesProgress++;
       onProgress?.({
         phase: "messages",
-        current: ++progress,
+        current: messagesProgress,
         total: threadStubs.length,
       });
+      return true;
+    } catch (err) {
+      console.error(`Failed to sync thread ${stub.id}:`, err);
+      return false;
+    }
+  };
 
-      try {
-        const thread = await client.getThread(stub.id, "full");
+  const maxStubAttempts = 3;
+  let pendingStubs = [...threadStubs];
+  for (let attempt = 0; attempt < maxStubAttempts && pendingStubs.length > 0; attempt++) {
+    if (attempt > 0) {
+      console.warn(
+        `[initialSync] Retrying ${pendingStubs.length} thread(s) (attempt ${attempt + 1}/${maxStubAttempts})`,
+      );
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+    }
 
-        if (BigInt(thread.historyId) > BigInt(historyId)) {
-          historyId = thread.historyId;
-        }
+    const failed: { id: string }[] = [];
+    await parallelLimit(
+      pendingStubs.map((stub) => async () => {
+        const ok = await fetchAndStoreStub(stub);
+        if (!ok) failed.push(stub);
+      }),
+      10,
+    );
+    pendingStubs = failed;
+  }
 
-        if (!thread.messages || thread.messages.length === 0) return;
+  if (pendingStubs.length > 0) {
+    console.warn(
+      `[initialSync] ${pendingStubs.length} thread(s) still failed after retries — mailbox may be incomplete until resync`,
+    );
+  }
 
-        const parsedMessages = thread.messages.map(parseGmailMessage);
-        await processAndStoreThread(thread, accountId, parsedMessages, client, autoArchiveCategories);
-      } catch (err) {
-        console.error(`Failed to sync thread ${stub.id}:`, err);
-      }
-    }),
-    10,
-  );
+  let historyId = "0";
+  for (const hid of collectedHistoryIds) {
+    try {
+      if (BigInt(hid) > BigInt(historyId)) historyId = hid;
+    } catch {
+      /* ignore malformed history ids */
+    }
+  }
+
+  try {
+    const profile = await client.getProfile();
+    if (BigInt(profile.historyId) > BigInt(historyId)) {
+      historyId = profile.historyId;
+    }
+  } catch {
+    /* non-fatal */
+  }
 
   // Store the latest history ID for delta sync
   await updateAccountSyncState(accountId, historyId);

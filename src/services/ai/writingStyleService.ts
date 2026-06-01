@@ -10,11 +10,12 @@ import { getRecentSentMessages, type DbMessage } from "@/services/db/messages";
 import { getAccount } from "@/services/db/accounts";
 import { getSetting } from "@/services/db/settings";
 import { WRITING_STYLE_ANALYSIS_PROMPT, AUTO_DRAFT_REPLY_PROMPT } from "./prompts";
+import { getLocalizedFallback, localizedCacheType, withAiLanguage } from "./language";
 
 async function callAi(systemPrompt: string, userContent: string): Promise<string> {
   try {
     const provider = await getActiveProvider();
-    return await provider.complete({ systemPrompt, userContent });
+    return await provider.complete({ systemPrompt: withAiLanguage(systemPrompt), userContent });
   } catch (err) {
     if (err instanceof AiError) throw err;
     const message = err instanceof Error ? err.message : String(err);
@@ -104,7 +105,7 @@ export async function generateAutoDraft(
   messages: DbMessage[],
   mode: AutoDraftMode,
 ): Promise<string> {
-  const cacheType = `auto_draft_${mode}`;
+  const cacheType = localizedCacheType(`auto_draft_${mode}`);
 
   // Check cache
   const cached = await getAiCache(accountId, threadId, cacheType);
@@ -114,7 +115,7 @@ export async function generateAutoDraft(
   const styleProfile = await getOrCreateStyleProfile(accountId);
 
   // Build the prompt
-  const subject = messages[0]?.subject ?? "No subject";
+  const subject = messages[0]?.subject ?? getLocalizedFallback("Без темы", "No subject");
   const threadContent = formatThreadForDraft(messages);
   const styleSection = styleProfile
     ? `\n\nUser's writing style:\n${styleProfile}`
@@ -141,7 +142,7 @@ export async function regenerateAutoDraft(
   messages: DbMessage[],
   mode: AutoDraftMode,
 ): Promise<string> {
-  const cacheType = `auto_draft_${mode}`;
+  const cacheType = localizedCacheType(`auto_draft_${mode}`);
   await deleteAiCache(accountId, threadId, cacheType);
   return generateAutoDraft(threadId, accountId, messages, mode);
 }

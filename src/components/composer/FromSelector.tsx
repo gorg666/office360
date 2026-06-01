@@ -16,10 +16,12 @@ export function FromSelector({ aliases, selectedEmail, onChange }: FromSelectorP
   return (
     <div className="flex items-center gap-2">
       <span className="text-xs text-text-tertiary w-8 shrink-0">
-        From
+        От
       </span>
       <select
         value={selectedEmail}
+        aria-label="Адрес отправителя"
+        title="Адрес отправителя"
         onChange={(e) => {
           const alias = aliases.find((a) => a.email === e.target.value);
           if (alias) onChange(alias);

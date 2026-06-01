@@ -19,10 +19,15 @@ import {
   type SmtpConfig,
 } from "../imap/tauriCommands";
 import { getAccount, type DbAccount } from "../db/accounts";
+import { extractTextAndHtmlFromRawEmail } from "@/utils/rawEmailBodies";
+import { parseSingleEmailAddress } from "@/utils/emailAddressParse";
+import { decodeMimeWords } from "@/utils/mimeHeaderDecode";
+import { normalizeEmail } from "@/utils/emailUtils";
 import { findSpecialFolder } from "../imap/messageHelper";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
-import { upsertMessage } from "../db/messages";
-import { upsertThread, setThreadLabels, getThreadLabelIds } from "../db/threads";
+import { getDb } from "../db/connection";
+import { getMessagesForThread, upsertMessage } from "../db/messages";
+import { upsertThread, setThreadLabels, getThreadLabelIds, getThreadById } from "../db/threads";
 
 /**
  * Decode base64url (Gmail/RFC 4648 URL-safe, no padding) to a UTF-8 string.
@@ -270,7 +275,8 @@ export class ImapSmtpProvider implements EmailProvider {
     _messageIds: string[],
   ): Promise<void> {
     const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
+    const ids = await this.resolveMessageIdsForThread(_threadId, _messageIds);
+    const grouped = this.groupByFolder(ids);
     const archiveFolder =
       (await findSpecialFolder(this.accountId, "\\Archive")) ?? "Archive";
 
@@ -285,7 +291,8 @@ export class ImapSmtpProvider implements EmailProvider {
     _messageIds: string[],
   ): Promise<void> {
     const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
+    const ids = await this.resolveMessageIdsForThread(_threadId, _messageIds);
+    const grouped = this.groupByFolder(ids);
     const trashFolder =
       (await findSpecialFolder(this.accountId, "\\Trash")) ?? "Trash";
 
@@ -300,7 +307,8 @@ export class ImapSmtpProvider implements EmailProvider {
     _messageIds: string[],
   ): Promise<void> {
     const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
+    const ids = await this.resolveMessageIdsForThread(_threadId, _messageIds);
+    const grouped = this.groupByFolder(ids);
 
     for (const [folder, uids] of grouped) {
       await imapDeleteMessages(config, folder, uids);
@@ -313,7 +321,8 @@ export class ImapSmtpProvider implements EmailProvider {
     read: boolean,
   ): Promise<void> {
     const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
+    const ids = await this.resolveMessageIdsForThread(_threadId, _messageIds);
+    const grouped = this.groupByFolder(ids);
 
     for (const [folder, uids] of grouped) {
       await imapSetFlags(config, folder, uids, ["Seen"], read);
@@ -326,7 +335,8 @@ export class ImapSmtpProvider implements EmailProvider {
     starred: boolean,
   ): Promise<void> {
     const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
+    const ids = await this.resolveMessageIdsForThread(_threadId, _messageIds);
+    const grouped = this.groupByFolder(ids);
 
     for (const [folder, uids] of grouped) {
       await imapSetFlags(config, folder, uids, ["Flagged"], starred);
@@ -339,7 +349,8 @@ export class ImapSmtpProvider implements EmailProvider {
     isSpam: boolean,
   ): Promise<void> {
     const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
+    const ids = await this.resolveMessageIdsForThread(_threadId, _messageIds);
+    const grouped = this.groupByFolder(ids);
     const junkFolder =
       (await findSpecialFolder(this.accountId, "\\Junk")) ?? "Junk";
     const destination = isSpam ? junkFolder : "INBOX";
@@ -356,7 +367,8 @@ export class ImapSmtpProvider implements EmailProvider {
     folderPath: string,
   ): Promise<void> {
     const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
+    const ids = await this.resolveMessageIdsForThread(_threadId, _messageIds);
+    const grouped = this.groupByFolder(ids);
 
     for (const [folder, uids] of grouped) {
       if (folder === folderPath) continue;
@@ -402,34 +414,35 @@ export class ImapSmtpProvider implements EmailProvider {
 
     const messageId = `imap-sent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    // Save sent message to local DB so it appears in Sent folder immediately
-    try {
-      await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId);
-    } catch (err) {
-      console.warn("[IMAP] Failed to save sent message to local DB:", err);
-    }
-
-    // Copy sent message to Sent folder on IMAP server
+    // Copy to server Sent first. If this succeeds, delta sync will store the real
+    // `imap-{account}-{folder}-{uid}` row — a local optimistic copy would duplicate it.
+    let appendedToSent = false;
     try {
       const imapConfig = await this.getImapConfig();
       const sentFolder =
         (await findSpecialFolder(this.accountId, "\\Sent")) ?? "Sent";
       await imapAppendMessage(imapConfig, sentFolder, rawBase64Url, "(\\Seen)");
+      appendedToSent = true;
     } catch (err) {
-      // Non-fatal: message was sent successfully, just not copied to server Sent folder
       console.error(
         "[IMAP] Failed to copy sent message to Sent folder on server:",
         err,
       );
     }
 
+    if (!appendedToSent) {
+      try {
+        await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId);
+      } catch (err) {
+        console.warn("[IMAP] Failed to save sent message to local DB:", err);
+      }
+    }
+
     return { id: messageId };
   }
 
   /**
-   * Save a sent message to the local SQLite DB with the SENT label.
-   * This ensures the message appears in the Sent folder view immediately
-   * without waiting for the next IMAP delta sync.
+   * Fallback when IMAP APPEND to Sent fails: keep a local copy with the SENT label.
    */
   private async saveSentMessageLocally(
     rawBase64Url: string,
@@ -438,16 +451,30 @@ export class ImapSmtpProvider implements EmailProvider {
   ): Promise<void> {
     const raw = base64UrlDecode(rawBase64Url);
     const headers = parseBasicHeaders(raw);
-    const snippet = extractSnippet(raw);
+    const fallbackSnippet = extractSnippet(raw);
 
     const from = headers.get("from") ?? "";
     const to = headers.get("to") ?? "";
     const cc = headers.get("cc") ?? null;
-    const subject = headers.get("subject") ?? null;
+    const subjectRaw = headers.get("subject") ?? null;
+    const subject = subjectRaw ? decodeMimeWords(subjectRaw) ?? subjectRaw : null;
     const messageIdHeader = headers.get("message-id") ?? null;
     const inReplyTo = headers.get("in-reply-to") ?? null;
     const references = headers.get("references") ?? null;
     const now = Date.now();
+
+    const bodies = extractTextAndHtmlFromRawEmail(raw);
+    const maxBody = 50000;
+    const bodyHtml = bodies.html ? bodies.html.slice(0, maxBody) : null;
+    const bodyText = bodies.text ? bodies.text.slice(0, maxBody) : null;
+    const snippetFromBodies =
+      bodyText?.trim()
+        ? bodyText.replace(/\s+/g, " ").trim().slice(0, 200)
+        : bodyHtml
+          ? bodyHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200)
+          : "";
+    const effectiveSnippet = snippetFromBodies || fallbackSnippet;
+    const hasAttachments = /content-disposition:\s*attachment\b/i.test(raw);
 
     // For replies, add the SENT label to the existing thread.
     // For new compositions, create a new thread.
@@ -465,49 +492,73 @@ export class ImapSmtpProvider implements EmailProvider {
         id: effectiveThreadId,
         accountId: this.accountId,
         subject,
-        snippet,
+        snippet: effectiveSnippet,
         lastMessageAt: now,
         messageCount: 1,
         isRead: true,
         isStarred: false,
         isImportant: false,
-        hasAttachments: false,
+        hasAttachments,
       });
       await setThreadLabels(this.accountId, effectiveThreadId, ["SENT"]);
     }
 
-    // Extract sender name from "Name <email>" format
-    const fromNameMatch = from.match(/^([^<]*)<[^>]+>/);
-    const fromName = fromNameMatch ? fromNameMatch[1]!.trim() : null;
-    const fromAddress = from.replace(/.*<([^>]+)>.*/, "$1").trim();
-
-    // Parse body for HTML and text
-    const bodyStart = raw.indexOf("\r\n\r\n");
-    const bodyHtml = bodyStart !== -1 ? raw.slice(bodyStart + 4) : null;
+    const { name: parsedFromName, address: fromAddressRaw } = parseSingleEmailAddress(from);
+    let fromName = parsedFromName;
+    const fromAddress = fromAddressRaw ?? "";
+    if (!fromName && fromAddress) {
+      const acc = await this.getAccount();
+      if (acc && normalizeEmail(acc.email) === normalizeEmail(fromAddress)) {
+        const dn = acc.display_name?.trim();
+        fromName = dn || null;
+      }
+    }
 
     await upsertMessage({
       id: messageId,
       accountId: this.accountId,
       threadId: effectiveThreadId,
-      fromAddress,
+      fromAddress: fromAddress || null,
       fromName,
       toAddresses: to,
       ccAddresses: cc,
       bccAddresses: null, // BCC is intentionally omitted from stored messages
       replyTo: null,
       subject,
-      snippet,
+      snippet: effectiveSnippet,
       date: now,
       isRead: true,
       isStarred: false,
-      bodyHtml: bodyHtml ? bodyHtml.slice(0, 50000) : null, // Limit stored body size
-      bodyText: snippet,
+      bodyHtml,
+      bodyText,
       rawSize: raw.length,
       internalDate: now,
       messageIdHeader,
       referencesHeader: references,
       inReplyToHeader: inReplyTo,
     });
+
+    if (threadId) {
+      const existing = await getThreadById(this.accountId, threadId);
+      const db = await getDb();
+      const countRows = await db.select<{ c: number }[]>(
+        "SELECT COUNT(*) as c FROM messages WHERE account_id = $1 AND thread_id = $2",
+        [this.accountId, threadId],
+      );
+      const messageCount = countRows[0]?.c ?? 1;
+      await upsertThread({
+        id: threadId,
+        accountId: this.accountId,
+        subject: existing?.subject ?? subject,
+        snippet: effectiveSnippet,
+        lastMessageAt: now,
+        messageCount,
+        isRead: existing?.is_read === 1,
+        isStarred: existing?.is_starred === 1,
+        isImportant: existing?.is_important === 1,
+        hasAttachments: existing?.has_attachments === 1 || hasAttachments,
+      });
+    }
   }
 
   async createDraft(
@@ -599,6 +650,21 @@ export class ImapSmtpProvider implements EmailProvider {
   }
 
   // ---- Helpers ----
+
+  /**
+   * UI often passes an empty `messageIds` (thread-level actions). Gmail uses threadId on the API;
+   * IMAP needs concrete messages — load from the local DB.
+   */
+  private async resolveMessageIdsForThread(
+    threadId: string,
+    messageIds: string[],
+  ): Promise<string[]> {
+    if (messageIds.length > 0) {
+      return messageIds;
+    }
+    const rows = await getMessagesForThread(this.accountId, threadId);
+    return rows.map((m) => m.id);
+  }
 
   /**
    * Parse IMAP message IDs and group UIDs by folder.

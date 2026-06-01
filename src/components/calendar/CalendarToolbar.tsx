@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight, Plus, CalendarDays } from "lucide-react";
+import { useUIStore } from "@/stores/uiStore";
 
 export type CalendarView = "day" | "week" | "month";
 
@@ -25,7 +26,11 @@ export function CalendarToolbar({
   onToggleCalendarList,
   showCalendarListButton,
 }: CalendarToolbarProps) {
-  const title = formatTitle(currentDate, view);
+  const locale = useUIStore((state) => state.locale);
+  const title = formatTitle(currentDate, view, locale);
+  const viewLabels: Record<CalendarView, string> = locale === "ru"
+    ? { day: "День", week: "Неделя", month: "Месяц" }
+    : { day: "Day", week: "Week", month: "Month" };
 
   return (
     <div className="flex items-center justify-between px-6 py-3 border-b border-border-primary">
@@ -42,7 +47,7 @@ export function CalendarToolbar({
             onClick={onToday}
             className="px-2.5 py-1 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
           >
-            Today
+            {locale === "ru" ? "Сегодня" : "Today"}
           </button>
           <button
             onClick={onNext}
@@ -74,7 +79,7 @@ export function CalendarToolbar({
                   : "text-text-tertiary hover:text-text-secondary"
               }`}
             >
-              {v}
+              {viewLabels[v]}
             </button>
           ))}
         </div>
@@ -83,27 +88,38 @@ export function CalendarToolbar({
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors"
         >
           <Plus size={14} />
-          Create
+          {locale === "ru" ? "Создать" : "Create"}
         </button>
       </div>
     </div>
   );
 }
 
-function formatTitle(date: Date, view: CalendarView): string {
-  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+function formatTitle(date: Date, view: CalendarView, locale: "en" | "ru"): string {
+  const intlLocale = locale === "ru" ? "ru-RU" : "en-US";
   if (view === "month") {
-    return `${months[date.getMonth()]} ${date.getFullYear()}`;
+    return new Intl.DateTimeFormat(intlLocale, { month: "long", year: "numeric" }).format(date);
   }
   if (view === "week") {
     const start = new Date(date);
     start.setDate(start.getDate() - start.getDay());
     const end = new Date(start);
     end.setDate(end.getDate() + 6);
+    const monthLong = new Intl.DateTimeFormat(intlLocale, { month: "long" });
+    const monthShort = new Intl.DateTimeFormat(intlLocale, { month: "short" });
     if (start.getMonth() === end.getMonth()) {
-      return `${months[start.getMonth()]} ${start.getDate()}-${end.getDate()}, ${start.getFullYear()}`;
+      return locale === "ru"
+        ? `${start.getDate()}-${end.getDate()} ${monthLong.format(start)} ${start.getFullYear()}`
+        : `${monthLong.format(start)} ${start.getDate()}-${end.getDate()}, ${start.getFullYear()}`;
     }
-    return `${months[start.getMonth()]?.slice(0, 3)} ${start.getDate()} - ${months[end.getMonth()]?.slice(0, 3)} ${end.getDate()}, ${end.getFullYear()}`;
+    return locale === "ru"
+      ? `${start.getDate()} ${monthShort.format(start)} - ${end.getDate()} ${monthShort.format(end)} ${end.getFullYear()}`
+      : `${monthShort.format(start)} ${start.getDate()} - ${monthShort.format(end)} ${end.getDate()}, ${end.getFullYear()}`;
   }
-  return date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  return new Intl.DateTimeFormat(intlLocale, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
 }

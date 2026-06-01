@@ -42,6 +42,8 @@ import {
 import { triggerSync } from "@/services/gmail/syncManager";
 import { useUIStore } from "@/stores/uiStore";
 import { setThreadCategory, ALL_CATEGORIES } from "@/services/db/threadCategories";
+import { openThreadPopOut } from "@/utils/openThreadWindow";
+import { ComposerEditorContextMenu } from "@/components/composer/ComposerEditorContextMenu";
 
 function buildQuote(msg: { from_name: string | null; from_address: string | null; date: string | number; body_html: string | null; body_text: string | null }): string {
   const date = new Date(msg.date).toLocaleString();
@@ -99,6 +101,9 @@ export function ContextMenuPortal() {
       )}
       {menuType === "message" && (
         <MessageMenu position={position} data={data} onClose={closeMenu} />
+      )}
+      {menuType === "composerEditor" && (
+        <ComposerEditorContextMenu position={position} data={data} onClose={closeMenu} />
       )}
       {snoozeTarget && (
         <SnoozeDialog
@@ -376,29 +381,7 @@ function ThreadMenu({
   };
 
   const handlePopOut = async () => {
-    try {
-      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      const windowLabel = `thread-${thread.id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-      const url = `index.html?thread=${encodeURIComponent(thread.id)}&account=${encodeURIComponent(thread.accountId)}`;
-      const existing = await WebviewWindow.getByLabel(windowLabel);
-      if (existing) {
-        await existing.setFocus();
-        return;
-      }
-      const win = new WebviewWindow(windowLabel, {
-        url,
-        title: thread.subject ?? "Thread",
-        width: 800,
-        height: 700,
-        center: true,
-        dragDropEnabled: false,
-      });
-      win.once("tauri://error", (e) => {
-        console.error("Failed to create pop-out window:", e);
-      });
-    } catch (err) {
-      console.error("Failed to open pop-out window:", err);
-    }
+    await openThreadPopOut(thread);
   };
 
   const handleToggleLabel = async (labelId: string) => {

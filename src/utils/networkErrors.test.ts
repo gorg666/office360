@@ -1,4 +1,4 @@
-import { classifyError, formatSyncError } from "./networkErrors";
+import { classifyError, formatSyncError, formatEmailSendOrDraftError } from "./networkErrors";
 
 describe("classifyError", () => {
   it("classifies 'Failed to fetch' as network (retryable)", () => {
@@ -125,31 +125,31 @@ describe("classifyError", () => {
 describe("formatSyncError", () => {
   it("translates timeout errors", () => {
     expect(formatSyncError("TCP connect timed out (os error 60)")).toBe(
-      "Connection timed out \u2014 check your internet or server settings",
+      "Сервер не ответил вовремя — проверьте интернет и настройки почты",
     );
   });
 
   it("translates auth errors", () => {
     expect(formatSyncError("authentication failed for user@test.com")).toBe(
-      "Authentication failed \u2014 check your password",
+      "Ошибка авторизации — проверьте пароль или пароль приложения",
     );
   });
 
   it("translates TLS errors", () => {
     expect(formatSyncError("TLS handshake failed: certificate verify error")).toBe(
-      "Secure connection failed \u2014 check security settings",
+      "Не удалось установить защищённое соединение — проверьте тип защиты",
     );
   });
 
   it("translates connection refused", () => {
     expect(formatSyncError("connect ECONNREFUSED 127.0.0.1:993")).toBe(
-      "Could not reach mail server \u2014 check address and port",
+      "Почтовый сервер недоступен — проверьте адрес и порт",
     );
   });
 
   it("translates DNS errors", () => {
     expect(formatSyncError("DNS resolution failed for imap.bad.host")).toBe(
-      "Server not found \u2014 check hostname",
+      "Сервер не найден — проверьте имя хоста",
     );
   });
 
@@ -162,5 +162,23 @@ describe("formatSyncError", () => {
 
   it("passes through short unknown errors unchanged", () => {
     expect(formatSyncError("Something unexpected")).toBe("Something unexpected");
+  });
+});
+
+describe("formatEmailSendOrDraftError", () => {
+  it("maps no recipients (SMTP envelope) to Russian", () => {
+    expect(formatEmailSendOrDraftError("No recipients found in email")).toBe("Укажите получателя");
+  });
+
+  it("unwraps SMTP send failed and maps inner auth text", () => {
+    expect(formatEmailSendOrDraftError("SMTP send failed: Authentication failed")).toBe(
+      "Ошибка отправки. Ошибка авторизации — проверьте пароль или пароль приложения",
+    );
+  });
+
+  it("maps IMAP+SMTP combined error prefix", () => {
+    expect(
+      formatEmailSendOrDraftError("IMAP OK, but SMTP failed: connection refused"),
+    ).toContain("Ошибка SMTP");
   });
 });

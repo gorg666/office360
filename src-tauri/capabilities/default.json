@@ -28,6 +28,7 @@
     "opener:default",
     "opener:allow-open-url",
     "dialog:default",
+    "dialog:allow-open",
     "dialog:allow-save",
     "fs:default",
     "fs:allow-appdata-read-recursive",
@@ -41,7 +42,15 @@
       "identifier": "fs:scope",
       "allow": [
         { "path": "$APPDATA" },
-        { "path": "$APPDATA/**" }
+        { "path": "$APPDATA/**" },
+        { "path": "$HOME" },
+        { "path": "$HOME/**" },
+        { "path": "$DOWNLOAD" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$DESKTOP" },
+        { "path": "$DESKTOP/**" },
+        { "path": "$DOCUMENT" },
+        { "path": "$DOCUMENT/**" }
       ]
     },
     "core:window:allow-minimize",
@@ -66,9 +75,13 @@
       "identifier": "http:default",
       "allow": [
         { "url": "http://*" },
+        { "url": "http://*:*" },
         { "url": "http://*/*" },
+        { "url": "http://*:*/*" },
         { "url": "https://*" },
-        { "url": "https://*/*" }
+        { "url": "https://*:*" },
+        { "url": "https://*/*" },
+        { "url": "https://*:*/*" }
       ]
     },
     "updater:default",

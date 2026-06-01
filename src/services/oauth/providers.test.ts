@@ -1,3 +1,25 @@
+import { describe, expect, it } from "vitest";
+import { getOAuthProvider } from "./providers";
+
+describe("OAuth providers", () => {
+  it("registers Yandex ID with minimal login scopes by default", () => {
+    const provider = getOAuthProvider("yandex");
+
+    expect(provider).not.toBeNull();
+    expect(provider!.authUrl).toBe("https://oauth.yandex.ru/authorize");
+    expect(provider!.tokenUrl).toBe("https://oauth.yandex.ru/token");
+    expect(provider!.userInfoAuthScheme).toBe("OAuth");
+    expect(provider!.publicClientId).toBe("3a2cf9ad4e854c5ab83fc126d1a89ad4");
+    expect(provider!.scopes).toContain("login:email");
+    expect(provider!.scopes).toContain("login:info");
+    expect(provider!.scopes).toContain("login:avatar");
+    expect(provider!.scopes).not.toContain("mail:imap_full");
+    expect(provider!.scopes).not.toContain("mail:smtp");
+    expect(provider!.scopes).not.toContain("directory:read_users");
+    expect(provider!.scopes).not.toContain("ya360_admin:mail_write_organization_settings");
+    expect(provider!.scopes).not.toContain("ya360_security:read_auditlog");
+  });
+});
 import { describe, it, expect } from "vitest";
 import { getOAuthProvider, getAllOAuthProviders } from "./providers";
 

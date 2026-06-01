@@ -81,6 +81,20 @@ export async function handleRecurringTaskCompletion(
     sortOrder: task.sort_order,
     recurrenceRule: task.recurrence_rule,
     tagsJson: task.tags_json,
+    startAt: task.start_at,
+    endAt: task.end_at,
+    timezone: task.timezone,
+    allDay: task.all_day === 1,
+    location: task.location,
+    participantsJson: task.participants_json,
+    optionalParticipantsJson: task.optional_participants_json,
+    attachmentsJson: task.attachments_json,
+    reminderMinutes: task.reminder_minutes,
+    reminderChannel: task.reminder_channel,
+    colorLabel: task.color_label,
+    telemostUrl: task.telemost_url,
+    telemostConferenceId: task.telemost_conference_id,
+    telemostLiveUrl: task.telemost_live_url,
   });
 
   // Update next_recurrence_at on the new task

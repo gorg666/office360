@@ -44,6 +44,7 @@ Tauri v2 desktop app: Rust backend + React 19 frontend communicating via Tauri I
    - `email/` — `EmailProvider` abstraction unifying Gmail API and IMAP/SMTP behind a single interface. `providerFactory.ts` returns appropriate provider based on `account.provider` field ("gmail_api" or "imap"). `gmailProvider.ts` wraps existing GmailClient. `imapSmtpProvider.ts` delegates to Rust IMAP/SMTP Tauri commands.
    - `gmail/` — `GmailClient` class auto-refreshes tokens 5min before expiry, retries on 401. `tokenManager.ts` caches clients per account in a Map. `syncManager.ts` orchestrates sync (60s interval) for both Gmail and IMAP accounts via the EmailProvider abstraction. `sync.ts` does initial sync (365 days, configurable via `sync_period_days` setting) and delta sync via Gmail History API; falls back to full sync if history expired (~30 days). `authParser.ts` parses SPF/DKIM/DMARC from `Authentication-Results` headers. `sendAs.ts` fetches send-as aliases from Gmail API.
    - `imap/` — IMAP-specific services. `tauriCommands.ts` wraps Rust IMAP Tauri commands. `imapSync.ts` orchestrates IMAP initial sync (batch fetch, 50 messages/batch) and delta sync via UIDVALIDITY/last_uid tracking. `folderMapper.ts` maps IMAP folders (special-use flags + well-known names) to Gmail-style labels. `autoDiscovery.ts` provides pre-configured server settings for 7 major providers (Outlook, Yahoo, iCloud, AOL, Zoho, FastMail, GMX). `imapConfigBuilder.ts` builds IMAP/SMTP configs from account records. `messageHelper.ts` handles IMAP message utilities.
+   - `yandex360/` — Яндекс 360 API integration: endpoint/scope catalog, OAuth token helpers, generic request client, Directory/Admin Mail/Security/Audit service wrappers. Uses `cloud-api.yandex.net` with `Authorization: OAuth <token>`. User calendar sync for Яндекс ID goes through CalDAV (`https://caldav.yandex.ru/`) and reuses the IMAP OAuth token instead of the admin API.
    - `threading/` — JWZ threading algorithm (`threadBuilder.ts`) for grouping IMAP messages into conversation threads using Message-ID, References, and In-Reply-To headers. Supports incremental threading, phantom containers for missing references, and subject-based merging.
    - `ai/` — `aiService.ts` provides thread summaries, smart replies, AI compose, text transform, auto-categorization, smart label classification, and task extraction. `providerManager.ts` manages three providers (`providers/claudeProvider.ts`, `providers/openaiProvider.ts`, `providers/geminiProvider.ts`). `askInbox.ts` enables natural language inbox queries. `categorizationManager.ts` auto-sorts threads into Primary/Updates/Promotions/Social/Newsletters. `writingStyleService.ts` analyzes user writing style from sent emails and generates auto-draft replies. `taskExtraction.ts` extracts tasks from email threads via AI. `errors.ts` and `types.ts` define shared AI types. Results cached locally via `db/aiCache.ts`.
    - `google/` — `calendar.ts` handles Google Calendar API (list calendars, fetch events, create events, token refresh).
@@ -69,11 +70,12 @@ Tauri v2 desktop app: Rust backend + React 19 frontend communicating via Tauri I
 ### Component organization
 
 14 groups, ~94 component files:
+
 - `layout/` — Sidebar, EmailList, ReadingPane, TitleBar
 - `email/` — ThreadView, ThreadCard, MessageItem, EmailRenderer, ActionBar, AttachmentList, SnoozeDialog, ContactSidebar, FollowUpDialog, InlineAttachmentPreview, InlineReply, SmartReplySuggestions, ThreadSummary, AuthBadge, AuthWarningBanner, PhishingBanner, LinkConfirmDialog, CategoryTabs, MoveToFolderDialog
 - `composer/` — Composer (TipTap v3 rich text editor), AddressInput, EditorToolbar, AttachmentPicker, ScheduleSendDialog, SignatureSelector, TemplatePicker, UndoSendToast, AiAssistPanel, FromSelector
 - `search/` — CommandPalette, SearchBar, ShortcutsHelp, AskInbox
-- `settings/` — SettingsPage, FilterEditor, LabelEditor, SignatureEditor, TemplateEditor, ContactEditor, SubscriptionManager, QuickStepEditor, SmartFolderEditor
+- `settings/` — SettingsPage, FilterEditor, LabelEditor, SignatureEditor, TemplateEditor, ContactEditor, SubscriptionManager, QuickStepEditor, SmartFolderEditor, Yandex360AdminPanel
 - `accounts/` — AddAccount, AddImapAccount, AccountSwitcher, SetupClientId
 - `calendar/` — CalendarPage, CalendarReauthBanner, CalendarToolbar, DayView, WeekView, MonthView, EventCard, EventCreateModal
 - `attachments/` — AttachmentLibrary, AttachmentGridItem, AttachmentListItem
@@ -112,7 +114,7 @@ Custom window events: `velo-sync-done`, `velo-toggle-command-palette`, `velo-tog
 `useKeyboardShortcuts` hook in App.tsx — Superhuman-style keys. Skips when input/textarea/contentEditable is focused. Supports two-key sequences (only `g` prefix currently) with 1s timeout via refs. Shortcut definitions in `src/constants/shortcuts.ts`. Customizable via `shortcutStore` (persisted to SQLite settings).
 
 | Key | Action |
-|-----|--------|
+| --- | --- |
 | `j` / `k` | Navigate threads down/up |
 | `o` / `Enter` | Open thread |
 | `e` | Archive |
@@ -193,6 +195,7 @@ Key tables (37 total): `accounts` (with `provider` "gmail_api"|"imap", IMAP/SMTP
 - **IMAP passwords**: Encrypted with AES-256-GCM in SQLite (same crypto as OAuth tokens)
 - **IMAP username**: Optional `imap_username` column on accounts — when set, used as login username for IMAP/SMTP instead of email. Falls back to email when null
 - **IMAP auto-discovery**: Pre-configured for Outlook/Hotmail, Yahoo, iCloud, AOL, Zoho, FastMail, GMX; other providers require manual server entry
+- **Yandex ID / Яндекс 360**: Яндекс Почта connects through OAuth IMAP/SMTP (`mail:imap_full`, `mail:smtp`) using XOAUTH2 against `imap.yandex.com:993` and `smtp.yandex.com:465`. Яндекс Calendar uses the same OAuth account token with `calendar:all` against CalDAV (`https://caldav.yandex.ru/`) so users do not enter a separate app password when the scope is present. Яндекс 360 Admin API is separate from mail/calendar sync and lives in `services/yandex360/`; requests use `https://cloud-api.yandex.net` and `Authorization: OAuth <token>`.
 - **Provider abstraction**: All sync/send operations go through `EmailProvider` interface — use `getEmailProvider(account)` from `providerFactory.ts`, never call Gmail or IMAP APIs directly from components
 - **Offline mode**: All email modify operations (archive, trash, star, read, send, labels, drafts) go through `emailActions.ts` which applies optimistic UI updates, local DB changes, and queues operations when offline. Never call `getGmailClient()` directly for modify operations — use the convenience wrappers (`archiveThread`, `trashThread`, `starThread`, etc.). Queue processor runs every 30s, compacts redundant ops, uses exponential backoff retries. Conflict detection in delta sync skips threads with pending local ops
 - **Network detection**: `uiStore.isOnline` tracks connectivity via `navigator.onLine` + window `online`/`offline` events. Queue flush triggers automatically on reconnect

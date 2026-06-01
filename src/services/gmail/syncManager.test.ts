@@ -53,15 +53,23 @@ import {
   stopBackgroundSync,
   triggerSync,
   onSyncStatus,
+  resyncAccount,
 } from "./syncManager";
-import { getAccount } from "../db/accounts";
+import { clearAccountHistoryId, getAccount } from "../db/accounts";
 import { getGmailClient } from "./tokenManager";
 import { initialSync, deltaSync } from "./sync";
+import { deleteAllThreadsForAccount } from "../db/threads";
+import { deleteAllMessagesForAccount } from "../db/messages";
+import { clearAllFolderSyncStates } from "../db/folderSyncState";
 
 const mockGetAccount = vi.mocked(getAccount);
 const mockGetGmailClient = vi.mocked(getGmailClient);
 const mockInitialSync = vi.mocked(initialSync);
 const mockDeltaSync = vi.mocked(deltaSync);
+const mockClearAccountHistoryId = vi.mocked(clearAccountHistoryId);
+const mockDeleteAllThreadsForAccount = vi.mocked(deleteAllThreadsForAccount);
+const mockDeleteAllMessagesForAccount = vi.mocked(deleteAllMessagesForAccount);
+const mockClearAllFolderSyncStates = vi.mocked(clearAllFolderSyncStates);
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -258,6 +266,37 @@ describe("syncManager", () => {
       await triggerSync(["a1", "a2"]);
 
       expect(mockDeltaSync).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("resyncAccount", () => {
+    it("waits for an in-flight sync before deleting local account data", async () => {
+      const account = makeGmailAccount("a1", "100");
+      mockGetAccount.mockResolvedValue(account);
+
+      let releaseSync: () => void = () => {};
+      mockDeltaSync.mockReturnValue(
+        new Promise<void>((resolve) => {
+          releaseSync = resolve;
+        }),
+      );
+
+      const inFlightSync = syncAccount("a1");
+      await wait(0);
+
+      const resync = resyncAccount("a1");
+      await wait(0);
+
+      expect(mockDeleteAllThreadsForAccount).not.toHaveBeenCalled();
+
+      releaseSync();
+      await inFlightSync;
+      await resync;
+
+      expect(mockDeleteAllThreadsForAccount).toHaveBeenCalledWith("a1");
+      expect(mockDeleteAllMessagesForAccount).toHaveBeenCalledWith("a1");
+      expect(mockClearAccountHistoryId).toHaveBeenCalledWith("a1");
+      expect(mockClearAllFolderSyncStates).toHaveBeenCalledWith("a1");
     });
   });
 

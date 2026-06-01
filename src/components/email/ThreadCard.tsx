@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import type { Thread } from "@/stores/threadStore";
 import { useThreadStore } from "@/stores/threadStore";
@@ -7,6 +7,7 @@ import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { formatRelativeDate } from "@/utils/date";
 import { Paperclip, Star, Check, Pin, BellRing, VolumeX } from "lucide-react";
 import type { DragData } from "@/components/dnd/DndProvider";
+import { ContactAvatar } from "@/components/ui/ContactAvatar";
 
 const CATEGORY_COLORS: Record<string, string> = {
   Updates: "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400",
@@ -19,13 +20,25 @@ interface ThreadCardProps {
   thread: Thread;
   isSelected: boolean;
   onClick: (thread: Thread) => void;
+  onDoubleClick?: (thread: Thread) => void;
   onContextMenu?: (e: React.MouseEvent, threadId: string) => void;
   category?: string;
   showCategoryBadge?: boolean;
   hasFollowUp?: boolean;
 }
 
-export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick, onContextMenu, category, showCategoryBadge, hasFollowUp }: ThreadCardProps) {
+const SINGLE_CLICK_DELAY_MS = 250;
+
+export const ThreadCard = memo(function ThreadCard({
+  thread,
+  isSelected,
+  onClick,
+  onDoubleClick,
+  onContextMenu,
+  category,
+  showCategoryBadge,
+  hasFollowUp,
+}: ThreadCardProps) {
   const isMultiSelected = useThreadStore((s) => s.selectedThreadIds.has(thread.id));
   const hasMultiSelect = useThreadStore((s) => s.selectedThreadIds.size > 0);
   const toggleThreadSelection = useThreadStore((s) => s.toggleThreadSelection);
@@ -47,6 +60,20 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
     data: dragData,
   });
 
+  const singleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (singleClickTimerRef.current) {
+        clearTimeout(singleClickTimerRef.current);
+      }
+    };
+  }, []);
+
+  const runSingleClickAction = () => {
+    onClick(thread);
+  };
+
   const handleClick = (e: React.MouseEvent) => {
     if (e.shiftKey) {
       e.preventDefault();
@@ -56,19 +83,40 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
       toggleThreadSelection(thread.id);
     } else if (hasMultiSelect) {
       toggleThreadSelection(thread.id);
+    } else if (onDoubleClick) {
+      if (singleClickTimerRef.current) {
+        clearTimeout(singleClickTimerRef.current);
+      }
+      singleClickTimerRef.current = setTimeout(() => {
+        singleClickTimerRef.current = null;
+        runSingleClickAction();
+      }, SINGLE_CLICK_DELAY_MS);
     } else {
-      onClick(thread);
+      runSingleClickAction();
     }
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    if (!onDoubleClick) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (singleClickTimerRef.current) {
+      clearTimeout(singleClickTimerRef.current);
+      singleClickTimerRef.current = null;
+    }
+    if (e.shiftKey || e.ctrlKey || e.metaKey || hasMultiSelect) return;
+    onDoubleClick(thread);
   };
 
   const handleContextMenu = onContextMenu
     ? (e: React.MouseEvent) => onContextMenu(e, thread.id)
     : undefined;
-  const initial = (
-    thread.fromName?.[0] ??
-    thread.fromAddress?.[0] ??
-    "?"
-  ).toUpperCase();
+  const avatarClassName = emailDensity === "compact"
+    ? "w-7 h-7 rounded-full shrink-0"
+    : emailDensity === "spacious"
+      ? "w-10 h-10 rounded-full shrink-0"
+      : "w-9 h-9 rounded-full shrink-0";
+  const avatarTextClassName = emailDensity === "compact" ? "text-xs" : "text-sm";
 
   return (
     <button
@@ -76,6 +124,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
       {...attributes}
       {...listeners}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
       aria-label={`${thread.isRead ? "" : "Unread "}email from ${thread.fromName ?? thread.fromAddress ?? "Unknown"}: ${thread.subject ?? "(No subject)"}`}
       aria-selected={isSelected}
@@ -93,15 +142,20 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
     >
       <div className="flex items-start gap-3">
         {/* Avatar */}
-        <div
-          className={`rounded-full flex items-center justify-center shrink-0 font-medium text-white ${
-            emailDensity === "compact" ? "w-7 h-7 text-xs" : emailDensity === "spacious" ? "w-10 h-10 text-sm" : "w-9 h-9 text-sm"
-          } ${
-            isMultiSelected ? "bg-accent" : thread.isRead ? "bg-text-tertiary" : "bg-accent"
-          }`}
-        >
-          {isMultiSelected ? <Check size={emailDensity === "compact" ? 14 : 16} /> : initial}
-        </div>
+        {isMultiSelected ? (
+          <div className={`${avatarClassName} bg-accent text-white flex items-center justify-center`}>
+            <Check size={emailDensity === "compact" ? 14 : 16} />
+          </div>
+        ) : (
+          <ContactAvatar
+            email={thread.fromAddress}
+            name={thread.fromName}
+            className={avatarClassName}
+            textClassName={avatarTextClassName}
+            fallbackClassName={thread.isRead ? "bg-text-tertiary text-white" : "bg-accent text-white"}
+            lookupExternalAvatar
+          />
+        )}
 
         {/* Content */}
         <div className="flex-1 min-w-0">

@@ -17,6 +17,8 @@ export interface DbThread {
   is_muted: number;
   from_name: string | null;
   from_address: string | null;
+  /** Последнее сообщение — для списка «Отправленные» (показ получателя). */
+  to_addresses: string | null;
 }
 
 export async function getThreadsForAccount(
@@ -28,11 +30,12 @@ export async function getThreadsForAccount(
   const db = await getDb();
   if (labelId) {
     return db.select<DbThread[]>(
-      `SELECT t.*, m.from_name, m.from_address FROM threads t
+      `SELECT t.*, m.from_name, m.from_address, m.to_addresses FROM threads t
        INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
        LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
          AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
        WHERE t.account_id = $1 AND tl.label_id = $2
+         AND EXISTS (SELECT 1 FROM messages mm WHERE mm.account_id = t.account_id AND mm.thread_id = t.id)
        GROUP BY t.account_id, t.id
        ORDER BY t.is_pinned DESC, t.last_message_at DESC
        LIMIT $3 OFFSET $4`,
@@ -40,10 +43,11 @@ export async function getThreadsForAccount(
     );
   }
   return db.select<DbThread[]>(
-    `SELECT t.*, m.from_name, m.from_address FROM threads t
+    `SELECT t.*, m.from_name, m.from_address, m.to_addresses FROM threads t
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
        AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
      WHERE t.account_id = $1
+       AND EXISTS (SELECT 1 FROM messages mm WHERE mm.account_id = t.account_id AND mm.thread_id = t.id)
      ORDER BY t.is_pinned DESC, t.last_message_at DESC LIMIT $2 OFFSET $3`,
     [accountId, limit, offset],
   );
@@ -59,12 +63,13 @@ export async function getThreadsForCategory(
   if (category === "Primary") {
     // Primary includes threads with NULL category (uncategorized)
     return db.select<DbThread[]>(
-      `SELECT t.*, m.from_name, m.from_address FROM threads t
+      `SELECT t.*, m.from_name, m.from_address, m.to_addresses FROM threads t
        INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
        LEFT JOIN thread_categories tc ON tc.account_id = t.account_id AND tc.thread_id = t.id
        LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
          AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
        WHERE t.account_id = $1 AND tl.label_id = 'INBOX' AND (tc.category IS NULL OR tc.category = 'Primary')
+         AND EXISTS (SELECT 1 FROM messages mm WHERE mm.account_id = t.account_id AND mm.thread_id = t.id)
        GROUP BY t.account_id, t.id
        ORDER BY t.is_pinned DESC, t.last_message_at DESC
        LIMIT $2 OFFSET $3`,
@@ -72,12 +77,13 @@ export async function getThreadsForCategory(
     );
   }
   return db.select<DbThread[]>(
-    `SELECT t.*, m.from_name, m.from_address FROM threads t
+    `SELECT t.*, m.from_name, m.from_address, m.to_addresses FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
      INNER JOIN thread_categories tc ON tc.account_id = t.account_id AND tc.thread_id = t.id
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
        AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
      WHERE t.account_id = $1 AND tl.label_id = 'INBOX' AND tc.category = $2
+       AND EXISTS (SELECT 1 FROM messages mm WHERE mm.account_id = t.account_id AND mm.thread_id = t.id)
      GROUP BY t.account_id, t.id
      ORDER BY t.is_pinned DESC, t.last_message_at DESC
      LIMIT $3 OFFSET $4`,
@@ -139,6 +145,20 @@ export async function setThreadLabels(
   }
 }
 
+export async function addThreadLabels(
+  accountId: string,
+  threadId: string,
+  labelIds: string[],
+): Promise<void> {
+  const db = await getDb();
+  for (const labelId of labelIds) {
+    await db.execute(
+      "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, $3)",
+      [accountId, threadId, labelId],
+    );
+  }
+}
+
 export async function getThreadLabelIds(
   accountId: string,
   threadId: string,
@@ -157,7 +177,7 @@ export async function getThreadById(
 ): Promise<DbThread | undefined> {
   const db = await getDb();
   const rows = await db.select<DbThread[]>(
-    `SELECT t.*, m.from_name, m.from_address FROM threads t
+    `SELECT t.*, m.from_name, m.from_address, m.to_addresses FROM threads t
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
        AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
      WHERE t.account_id = $1 AND t.id = $2
@@ -179,11 +199,59 @@ export async function getThreadCountForAccount(accountId: string): Promise<numbe
 export async function getUnreadInboxCount(): Promise<number> {
   const db = await getDb();
   const rows = await db.select<{ count: number }[]>(
-    `SELECT COUNT(*) as count FROM threads t
+    `SELECT COUNT(DISTINCT t.id) as count FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
-     WHERE tl.label_id = 'INBOX' AND t.is_read = 0`,
+     WHERE tl.label_id = 'INBOX'
+       AND EXISTS (
+         SELECT 1 FROM messages m
+         WHERE m.account_id = t.account_id AND m.thread_id = t.id AND m.is_read = 0
+       )`,
   );
   return rows[0]?.count ?? 0;
+}
+
+export async function getUnreadInboxCountsByAccount(accountIds?: string[]): Promise<Record<string, number>> {
+  if (accountIds && accountIds.length === 0) return {};
+
+  const db = await getDb();
+  const params = accountIds ?? [];
+  const accountFilter = accountIds
+    ? `AND t.account_id IN (${accountIds.map((_, index) => `$${index + 1}`).join(", ")})`
+    : "";
+  const rows = await db.select<{ account_id: string; count: number }[]>(
+    `SELECT t.account_id, COUNT(DISTINCT t.id) as count FROM threads t
+     INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
+     WHERE tl.label_id = 'INBOX'
+       AND EXISTS (
+         SELECT 1 FROM messages m
+         WHERE m.account_id = t.account_id AND m.thread_id = t.id AND m.is_read = 0
+       )
+       ${accountFilter}
+     GROUP BY t.account_id`,
+    params,
+  );
+
+  return Object.fromEntries(rows.map((row) => [row.account_id, row.count]));
+}
+
+export async function getUnreadThreadIdsForAccount(
+  accountId: string,
+  labelId?: string,
+): Promise<string[]> {
+  const db = await getDb();
+  const labelJoin = labelId
+    ? "INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id AND tl.label_id = $2"
+    : "";
+  const rows = await db.select<{ id: string }[]>(
+    `SELECT DISTINCT t.id
+     FROM threads t
+     INNER JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
+     ${labelJoin}
+     WHERE t.account_id = $1
+       AND (t.is_read = 0 OR m.is_read = 0)`,
+    labelId ? [accountId, labelId] : [accountId],
+  );
+  return rows.map((row) => row.id);
 }
 
 export async function deleteThread(
@@ -205,6 +273,30 @@ export async function deleteAllThreadsForAccount(
     "DELETE FROM threads WHERE account_id = $1",
     [accountId],
   );
+}
+
+/** Удаляет цепочки без ни одного сообщения (призраки после сбоев переноса thread_id). */
+export async function deleteThreadsWithoutMessages(accountId: string): Promise<number> {
+  const db = await getDb();
+  const countRows = await db.select<{ c: number }[]>(
+    `SELECT COUNT(*) as c FROM threads t
+     WHERE t.account_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM messages m WHERE m.account_id = t.account_id AND m.thread_id = t.id
+       )`,
+    [accountId],
+  );
+  const n = countRows[0]?.c ?? 0;
+  if (n === 0) return 0;
+  await db.execute(
+    `DELETE FROM threads
+     WHERE account_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM messages m WHERE m.account_id = threads.account_id AND m.thread_id = threads.id
+       )`,
+    [accountId],
+  );
+  return n;
 }
 
 export async function pinThread(

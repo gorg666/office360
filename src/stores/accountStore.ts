@@ -17,6 +17,7 @@ interface AccountState {
   setActiveAccount: (id: string) => void;
   addAccount: (account: Account) => void;
   removeAccount: (id: string) => void;
+  patchAccount: (id: string, patch: Partial<Pick<Account, "avatarUrl" | "displayName">>) => void;
 }
 
 export const useAccountStore = create<AccountState>((set) => ({
@@ -27,29 +28,58 @@ export const useAccountStore = create<AccountState>((set) => ({
     const activeId = (restoredId && accounts.some((a) => a.id === restoredId))
       ? restoredId
       : accounts[0]?.id ?? null;
-    set({ accounts, activeAccountId: activeId });
+    set({
+      accounts: accounts.map((account) => ({
+        ...account,
+        isActive: account.id === activeId,
+      })),
+      activeAccountId: activeId,
+    });
   },
 
   setActiveAccount: (activeAccountId) => {
     setSetting("active_account_id", activeAccountId).catch(() => {});
-    set({ activeAccountId });
+    set((state) => ({
+      activeAccountId,
+      accounts: state.accounts.map((account) => ({
+        ...account,
+        isActive: account.id === activeAccountId,
+      })),
+    }));
   },
 
   addAccount: (account) =>
-    set((state) => ({
-      accounts: [...state.accounts, account],
-      activeAccountId: state.activeAccountId ?? account.id,
-    })),
+    set((state) => {
+      const activeAccountId = state.activeAccountId ?? account.id;
+      return {
+        accounts: [...state.accounts, account].map((item) => ({
+          ...item,
+          isActive: item.id === activeAccountId,
+        })),
+        activeAccountId,
+      };
+    }),
 
   removeAccount: (id) =>
     set((state) => {
       const accounts = state.accounts.filter((a) => a.id !== id);
+      const activeAccountId =
+        state.activeAccountId === id
+          ? (accounts[0]?.id ?? null)
+          : state.activeAccountId;
       return {
-        accounts,
-        activeAccountId:
-          state.activeAccountId === id
-            ? (accounts[0]?.id ?? null)
-            : state.activeAccountId,
+        accounts: accounts.map((account) => ({
+          ...account,
+          isActive: account.id === activeAccountId,
+        })),
+        activeAccountId,
       };
     }),
+
+  patchAccount: (id, patch) =>
+    set((state) => ({
+      accounts: state.accounts.map((account) =>
+        account.id === id ? { ...account, ...patch } : account,
+      ),
+    })),
 }));

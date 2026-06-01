@@ -7,6 +7,7 @@ import {
 import App from "@/App";
 import { MailLayout } from "@/components/layout/MailLayout";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import { useUIStore } from "@/stores/uiStore";
 
 // Lazy-load heavy pages — these include many sub-components and service imports
 const SettingsPage = lazy(() => import("@/components/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
@@ -187,6 +188,16 @@ export const calendarRoute = createRoute({
   component: CalendarPageWrapper,
 });
 
+// ---------- /messengers (открыть панель и перейти во входящие) ----------
+export const messengersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "messengers",
+  beforeLoad: () => {
+    useUIStore.getState().setMessengersPanelsOpen(true);
+    throw redirect({ to: "/mail/$label", params: { label: "inbox" } });
+  },
+});
+
 // ---------- /help (redirect to /help/getting-started) ----------
 const helpIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -214,6 +225,7 @@ export const routeTree = rootRoute.addChildren([
   attachmentsRoute,
   tasksRoute,
   calendarRoute,
+  messengersRoute,
   helpIndexRoute,
   helpTopicRoute,
 ]);
