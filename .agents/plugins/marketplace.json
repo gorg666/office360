@@ -1,0 +1,20 @@
+{
+  "name": "velo-local",
+  "interface": {
+    "displayName": "Velo Local"
+  },
+  "plugins": [
+    {
+      "name": "velo-mail-agents",
+      "source": {
+        "source": "local",
+        "path": "./plugins/velo-mail-agents"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
