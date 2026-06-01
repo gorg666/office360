@@ -15,6 +15,8 @@ import { COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import type { Thread } from "./stores/threadStore";
 import { applyColorTheme, applyWindowBackground } from "./utils/themeEffects";
+import { ContextMenuPortal } from "./components/ui/ContextMenuPortal";
+import { useSuppressBrowserContextMenu } from "./hooks/useSuppressBrowserContextMenu";
 
 export default function ThreadWindow() {
   const { setTheme, setFontScale, setColorTheme } = useUIStore();
@@ -22,6 +24,7 @@ export default function ThreadWindow() {
   const [thread, setThread] = useState<Thread | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  useSuppressBrowserContextMenu();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -223,6 +226,7 @@ export default function ThreadWindow() {
       <ThreadView thread={thread} />
       <Composer />
       <UndoSendToast />
+      <ContextMenuPortal />
     </div>
   );
 }

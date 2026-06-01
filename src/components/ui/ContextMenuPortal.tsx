@@ -43,6 +43,7 @@ import { triggerSync } from "@/services/gmail/syncManager";
 import { useUIStore } from "@/stores/uiStore";
 import { setThreadCategory, ALL_CATEGORIES } from "@/services/db/threadCategories";
 import { openThreadPopOut } from "@/utils/openThreadWindow";
+import { ComposerEditorContextMenu } from "@/components/composer/ComposerEditorContextMenu";
 
 function buildQuote(msg: { from_name: string | null; from_address: string | null; date: string | number; body_html: string | null; body_text: string | null }): string {
   const date = new Date(msg.date).toLocaleString();
@@ -100,6 +101,9 @@ export function ContextMenuPortal() {
       )}
       {menuType === "message" && (
         <MessageMenu position={position} data={data} onClose={closeMenu} />
+      )}
+      {menuType === "composerEditor" && (
+        <ComposerEditorContextMenu position={position} data={data} onClose={closeMenu} />
       )}
       {snoozeTarget && (
         <SnoozeDialog

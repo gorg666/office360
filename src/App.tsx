@@ -68,6 +68,7 @@ import { useShortcutStore } from "./stores/shortcutStore";
 import { getIncompleteTaskCount } from "./services/db/tasks";
 import { useTaskStore } from "./stores/taskStore";
 import { ContextMenuPortal } from "./components/ui/ContextMenuPortal";
+import { useSuppressBrowserContextMenu } from "./hooks/useSuppressBrowserContextMenu";
 import { MoveToFolderDialog } from "./components/email/MoveToFolderDialog";
 import { OfflineBanner } from "./components/ui/OfflineBanner";
 import { UpdateToast } from "./components/ui/UpdateToast";
@@ -189,16 +190,7 @@ export default function App() {
     };
   }, []);
 
-  // Suppress default browser context menu globally (Tauri app should feel native)
-  // Elements with data-native-context-menu opt out so the browser menu is available
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if ((e.target as HTMLElement).closest?.("[data-native-context-menu]")) return;
-      e.preventDefault();
-    };
-    document.addEventListener("contextmenu", handler);
-    return () => document.removeEventListener("contextmenu", handler);
-  }, []);
+  useSuppressBrowserContextMenu();
 
   // Listen for command palette / shortcuts help toggle events
   useEffect(() => {

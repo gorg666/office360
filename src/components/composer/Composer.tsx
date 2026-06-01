@@ -19,6 +19,7 @@ import { ComposerHeader } from "./ComposerHeader";
 import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
+import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { sendEmail, archiveThread, deleteDraft as deleteDraftAction } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
 import { buildReplyHeadersForMessageId } from "@/utils/replyHeaders";
@@ -84,6 +85,7 @@ export function Composer() {
   const setFromEmail = useComposerStore((s) => s.setFromEmail);
   const setViewMode = useComposerStore((s) => s.setViewMode);
   const addAttachment = useComposerStore((s) => s.addAttachment);
+  const openContextMenu = useContextMenuStore((s) => s.openMenu);
 
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const accounts = useAccountStore((s) => s.accounts);
@@ -279,6 +281,20 @@ export function Composer() {
     }
   }, [addAttachment]);
 
+  const isStandalone = isComposeStandaloneWindow();
+
+  const closeComposerSurface = useCallback(async () => {
+    closeComposer();
+    if (!isStandalone) return;
+
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().close();
+    } catch {
+      // Browser dev fallback
+    }
+  }, [closeComposer, isStandalone]);
+
   const getFullHtml = useCallback(() => {
     const editorHtml = editor?.getHTML() ?? "";
     if (!signatureHtml) return editorHtml;
@@ -350,8 +366,8 @@ export function Composer() {
     }, delay);
 
     state.setUndoSendTimer(timer);
-    closeComposer();
-  }, [activeAccountId, activeAccount, closeComposer, getFullHtml]);
+    void closeComposerSurface();
+  }, [activeAccountId, activeAccount, closeComposerSurface, getFullHtml]);
 
   const handleSchedule = useCallback(async (scheduledAt: number) => {
     if (!activeAccountId || !activeAccount) return;
@@ -409,8 +425,8 @@ export function Composer() {
     }
 
     setShowSchedule(false);
-    closeComposer();
-  }, [activeAccountId, activeAccount, closeComposer, getFullHtml]);
+    await closeComposerSurface();
+  }, [activeAccountId, activeAccount, closeComposerSurface, getFullHtml]);
 
   const handleDiscard = useCallback(async () => {
     stopAutoSave();
@@ -421,8 +437,8 @@ export function Composer() {
         await deleteDraftAction(activeAccountId, currentDraftId);
       } catch { /* ignore */ }
     }
-    closeComposer();
-  }, [activeAccountId, closeComposer]);
+    await closeComposerSurface();
+  }, [activeAccountId, closeComposerSurface]);
 
   const handlePopOutComposer = useCallback(async () => {
     const state = useComposerStore.getState();
@@ -443,23 +459,19 @@ export function Composer() {
 
     if (result !== "fallback") {
       stopAutoSave();
-      closeComposer();
+      void closeComposerSurface();
     }
-  }, [editor, closeComposer]);
+  }, [editor, closeComposerSurface]);
 
-  const isStandalone = isComposeStandaloneWindow();
+  const handleEditorContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!editor) return;
+    const target = e.target as HTMLElement;
+    if (!target.closest(".ProseMirror")) return;
 
-  const handleCloseStandalone = useCallback(async () => {
-    stopAutoSave();
-    closeComposer();
-    if (!isStandalone) return;
-    try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      await getCurrentWindow().close();
-    } catch {
-      // Browser dev fallback
-    }
-  }, [closeComposer, isStandalone]);
+    e.preventDefault();
+    e.stopPropagation();
+    openContextMenu("composerEditor", { x: e.clientX, y: e.clientY }, { editor });
+  }, [editor, openContextMenu]);
 
   const isFullpage = viewMode === "fullpage";
 
@@ -509,7 +521,6 @@ export function Composer() {
           onToggleViewMode={() => setViewMode(isFullpage ? "modal" : "fullpage")}
           onPopOut={handlePopOutComposer}
           onCloseEmbedded={closeComposer}
-          onCloseStandalone={() => void handleCloseStandalone()}
         />
 
         {/* Address fields */}
@@ -568,7 +579,7 @@ export function Composer() {
         )}
 
         {/* Editor */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" onContextMenu={handleEditorContextMenu}>
           <EditorContent editor={editor} />
           {signatureHtml && (
             <div

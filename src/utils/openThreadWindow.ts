@@ -21,7 +21,7 @@ export interface OpenThreadWindowOptions {
 
 /**
  * Open a thread in a dedicated Tauri window, or focus an existing one.
- * Reuses `ThreadWindow` entry (`index.html?thread=…&account=…`).
+ * Reuses `ThreadWindow` entry (`/?thread=…&account=…`).
  */
 export async function openThreadInWindow(
   options: OpenThreadWindowOptions,
@@ -39,7 +39,7 @@ export async function openThreadInWindow(
   try {
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     const windowLabel = getThreadWindowLabel(threadId);
-    const url = `index.html?thread=${encodeURIComponent(threadId)}&account=${encodeURIComponent(accountId)}`;
+    const url = `/?thread=${encodeURIComponent(threadId)}&account=${encodeURIComponent(accountId)}`;
 
     const existing = await WebviewWindow.getByLabel(windowLabel);
     if (existing) {

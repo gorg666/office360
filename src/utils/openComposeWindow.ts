@@ -61,7 +61,7 @@ export function buildComposeWindowUrl(options: OpenComposeWindowOptions): string
     params.set("body", btoa(unescape(encodeURIComponent(options.bodyHtml))));
   }
 
-  return `index.html?${params.toString()}`;
+  return `/?${params.toString()}`;
 }
 
 export function getComposeWindowTitle(options: OpenComposeWindowOptions): string {
@@ -92,14 +92,14 @@ export function buildComposeWebviewWindowOptions(url: string, title: string) {
     resizable: true,
     visible: true,
     focus: true,
-    decorations: false,
+    decorations: true,
     dragDropEnabled: false,
   };
 }
 
 /**
  * Open composer in a dedicated Tauri window, or focus an existing one.
- * Reuses `ComposerWindow` entry (`index.html?compose=true&…`).
+ * Reuses `ComposerWindow` entry (`/?compose=true&…`).
  */
 export async function openComposeWindow(
   options: OpenComposeWindowOptions,

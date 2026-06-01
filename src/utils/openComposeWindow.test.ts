@@ -103,16 +103,16 @@ describe("openComposeWindow", () => {
       expect.objectContaining({
         url: expect.stringContaining("compose=true"),
         title: "Новое сообщение",
-        decorations: false,
+        decorations: true,
         resizable: true,
         focus: true,
       }),
     );
   });
 
-  it("buildComposeWebviewWindowOptions disables system decorations", () => {
-    const opts = buildComposeWebviewWindowOptions("index.html?compose=true", "Test");
-    expect(opts.decorations).toBe(false);
+  it("buildComposeWebviewWindowOptions uses system decorations", () => {
+    const opts = buildComposeWebviewWindowOptions("/?compose=true", "Test");
+    expect(opts.decorations).toBe(true);
     expect(opts.resizable).toBe(true);
     expect(opts.focus).toBe(true);
   });

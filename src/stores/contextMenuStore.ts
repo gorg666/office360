@@ -1,6 +1,12 @@
 import { create } from "zustand";
 
-export type ContextMenuType = "sidebarLabel" | "sidebarNav" | "thread" | "message" | null;
+export type ContextMenuType =
+  | "sidebarLabel"
+  | "sidebarNav"
+  | "thread"
+  | "message"
+  | "composerEditor"
+  | null;
 
 interface ContextMenuState {
   menuType: ContextMenuType;
