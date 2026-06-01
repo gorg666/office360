@@ -1,0 +1,26 @@
+{
+  "name": "velo-mail-agents",
+  "version": "0.1.0",
+  "description": "Agent workflow plugin for Velo Mail delivery work.",
+  "author": {
+    "name": "Velo Mail Team"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Velo Mail Agents",
+    "shortDescription": "Coordinate Velo Mail epic delivery with specialist agents.",
+    "longDescription": "Project-local Codex plugin for planning, implementing, testing, benchmarking against Thunderbird, and publishing Velo Mail delivery work through GitVerse.",
+    "developerName": "Velo Mail Team",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Code",
+      "Review",
+      "Workflow"
+    ],
+    "defaultPrompt": [
+      "Use velo-epic-lead to run EPIC-01 through tests.",
+      "Use velo-epic-lead to turn this prompt into a plan.",
+      "Use velo-epic-lead to implement and prepare a PR."
+    ]
+  }
+}
