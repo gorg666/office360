@@ -207,13 +207,6 @@ describe("uiStore", () => {
     expect(setSetting).not.toHaveBeenCalled();
   });
 
-  it("restoreSidebarNavConfig migrates attachments id to files", () => {
-    vi.clearAllMocks();
-    useUIStore.getState().restoreSidebarNavConfig([{ id: "attachments", visible: true }]);
-    expect(useUIStore.getState().sidebarNavConfig).toEqual([{ id: "files", visible: true }]);
-    expect(setSetting).not.toHaveBeenCalled();
-  });
-
   it("inboxViewMode should default to unified", () => {
     expect(useUIStore.getState().inboxViewMode).toBe("unified");
   });

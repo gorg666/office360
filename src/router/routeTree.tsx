@@ -14,7 +14,7 @@ const SettingsPage = lazy(() => import("@/components/settings/SettingsPage").the
 const HelpPage = lazy(() => import("@/components/help/HelpPage").then((m) => ({ default: m.HelpPage })));
 const CalendarPage = lazy(() => import("@/components/calendar/CalendarPage").then((m) => ({ default: m.CalendarPage })));
 const TasksPage = lazy(() => import("@/components/tasks/TasksPage").then((m) => ({ default: m.TasksPage })));
-const FilesPage = lazy(() => import("@/components/files/FilesPage").then((m) => ({ default: m.FilesPage })));
+const AttachmentLibrary = lazy(() => import("@/components/attachments/AttachmentLibrary").then((m) => ({ default: m.AttachmentLibrary })));
 
 // ---------- Search param validation ----------
 const VALID_CATEGORIES = ["Primary", "Updates", "Promotions", "Social", "Newsletters"] as const;
@@ -147,45 +147,21 @@ export const settingsTabRoute = createRoute({
   component: SettingsTabPage,
 });
 
-// ---------- /files → /files/incoming ----------
-const filesIndexRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "files",
-  beforeLoad: () => {
-    throw redirect({ to: "/files/$tab", params: { tab: "incoming" } });
-  },
-});
-
-// ---------- /files/$tab ----------
-function FilesPageWrapper() {
+// ---------- /attachments ----------
+function AttachmentLibraryWrapper() {
   return (
-    <ErrorBoundary name="FilesPage">
-      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Загрузка…</div>}>
-        <FilesPage />
+    <ErrorBoundary name="AttachmentLibrary">
+      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading attachments...</div>}>
+        <AttachmentLibrary />
       </Suspense>
     </ErrorBoundary>
   );
 }
 
-export const filesTabRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "files/$tab",
-  beforeLoad: ({ params }) => {
-    const t = params.tab;
-    if (t !== "incoming" && t !== "outgoing") {
-      throw redirect({ to: "/files/$tab", params: { tab: "incoming" } });
-    }
-  },
-  component: FilesPageWrapper,
-});
-
-// ---------- /attachments → /files/incoming (старый URL) ----------
 export const attachmentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "attachments",
-  beforeLoad: () => {
-    throw redirect({ to: "/files/$tab", params: { tab: "incoming" } });
-  },
+  component: AttachmentLibraryWrapper,
 });
 
 // ---------- /tasks ----------
@@ -246,8 +222,6 @@ export const routeTree = rootRoute.addChildren([
   smartFolderRoute.addChildren([smartFolderThreadRoute]),
   settingsIndexRoute,
   settingsTabRoute,
-  filesIndexRoute,
-  filesTabRoute,
   attachmentsRoute,
   tasksRoute,
   calendarRoute,

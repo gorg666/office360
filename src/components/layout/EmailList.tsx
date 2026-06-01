@@ -17,7 +17,7 @@ import { getGmailClient } from "@/services/gmail/tokenManager";
 import { useLabelStore } from "@/stores/labelStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
-import { useComposerStore } from "@/stores/composerStore";
+import { openNewCompose } from "@/utils/openComposeWindow";
 import { getMessagesForThread } from "@/services/db/messages";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
 import { parseFirstAddressFromList } from "@/utils/emailAddressParse";
@@ -29,6 +29,8 @@ import type { AppLocale } from "@/stores/uiStore";
 import { EmptyState } from "../ui/EmptyState";
 import { markThreadRead } from "@/services/emailActions";
 import { updateBadgeCount } from "@/services/badgeManager";
+import { openThreadPopOut } from "@/utils/openThreadWindow";
+import { OutboxList } from "@/components/outbox/OutboxList";
 import {
   InboxClearIllustration,
   NoSearchResultsIllustration,
@@ -96,6 +98,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
   const smartFolders = useSmartFolderStore((s) => s.folders);
 
   // Detect smart folder mode
+  const isOutbox = activeLabel === "outbox";
   const isSmartFolder = activeLabel.startsWith("smart-folder:");
   const smartFolderId = isSmartFolder ? activeLabel.replace("smart-folder:", "") : null;
   const activeSmartFolder = smartFolderId ? smartFolders.find((f) => f.id === smartFolderId) ?? null : null;
@@ -128,7 +131,6 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
   const openMenu = useContextMenuStore((s) => s.openMenu);
   const multiSelectCount = selectedThreadIds.size;
 
-  const openComposer = useComposerStore((s) => s.openComposer);
   const multiSelectBarRef = useRef<HTMLDivElement>(null);
 
   const handleThreadContextMenu = useCallback((e: React.MouseEvent, threadId: string) => {
@@ -165,8 +167,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
         ? draftMsg.bcc_addresses.split(",").map((a) => a.trim()).filter(Boolean)
         : [];
 
-      openComposer({
-        mode: "new",
+      void openNewCompose({
         to,
         cc,
         bcc,
@@ -178,7 +179,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
     } catch (err) {
       console.error("Failed to open draft:", err);
     }
-  }, [activeAccountId, openComposer]);
+  }, [activeAccountId]);
 
   const handleThreadClick = useCallback((thread: Thread) => {
     if (activeLabel === "drafts") {
@@ -189,6 +190,14 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
       navigateToThread(thread.id);
     }
   }, [activeLabel, handleDraftClick, onThreadOpen]);
+
+  const handleThreadDoubleClick = useCallback(
+    (thread: Thread) => {
+      if (activeLabel === "drafts") return;
+      void openThreadPopOut(thread, () => handleThreadClick(thread));
+    },
+    [activeLabel, handleThreadClick],
+  );
 
   const handleBulkDelete = async () => {
     if (!activeAccountId || multiSelectCount === 0) return;
@@ -276,12 +285,12 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
     if (searchThreadIds !== null) {
       filtered = filtered.filter((t) => searchThreadIds.has(t.id));
     }
-    // Apply read filter
-    if (readFilter === "unread") filtered = filtered.filter((t) => !t.isRead);
+    // Apply read filter (incl. smart folder "is:unread" — same unread-only preview)
+    if (isUnreadView) filtered = filtered.filter((t) => !t.isRead);
     else if (readFilter === "read") filtered = filtered.filter((t) => t.isRead);
     // Category filtering is now server-side (Phase 4) — no client-side filter needed
     return filtered;
-  }, [threads, readFilter, searchThreadIds]);
+  }, [threads, readFilter, searchThreadIds, isUnreadView]);
   const canMarkAllRead = Boolean(activeAccountId && isUnreadView && filteredThreads.some((thread) => !thread.isRead));
 
   // Pre-compute bundled category Set for O(1) lookups in filter
@@ -348,6 +357,14 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
   const loadThreads = useCallback(async () => {
     if (!activeAccountId) {
       setThreads([]);
+      return;
+    }
+
+    if (activeLabel === "outbox") {
+      clearSearch();
+      setThreads([]);
+      setLoading(false);
+      setHasMore(false);
       return;
     }
 
@@ -601,18 +618,23 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
         <div>
           <h2 className="text-sm font-semibold text-text-primary capitalize flex items-center gap-1.5">
             {isSmartFolder && <FolderSearch size={14} className="text-accent shrink-0" />}
-            {isSmartFolder
-              ? activeSmartFolder?.name ?? "Smart Folder"
-              : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
-                ? `Inbox — ${activeCategory}`
-                : LABEL_MAP[activeLabel] !== undefined
-                  ? activeLabel
-                  : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
+            {isOutbox
+              ? "Исходящие"
+              : isSmartFolder
+                ? activeSmartFolder?.name ?? "Smart Folder"
+                : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
+                  ? `Inbox — ${activeCategory}`
+                  : LABEL_MAP[activeLabel] !== undefined
+                    ? activeLabel
+                    : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
           </h2>
-          <span className="text-xs text-text-tertiary">
-            {formatConversationCount(filteredThreads.length, locale)}
-          </span>
+          {!isOutbox && (
+            <span className="text-xs text-text-tertiary">
+              {formatConversationCount(filteredThreads.length, locale)}
+            </span>
+          )}
         </div>
+        {!isOutbox && (
         <div className="flex items-center gap-2">
           {isUnreadView && (
             <button
@@ -637,6 +659,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
             <option value="read">Read</option>
           </select>
         </div>
+        )}
       </div>
 
       {/* Category tabs (inbox + split mode only) */}
@@ -699,7 +722,9 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
 
       {/* Thread list */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-        {isLoading && threads.length === 0 ? (
+        {isOutbox ? (
+          <OutboxList />
+        ) : isLoading && threads.length === 0 ? (
           <EmailListSkeleton />
         ) : filteredThreads.length === 0 && bundleRules.length === 0 ? (
           <EmptyStateForContext
@@ -759,6 +784,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
                         thread={thread}
                         isSelected={thread.id === selectedThreadId}
                         onClick={handleThreadClick}
+                        onDoubleClick={handleThreadDoubleClick}
                         onContextMenu={handleThreadContextMenu}
                         category={rule.category}
                         hasFollowUp={followUpThreadIds.has(thread.id)}
@@ -787,6 +813,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
                     thread={thread}
                     isSelected={thread.id === selectedThreadId}
                     onClick={handleThreadClick}
+                    onDoubleClick={handleThreadDoubleClick}
                     onContextMenu={handleThreadContextMenu}
                     category={categoryMap.get(thread.id)}
                     showCategoryBadge={activeLabel === "inbox" && activeCategory === "All"}

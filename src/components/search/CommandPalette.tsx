@@ -1,8 +1,8 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { CSSTransition } from "react-transition-group";
 import { useUIStore } from "@/stores/uiStore";
-import { useComposerStore } from "@/stores/composerStore";
 import { useThreadStore } from "@/stores/threadStore";
+import { openNewCompose } from "@/utils/openComposeWindow";
 import { useAccountStore } from "@/stores/accountStore";
 import { getGmailClient } from "@/services/gmail/tokenManager";
 import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates";
@@ -29,7 +29,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const setTheme = useUIStore((s) => s.setTheme);
-  const openComposer = useComposerStore((s) => s.openComposer);
   const activeLabel = useActiveLabel();
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const [templates, setTemplates] = useState<DbTemplate[]>([]);
@@ -50,7 +49,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     { id: "go-all", label: "Go to All Mail", category: "Navigation", action: () => { navigateToLabel("all"); onClose(); } },
 
     // Actions
-    { id: "compose", label: "Compose New Email", shortcut: "c", category: "Actions", action: () => { openComposer(); onClose(); } },
+    { id: "compose", label: "Compose New Email", shortcut: "c", category: "Actions", action: () => { void openNewCompose(); onClose(); } },
     { id: "deselect", label: "Close Thread", shortcut: "Esc", category: "Actions", action: () => { navigateBack(); onClose(); } },
     { id: "spam", label: activeLabel === "spam" ? "Not Spam" : "Report Spam", shortcut: "!", category: "Actions", action: async () => {
       onClose();
@@ -100,16 +99,14 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       label: `Insert: ${tmpl.name}`,
       category: "Templates",
       action: () => {
-        openComposer({
-          mode: "new" as const,
-          to: [],
+        void openNewCompose({
           subject: tmpl.subject ?? "",
           bodyHtml: tmpl.body_html,
         });
         onClose();
       },
     })),
-  ], [onClose, openComposer, activeLabel, toggleSidebar, setTheme, templates]);
+  ], [onClose, activeLabel, toggleSidebar, setTheme, templates]);
 
   const filtered = query
     ? commands.filter(

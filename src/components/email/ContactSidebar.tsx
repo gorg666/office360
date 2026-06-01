@@ -11,7 +11,7 @@ import {
 } from "@/services/db/contacts";
 import { isVipSender, addVipSender, removeVipSender } from "@/services/db/notificationVips";
 import { useThreadStore } from "@/stores/threadStore";
-import { useComposerStore } from "@/stores/composerStore";
+import { openNewCompose } from "@/utils/openComposeWindow";
 import { getThreadById, getThreadLabelIds } from "@/services/db/threads";
 import { navigateToThread } from "@/router/navigate";
 import { formatRelativeDate } from "@/utils/date";
@@ -110,7 +110,7 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
   // -- Event handlers --
 
   const handleCompose = useCallback(() => {
-    useComposerStore.getState().openComposer({ mode: "new", to: [email] });
+    void openNewCompose({ to: [email] });
   }, [email]);
 
   const handleCopyEmail = useCallback(() => {

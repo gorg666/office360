@@ -4,18 +4,19 @@ import { AccountSwitcher } from "../accounts/AccountSwitcher";
 import { LabelForm } from "../labels/LabelForm";
 import { InputDialog } from "../ui/InputDialog";
 import { useUIStore } from "@/stores/uiStore";
-import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { useActiveLabel, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToLabel } from "@/router/navigate";
+import { openNewCompose } from "@/utils/openComposeWindow";
 import {
   Inbox,
   Star,
   Clock,
   Send,
+  SendHorizontal,
   FileEdit,
   Trash2,
   Ban,
@@ -38,7 +39,6 @@ import {
   Search,
   MailOpen,
   Paperclip,
-  FolderOpen,
   FolderSearch,
   Loader2,
   MessageCircle,
@@ -55,6 +55,7 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = 
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "starred", label: "Starred", icon: Star },
   { id: "snoozed", label: "Snoozed", icon: Clock },
+  { id: "outbox", label: "Исходящие", icon: SendHorizontal },
   { id: "sent", label: "Sent", icon: Send },
   { id: "drafts", label: "Drafts", icon: FileEdit },
   { id: "trash", label: "Trash", icon: Trash2 },
@@ -63,7 +64,7 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = 
   { id: "messengers", label: "Мессенджеры", icon: MessageCircle },
   { id: "tasks", label: "Tasks", icon: CheckSquare },
   { id: "calendar", label: "Calendar", icon: Calendar },
-  { id: "files", label: "Файлы", icon: FolderOpen },
+  { id: "attachments", label: "Attachments", icon: Paperclip },
   { id: "smart-folders", label: "Smart Folders", icon: FolderSearch },
   { id: "labels", label: "Labels", icon: Tag },
 ];
@@ -207,7 +208,7 @@ function getSmartFolderIcon(iconName: string): LucideIcon {
 }
 
 const LABELS_COLLAPSED_COUNT = 3;
-const SERVICE_NAV_IDS = new Set(["messengers", "tasks", "calendar", "files"]);
+const SERVICE_NAV_IDS = new Set(["messengers", "tasks", "calendar", "attachments"]);
 
 export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const activeLabel = useActiveLabel();
@@ -219,7 +220,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const messengersPanelsOpen = useUIStore((s) => s.messengersPanelsOpen);
   const setMessengersPanelsOpen = useUIStore((s) => s.setMessengersPanelsOpen);
   const activeCategory = useActiveCategory();
-  const openComposer = useComposerStore((s) => s.openComposer);
+  const openComposer = useCallback(() => {
+    void openNewCompose();
+  }, []);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const labels = useLabelStore((s) => s.labels);
   const loadLabels = useLabelStore((s) => s.loadLabels);

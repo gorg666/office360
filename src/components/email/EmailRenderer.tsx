@@ -300,3 +300,4 @@ function getEffectiveInlineMimeType(attachment: DbAttachment): string {
   if (filename.endsWith(".bmp")) return "image/bmp";
   return "image/jpeg";
 }
+

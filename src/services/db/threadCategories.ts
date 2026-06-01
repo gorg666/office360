@@ -123,11 +123,15 @@ export async function getCategoryUnreadCounts(
 ): Promise<Map<string, number>> {
   const db = await getDb();
   const rows = await db.select<{ category: string | null; count: number }[]>(
-    `SELECT tc.category, COUNT(*) as count
+    `SELECT tc.category, COUNT(DISTINCT t.id) as count
      FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
      LEFT JOIN thread_categories tc ON tc.account_id = t.account_id AND tc.thread_id = t.id
-     WHERE t.account_id = $1 AND tl.label_id = 'INBOX' AND t.is_read = 0
+     WHERE t.account_id = $1 AND tl.label_id = 'INBOX'
+       AND EXISTS (
+         SELECT 1 FROM messages m
+         WHERE m.account_id = t.account_id AND m.thread_id = t.id AND m.is_read = 0
+       )
      GROUP BY tc.category`,
     [accountId],
   );

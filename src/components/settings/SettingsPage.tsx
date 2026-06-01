@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useUIStore } from "@/stores/uiStore";
-import { navigateToLabel, navigateToSettings } from "@/router/navigate";
+import { navigateBackFromSettings, navigateToSettings } from "@/router/navigate";
 import { useAccountStore } from "@/stores/accountStore";
 import { getSetting, setSetting, getSecureSetting, setSecureSetting } from "@/services/db/settings";
 import { PROVIDER_MODELS } from "@/services/ai/types";
@@ -27,11 +27,7 @@ import {
   Check,
   Mail,
   Info,
-  ExternalLink,
-  Github,
-  Scale,
   Globe,
-  Download,
   Image,
   Palette,
   ChevronUp,
@@ -39,6 +35,7 @@ import {
   RotateCcw,
   type LucideIcon,
 } from "lucide-react";
+import { SettingsAboutPanel } from "./SettingsAboutPanel";
 import { SignatureEditor } from "./SignatureEditor";
 import { TemplateEditor } from "./TemplateEditor";
 import { FilterEditor } from "./FilterEditor";
@@ -53,7 +50,7 @@ import { Yandex360AdminPanel } from "./yandex360/Yandex360AdminPanel";
 import { SHORTCUTS, getDefaultKeyMap } from "@/constants/shortcuts";
 import { useShortcutStore } from "@/stores/shortcutStore";
 import { COLOR_THEMES } from "@/constants/themes";
-import { APP_NAME_EN, LOCALE_LABELS } from "@/i18n";
+import { LOCALE_LABELS } from "@/i18n";
 import {
   getAliasesForAccount,
   setDefaultAlias,
@@ -61,16 +58,14 @@ import {
   type SendAsAlias,
 } from "@/services/db/sendAsAliases";
 import { ALL_NAV_ITEMS } from "@/components/layout/Sidebar";
-import {
-  migrateSidebarNavIds,
-  type SidebarNavItem,
-  type WindowBackgroundLayout,
-  type WindowBackgroundPreset,
-  type WindowBackgroundSpeed,
+import type {
+  SidebarNavItem,
+  WindowBackgroundLayout,
+  WindowBackgroundPreset,
+  WindowBackgroundSpeed,
 } from "@/stores/uiStore";
 import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
-import appIcon from "@/assets/icon.png";
 import { isValidGoogleOAuthClientIdFormat } from "@/utils/googleCredentials";
 import {
   configureNotificationSound,
@@ -509,9 +504,9 @@ export function SettingsPage() {
       {/* Header */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-border-primary shrink-0 bg-bg-primary/60 backdrop-blur-sm">
         <button
-          onClick={() => navigateToLabel("inbox")}
+          onClick={() => navigateBackFromSettings()}
           className="p-1.5 -ml-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
-          title="Back to Inbox"
+          title="Назад"
         >
           <ArrowLeft size={18} />
         </button>
@@ -521,7 +516,7 @@ export function SettingsPage() {
       {/* Body: sidebar nav + content */}
       <div className="flex flex-1 min-h-0">
         {/* Vertical tab sidebar */}
-        <nav className="w-48 border-r border-border-primary py-2 overflow-y-auto shrink-0 bg-bg-primary/30">
+        <nav className="w-[232px] shrink-0 border-r border-border-primary bg-bg-primary/30 py-2 overflow-y-auto">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -542,9 +537,9 @@ export function SettingsPage() {
           })}
         </nav>
 
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl px-8 py-6">
+        {/* Scrollable content — centered column, comfortable max width */}
+        <div className="flex flex-1 justify-center overflow-y-auto bg-bg-primary/40">
+          <div className="w-full max-w-[960px] px-6 py-8 lg:px-8">
             {/* Tab title */}
             {activeTabDef && (
               <div className="mb-6">
@@ -554,7 +549,7 @@ export function SettingsPage() {
               </div>
             )}
 
-            <div className="space-y-8">
+            <div className="space-y-6">
               {activeTab === "general" && (
                 <>
                   <Section title="Appearance">
@@ -738,7 +733,7 @@ export function SettingsPage() {
                             <p className="mt-0.5 truncate text-xs text-text-tertiary">
                               {windowBackgroundImagePath
                                 ? windowBackgroundImagePath.split(/[\\/]/).pop()
-                                : "Не выбрано. Изображение будет высветлено и размыто как фон."}
+                                : "Upload a custom image for the interface. It will be used in the theme preview."}
                             </p>
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
@@ -1769,12 +1764,7 @@ export function SettingsPage() {
                 </>
               )}
 
-              {activeTab === "about" && (
-                <>
-                  <DeveloperTab />
-                  <AboutTab />
-                </>
-              )}
+              {activeTab === "about" && <SettingsAboutPanel />}
             </div>
           </div>
         </div>
@@ -1952,261 +1942,6 @@ function SyncOfflineSection() {
   );
 }
 
-function DeveloperTab() {
-  const [appVersion, setAppVersion] = useState("");
-  const [tauriVersion, setTauriVersion] = useState("");
-  const [webviewVersion, setWebviewVersion] = useState("");
-  const [platformLabel, setPlatformLabel] = useState("...");
-  const [checkingForUpdate, setCheckingForUpdate] = useState(false);
-  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
-  const [updateCheckDone, setUpdateCheckDone] = useState(false);
-  const [installingUpdate, setInstallingUpdate] = useState(false);
-
-  useEffect(() => {
-    async function load() {
-      const { getVersion, getTauriVersion } = await import("@tauri-apps/api/app");
-      setAppVersion(await getVersion());
-      setTauriVersion(await getTauriVersion());
-
-      // Extract WebView version from user agent
-      const ua = navigator.userAgent;
-      const edgMatch = /Edg\/(\S+)/.exec(ua);
-      const chromeMatch = /Chrome\/(\S+)/.exec(ua);
-      const webkitMatch = /AppleWebKit\/(\S+)/.exec(ua);
-      setWebviewVersion(edgMatch?.[1] ?? chromeMatch?.[1] ?? webkitMatch?.[1] ?? "Unknown");
-
-      // Detect platform via Tauri OS plugin (reliable native arch detection)
-      const { platform, arch } = await import("@tauri-apps/plugin-os");
-      const p = platform();
-      const a = arch();
-      const archLabel = a === "aarch64" || a === "arm" ? "ARM" : a === "x86_64" ? "x64" : a;
-      if (p === "macos") {
-        setPlatformLabel(a === "aarch64" ? "macOS (Apple Silicon)" : `macOS (${archLabel})`);
-      } else if (p === "windows") {
-        setPlatformLabel(`Windows (${archLabel})`);
-      } else if (p === "linux") {
-        setPlatformLabel(`Linux (${archLabel})`);
-      } else {
-        setPlatformLabel(`${p} (${archLabel})`);
-      }
-
-      // Check if there's already a known update
-      const { getAvailableUpdate } = await import("@/services/updateManager");
-      const existing = getAvailableUpdate();
-      if (existing) setUpdateVersion(existing.version);
-    }
-    load();
-  }, []);
-
-  const handleCheckForUpdate = async () => {
-    setCheckingForUpdate(true);
-    setUpdateCheckDone(false);
-    setUpdateVersion(null);
-    try {
-      const { checkForUpdateNow } = await import("@/services/updateManager");
-      const result = await checkForUpdateNow();
-      if (result) {
-        setUpdateVersion(result.version);
-      } else {
-        setUpdateCheckDone(true);
-      }
-    } catch (err) {
-      console.error("Update check failed:", err);
-      setUpdateCheckDone(true);
-    } finally {
-      setCheckingForUpdate(false);
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    setInstallingUpdate(true);
-    try {
-      const { installUpdate } = await import("@/services/updateManager");
-      await installUpdate();
-    } catch (err) {
-      console.error("Update install failed:", err);
-      setInstallingUpdate(false);
-    }
-  };
-
-  return (
-    <>
-      <Section title="App Info">
-        <InfoRow label="App version" value={appVersion || "..."} />
-        <InfoRow label="Tauri version" value={tauriVersion || "..."} />
-        <InfoRow label="WebView version" value={webviewVersion || "..."} />
-        <InfoRow label="Platform" value={platformLabel} />
-      </Section>
-
-      <Section title="Updates">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-sm text-text-secondary">Software updates</span>
-            {updateVersion && (
-              <p className="text-xs text-accent mt-0.5">
-                v{updateVersion} available
-              </p>
-            )}
-            {updateCheckDone && !updateVersion && (
-              <p className="text-xs text-success mt-0.5">Up to date</p>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {updateVersion ? (
-              <Button
-                variant="primary"
-                size="md"
-                icon={<Download size={14} />}
-                onClick={handleInstallUpdate}
-                disabled={installingUpdate}
-              >
-                {installingUpdate ? "Updating..." : "Update & Restart"}
-              </Button>
-            ) : (
-              <Button
-                variant="secondary"
-                size="md"
-                icon={<RefreshCw size={14} className={checkingForUpdate ? "animate-spin" : ""} />}
-                onClick={handleCheckForUpdate}
-                disabled={checkingForUpdate}
-                className="bg-bg-tertiary text-text-primary border border-border-primary"
-              >
-                {checkingForUpdate ? "Checking..." : "Check for Updates"}
-              </Button>
-            )}
-          </div>
-        </div>
-      </Section>
-
-      <Section title="Developer Tools">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-sm text-text-secondary">Open DevTools</span>
-            <p className="text-xs text-text-tertiary mt-0.5">
-              Open the WebView developer tools inspector
-            </p>
-          </div>
-          <Button
-            variant="secondary"
-            size="md"
-            onClick={async () => {
-              const { invoke } = await import("@tauri-apps/api/core");
-              await invoke("open_devtools");
-            }}
-            className="bg-bg-tertiary text-text-primary border border-border-primary"
-          >
-            Open DevTools
-          </Button>
-        </div>
-      </Section>
-    </>
-  );
-}
-
-function AboutTab() {
-  const [appVersion, setAppVersion] = useState("");
-
-  useEffect(() => {
-    import("@tauri-apps/api/app").then(({ getVersion }) =>
-      getVersion().then(setAppVersion),
-    );
-  }, []);
-
-  const openExternal = async (url: string) => {
-    const { openUrl } = await import("@tauri-apps/plugin-opener");
-    await openUrl(url);
-  };
-
-  return (
-    <>
-      <Section title={APP_NAME_EN}>
-        <div className="flex items-center gap-3 mb-2">
-          <img src={appIcon} alt={APP_NAME_EN} className="w-12 h-12 rounded-xl" />
-          <div>
-            <h3 className="text-base font-semibold text-text-primary">{APP_NAME_EN}</h3>
-            <p className="text-sm text-text-tertiary">
-              {appVersion ? `Version ${appVersion}` : "Loading..."}
-            </p>
-          </div>
-        </div>
-        <p className="text-sm text-text-secondary leading-relaxed">
-          A fast, open-source desktop email client built with privacy in mind. Your emails stay on your machine — no cloud, no tracking.
-        </p>
-      </Section>
-
-      <Section title="Links">
-        <div className="space-y-1">
-          <button
-            onClick={() => openExternal("https://office360.app")}
-            className="flex items-center gap-3 w-full px-4 py-2.5 rounded-lg bg-bg-secondary hover:bg-bg-hover transition-colors text-left"
-          >
-            <Globe size={16} className="text-text-tertiary shrink-0" />
-            <div className="min-w-0 flex-1">
-              <span className="text-sm text-text-primary">Website</span>
-              <p className="text-xs text-text-tertiary">office360.app</p>
-            </div>
-            <ExternalLink size={14} className="text-text-tertiary shrink-0" />
-          </button>
-
-          <button
-            onClick={() => openExternal("https://github.com/office360/office360")}
-            className="flex items-center gap-3 w-full px-4 py-2.5 rounded-lg bg-bg-secondary hover:bg-bg-hover transition-colors text-left"
-          >
-            <Github size={16} className="text-text-tertiary shrink-0" />
-            <div className="min-w-0 flex-1">
-              <span className="text-sm text-text-primary">GitHub Repository</span>
-              <p className="text-xs text-text-tertiary">office360/office360</p>
-            </div>
-            <ExternalLink size={14} className="text-text-tertiary shrink-0" />
-          </button>
-
-          <button
-            onClick={() => openExternal("mailto:info@office360.app")}
-            className="flex items-center gap-3 w-full px-4 py-2.5 rounded-lg bg-bg-secondary hover:bg-bg-hover transition-colors text-left"
-          >
-            <Mail size={16} className="text-text-tertiary shrink-0" />
-            <div className="min-w-0 flex-1">
-              <span className="text-sm text-text-primary">Contact</span>
-              <p className="text-xs text-text-tertiary">info@office360.app</p>
-            </div>
-            <ExternalLink size={14} className="text-text-tertiary shrink-0" />
-          </button>
-        </div>
-      </Section>
-
-      <Section title="License">
-        <div className="px-4 py-3 bg-bg-secondary rounded-lg">
-          <div className="flex items-center gap-2 mb-2">
-            <Scale size={15} className="text-text-tertiary" />
-            <span className="text-sm font-medium text-text-primary">Apache License 2.0</span>
-          </div>
-          <p className="text-xs text-text-secondary leading-relaxed mb-3">
-            Licensed under the Apache License, Version 2.0. You may obtain a copy of the License at{" "}
-            <button
-              onClick={() => openExternal("https://www.apache.org/licenses/LICENSE-2.0")}
-              className="text-accent hover:text-accent-hover transition-colors"
-            >
-              apache.org/licenses/LICENSE-2.0
-            </button>
-          </p>
-          <p className="text-xs text-text-tertiary leading-relaxed">
-            Copyright 2025 Office360. You may use, distribute, and modify this software under the terms of the Apache 2.0 license. This software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
-          </p>
-        </div>
-      </Section>
-    </>
-  );
-}
-
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm text-text-secondary">{label}</span>
-      <span className="text-sm text-text-primary font-mono">{value}</span>
-    </div>
-  );
-}
 
 function ShortcutsTab() {
   const keyMap = useShortcutStore((s) => s.keyMap);
@@ -2412,11 +2147,10 @@ function SidebarNavEditor() {
 
   const items: SidebarNavItem[] = (() => {
     if (!sidebarNavConfig) return ALL_NAV_ITEMS.map((i) => ({ id: i.id, visible: true }));
-    const normalized = migrateSidebarNavIds(sidebarNavConfig);
     // Append any ALL_NAV_ITEMS entries missing from saved config (e.g. newly added sections)
-    const savedIds = new Set(normalized.map((i) => i.id));
+    const savedIds = new Set(sidebarNavConfig.map((i) => i.id));
     const missing = ALL_NAV_ITEMS.filter((i) => !savedIds.has(i.id)).map((i) => ({ id: i.id, visible: true }));
-    return [...normalized, ...missing];
+    return [...sidebarNavConfig, ...missing];
   })();
   const navLookup = new Map(ALL_NAV_ITEMS.map((n) => [n.id, n]));
 

@@ -18,10 +18,6 @@ function useMatchesSafe() {
  */
 export function useActiveLabel(): string {
   const matches = useMatchesSafe();
-  const routeIds = new Set(matches.map((m) => m.routeId));
-  if (routeIds.has("/files/$tab")) return "files";
-  if (routeIds.has("/attachments")) return "files";
-  if (routeIds.has("/tasks")) return "tasks";
   for (const match of matches) {
     if (match.routeId === "/mail/$label" || match.routeId === "/mail/$label/thread/$threadId") {
       return (match.params as { label: string }).label;

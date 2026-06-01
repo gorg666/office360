@@ -73,7 +73,7 @@ export function getSmartFolderUnreadCount(
 
   // Replace SELECT ... FROM with SELECT COUNT(DISTINCT ...) FROM and remove LIMIT
   const countSql = baseSql
-    .replace(/SELECT DISTINCT[\s\S]*?(?=\bFROM\s)/i, "SELECT COUNT(DISTINCT m.id) as count ")
+    .replace(/SELECT DISTINCT[\s\S]*?(?=\bFROM\s)/i, "SELECT COUNT(DISTINCT m.thread_id) as count ")
     .replace(/ORDER BY[\s\S]*?(?=LIMIT|$)/i, "")
     .replace(/LIMIT \$\d+/i, "");
 
@@ -92,6 +92,8 @@ export interface SmartFolderRow {
   from_address: string | null;
   snippet: string | null;
   date: number;
+  /** Matching message read flag (0 = unread). */
+  is_read: number;
 }
 
 /**
@@ -124,7 +126,8 @@ export async function mapSmartFolderRows(rows: SmartFolderRow[]): Promise<Thread
         snippet: r.snippet,
         lastMessageAt: r.date,
         messageCount: dbThread?.message_count ?? 1,
-        isRead: dbThread ? dbThread.is_read === 1 : false,
+        // List row is tied to a specific message; unread folders must not inherit thread-level read state.
+        isRead: r.is_read === 1,
         isStarred: dbThread ? dbThread.is_starred === 1 : false,
         isPinned: dbThread ? dbThread.is_pinned === 1 : false,
         isMuted: dbThread ? dbThread.is_muted === 1 : false,

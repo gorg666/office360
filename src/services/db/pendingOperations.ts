@@ -131,6 +131,46 @@ export async function getFailedOpsCount(accountId?: string): Promise<number> {
   return rows[0]?.count ?? 0;
 }
 
+const OUTBOX_SEND_STATUSES = ["pending", "executing", "failed"] as const;
+
+/** Pending/failed send operations for the Outbox view (sendMessage only). */
+export async function getOutboxSendOperations(
+  accountId?: string,
+  limit = 100,
+): Promise<PendingOperation[]> {
+  const db = await getDb();
+  const statusPlaceholders = OUTBOX_SEND_STATUSES.map((_, i) => `$${i + 1}`).join(", ");
+  if (accountId) {
+    return db.select<PendingOperation[]>(
+      `SELECT * FROM pending_operations
+       WHERE account_id = $${OUTBOX_SEND_STATUSES.length + 1}
+         AND operation_type = 'sendMessage'
+         AND status IN (${statusPlaceholders})
+       ORDER BY created_at DESC
+       LIMIT $${OUTBOX_SEND_STATUSES.length + 2}`,
+      [...OUTBOX_SEND_STATUSES, accountId, limit],
+    );
+  }
+  return db.select<PendingOperation[]>(
+    `SELECT * FROM pending_operations
+     WHERE operation_type = 'sendMessage'
+       AND status IN (${statusPlaceholders})
+     ORDER BY created_at DESC
+     LIMIT $${OUTBOX_SEND_STATUSES.length + 1}`,
+    [...OUTBOX_SEND_STATUSES, limit],
+  );
+}
+
+export async function retryOutboxOperation(id: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `UPDATE pending_operations
+     SET status = 'pending', retry_count = 0, next_retry_at = NULL, error_message = NULL
+     WHERE id = $1 AND operation_type = 'sendMessage'`,
+    [id],
+  );
+}
+
 export async function getPendingOpsForResource(
   accountId: string,
   resourceId: string,

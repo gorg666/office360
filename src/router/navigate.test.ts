@@ -17,9 +17,11 @@ vi.mock("./index", () => ({
 }));
 
 const mockSetMessengersPanelsOpen = vi.fn();
+let mockMessengersPanelsOpen = false;
 vi.mock("@/stores/uiStore", () => ({
   useUIStore: {
     getState: () => ({
+      messengersPanelsOpen: mockMessengersPanelsOpen,
       setMessengersPanelsOpen: mockSetMessengersPanelsOpen,
     }),
   },
@@ -29,6 +31,7 @@ import {
   navigateToLabel,
   navigateToThread,
   navigateToSettings,
+  navigateBackFromSettings,
   navigateBack,
   getActiveLabel,
   getSelectedThreadId,
@@ -38,6 +41,7 @@ describe("navigate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSetMessengersPanelsOpen.mockClear();
+    mockMessengersPanelsOpen = false;
     mockState.location = { pathname: "/mail/inbox", search: {} };
     mockState.matches = [];
   });
@@ -89,30 +93,6 @@ describe("navigate", () => {
     it("should navigate to calendar", () => {
       navigateToLabel("calendar");
       expect(mockNavigate).toHaveBeenCalledWith({ to: "/calendar" });
-    });
-
-    it("should navigate to files (incoming by default)", () => {
-      navigateToLabel("files");
-      expect(mockNavigate).toHaveBeenCalledWith({
-        to: "/files/$tab",
-        params: { tab: "incoming" },
-      });
-    });
-
-    it("should navigate to files outgoing tab", () => {
-      navigateToLabel("files", { filesTab: "outgoing" });
-      expect(mockNavigate).toHaveBeenCalledWith({
-        to: "/files/$tab",
-        params: { tab: "outgoing" },
-      });
-    });
-
-    it("should map legacy attachments label to files incoming", () => {
-      navigateToLabel("attachments");
-      expect(mockNavigate).toHaveBeenCalledWith({
-        to: "/files/$tab",
-        params: { tab: "incoming" },
-      });
     });
 
     it("should navigate to smart folders", () => {
@@ -234,6 +214,51 @@ describe("navigate", () => {
         params: { tab: "ai" },
       });
     });
+
+    it("should not overwrite return snapshot when switching settings tabs", () => {
+      mockState.location.pathname = "/mail/outbox";
+      navigateToSettings();
+      mockState.location.pathname = "/settings/general";
+      navigateToSettings("ai");
+      navigateBackFromSettings();
+      expect(mockNavigate).toHaveBeenLastCalledWith({
+        to: "/mail/$label",
+        params: { label: "outbox" },
+        search: {},
+      });
+    });
+  });
+
+  describe("navigateBackFromSettings", () => {
+    it("should return to the route captured before opening settings", () => {
+      mockState.location.pathname = "/attachments";
+      navigateToSettings();
+      navigateBackFromSettings();
+      expect(mockNavigate).toHaveBeenLastCalledWith({ to: "/attachments" });
+    });
+
+    it("should restore messengers panel state when captured from mail shell", () => {
+      mockState.location.pathname = "/mail/inbox";
+      mockMessengersPanelsOpen = true;
+      navigateToSettings();
+      navigateBackFromSettings();
+      expect(mockSetMessengersPanelsOpen).toHaveBeenCalledWith(true);
+      expect(mockNavigate).toHaveBeenLastCalledWith({
+        to: "/mail/$label",
+        params: { label: "inbox" },
+        search: {},
+      });
+    });
+
+    it("should fall back to inbox when no snapshot exists", () => {
+      mockState.location.pathname = "/settings/general";
+      navigateBackFromSettings();
+      expect(mockSetMessengersPanelsOpen).toHaveBeenCalledWith(false);
+      expect(mockNavigate).toHaveBeenLastCalledWith({
+        to: "/mail/$label",
+        params: { label: "inbox" },
+      });
+    });
   });
 
   describe("navigateBack", () => {
@@ -330,19 +355,6 @@ describe("navigate", () => {
     it("should return 'calendar' from calendar route", () => {
       mockState.matches = [{ routeId: "/calendar", params: {} }];
       expect(getActiveLabel()).toBe("calendar");
-    });
-
-    it("should return 'files' from files route", () => {
-      mockState.matches = [
-        { routeId: "__root__", params: {} },
-        { routeId: "/files/$tab", params: { tab: "incoming" } },
-      ];
-      expect(getActiveLabel()).toBe("files");
-    });
-
-    it("should return 'tasks' from tasks route", () => {
-      mockState.matches = [{ routeId: "/tasks", params: {} }];
-      expect(getActiveLabel()).toBe("tasks");
     });
 
     it("should return 'inbox' as fallback", () => {

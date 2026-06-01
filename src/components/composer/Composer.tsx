@@ -4,7 +4,7 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
-import { Clock, Maximize2, Minimize2, ExternalLink } from "lucide-react";
+import { Clock } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { AddressInput } from "./AddressInput";
@@ -15,9 +15,11 @@ import { ScheduleSendDialog } from "./ScheduleSendDialog";
 import { SignatureSelector } from "./SignatureSelector";
 import { TemplatePicker } from "./TemplatePicker";
 import { FromSelector } from "./FromSelector";
+import { ComposerHeader } from "./ComposerHeader";
 import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
+import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { sendEmail, archiveThread, deleteDraft as deleteDraftAction } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
 import { buildReplyHeadersForMessageId } from "@/utils/replyHeaders";
@@ -28,6 +30,7 @@ import { getDefaultSignature } from "@/services/db/signatures";
 import { getAliasesForAccount, mapDbAlias, type SendAsAlias } from "@/services/db/sendAsAliases";
 import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
 import { resolveFromAddress } from "@/utils/resolveFromAddress";
+import { openComposeWindow, isComposeStandaloneWindow } from "@/utils/openComposeWindow";
 import { startAutoSave, stopAutoSave } from "@/services/composer/draftAutoSave";
 import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates";
 import { readFileAsBase64 } from "@/utils/fileUtils";
@@ -82,6 +85,7 @@ export function Composer() {
   const setFromEmail = useComposerStore((s) => s.setFromEmail);
   const setViewMode = useComposerStore((s) => s.setViewMode);
   const addAttachment = useComposerStore((s) => s.addAttachment);
+  const openContextMenu = useContextMenuStore((s) => s.openMenu);
 
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const accounts = useAccountStore((s) => s.accounts);
@@ -277,6 +281,20 @@ export function Composer() {
     }
   }, [addAttachment]);
 
+  const isStandalone = isComposeStandaloneWindow();
+
+  const closeComposerSurface = useCallback(async () => {
+    closeComposer();
+    if (!isStandalone) return;
+
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().close();
+    } catch {
+      // Browser dev fallback
+    }
+  }, [closeComposer, isStandalone]);
+
   const getFullHtml = useCallback(() => {
     const editorHtml = editor?.getHTML() ?? "";
     if (!signatureHtml) return editorHtml;
@@ -348,8 +366,8 @@ export function Composer() {
     }, delay);
 
     state.setUndoSendTimer(timer);
-    closeComposer();
-  }, [activeAccountId, activeAccount, closeComposer, getFullHtml]);
+    void closeComposerSurface();
+  }, [activeAccountId, activeAccount, closeComposerSurface, getFullHtml]);
 
   const handleSchedule = useCallback(async (scheduledAt: number) => {
     if (!activeAccountId || !activeAccount) return;
@@ -407,8 +425,8 @@ export function Composer() {
     }
 
     setShowSchedule(false);
-    closeComposer();
-  }, [activeAccountId, activeAccount, closeComposer, getFullHtml]);
+    await closeComposerSurface();
+  }, [activeAccountId, activeAccount, closeComposerSurface, getFullHtml]);
 
   const handleDiscard = useCallback(async () => {
     stopAutoSave();
@@ -419,49 +437,41 @@ export function Composer() {
         await deleteDraftAction(activeAccountId, currentDraftId);
       } catch { /* ignore */ }
     }
-    closeComposer();
-  }, [activeAccountId, closeComposer]);
+    await closeComposerSurface();
+  }, [activeAccountId, closeComposerSurface]);
 
   const handlePopOutComposer = useCallback(async () => {
-    try {
-      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      const state = useComposerStore.getState();
-      const params = new URLSearchParams();
-      params.set("compose", "true");
-      params.set("mode", state.mode);
-      if (state.to.length > 0) params.set("to", state.to.join(","));
-      if (state.cc.length > 0) params.set("cc", state.cc.join(","));
-      if (state.bcc.length > 0) params.set("bcc", state.bcc.join(","));
-      if (state.subject) params.set("subject", state.subject);
-      if (state.threadId) params.set("threadId", state.threadId);
-      if (state.inReplyToMessageId) params.set("inReplyToMessageId", state.inReplyToMessageId);
-      if (state.draftId) params.set("draftId", state.draftId);
-      if (state.fromEmail) params.set("fromEmail", state.fromEmail);
-      // Encode body as base64 to safely pass HTML
-      const bodyHtml = editor?.getHTML() ?? "";
-      if (bodyHtml) params.set("body", btoa(unescape(encodeURIComponent(bodyHtml))));
+    const state = useComposerStore.getState();
+    const bodyHtml = editor?.getHTML() ?? state.bodyHtml;
+    const result = await openComposeWindow({
+      mode: state.mode,
+      to: state.to,
+      cc: state.cc,
+      bcc: state.bcc,
+      subject: state.subject,
+      bodyHtml,
+      threadId: state.threadId,
+      inReplyToMessageId: state.inReplyToMessageId,
+      draftId: state.draftId,
+      fromEmail: state.fromEmail,
+      title: state.subject || undefined,
+    });
 
-      const windowLabel = `compose-${Date.now()}`;
-      const existing = await WebviewWindow.getByLabel(windowLabel);
-      if (existing) {
-        await existing.setFocus();
-        return;
-      }
-
-      new WebviewWindow(windowLabel, {
-        url: `index.html?${params.toString()}`,
-        title: state.subject || "Новое сообщение",
-        width: 700,
-        height: 650,
-        center: true,
-      });
-
+    if (result !== "fallback") {
       stopAutoSave();
-      closeComposer();
-    } catch (err) {
-      console.error("Failed to pop out composer:", err);
+      void closeComposerSurface();
     }
-  }, [editor, closeComposer]);
+  }, [editor, closeComposerSurface]);
+
+  const handleEditorContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!editor) return;
+    const target = e.target as HTMLElement;
+    if (!target.closest(".ProseMirror")) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    openContextMenu("composerEditor", { x: e.clientX, y: e.clientY }, { editor });
+  }, [editor, openContextMenu]);
 
   const isFullpage = viewMode === "fullpage";
 
@@ -482,18 +492,18 @@ export function Composer() {
 
   return (
     <CSSTransition nodeRef={overlayRef} in={isOpen} timeout={200} classNames="slide-up" unmountOnExit>
-    <div ref={overlayRef} className={`fixed inset-0 z-50 flex ${isFullpage ? "items-stretch justify-center p-4" : "items-end justify-center pb-4"} pointer-events-none`}>
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 pointer-events-auto backdrop-animate"
-        onClick={closeComposer}
-      />
+    <div ref={overlayRef} className={`fixed inset-0 z-50 flex ${isFullpage ? "items-stretch justify-center" : "items-end justify-center pb-4"} ${isFullpage && !isStandalone ? "p-4" : ""} pointer-events-none`}>
+      {/* No fullscreen dim/blur layer: avoids “disabled app” look while clicks pass through to the main UI */}
 
       {/* Composer window */}
       <div
-        className={`relative bg-bg-primary border rounded-lg glass-modal pointer-events-auto flex flex-col slide-up-panel ${
-          isFullpage ? "w-full h-full max-w-5xl" : "w-full max-w-2xl max-h-[80vh]"
-        } ${isDragging ? "border-accent border-2" : "border-border-primary"}`}
+        className={`relative bg-bg-primary glass-modal pointer-events-auto flex flex-col slide-up-panel ${
+          isStandalone
+            ? "w-full h-full border-0 rounded-none"
+            : isFullpage
+              ? "w-full h-full max-w-5xl border rounded-lg"
+              : "w-full max-w-2xl max-h-[80vh] border rounded-lg"
+        } ${isDragging ? "border-accent border-2" : isStandalone ? "" : "border-border-primary"}`}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
@@ -505,34 +515,13 @@ export function Composer() {
           </div>
         )}
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border-primary bg-bg-secondary rounded-t-lg">
-          <span className="text-sm font-medium text-text-primary">
-            {modeLabel}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setViewMode(isFullpage ? "modal" : "fullpage")}
-              className="text-text-tertiary hover:text-text-primary p-1 rounded transition-colors"
-              title={isFullpage ? "Свернуть" : "Развернуть"}
-            >
-              {isFullpage ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            </button>
-            <button
-              onClick={handlePopOutComposer}
-              className="text-text-tertiary hover:text-text-primary p-1 rounded transition-colors"
-              title="Открыть в новом окне"
-            >
-              <ExternalLink size={14} />
-            </button>
-            <button
-              onClick={closeComposer}
-              className="text-text-tertiary hover:text-text-primary text-lg leading-none p-1"
-            >
-              ×
-            </button>
-          </div>
-        </div>
+        <ComposerHeader
+          modeLabel={modeLabel}
+          isFullpage={isFullpage}
+          onToggleViewMode={() => setViewMode(isFullpage ? "modal" : "fullpage")}
+          onPopOut={handlePopOutComposer}
+          onCloseEmbedded={closeComposer}
+        />
 
         {/* Address fields */}
         <div className="px-3 py-2 space-y-1.5 border-b border-border-secondary">
@@ -590,7 +579,7 @@ export function Composer() {
         )}
 
         {/* Editor */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" onContextMenu={handleEditorContextMenu}>
           <EditorContent editor={editor} />
           {signatureHtml && (
             <div

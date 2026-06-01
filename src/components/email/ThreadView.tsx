@@ -27,36 +27,7 @@ import { RawMessageModal } from "./RawMessageModal";
 import { getContactDisplayNameMap } from "@/services/db/contacts";
 import { normalizeEmail } from "@/utils/emailUtils";
 import { resolveContactHeaderName } from "@/utils/senderDisplay";
-
-async function handlePopOut(thread: Thread) {
-  try {
-    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    const windowLabel = `thread-${thread.id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-    const url = `index.html?thread=${encodeURIComponent(thread.id)}&account=${encodeURIComponent(thread.accountId)}`;
-
-    // Check if window already exists
-    const existing = await WebviewWindow.getByLabel(windowLabel);
-    if (existing) {
-      await existing.setFocus();
-      return;
-    }
-
-    const win = new WebviewWindow(windowLabel, {
-      url,
-      title: thread.subject ?? "Thread",
-      width: 800,
-      height: 700,
-      center: true,
-      dragDropEnabled: false,
-    });
-
-    win.once("tauri://error", (e) => {
-      console.error("Failed to create pop-out window:", e);
-    });
-  } catch (err) {
-    console.error("Failed to open pop-out window:", err);
-  }
-}
+import { openThreadPopOut } from "@/utils/openThreadWindow";
 
 function needsImapHydration(msg: DbMessage): boolean {
   if (msg.imap_uid == null || !msg.imap_folder) return false;
@@ -557,7 +528,9 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
           onForward={handleForward}
           onPrint={handlePrint}
           onExport={handleExport}
-          onPopOut={() => handlePopOut(thread)}
+          onPopOut={() => {
+            void openThreadPopOut(thread);
+          }}
           onToggleContactSidebar={toggleContactSidebar}
           onToggleTaskSidebar={() => useUIStore.getState().toggleTaskSidebar()}
         />

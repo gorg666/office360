@@ -532,6 +532,20 @@ const ru: Record<string, string> = {
   "Tauri version": "Версия Tauri",
   "WebView version": "Версия WebView",
   "Platform": "Платформа",
+  "Check and install client updates": "Проверка и установка обновлений клиента",
+  "Up to date": "Установлена актуальная версия",
+  "Click \"Check for Updates\" to find a new version.": "Нажмите «Проверить обновления», чтобы найти новую версию.",
+  "Update & Restart": "Обновить и перезапустить",
+  "Corporate desktop email client for work. Mail and settings stay on your device — no cloud profile sync.": "Корпоративный почтовый клиент для рабочего стола. Письма и настройки остаются на вашем устройстве — без облачной синхронизации профиля.",
+  "Upload a custom image for the interface. It will be used in the theme preview.": "Загрузите собственное изображение для оформления интерфейса. Оно будет использоваться в предпросмотре темы.",
+  "This token does not include SMTP access. Use an app password or sign in again with the required permissions.": "У токена нет доступа к SMTP. Используйте пароль приложения или повторите вход с нужными правами.",
+  "For Yandex Mail you may need an app password. Enable app passwords in Yandex ID security settings and use it instead of your account password.": "Для Яндекс Почты может потребоваться пароль приложения. Создайте пароль приложения в настройках Яндекса и используйте его вместо обычного пароля.",
+  "Yandex ID connected, but mail permissions are missing.": "Яндекс ID подключён, но нет прав на почту.",
+  "Mail permissions are required to sync and send email.": "Для синхронизации и отправки писем нужны права на почту.",
+  "Sign in again with mail access enabled, or use an app password with manual IMAP/SMTP setup.": "Войдите снова с доступом к почте или используйте пароль приложения с ручной настройкой IMAP/SMTP.",
+  "Sign in again": "Войти снова",
+  "Use app password": "Пароль приложения",
+  "Set up manually": "Настроить вручную",
 };
 
 const enOverrides: Record<string, string> = {
@@ -570,6 +584,26 @@ function translatePattern(trimmed: string, locale: AppLocale) {
     if (officeUnread) return `Офис360 - непрочитанных: ${officeUnread[1]}`;
     const update = trimmed.match(/^Office360 v(.+) is available$/);
     if (update) return `Доступна версия Офис360 v${update[1]}`;
+    const vAvailable = trimmed.match(/^v(.+) available$/);
+    if (vAvailable) return `Доступна версия ${vAvailable[1]}`;
+    const smtpTestIncomplete = trimmed.match(
+      /^SMTP test did not complete within (\d+) seconds\. Check server, port, SSL\/TLS, and auth method\.$/,
+    );
+    if (smtpTestIncomplete) {
+      return `SMTP-проверка не завершилась за ${smtpTestIncomplete[1]} сек. Проверьте сервер, порт, SSL/TLS и способ входа.`;
+    }
+    const smtpTestTimedOut = trimmed.match(
+      /^SMTP test timed out after (\d+) seconds\. Check server, port, SSL\/TLS, and sign-in method\.$/,
+    );
+    if (smtpTestTimedOut) {
+      return `SMTP-проверка не завершилась за ${smtpTestTimedOut[1]} сек. Проверьте сервер, порт, SSL/TLS и способ входа.`;
+    }
+    const smtpRefused = trimmed.match(
+      /^SMTP server (.+):(\d+) refused the TCP connection\. Check port and security type: for Yandex Mail use smtp\.yandex\.ru, port 465, SSL\/TLS\. If settings are correct, the port may be blocked by network, VPN, proxy, or antivirus\.$/,
+    );
+    if (smtpRefused) {
+      return `SMTP-сервер ${smtpRefused[1]}:${smtpRefused[2]} отверг TCP-подключение. Проверьте порт и тип защиты: для Яндекса обычно smtp.yandex.ru, порт 465, SSL/TLS. Если настройки верные, порт блокируется сетью, VPN, прокси или антивирусом.`;
+    }
     const inboxCategory = trimmed.match(/^Inbox — (.+)$/);
     if (inboxCategory) return `Входящие — ${translateText(inboxCategory[1] ?? "", locale)}`;
     const conversations = trimmed.match(/^(\d+) conversations?$/);
