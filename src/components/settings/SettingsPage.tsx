@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useUIStore } from "@/stores/uiStore";
-import { navigateBackFromSettings, navigateToSettings } from "@/router/navigate";
+import { navigateBackFromSettings, navigateToRepairCenter, navigateToSettings } from "@/router/navigate";
 import { useAccountStore } from "@/stores/accountStore";
 import { getSetting, setSetting, getSecureSetting, setSecureSetting } from "@/services/db/settings";
 import { PROVIDER_MODELS } from "@/services/ai/types";
@@ -1214,6 +1214,12 @@ export function SettingsPage() {
                                   {resyncStatus[account.id] === "done" && "Done!"}
                                   {resyncStatus[account.id] === "error" && "Failed"}
                                   {(!resyncStatus[account.id] || resyncStatus[account.id] === "idle") && "Resync"}
+                                </button>
+                                <button
+                                  onClick={() => navigateToRepairCenter(account.id)}
+                                  className="text-xs text-accent hover:text-accent-hover transition-colors"
+                                >
+                                  Repair
                                 </button>
                                 <button
                                   onClick={() => handleRemoveAccount(account.id)}

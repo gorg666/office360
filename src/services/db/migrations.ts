@@ -804,6 +804,33 @@ const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_tasks_start_at ON tasks(start_at);
     `,
   },
+  {
+    version: 26,
+    description: "Account connection diagnostics",
+    sql: `
+      CREATE TABLE IF NOT EXISTS account_diagnostics (
+        id TEXT PRIMARY KEY,
+        account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL,
+        layer TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        retryable INTEGER NOT NULL DEFAULT 0,
+        retry_state TEXT NOT NULL DEFAULT 'idle',
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        user_action TEXT NOT NULL,
+        user_message TEXT NOT NULL,
+        debug_code TEXT NOT NULL,
+        raw_cause TEXT,
+        occurred_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(account_id, layer, operation)
+      );
+      CREATE INDEX IF NOT EXISTS idx_account_diagnostics_account ON account_diagnostics(account_id, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_account_diagnostics_layer ON account_diagnostics(layer, updated_at DESC);
+    `,
+  },
 ];
 
 /**

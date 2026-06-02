@@ -18,9 +18,13 @@ function isSettingsPath(pathname: string): boolean {
   return /^\/settings(\/|$)/.test(pathname);
 }
 
+function isRepairPath(pathname: string): boolean {
+  return /^\/repair(\/|$)/.test(pathname);
+}
+
 function captureSettingsReturnLocation(): void {
   const { pathname, search } = router.state.location;
-  if (isSettingsPath(pathname)) return;
+  if (isSettingsPath(pathname) || isRepairPath(pathname)) return;
 
   settingsReturnSnapshot = {
     pathname,
@@ -74,6 +78,11 @@ export function navigateToLabel(
 
   if (label === "help") {
     router.navigate({ to: "/help/$topic", params: { topic: "getting-started" } });
+    return;
+  }
+
+  if (label === "repair") {
+    navigateToRepairCenter();
     return;
   }
 
@@ -188,8 +197,9 @@ export function navigateToSettings(tab = "general"): void {
 export function navigateBackFromSettings(): void {
   const snapshot = settingsReturnSnapshot;
   settingsReturnSnapshot = null;
+  const currentPathname = router.state.location.pathname;
 
-  if (!snapshot || isSettingsPath(snapshot.pathname)) {
+  if (!snapshot || (isSettingsPath(snapshot.pathname) && !isRepairPath(currentPathname))) {
     navigateToInboxFallback();
     return;
   }
@@ -198,6 +208,16 @@ export function navigateBackFromSettings(): void {
 
   const { pathname } = snapshot;
   const search = snapshot.search as Record<string, string>;
+
+  const settingsMatch = pathname.match(/^\/settings(?:\/([^/]+))?$/);
+  if (settingsMatch) {
+    router.navigate({
+      to: "/settings/$tab",
+      params: { tab: settingsMatch[1] ?? "general" },
+      search,
+    });
+    return;
+  }
 
   const mailThreadMatch = pathname.match(/^\/mail\/([^/]+)\/thread\/([^/]+)$/);
   if (mailThreadMatch) {
@@ -274,6 +294,21 @@ export function navigateBackFromSettings(): void {
     return;
   }
 
+  if (pathname === "/repair") {
+    router.navigate({ to: "/repair" });
+    return;
+  }
+
+  const repairMatch = pathname.match(/^\/repair\/([^/]+)$/);
+  if (repairMatch) {
+    router.navigate({
+      to: "/repair/$accountId",
+      params: { accountId: repairMatch[1]! },
+      search,
+    });
+    return;
+  }
+
   const helpMatch = pathname.match(/^\/help(?:\/([^/]+))?$/);
   if (helpMatch) {
     router.navigate({
@@ -285,6 +320,27 @@ export function navigateBackFromSettings(): void {
   }
 
   navigateToInboxFallback();
+}
+
+export function navigateToRepairCenter(accountId?: string): void {
+  const { pathname, search } = router.state.location;
+  if (!isRepairPath(pathname)) {
+    settingsReturnSnapshot = {
+      pathname,
+      search: { ...(search as Record<string, unknown>) },
+      messengersPanelsOpen: useUIStore.getState().messengersPanelsOpen,
+    };
+  }
+
+  if (accountId) {
+    router.navigate({ to: "/repair/$accountId", params: { accountId } });
+  } else {
+    router.navigate({ to: "/repair" });
+  }
+}
+
+export function navigateBackFromRepair(): void {
+  navigateBackFromSettings();
 }
 
 /**
@@ -362,6 +418,9 @@ export function getActiveLabel(): string {
     }
     if (match.routeId === "/calendar") {
       return "calendar";
+    }
+    if (match.routeId === "/repair" || match.routeId === "/repair/$accountId") {
+      return "repair";
     }
     if (match.routeId === "/help/$topic" || match.routeId === "/help") {
       return "help";

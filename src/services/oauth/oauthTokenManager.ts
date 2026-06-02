@@ -2,6 +2,8 @@ import type { DbAccount } from "../db/accounts";
 import { updateAccountTokens } from "../db/accounts";
 import { getOAuthProvider } from "./providers";
 import { refreshProviderToken } from "./oauthFlow";
+import { clearAccountDiagnostic, upsertAccountDiagnostic } from "../db/accountDiagnostics";
+import { createConnectionDiagnostic } from "../diagnostics";
 
 /** Buffer before expiry to trigger a refresh (5 minutes) */
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -57,16 +59,36 @@ export async function ensureFreshToken(account: DbAccount): Promise<string> {
     throw new Error(`OAuth account ${account.email} has no client ID`);
   }
 
-  const tokens = await refreshProviderToken(
-    provider,
-    account.refresh_token,
-    account.oauth_client_id,
-    account.oauth_client_secret ?? undefined,
-  );
+  let tokens: Awaited<ReturnType<typeof refreshProviderToken>>;
+  try {
+    tokens = await refreshProviderToken(
+      provider,
+      account.refresh_token,
+      account.oauth_client_id,
+      account.oauth_client_secret ?? undefined,
+    );
+  } catch (err) {
+    const diagnostic = createConnectionDiagnostic(err, {
+      accountId: account.id,
+      provider: account.provider,
+      layer: "oauth",
+      operation: "refresh",
+      authMethod: account.auth_method,
+    });
+    await upsertAccountDiagnostic(diagnostic).catch((dbErr) => {
+      console.warn("[diagnostics] Failed to persist OAuth diagnostic:", dbErr);
+    });
+    throw err;
+  }
+
+  if (!tokens.access_token) {
+    throw new Error(`OAuth provider did not return an access token for ${account.email}`);
+  }
 
   const newExpiresAt = Math.floor(Date.now() / 1000) + tokens.expires_in;
 
   await updateAccountTokens(account.id, tokens.access_token, newExpiresAt);
+  await clearAccountDiagnostic(account.id, "oauth", "refresh").catch(() => {});
 
   console.warn("[reconnect-diagnostic]", {
     ts: new Date().toISOString(),

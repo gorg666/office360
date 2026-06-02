@@ -112,6 +112,9 @@ export async function reauthorizeAccount(
       "Google did not return a refresh token. Please revoke app access at https://myaccount.google.com/permissions and try again.",
     );
   }
+  if (!tokens.access_token) {
+    throw new Error("Google did not return an access token. Please try again.");
+  }
   const expiresAt = getCurrentUnixTimestamp() + tokens.expires_in;
   await updateAccountAllTokens(accountId, tokens.access_token, refreshToken, expiresAt);
 
