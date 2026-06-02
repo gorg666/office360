@@ -1,6 +1,6 @@
 ---
 name: office360-agent-handoff
-description: Use when Office360 Mail work needs a structured handoff between lead, analyst, developer, tester, and GitVerse publisher roles without losing scope, ownership, verification, security review, wiki updates, smoke status, or unresolved questions.
+description: "Use when Office360 Mail work needs a structured handoff between lead, analyst, developer, tester, and GitVerse publisher roles without losing scope, ownership, verification, security review, wiki updates, smoke status, or unresolved questions."
 ---
 
 # Office360 Agent Handoff

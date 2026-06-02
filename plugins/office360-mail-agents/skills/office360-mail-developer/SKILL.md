@@ -1,6 +1,6 @@
 ---
 name: office360-mail-developer
-description: Use when implementing production Office360 Mail changes in the Tauri React TypeScript frontend, Rust backend, provider integrations, local database, packaging, security, privacy, or product documentation. Focuses on senior stack judgment, current primary-source knowledge, and safe implementation.
+description: "Use when implementing production Office360 Mail changes in the Tauri React TypeScript frontend, Rust backend, provider integrations, local database, packaging, security, privacy, or product documentation. Focuses on senior stack judgment, current primary-source knowledge, and safe implementation."
 ---
 
 # Office360 Mail Developer

@@ -1,6 +1,6 @@
 ---
 name: office360-gitverse-cli
-description: Use when operating GitVerse through the gvc CLI for Office360 Mail: inspecting repository context, automating read-only workflows, creating pull requests, checking workflow runs, or using machine-readable gvc output safely after tester approval.
+description: "Use when operating GitVerse through the gvc CLI for Office360 Mail: inspecting repository context, automating read-only workflows, creating pull requests, checking workflow runs, or using machine-readable gvc output safely after tester approval."
 ---
 
 # Office360 GitVerse CLI
