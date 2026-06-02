@@ -30,6 +30,7 @@ import { getOAuthProvider } from "@/services/oauth/providers";
 import { getYandexOAuthConfigDiagnostics } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
 import { getSetting } from "@/services/db/settings";
+import { createConnectionDiagnostic, type ConnectionDiagnostic } from "@/services/diagnostics";
 
 interface AddImapAccountProps {
   onClose: () => void;
@@ -120,6 +121,7 @@ const stepIcons: Record<Step, React.ReactNode> = {
 interface TestStatus {
   state: "idle" | "testing" | "success" | "error";
   message?: string;
+  diagnostic?: ConnectionDiagnostic;
 }
 
 const inputClass =
@@ -599,8 +601,13 @@ export function AddImapAccount({
       );
       setImapTest({ state: "success", message: result });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setImapTest({ state: "error", message });
+      const diagnostic = createConnectionDiagnostic(err, {
+        layer: "imap",
+        operation: "test_connection",
+        provider: "imap",
+        authMethod: form.authMode,
+      });
+      setImapTest({ state: "error", message: diagnostic.userMessage, diagnostic });
     }
   };
 
@@ -643,7 +650,13 @@ export function AddImapAccount({
         const scopes = parseScopeSet(form.oauthGrantedScopes);
         if (!scopes.has("mail:smtp")) {
           const msg = SMTP_SCOPE_MISSING;
-          setSmtpTest({ state: "error", message: msg });
+          const diagnostic = createConnectionDiagnostic("missing SMTP scope mail:smtp", {
+            layer: "smtp",
+            operation: "test_connection",
+            provider: "imap",
+            authMethod: form.authMode,
+          });
+          setSmtpTest({ state: "error", message: msg, diagnostic: { ...diagnostic, userMessage: msg } });
           logSmtpDiag("error", msg);
           return;
         }
@@ -678,7 +691,13 @@ export function AddImapAccount({
           smtpHost,
           smtpPort,
         });
-        setSmtpTest({ state: "error", message });
+        const diagnostic = createConnectionDiagnostic(rawMsg, {
+          layer: "smtp",
+          operation: "test_connection",
+          provider: "imap",
+          authMethod: form.authMode,
+        });
+        setSmtpTest({ state: "error", message, diagnostic: { ...diagnostic, userMessage: message } });
         logSmtpDiag("error", message);
         return;
       }
@@ -695,7 +714,13 @@ export function AddImapAccount({
         smtpHost,
         smtpPort,
       });
-      setSmtpTest({ state: "error", message });
+      const diagnostic = createConnectionDiagnostic(raw, {
+        layer: "smtp",
+        operation: "test_connection",
+        provider: "imap",
+        authMethod: form.authMode,
+      });
+      setSmtpTest({ state: "error", message, diagnostic: { ...diagnostic, userMessage: message } });
       logSmtpDiag("error", message);
     }
   };

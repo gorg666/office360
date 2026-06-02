@@ -28,6 +28,10 @@ vi.mock("@/services/db/pendingOperations", () => ({
   enqueuePendingOperation: vi.fn(() => Promise.resolve("op-1")),
 }));
 
+vi.mock("@/services/db/accountDiagnostics", () => ({
+  upsertAccountDiagnostic: vi.fn(() => Promise.resolve()),
+}));
+
 vi.mock("@/services/db/connection", () => ({
   getDb: vi.fn(() =>
     Promise.resolve({

@@ -19,6 +19,10 @@ vi.mock("../emailActions", () => ({
   executeQueuedAction: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock("../db/accountDiagnostics", () => ({
+  upsertAccountDiagnostic: vi.fn(() => Promise.resolve()),
+}));
+
 vi.mock("@/utils/networkErrors", () => ({
   classifyError: vi.fn(() => ({
     type: "permanent",

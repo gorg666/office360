@@ -12,6 +12,11 @@ vi.mock("./oauthFlow", () => ({
   refreshProviderToken: vi.fn(),
 }));
 
+vi.mock("../db/accountDiagnostics", () => ({
+  clearAccountDiagnostic: vi.fn(() => Promise.resolve()),
+  upsertAccountDiagnostic: vi.fn(() => Promise.resolve()),
+}));
+
 import { ensureFreshToken } from "./oauthTokenManager";
 import { updateAccountTokens } from "../db/accounts";
 import { getOAuthProvider } from "./providers";
@@ -126,5 +131,23 @@ describe("ensureFreshToken", () => {
     });
     vi.mocked(getOAuthProvider).mockReturnValue(null);
     await expect(ensureFreshToken(account)).rejects.toThrow("Unknown OAuth provider");
+  });
+
+  it("throws when refresh response has no access token", async () => {
+    const account = createMockDbAccount({
+      ...oauthOverrides,
+      token_expires_at: Math.floor(Date.now() / 1000) - 60,
+    });
+
+    const mockProvider = { id: "microsoft", name: "Microsoft" };
+    vi.mocked(getOAuthProvider).mockReturnValue(mockProvider as ReturnType<typeof getOAuthProvider>);
+    vi.mocked(refreshProviderToken).mockResolvedValue({
+      access_token: "",
+      expires_in: 3600,
+      token_type: "Bearer",
+    });
+
+    await expect(ensureFreshToken(account)).rejects.toThrow("did not return an access token");
+    expect(updateAccountTokens).not.toHaveBeenCalled();
   });
 });

@@ -2,6 +2,27 @@
 
 Эта страница фиксирует behavior и system changes, которые влияют на работу Office360. Это не замена Git history, а проектное объяснение важных решений.
 
+## 2026-06-02 - EPIC-02 Account Diagnostics and Repair Center
+
+Добавлено:
+
+- `ConnectionDiagnostic` contract для OAuth, IMAP, SMTP, Gmail API, CalDAV, database/network/provider failures.
+- SQLite persistence для latest account diagnostics в `account_diagnostics`.
+- Отдельный Account Repair Center route: `/repair` и `/repair/$accountId`.
+- Entry points из sync error toast и Settings > Accounts.
+- OAuth refresh failures теперь сохраняют diagnostic с re-auth action.
+- IMAP/SMTP test failures получают отдельные diagnostic states.
+- CalDAV test/sync failures сохраняются как `caldav` diagnostics.
+- Queue/outbox failures сохраняют diagnostic alongside existing retry state.
+- Privacy-safe debug export JSON с redaction.
+- Wiki page `account-diagnostics.md`.
+
+Важно:
+
+- Debug export не делает automatic upload.
+- Tokens, passwords, OAuth secrets, raw mail, raw MIME и DB dumps не включаются в bundle.
+- TLS/certificate failures классифицируются отдельно от password/auth failures.
+
 ## 2026-06-02 - Office360 Wiki и provider capability corrections
 
 Добавлено:

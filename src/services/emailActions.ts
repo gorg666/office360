@@ -10,6 +10,8 @@ import { classifyError, formatEmailSendOrDraftError } from "@/utils/networkError
 import { getDb } from "@/services/db/connection";
 import { navigateToThread, getSelectedThreadId } from "@/router/navigate";
 import { updateBadgeCount } from "@/services/badgeManager";
+import { upsertAccountDiagnostic } from "@/services/db/accountDiagnostics";
+import { createConnectionDiagnostic } from "@/services/diagnostics";
 
 // ---------------------------------------------------------------------------
 // Action types
@@ -415,6 +417,18 @@ export async function executeEmailAction(
     return { success: true, data };
   } catch (err) {
     const classified = classifyError(err);
+    const account = await getAccount(accountId).catch(() => null);
+    const diagnostic = createConnectionDiagnostic(err, {
+      accountId,
+      provider: account?.provider,
+      layer: action.type === "sendMessage" ? "smtp" : "provider",
+      operation: action.type,
+      retryState: classified.isRetryable ? "scheduled" : "failed",
+      authMethod: account?.auth_method,
+    });
+    await upsertAccountDiagnostic(diagnostic).catch((dbErr) => {
+      console.warn("[diagnostics] Failed to persist email action diagnostic:", dbErr);
+    });
 
     if (classified.isRetryable) {
       // Queue for retry
@@ -437,8 +451,8 @@ export async function executeEmailAction(
       action.type === "sendMessage" ||
       action.type === "createDraft" ||
       action.type === "updateDraft"
-        ? formatEmailSendOrDraftError(classified.message)
-        : classified.message;
+        ? formatEmailSendOrDraftError(diagnostic.rawCause ?? classified.message)
+        : diagnostic.userMessage;
     return { success: false, error: userMessage };
   }
 }

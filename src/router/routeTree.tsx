@@ -15,6 +15,7 @@ const HelpPage = lazy(() => import("@/components/help/HelpPage").then((m) => ({ 
 const CalendarPage = lazy(() => import("@/components/calendar/CalendarPage").then((m) => ({ default: m.CalendarPage })));
 const TasksPage = lazy(() => import("@/components/tasks/TasksPage").then((m) => ({ default: m.TasksPage })));
 const AttachmentLibrary = lazy(() => import("@/components/attachments/AttachmentLibrary").then((m) => ({ default: m.AttachmentLibrary })));
+const AccountRepairCenter = lazy(() => import("@/components/repair/AccountRepairCenter").then((m) => ({ default: m.AccountRepairCenter })));
 
 // ---------- Search param validation ----------
 const VALID_CATEGORIES = ["Primary", "Updates", "Promotions", "Social", "Newsletters"] as const;
@@ -84,6 +85,16 @@ function HelpPageWrapper() {
     <ErrorBoundary name="HelpPage">
       <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading help...</div>}>
         <HelpPage />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
+function RepairCenterWrapper() {
+  return (
+    <ErrorBoundary name="AccountRepairCenter">
+      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading repair center...</div>}>
+        <AccountRepairCenter />
       </Suspense>
     </ErrorBoundary>
   );
@@ -188,6 +199,20 @@ export const calendarRoute = createRoute({
   component: CalendarPageWrapper,
 });
 
+// ---------- /repair ----------
+export const repairRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "repair",
+  component: RepairCenterWrapper,
+});
+
+// ---------- /repair/$accountId ----------
+export const repairAccountRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "repair/$accountId",
+  component: RepairCenterWrapper,
+});
+
 // ---------- /messengers (открыть панель и перейти во входящие) ----------
 export const messengersRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -225,6 +250,8 @@ export const routeTree = rootRoute.addChildren([
   attachmentsRoute,
   tasksRoute,
   calendarRoute,
+  repairRoute,
+  repairAccountRoute,
   messengersRoute,
   helpIndexRoute,
   helpTopicRoute,

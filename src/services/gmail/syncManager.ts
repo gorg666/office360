@@ -10,6 +10,8 @@ import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { hasCalendarSupport, getCalendarProvider } from "../calendar/providerFactory";
 import { getVisibleCalendars, upsertCalendar, updateCalendarSyncToken } from "../db/calendars";
 import { upsertCalendarEvent, deleteEventByRemoteId } from "../db/calendarEvents";
+import { clearAccountDiagnostic, upsertAccountDiagnostic } from "../db/accountDiagnostics";
+import { createConnectionDiagnostic } from "../diagnostics";
 
 /** When the window/tab is visible — pick up new mail quickly while the app is open. */
 const SYNC_INTERVAL_VISIBLE_MS = 10_000;
@@ -290,6 +292,13 @@ async function syncCalendarForAccount(accountId: string): Promise<void> {
         }
       } catch (err) {
         console.warn(`[syncManager] Calendar sync failed for ${cal.display_name ?? cal.remote_id}:`, err);
+        const diagnostic = createConnectionDiagnostic(err, {
+          accountId,
+          provider: "caldav",
+          layer: "caldav",
+          operation: "sync",
+        });
+        await upsertAccountDiagnostic(diagnostic).catch(() => {});
       }
     }
 
@@ -297,6 +306,13 @@ async function syncCalendarForAccount(accountId: string): Promise<void> {
     window.dispatchEvent(new CustomEvent("velo-calendar-sync-done"));
   } catch (err) {
     console.warn(`[syncManager] Calendar sync failed for account ${accountId}:`, err);
+    const diagnostic = createConnectionDiagnostic(err, {
+      accountId,
+      provider: "caldav",
+      layer: "caldav",
+      operation: "sync",
+    });
+    await upsertAccountDiagnostic(diagnostic).catch(() => {});
   }
 }
 
@@ -326,8 +342,10 @@ async function syncAccountInternal(accountId: string): Promise<void> {
 
       if (account.provider === "imap") {
         await syncImapAccount(accountId);
+        await clearAccountDiagnostic(accountId, "imap", "sync").catch(() => {});
       } else {
         await syncGmailAccount(accountId);
+        await clearAccountDiagnostic(accountId, "gmail_api", "sync").catch(() => {});
       }
 
       // Always emit "done" when an initial sync completes (clears the bar).
@@ -353,7 +371,25 @@ async function syncAccountInternal(accountId: string): Promise<void> {
       }
 
       console.error(`[syncManager] Sync failed for account ${accountId}:`, message);
-      statusCallback?.(accountId, "error", undefined, message);
+      const account = await getAccount(accountId).catch(() => null);
+      const layer = isDbLock
+        ? "database"
+        : account?.provider === "imap"
+          ? "imap"
+          : account?.provider === "caldav"
+            ? "caldav"
+            : "gmail_api";
+      const diagnostic = createConnectionDiagnostic(err, {
+        accountId,
+        provider: account?.provider,
+        layer,
+        operation: "sync",
+        authMethod: account?.auth_method,
+      });
+      await upsertAccountDiagnostic(diagnostic).catch((dbErr) => {
+        console.warn("[diagnostics] Failed to persist sync diagnostic:", dbErr);
+      });
+      statusCallback?.(accountId, "error", undefined, diagnostic.userMessage);
       return;
     }
   }

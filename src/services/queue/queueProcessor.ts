@@ -11,6 +11,8 @@ import {
 import { executeQueuedAction } from "../emailActions";
 import { classifyError } from "@/utils/networkErrors";
 import { triggerSync } from "../gmail/syncManager";
+import { upsertAccountDiagnostic } from "../db/accountDiagnostics";
+import { createConnectionDiagnostic } from "../diagnostics";
 
 const BATCH_SIZE = 50;
 
@@ -72,6 +74,17 @@ async function processQueue(): Promise<void> {
       }
     } catch (err) {
       const classified = classifyError(err);
+      const diagnostic = createConnectionDiagnostic(err, {
+        accountId: op.account_id,
+        provider: "imap",
+        layer: op.operation_type === "sendMessage" ? "smtp" : "provider",
+        operation: op.operation_type,
+        retryState: classified.isRetryable ? "scheduled" : "failed",
+        retryCount: op.retry_count,
+      });
+      await upsertAccountDiagnostic(diagnostic).catch((dbErr) => {
+        console.warn("[diagnostics] Failed to persist queue diagnostic:", dbErr);
+      });
 
       if (classified.isRetryable) {
         await updateOperationStatus(op.id, "pending", classified.message);

@@ -45,6 +45,10 @@ vi.mock("../db/calendarEvents", () => ({
   upsertCalendarEvent: vi.fn(),
   deleteEventByRemoteId: vi.fn(),
 }));
+vi.mock("../db/accountDiagnostics", () => ({
+  clearAccountDiagnostic: vi.fn(() => Promise.resolve()),
+  upsertAccountDiagnostic: vi.fn(() => Promise.resolve()),
+}));
 
 // Import after mocks
 import {

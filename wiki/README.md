@@ -8,6 +8,7 @@
 
 - [Обзор системы](system-overview.md) - текущая архитектура и границы продукта.
 - [Provider Capabilities](provider-capabilities.md) - provider model, Gmail/Yandex/IMAP capability decisions и UI gating.
+- [Account Diagnostics](account-diagnostics.md) - ConnectionDiagnostic, Repair Center и privacy-safe debug export.
 - [Журнал изменений](change-log.md) - важные implementation и behavior changes.
 - [Правила ведения wiki](wiki-conventions.md) - как поддерживать wiki полезной.
 
@@ -24,3 +25,10 @@ Office360 сфокусирован на IMAP/SMTP и Yandex mail workflows. Gmai
 - Yandex/IMAP context menus не показывают `Apply Label`.
 - Yandex/IMAP settings не показывают `Google API`, `Labels` или `Smart Labels`.
 - `Move to Folder`, archive, trash, star, mark read, send и sync flows работают.
+
+Для account-diagnostics изменений проверять:
+
+- IMAP и SMTP failures отображаются отдельными diagnostics.
+- Expired OAuth token ведёт к re-auth.
+- TLS/certificate failure не выглядит как wrong password.
+- Debug export не содержит secrets или raw mail.

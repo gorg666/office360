@@ -81,6 +81,7 @@ import { router } from "./router";
 import {
   getSelectedThreadId,
   navigateToLabel,
+  navigateToRepairCenter,
   navigateToSettings,
 } from "./router/navigate";
 import { applyColorTheme, applyWindowBackground } from "./utils/themeEffects";
@@ -741,6 +742,13 @@ export default function App() {
             <div className="min-w-0 flex-1 leading-snug">
               <div className="font-semibold">Синхронизация не удалась</div>
               <div className="mt-0.5 text-[0.6875rem] text-red-100/95">{syncErrorMessage}</div>
+              <button
+                type="button"
+                className="mt-1 text-[0.6875rem] font-semibold text-white underline-offset-2 hover:underline"
+                onClick={() => navigateToRepairCenter(useAccountStore.getState().activeAccountId ?? undefined)}
+              >
+                Открыть Repair Center
+              </button>
             </div>
             <button
               type="button"

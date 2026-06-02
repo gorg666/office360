@@ -13,6 +13,8 @@ import { generateVEvent, parseVEvent } from "./icalHelper";
 import { getAccount } from "@/services/db/accounts";
 import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
 import { isYandexOAuthCalendarAccount, YANDEX_CALDAV_URL } from "./yandex";
+import { clearAccountDiagnostic, upsertAccountDiagnostic } from "@/services/db/accountDiagnostics";
+import { createConnectionDiagnostic } from "@/services/diagnostics";
 
 export class CalDAVProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "caldav";
@@ -207,6 +209,7 @@ export class CalDAVProvider implements CalendarProvider {
     try {
       const client = await this.getClient();
       const calendars = await client.fetchCalendars();
+      await clearAccountDiagnostic(this.accountId, "caldav", "test_connection").catch(() => {});
       return {
         success: true,
         message: `Connected — found ${calendars.length} calendar${calendars.length !== 1 ? "s" : ""}`,
@@ -214,7 +217,14 @@ export class CalDAVProvider implements CalendarProvider {
     } catch (err) {
       // Reset client on failure so next attempt can retry
       this.client = null;
-      return { success: false, message: err instanceof Error ? err.message : "Connection failed" };
+      const diagnostic = createConnectionDiagnostic(err, {
+        accountId: this.accountId,
+        provider: "caldav",
+        layer: "caldav",
+        operation: "test_connection",
+      });
+      await upsertAccountDiagnostic(diagnostic).catch(() => {});
+      return { success: false, message: diagnostic.userMessage };
     }
   }
 }
