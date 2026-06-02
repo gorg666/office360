@@ -14,6 +14,9 @@ describe("GmailApiProvider", () => {
   it("has correct accountId and type", () => {
     expect(provider.accountId).toBe("account-1");
     expect(provider.type).toBe("gmail_api");
+    expect(provider.capabilities.labels.create.supported).toBe(true);
+    expect(provider.capabilities.labels.rename.supported).toBe(true);
+    expect(provider.capabilities.labels.delete.supported).toBe(true);
   });
 
   describe("listFolders", () => {

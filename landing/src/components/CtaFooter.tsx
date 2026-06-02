@@ -17,7 +17,7 @@ export function CtaFooter() {
             viewport={{ once: true }}
             transition={{ duration: 0.7 }}
           >
-            <span className="gradient-text">Try Velo</span>
+            <span className="gradient-text">Try Office360</span>
             <span className="text-text-primary"> today</span>
           </motion.h2>
 
@@ -28,7 +28,7 @@ export function CtaFooter() {
             viewport={{ once: true }}
             transition={{ duration: 0.5, delay: 0.05 }}
           >
-            Free, open source, and ready in two minutes.
+            Local-first, private by design, and ready in two minutes.
           </motion.p>
 
           <motion.div
@@ -45,7 +45,7 @@ export function CtaFooter() {
               className="btn-primary"
             >
               <Download size={17} />
-              Download for Free
+              Download Office360
             </a>
           </motion.div>
 
@@ -69,23 +69,18 @@ export function CtaFooter() {
       <footer className="border-t border-border py-8 px-6">
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <img src="/logo-white.svg" alt="Velo" className="w-5 h-5 rounded" />
-            <span className="text-sm text-text-muted">Velo</span>
+            <img src="/logo-white.svg" alt="Office360" className="w-5 h-5 rounded" />
+            <span className="text-sm text-text-muted">Office360</span>
           </div>
 
           <div className="flex items-center gap-6 text-sm text-text-muted">
-            <a href="https://github.com/avihaymenahem/velo" target="_blank" rel="noopener noreferrer" className="hover:text-text-secondary transition-colors no-underline">
-              GitHub
-            </a>
             <a href="https://github.com/avihaymenahem/velo/releases" target="_blank" rel="noopener noreferrer" className="hover:text-text-secondary transition-colors no-underline">
               Releases
             </a>
-            <a href="mailto:info@velomail.app" className="hover:text-text-secondary transition-colors no-underline">
+            <a href="mailto:info@office360.app" className="hover:text-text-secondary transition-colors no-underline">
               Contact
             </a>
-            <a href="https://github.com/avihaymenahem/velo/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="hover:text-text-secondary transition-colors no-underline">
-              Apache 2.0
-            </a>
+            <span>Proprietary</span>
           </div>
         </div>
       </footer>

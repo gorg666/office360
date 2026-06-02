@@ -300,23 +300,17 @@ export function SettingsAboutPanel() {
       <SettingsCard title="License">
         <div className="flex items-center gap-2 border-b border-border-primary pb-3">
           <Scale size={15} className="shrink-0 text-text-tertiary" />
-          <span className="text-sm font-medium text-text-primary">Apache License 2.0</span>
+          <span className="text-sm font-medium text-text-primary">Office360 Proprietary License</span>
         </div>
         <div className="max-h-40 space-y-3 overflow-y-auto pt-3 text-xs leading-relaxed text-text-secondary">
           <p>
-            Licensed under the Apache License, Version 2.0. You may obtain a copy of the License at{" "}
-            <button
-              type="button"
-              onClick={() => openExternal("https://www.apache.org/licenses/LICENSE-2.0")}
-              className="text-accent hover:text-accent-hover transition-colors"
-            >
-              apache.org/licenses/LICENSE-2.0
-            </button>
+            Office360 is proprietary software. All rights are reserved.
           </p>
           <p className="text-text-tertiary">
-            Copyright 2025 Office360. You may use, distribute, and modify this software under the
-            terms of the Apache 2.0 license. This software is distributed on an &quot;AS IS&quot;
-            BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
+            Copyright 2026 Office360. Copying, modification, distribution, sublicensing, sale,
+            hosting, disclosure, reverse engineering, decompilation, or disassembly is prohibited
+            except under a separate written agreement with Office360. This software is provided
+            &quot;as is&quot; without warranties of any kind.
           </p>
         </div>
       </SettingsCard>

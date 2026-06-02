@@ -3,6 +3,7 @@ import { Trash2, Pencil } from "lucide-react";
 import { TextField } from "@/components/ui/TextField";
 import { useAccountStore } from "@/stores/accountStore";
 import { getLabelsForAccount, type DbLabel } from "@/services/db/labels";
+import { getCapabilitiesForAccountProvider } from "@/services/email/providerCapabilities";
 import {
   getFiltersForAccount,
   insertFilter,
@@ -15,6 +16,7 @@ import {
 
 export function FilterEditor() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const accounts = useAccountStore((s) => s.accounts);
   const [filters, setFilters] = useState<DbFilterRule[]>([]);
   const [labels, setLabels] = useState<DbLabel[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -32,6 +34,11 @@ export function FilterEditor() {
   const [actionStar, setActionStar] = useState(false);
   const [actionMarkRead, setActionMarkRead] = useState(false);
   const [actionTrash, setActionTrash] = useState(false);
+  const activeAccount = useMemo(
+    () => accounts.find((account) => account.id === activeAccountId),
+    [accounts, activeAccountId],
+  );
+  const hasNativeLabels = getCapabilitiesForAccountProvider(activeAccount?.provider).labels.native.supported;
 
   const loadFilters = useCallback(async () => {
     if (!activeAccountId) return;
@@ -42,11 +49,16 @@ export function FilterEditor() {
   useEffect(() => {
     if (!activeAccountId) return;
     loadFilters();
+    if (!hasNativeLabels) {
+      setLabels([]);
+      setActionLabel("");
+      return;
+    }
     getLabelsForAccount(activeAccountId).then((l) =>
       setLabels(l.filter((lb) => lb.type === "user")),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadFilters is stable, only re-run on activeAccountId change
-  }, [activeAccountId]);
+  }, [activeAccountId, hasNativeLabels]);
 
   const resetForm = useCallback(() => {
     setName("");
@@ -76,7 +88,7 @@ export function FilterEditor() {
 
   const buildActions = (): FilterActions => {
     const a: FilterActions = {};
-    if (actionLabel) a.applyLabel = actionLabel;
+    if (hasNativeLabels && actionLabel) a.applyLabel = actionLabel;
     if (actionArchive) a.archive = true;
     if (actionStar) a.star = true;
     if (actionMarkRead) a.markRead = true;
@@ -102,7 +114,7 @@ export function FilterEditor() {
 
     resetForm();
     await loadFilters();
-  }, [activeAccountId, name, editingId, resetForm, loadFilters, criteriaFrom, criteriaTo, criteriaSubject, criteriaBody, criteriaHasAttachment, actionLabel, actionArchive, actionStar, actionMarkRead, actionTrash]);
+  }, [activeAccountId, name, editingId, resetForm, loadFilters, criteriaFrom, criteriaTo, criteriaSubject, criteriaBody, criteriaHasAttachment, actionLabel, actionArchive, actionStar, actionMarkRead, actionTrash, hasNativeLabels]);
 
   const handleEdit = useCallback((filter: DbFilterRule) => {
     setEditingId(filter.id);
@@ -118,13 +130,13 @@ export function FilterEditor() {
     setCriteriaSubject(criteria.subject ?? "");
     setCriteriaBody(criteria.body ?? "");
     setCriteriaHasAttachment(criteria.hasAttachment ?? false);
-    setActionLabel(actions.applyLabel ?? "");
+    setActionLabel(hasNativeLabels ? (actions.applyLabel ?? "") : "");
     setActionArchive(actions.archive ?? false);
     setActionStar(actions.star ?? false);
     setActionMarkRead(actions.markRead ?? false);
     setActionTrash(actions.trash ?? false);
     setShowForm(true);
-  }, []);
+  }, [hasNativeLabels]);
 
   const handleDelete = useCallback(async (id: string) => {
     await deleteFilter(id);
@@ -257,7 +269,7 @@ export function FilterEditor() {
           <div>
             <div className="text-xs font-medium text-text-secondary mb-1.5">Actions</div>
             <div className="space-y-1.5">
-              {labels.length > 0 && (
+              {hasNativeLabels && labels.length > 0 && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-text-secondary w-20">Apply label</span>
                   <select

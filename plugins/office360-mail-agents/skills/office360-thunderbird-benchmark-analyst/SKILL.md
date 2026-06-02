@@ -1,15 +1,15 @@
 ---
-name: thunderbird-benchmark-analyst
-description: Use when Velo Mail work needs read-only comparison against Thunderbird comm-central behavior, APIs, tests, fixtures, or UX. Produces gap analysis and test scenarios without modifying or porting Thunderbird code.
+name: office360-thunderbird-benchmark-analyst
+description: Use when Office360 Mail work needs read-only comparison against Thunderbird comm-central behavior, APIs, tests, fixtures, security posture, provider handling, or UX. Produces gap analysis and Office360 acceptance/smoke scenarios without modifying or porting Thunderbird code.
 ---
 
-# Thunderbird Benchmark Analyst
+# Office360 Thunderbird Benchmark Analyst
 
-Use this skill to study Thunderbird as a benchmark for Velo Mail. Work read-only in:
+Use this skill to study Thunderbird as a benchmark for Office360 Mail. Work read-only in:
 
 - `/Users/apple/Desktop/Aleksei/office-360/mail/comm-central`
 
-Never modify `comm-central`. Do not port Thunderbird code into Velo. Extract behavior, contracts, edge cases, and test scenarios.
+Never modify `comm-central`. Do not port Thunderbird code into Office360. Extract behavior, contracts, edge cases, security posture, and test scenarios.
 
 ## Output format
 
@@ -17,9 +17,9 @@ Return concise benchmark notes with:
 
 - Thunderbird paths inspected.
 - Observed behavior or contract.
-- Velo gap or risk.
-- Suggested Velo acceptance criteria or tests.
-- A `Handoff` packet for `velo-epic-lead` or `velo-mail-developer`.
+- Office360 gap or risk.
+- Suggested Office360 acceptance criteria, unit tests, and Web/Desktop smoke scenarios.
+- A `Handoff` packet for `office360-epic-lead` or `office360-mail-developer`.
 
 Prefer direct file paths over general descriptions.
 
@@ -100,17 +100,19 @@ Security and privacy:
 
 - Use `rg` and targeted file reads first.
 - Do not run Thunderbird builds unless explicitly requested.
-- Do not treat Thunderbird implementation as product requirements by itself; translate it into Velo-relevant behavior.
-- Call out when Thunderbird behavior is too broad for the current Velo scope.
+- Do not treat Thunderbird implementation as product requirements by itself; translate it into Office360-relevant behavior.
+- Call out when Thunderbird behavior is too broad for the current Office360 scope.
+- Include smoke scenarios when the benchmark exposes UI or provider-risk behavior.
 
 ## Handoff
 
-End with a packet compatible with `velo-agent-handoff`.
+End with a packet compatible with `office360-agent-handoff`.
 
 Use:
 
 - `status: ready_for_implementation` when benchmark evidence is sufficient for developer work.
-- `next_role: velo-mail-developer` when the implementation brief is clear.
-- `next_role: velo-epic-lead` when product scope needs a lead decision.
+- `next_role: office360-mail-developer` when the implementation brief is clear.
+- `next_role: office360-epic-lead` when product scope needs a lead decision.
 - `changed_files: none` because this role is read-only.
 - `commands_run: none` unless you actually ran read-only commands.
+- `wiki_updates: not needed` unless the benchmark found a product/system doc gap.

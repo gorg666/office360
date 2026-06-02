@@ -521,7 +521,7 @@ const ru: Record<string, string> = {
   "Analyzing...": "Анализ...",
   "Reanalyze": "Проанализировать заново",
   "Categories": "Категории",
-  "Incoming emails are automatically sorted using rule-based heuristics (Gmail labels, sender domain, headers). When AI is enabled, it refines results for better accuracy.": "Входящие письма автоматически сортируются по правилам (метки Gmail, домен отправителя, заголовки). Когда ИИ включён, он уточняет результаты.",
+  "Incoming emails are automatically sorted using rule-based heuristics (provider folders, sender domain, headers). When AI is enabled, it refines results for better accuracy.": "Входящие письма автоматически сортируются по правилам (папки провайдера, домен отправителя, заголовки). Когда ИИ включён, он уточняет результаты.",
   "Enable auto-archive to skip the inbox for specific categories.": "Включите автоархивацию, чтобы пропускать входящие для выбранных категорий.",
   "Software updates": "Обновления ПО",
   "Check for Updates": "Проверить обновления",

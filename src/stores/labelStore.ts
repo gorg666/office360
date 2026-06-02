@@ -2,6 +2,9 @@ import { create } from "zustand";
 import { getLabelsForAccount, deleteLabel as dbDeleteLabel, updateLabelSortOrder } from "@/services/db/labels";
 import { upsertLabel } from "@/services/db/labels";
 import { getGmailClient } from "@/services/gmail/tokenManager";
+import { getAccount } from "@/services/db/accounts";
+import { assertCapabilitySupported, getCapabilitiesForAccountProvider } from "@/services/email/providerCapabilities";
+import type { CapabilitySupport } from "@/services/email/types";
 
 export interface Label {
   id: string;
@@ -31,6 +34,19 @@ const CATEGORY_PREFIX = "CATEGORY_";
 
 export function isSystemLabel(id: string): boolean {
   return SYSTEM_LABEL_IDS.has(id) || id.startsWith(CATEGORY_PREFIX);
+}
+
+async function assertLabelCapability(
+  accountId: string,
+  capabilitySelector: (capabilities: ReturnType<typeof getCapabilitiesForAccountProvider>) => CapabilitySupport,
+  actionLabel: string,
+): Promise<void> {
+  const account = await getAccount(accountId);
+  if (!account) {
+    throw new Error(`Account ${accountId} not found`);
+  }
+  const capabilities = getCapabilitiesForAccountProvider(account.provider);
+  assertCapabilitySupported(capabilitySelector(capabilities), actionLabel);
 }
 
 interface LabelState {
@@ -73,6 +89,10 @@ export const useLabelStore = create<LabelState>((set, get) => ({
   clearLabels: () => set({ labels: [], isLoading: false }),
 
   createLabel: async (accountId: string, name: string, color?: { textColor: string; backgroundColor: string }) => {
+    await assertLabelCapability(accountId, (capabilities) => capabilities.labels.create, "Create label");
+    if (color) {
+      await assertLabelCapability(accountId, (capabilities) => capabilities.labels.color, "Set label color");
+    }
     const client = await getGmailClient(accountId);
     const gmailLabel = await client.createLabel(name, color);
     await upsertLabel({
@@ -87,6 +107,12 @@ export const useLabelStore = create<LabelState>((set, get) => ({
   },
 
   updateLabel: async (accountId: string, labelId: string, updates: { name?: string; color?: { textColor: string; backgroundColor: string } | null }) => {
+    if (updates.name !== undefined) {
+      await assertLabelCapability(accountId, (capabilities) => capabilities.labels.rename, "Rename label");
+    }
+    if (updates.color !== undefined) {
+      await assertLabelCapability(accountId, (capabilities) => capabilities.labels.color, "Set label color");
+    }
     const client = await getGmailClient(accountId);
     const gmailLabel = await client.updateLabel(labelId, updates);
     await upsertLabel({
@@ -101,6 +127,7 @@ export const useLabelStore = create<LabelState>((set, get) => ({
   },
 
   deleteLabel: async (accountId: string, labelId: string) => {
+    await assertLabelCapability(accountId, (capabilities) => capabilities.labels.delete, "Delete label");
     const client = await getGmailClient(accountId);
     await client.deleteLabel(labelId);
     await dbDeleteLabel(accountId, labelId);

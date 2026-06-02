@@ -15,6 +15,8 @@ import { getMessagesForThread } from "@/services/db/messages";
 import { parseUnsubscribeUrl } from "@/components/email/MessageItem";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { triggerSync } from "@/services/gmail/syncManager";
+import { getCapabilitiesForAccountProvider } from "@/services/email/providerCapabilities";
+import type { CapabilitySupport, ProviderCapabilities } from "@/services/email/types";
 
 /**
  * Parse a key binding string and check if it matches a keyboard event.
@@ -81,6 +83,26 @@ function getCachedReverseMap(keyMap: Record<string, string>): ReturnType<typeof 
   cachedKeyMap = keyMap;
   cachedReverseMap = buildReverseMap(keyMap);
   return cachedReverseMap;
+}
+
+function getActiveAccountProvider(): string | undefined {
+  const state = useAccountStore.getState();
+  const account = state.accounts?.find((item) => item.id === state.activeAccountId);
+  return account?.provider;
+}
+
+function getActiveProviderCapabilities(): ProviderCapabilities {
+  return getCapabilitiesForAccountProvider(getActiveAccountProvider());
+}
+
+function isActiveAccountGmail(): boolean {
+  return getActiveAccountProvider() !== "imap" && getActiveAccountProvider() !== "caldav";
+}
+
+function canRunCapability(capability: CapabilitySupport, actionLabel: string): boolean {
+  if (capability.supported) return true;
+  console.warn(`${actionLabel} shortcut skipped: ${capability.reason ?? "unsupported by provider"}`);
+  return false;
 }
 
 /**
@@ -305,6 +327,7 @@ async function executeAction(actionId: string): Promise<void> {
       }
       break;
     case "action.archive": {
+      if (!canRunCapability(getActiveProviderCapabilities().messages.archive, "Archive")) break;
       const multiIds = useThreadStore.getState().selectedThreadIds;
       if (multiIds.size > 0 && activeAccountId) {
         const ids = [...multiIds];
@@ -320,6 +343,17 @@ async function executeAction(actionId: string): Promise<void> {
       const deleteLabelCtx = getActiveLabel();
       const isTrashView = deleteLabelCtx === "trash";
       const isDraftsView = deleteLabelCtx === "drafts";
+      const capabilities = getActiveProviderCapabilities();
+      if (isTrashView) {
+        if (!canRunCapability(capabilities.messages.permanentDelete, "Delete permanently")) break;
+      } else if (isDraftsView) {
+        if (!isActiveAccountGmail()) {
+          console.warn("Draft delete shortcut skipped: this shortcut uses Gmail draft deletion.");
+          break;
+        }
+      } else if (!canRunCapability(capabilities.messages.trash, "Delete")) {
+        break;
+      }
       const multiDeleteIds = useThreadStore.getState().selectedThreadIds;
       if (multiDeleteIds.size > 0 && activeAccountId) {
         const ids = [...multiDeleteIds];
@@ -358,6 +392,7 @@ async function executeAction(actionId: string): Promise<void> {
       break;
     }
     case "action.star": {
+      if (!canRunCapability(getActiveProviderCapabilities().messages.star, "Star")) break;
       if (selectedId && activeAccountId) {
         const thread = threads.find((t) => t.id === selectedId);
         if (thread) {
@@ -367,6 +402,7 @@ async function executeAction(actionId: string): Promise<void> {
       break;
     }
     case "action.spam": {
+      if (!canRunCapability(getActiveProviderCapabilities().messages.spam, "Spam")) break;
       const isSpamView = getActiveLabel() === "spam";
       const multiSpamIds = useThreadStore.getState().selectedThreadIds;
       if (multiSpamIds.size > 0 && activeAccountId) {
@@ -460,6 +496,7 @@ async function executeAction(actionId: string): Promise<void> {
       break;
     }
     case "action.moveToFolder": {
+      if (!canRunCapability(getActiveProviderCapabilities().messages.move, "Move to folder")) break;
       const multiMoveIds = useThreadStore.getState().selectedThreadIds;
       const moveThreadIds = multiMoveIds.size > 0 ? [...multiMoveIds] : selectedId ? [selectedId] : [];
       if (moveThreadIds.length > 0) {

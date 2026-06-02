@@ -1,14 +1,14 @@
 {
-  "name": "velo-local",
+  "name": "office360-local",
   "interface": {
-    "displayName": "Velo Local"
+    "displayName": "Office360 Local"
   },
   "plugins": [
     {
-      "name": "velo-mail-agents",
+      "name": "office360-mail-agents",
       "source": {
         "source": "local",
-        "path": "./plugins/velo-mail-agents"
+        "path": "./plugins/office360-mail-agents"
       },
       "policy": {
         "installation": "AVAILABLE",

@@ -2,6 +2,8 @@ import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore } from "@/stores/threadStore";
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { getAccount } from "@/services/db/accounts";
+import { getCapabilitiesForAccountProvider } from "@/services/email/providerCapabilities";
+import type { CapabilitySupport, ProviderCapabilities } from "@/services/email/types";
 import { enqueuePendingOperation } from "@/services/db/pendingOperations";
 import { triggerSync } from "@/services/gmail/syncManager";
 import { classifyError, formatEmailSendOrDraftError } from "@/utils/networkErrors";
@@ -322,10 +324,64 @@ async function executeViaProvider(
   }
 }
 
+function getCapabilityForAction(
+  capabilities: ProviderCapabilities,
+  action: EmailAction,
+): CapabilitySupport {
+  switch (action.type) {
+    case "archive":
+      return capabilities.messages.archive;
+    case "trash":
+      return capabilities.messages.trash;
+    case "permanentDelete":
+      return capabilities.messages.permanentDelete;
+    case "markRead":
+      return capabilities.messages.markRead;
+    case "star":
+      return capabilities.messages.star;
+    case "spam":
+      return capabilities.messages.spam;
+    case "moveToFolder":
+      return capabilities.messages.move;
+    case "addLabel":
+      return capabilities.labels.add;
+    case "removeLabel":
+      return capabilities.labels.remove;
+    case "sendMessage":
+      return capabilities.compose.send;
+    case "createDraft":
+    case "updateDraft":
+    case "deleteDraft":
+      return capabilities.compose.remoteDrafts;
+  }
+}
+
+async function checkEmailActionCapability(
+  accountId: string,
+  action: EmailAction,
+): Promise<ActionResult | null> {
+  const account = await getAccount(accountId);
+  if (!account) {
+    return { success: false, error: `Account ${accountId} not found` };
+  }
+
+  const capabilities = getCapabilitiesForAccountProvider(account.provider);
+  const capability = getCapabilityForAction(capabilities, action);
+  if (capability.supported) return null;
+
+  return {
+    success: false,
+    error: capability.reason ?? "This action is not supported by the current provider.",
+  };
+}
+
 export async function executeEmailAction(
   accountId: string,
   action: EmailAction,
 ): Promise<ActionResult> {
+  const unsupported = await checkEmailActionCapability(accountId, action);
+  if (unsupported) return unsupported;
+
   // 1. Optimistic UI update
   applyOptimisticUpdate(action);
 
@@ -397,6 +453,10 @@ export async function executeQueuedAction(
   params: Record<string, unknown>,
 ): Promise<void> {
   const action = { type: operationType, ...params } as EmailAction;
+  const unsupported = await checkEmailActionCapability(accountId, action);
+  if (unsupported) {
+    throw new Error(unsupported.error);
+  }
   await executeViaProvider(accountId, action);
 }
 

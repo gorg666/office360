@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Download, Github } from 'lucide-react'
+import { Download } from 'lucide-react'
 import { AppMockup } from './mockups/AppMockup'
 
 export function Hero() {
@@ -17,8 +17,8 @@ export function Hero() {
           transition={{ duration: 0.6 }}
         >
           <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full border border-white/[0.06] bg-white/[0.03]">
-            <img src="/logo-white.svg" alt="Velo" className="h-4 w-auto" />
-            <span className="text-sm text-text-secondary">Open source desktop email client</span>
+            <img src="/logo-white.svg" alt="Office360" className="h-4 w-auto" />
+            <span className="text-sm text-text-secondary">Proprietary desktop email client</span>
           </div>
         </motion.div>
 
@@ -43,7 +43,7 @@ export function Hero() {
         >
           Keyboard-first, AI-powered, and completely private.
           <br className="hidden sm:block" />
-          Free forever because it's open source.
+          Local-first workflows for IMAP, Yandex, and provider-based mail.
         </motion.p>
 
         {/* CTAs */}
@@ -55,11 +55,7 @@ export function Hero() {
         >
           <a href="https://github.com/avihaymenahem/velo/releases" target="_blank" rel="noopener noreferrer" className="btn-primary">
             <Download size={17} />
-            Download for Free
-          </a>
-          <a href="https://github.com/avihaymenahem/velo" target="_blank" rel="noopener noreferrer" className="btn-secondary">
-            <Github size={16} />
-            View on GitHub
+            Download Office360
           </a>
         </motion.div>
 

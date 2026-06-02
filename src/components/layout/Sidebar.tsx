@@ -8,6 +8,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
+import { getCapabilitiesForAccountProvider, getUnsupportedReason } from "@/services/email/providerCapabilities";
 import { useActiveLabel, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToLabel } from "@/router/navigate";
 import { openNewCompose } from "@/utils/openComposeWindow";
@@ -124,6 +125,8 @@ function DroppableLabelItem({
   onClick,
   onContextMenu,
   onEditClick,
+  canEdit,
+  editDisabledReason,
 }: {
   label: Label;
   isActive: boolean;
@@ -131,6 +134,8 @@ function DroppableLabelItem({
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onEditClick: () => void;
+  canEdit: boolean;
+  editDisabledReason?: string;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: label.id });
   const initial = (label.name[0] ?? "?").toUpperCase();
@@ -179,10 +184,23 @@ function DroppableLabelItem({
           <span
             role="button"
             tabIndex={0}
-            onClick={(e) => { e.stopPropagation(); onEditClick(); }}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onEditClick(); } }}
-            className="opacity-0 group-hover:opacity-100 p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-opacity"
-            title="Edit label"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (canEdit) onEditClick();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                if (canEdit) onEditClick();
+              }
+            }}
+            className={`opacity-0 group-hover:opacity-100 p-0.5 transition-opacity ${
+              canEdit
+                ? "text-sidebar-text/40 hover:text-sidebar-text"
+                : "text-sidebar-text/25 cursor-not-allowed"
+            }`}
+            title={canEdit ? "Edit label" : editDisabledReason}
           >
             <Pencil size={12} />
           </span>
@@ -224,6 +242,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     void openNewCompose();
   }, []);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const accounts = useAccountStore((s) => s.accounts);
   const labels = useLabelStore((s) => s.labels);
   const loadLabels = useLabelStore((s) => s.loadLabels);
   const deleteLabel = useLabelStore((s) => s.deleteLabel);
@@ -233,6 +252,19 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const refreshSmartFolderCounts = useSmartFolderStore((s) => s.refreshUnreadCounts);
   const createSmartFolder = useSmartFolderStore((s) => s.createFolder);
   const SECTION_IDS = new Set(["smart-folders", "labels"]);
+  const activeAccount = useMemo(
+    () => accounts.find((account) => account.id === activeAccountId),
+    [accounts, activeAccountId],
+  );
+  const capabilities = useMemo(
+    () => getCapabilitiesForAccountProvider(activeAccount?.provider),
+    [activeAccount?.provider],
+  );
+  const canCreateLabel = capabilities.labels.create.supported;
+  const canRenameLabel = capabilities.labels.rename.supported;
+  const canShowLabelSection = capabilities.labels.native.supported;
+  const labelCreateDisabledReason = getUnsupportedReason(capabilities.labels.create) ?? undefined;
+  const labelRenameDisabledReason = getUnsupportedReason(capabilities.labels.rename) ?? undefined;
 
   const { visibleNavItems, showSmartFolders, showLabels } = useMemo(() => {
     if (!sidebarNavConfig) {
@@ -324,9 +356,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, []);
 
   const handleEditLabel = useCallback((labelId: string) => {
+    if (!canRenameLabel) return;
     setShowNewLabelForm(false);
     setEditingLabelId(labelId);
-  }, []);
+  }, [canRenameLabel]);
 
   const handleLabelContextMenu = useCallback((e: React.MouseEvent, labelId: string) => {
     e.preventDefault();
@@ -338,9 +371,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, [openMenu, handleEditLabel, handleDeleteLabel]);
 
   const handleAddLabel = useCallback(() => {
+    if (!canCreateLabel) return;
     setEditingLabelId(null);
     setShowNewLabelForm(true);
-  }, []);
+  }, [canCreateLabel]);
 
   const [showSmartFolderModal, setShowSmartFolderModal] = useState(false);
 
@@ -548,7 +582,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         )}
 
         {/* User labels */}
-        {showLabels && (labels.length > 0 || !collapsed) && (
+        {showLabels && canShowLabelSection && (labels.length > 0 || (!collapsed && canCreateLabel)) && (
           <>
             {!collapsed && (
               <div className="flex items-center justify-between px-3 pt-4 pb-1">
@@ -557,8 +591,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 </span>
                 <button
                   onClick={handleAddLabel}
+                  disabled={!canCreateLabel}
                   className="p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-colors"
-                  title="Add label"
+                  title={canCreateLabel ? "Add label" : labelCreateDisabledReason}
                 >
                   <Plus size={14} />
                 </button>
@@ -574,6 +609,8 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                   onClick={() => navigateToLabel(label.id)}
                   onContextMenu={(e) => handleLabelContextMenu(e, label.id)}
                   onEditClick={() => handleEditLabel(label.id)}
+                  canEdit={canRenameLabel}
+                  editDisabledReason={labelRenameDisabledReason}
                 />
                 {editingLabelId === label.id && activeAccountId && !collapsed && (
                   <LabelForm
@@ -598,6 +635,8 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         onClick={() => navigateToLabel(label.id)}
                         onContextMenu={(e) => handleLabelContextMenu(e, label.id)}
                         onEditClick={() => handleEditLabel(label.id)}
+                        canEdit={canRenameLabel}
+                        editDisabledReason={labelRenameDisabledReason}
                       />
                       {editingLabelId === label.id && activeAccountId && !collapsed && (
                         <LabelForm

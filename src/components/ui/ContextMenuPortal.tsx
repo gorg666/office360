@@ -44,6 +44,7 @@ import { useUIStore } from "@/stores/uiStore";
 import { setThreadCategory, ALL_CATEGORIES } from "@/services/db/threadCategories";
 import { openThreadPopOut } from "@/utils/openThreadWindow";
 import { ComposerEditorContextMenu } from "@/components/composer/ComposerEditorContextMenu";
+import { getCapabilitiesForAccountProvider, getUnsupportedReason } from "@/services/email/providerCapabilities";
 
 function buildQuote(msg: { from_name: string | null; from_address: string | null; date: string | number; body_html: string | null; body_text: string | null }): string {
   const date = new Date(msg.date).toLocaleString();
@@ -133,6 +134,11 @@ function SidebarLabelMenu({
   const onEdit = data["onEdit"] as (() => void) | undefined;
   const onDelete = data["onDelete"] as (() => void) | undefined;
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const accounts = useAccountStore((s) => s.accounts);
+  const account = accounts.find((item) => item.id === activeAccountId);
+  const capabilities = getCapabilitiesForAccountProvider(account?.provider);
+  const renameDisabledReason = getUnsupportedReason(capabilities.labels.rename) ?? undefined;
+  const deleteDisabledReason = getUnsupportedReason(capabilities.labels.delete) ?? undefined;
 
   const handleSync = () => {
     if (!activeAccountId) return;
@@ -153,6 +159,8 @@ function SidebarLabelMenu({
       id: "edit-label",
       label: "Edit label",
       icon: Pencil,
+      disabled: !capabilities.labels.rename.supported,
+      disabledReason: renameDisabledReason,
       action: () => onEdit?.(),
     },
     {
@@ -160,6 +168,8 @@ function SidebarLabelMenu({
       label: "Delete label",
       icon: Trash2,
       danger: true,
+      disabled: !capabilities.labels.delete.supported,
+      disabledReason: deleteDisabledReason,
       action: () => onDelete?.(),
     },
   ];
@@ -215,6 +225,7 @@ function ThreadMenu({
   const activeLabel = getActiveLabel();
   const labels = useLabelStore((s) => s.labels);
   const openComposer = useComposerStore((s) => s.openComposer);
+  const accounts = useAccountStore((s) => s.accounts);
   const [quickSteps, setQuickSteps] = useState<DbQuickStep[]>([]);
 
   useEffect(() => {
@@ -239,6 +250,10 @@ function ThreadMenu({
   const isTrashView = activeLabel === "trash";
   const isDraftsView = activeLabel === "drafts";
   const isSpamView = activeLabel === "spam";
+  const account = accounts.find((item) => item.id === activeAccountId);
+  const capabilities = getCapabilitiesForAccountProvider(account?.provider);
+  const canApplyLabels = capabilities.labels.add.supported && capabilities.labels.remove.supported;
+  const moveDisabledReason = getUnsupportedReason(capabilities.messages.move) ?? undefined;
 
   // For single thread: show current state. For multi: be generic
   const isRead = isMulti ? true : thread.isRead;
@@ -404,7 +419,7 @@ function ThreadMenu({
   };
 
   // Build label submenu items
-  const labelItems: ContextMenuItem[] = labels.map((label) => {
+  const labelItems: ContextMenuItem[] = canApplyLabels ? labels.map((label) => {
     // For single thread, show checkmark if label is applied
     const isApplied = !isMulti && thread.labelIds.includes(label.id);
     return {
@@ -413,7 +428,7 @@ function ThreadMenu({
       checked: isApplied,
       action: () => handleToggleLabel(label.id),
     };
-  });
+  }) : [];
 
   const items: ContextMenuItem[] = [
     {
@@ -512,6 +527,8 @@ function ThreadMenu({
       label: "Move to Folder",
       icon: FolderInput,
       shortcut: "v",
+      disabled: !capabilities.messages.move.supported,
+      disabledReason: moveDisabledReason,
       action: () => {
         window.dispatchEvent(new CustomEvent("velo-move-to-folder", { detail: { threadIds: [...targetIds] } }));
       },

@@ -106,7 +106,7 @@ Use the [feature request template](https://github.com/avihaymenahem/velo/issues/
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [Apache-2.0 License](LICENSE).
+By contributing, you agree that your contributions become part of the proprietary Office360 codebase and are governed by the [Office360 Proprietary License](LICENSE), unless a separate written agreement says otherwise.
 
 ## Packaging
 

@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Velo is a Tauri v2 desktop mail client with a React/TypeScript frontend and Rust backend. Frontend code lives in `src/`: UI in `src/components/`, state in `src/stores/`, business logic in `src/services/`, shared helpers in `src/utils/`, hooks in `src/hooks/`, and route setup in `src/router/`. Rust backend code lives in `src-tauri/src/`, with IMAP, SMTP, OAuth, commands, audio, and messenger integration modules. Static assets are in `src/assets/`, `public/`, and `assets/`. Documentation is in `docs/`; the marketing site is in `landing/`.
+Office360 is a Tauri v2 desktop mail client with a React/TypeScript frontend and Rust backend. Frontend code lives in `src/`: UI in `src/components/`, state in `src/stores/`, business logic in `src/services/`, shared helpers in `src/utils/`, hooks in `src/hooks/`, and route setup in `src/router/`. Rust backend code lives in `src-tauri/src/`, with IMAP, SMTP, OAuth, commands, audio, and messenger integration modules. Static assets are in `src/assets/`, `public/`, and `assets/`. Documentation is in `docs/`; the project wiki is in `wiki/`; the marketing site is in `landing/`.
 
 ## Build, Test, and Development Commands
 
@@ -22,6 +22,10 @@ Use strict TypeScript and the `@/` alias for imports from `src`. Keep React comp
 ## Testing Guidelines
 
 Tests use Vitest with jsdom and Testing Library setup from `src/test/setup.ts`. Globals are enabled, so `describe`, `it`, and `expect` do not need imports. Add focused tests for new stores, services, hooks, utilities, and UI behavior. Run `npm run test` before submitting changes; use `npx vitest run <path>` for a single file.
+
+## Wiki Guidelines
+
+Keep long-lived Office360 system knowledge in `wiki/`. When a change affects architecture, provider behavior, user-visible workflows, account setup, sync/offline behavior, security/privacy assumptions, build/deployment behavior, or smoke checklists, update the relevant wiki page in the same branch. Use `wiki/change-log.md` for important behavior changes and `wiki/provider-capabilities.md` for provider-specific decisions.
 
 ## Commit & Pull Request Guidelines
 

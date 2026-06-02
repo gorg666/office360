@@ -2,6 +2,55 @@ import type { ParsedMessage } from "../gmail/messageParser";
 
 export type AccountProvider = "gmail_api" | "imap" | "caldav";
 
+export interface CapabilitySupport {
+  supported: boolean;
+  reason?: string;
+}
+
+export interface ProviderCapabilities {
+  provider: AccountProvider;
+  folders: {
+    list: CapabilitySupport;
+    create: CapabilitySupport;
+    rename: CapabilitySupport;
+    delete: CapabilitySupport;
+    subscribe: CapabilitySupport;
+    quota: CapabilitySupport;
+    retention: CapabilitySupport;
+  };
+  labels: {
+    native: CapabilitySupport;
+    create: CapabilitySupport;
+    rename: CapabilitySupport;
+    delete: CapabilitySupport;
+    add: CapabilitySupport;
+    remove: CapabilitySupport;
+    color: CapabilitySupport;
+  };
+  messages: {
+    archive: CapabilitySupport;
+    trash: CapabilitySupport;
+    permanentDelete: CapabilitySupport;
+    move: CapabilitySupport;
+    markRead: CapabilitySupport;
+    star: CapabilitySupport;
+    spam: CapabilitySupport;
+    rawFetch: CapabilitySupport;
+  };
+  compose: {
+    send: CapabilitySupport;
+    remoteDrafts: CapabilitySupport;
+    appendSent: CapabilitySupport;
+    aliases: CapabilitySupport;
+  };
+  diagnostics: {
+    testIncoming: CapabilitySupport;
+    testOutgoing: CapabilitySupport;
+    testOAuth: CapabilitySupport;
+    exportDebug: CapabilitySupport;
+  };
+}
+
 export interface EmailFolder {
   id: string;
   name: string;
@@ -26,6 +75,7 @@ export interface SyncResult {
 export interface EmailProvider {
   readonly accountId: string;
   readonly type: AccountProvider;
+  readonly capabilities: ProviderCapabilities;
 
   // Folder/Label operations
   listFolders(): Promise<EmailFolder[]>;
