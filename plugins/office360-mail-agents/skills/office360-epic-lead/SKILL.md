@@ -35,7 +35,7 @@ Before implementation, produce or confirm a short implementation brief:
 - Security/privacy concerns.
 - Wiki pages to update.
 - Required current docs to check for fast-moving dependencies or APIs.
-- Test plan with targeted checks, Web smoke, and Desktop smoke.
+- Test plan with targeted checks, Web smoke when useful, OS-specific installed app refresh, and Desktop smoke against the refreshed installed app.
 - Agent ownership if subagents are used.
 
 If the request is unclear, inspect the repository, wiki, and strategy docs first. Ask only for missing product intent that cannot be inferred from local context.
@@ -100,7 +100,7 @@ Do not assign overlapping write ownership. Any change touching these areas requi
 4. Collect benchmark or current-doc analysis when needed and convert it into acceptance criteria.
 5. Implement focused changes.
 6. Run targeted tests first, then broader checks.
-7. Run Web and Desktop smoke when UI or installed-app behavior changed.
+7. Run Web smoke when useful, then rebuild and refresh the installed desktop app for the current OS, and run Desktop smoke against that refreshed installed app when UI, provider, database, settings, Tauri, or packaging behavior changed.
 8. Summarize changed behavior, files, wiki updates, verification, and handoff state.
 9. Use `office360-gitverse-cli` only when the user asks to push or create a PR.
 
