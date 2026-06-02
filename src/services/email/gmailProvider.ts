@@ -2,6 +2,7 @@ import type { EmailProvider, EmailFolder, SyncResult } from "./types";
 import type { GmailClient } from "../gmail/client";
 import { parseGmailMessage, type ParsedMessage } from "../gmail/messageParser";
 import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
+import { GMAIL_CAPABILITIES } from "./providerCapabilities";
 
 /** Map Gmail system label IDs to IMAP special-use flags */
 const GMAIL_SPECIAL_USE: Record<string, string | null> = {
@@ -28,6 +29,7 @@ const GMAIL_SPECIAL_USE: Record<string, string | null> = {
 export class GmailApiProvider implements EmailProvider {
   readonly accountId: string;
   readonly type = "gmail_api" as const;
+  readonly capabilities = GMAIL_CAPABILITIES;
   private client: GmailClient;
 
   constructor(accountId: string, client: GmailClient) {

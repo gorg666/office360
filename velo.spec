@@ -9,7 +9,7 @@ Version: %{app_version}
 Release: %{app_release}%{?dist}
 Summary: Fast, beautiful desktop email client
 
-License: Apache-2.0
+License: Proprietary
 URL:     https://github.com/avihaymenahem/velo
 Source0: %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
@@ -30,7 +30,7 @@ Requires: libappindicator-gtk3
 Requires: hicolor-icon-theme
 
 %description
-Velo is a fast, beautiful, and open-source desktop email client built with
+Velo is a fast and beautiful proprietary desktop email client built with
 modern web technologies, using Tauri, React, and Vite.
 
 %prep

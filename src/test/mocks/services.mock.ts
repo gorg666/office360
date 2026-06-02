@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 import type { GmailClient } from "@/services/gmail/client";
+import { GMAIL_CAPABILITIES } from "@/services/email/providerCapabilities";
 
 export function createMockGmailClient(
   overrides: Record<string, unknown> = {},
@@ -31,6 +32,22 @@ export function createMockEmailProvider(
   overrides: Record<string, unknown> = {},
 ) {
   return {
+    accountId: "acct-1",
+    type: "gmail_api",
+    capabilities: GMAIL_CAPABILITIES,
+    listFolders: vi.fn(() => Promise.resolve([])),
+    createFolder: vi.fn(() => Promise.resolve({
+      id: "Label_1",
+      name: "Label",
+      path: "Label",
+      type: "user",
+      specialUse: null,
+      delimiter: "/",
+      messageCount: 0,
+      unreadCount: 0,
+    })),
+    deleteFolder: vi.fn(() => Promise.resolve()),
+    renameFolder: vi.fn(() => Promise.resolve()),
     archive: vi.fn(() => Promise.resolve()),
     trash: vi.fn(() => Promise.resolve()),
     permanentDelete: vi.fn(() => Promise.resolve()),

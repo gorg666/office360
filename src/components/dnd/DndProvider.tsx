@@ -10,7 +10,9 @@ import {
 } from "@dnd-kit/core";
 import { useThreadStore } from "@/stores/threadStore";
 import { useAccountStore } from "@/stores/accountStore";
-import { addThreadLabel, removeThreadLabel } from "@/services/emailActions";
+import { useLabelStore } from "@/stores/labelStore";
+import { addThreadLabel, moveThread, removeThreadLabel, trashThread } from "@/services/emailActions";
+import { getCapabilitiesForAccountProvider } from "@/services/email/providerCapabilities";
 
 // Map sidebar IDs to Gmail label IDs (same as EmailList)
 const LABEL_MAP: Record<string, string> = {
@@ -68,6 +70,8 @@ export function DndProvider({ children }: DndProviderProps) {
   const [dragData, setDragData] = useState<DragData | null>(null);
   const removeThreads = useThreadStore((s) => s.removeThreads);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const accounts = useAccountStore((s) => s.accounts);
+  const labels = useLabelStore((s) => s.labels);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -89,6 +93,32 @@ export function DndProvider({ children }: DndProviderProps) {
     if (!over || !dragData || !activeAccountId) return;
 
     const targetLabel = over.id as string;
+    const account = accounts.find((item) => item.id === activeAccountId);
+    const capabilities = getCapabilitiesForAccountProvider(account?.provider);
+
+    if (!capabilities.labels.add.supported || !capabilities.labels.remove.supported) {
+      if (!capabilities.messages.move.supported || targetLabel === "all") return;
+      const isKnownImapFolder =
+        targetLabel === "inbox" ||
+        targetLabel === "trash" ||
+        labels.some((label) => label.id === targetLabel);
+      if (!isKnownImapFolder) return;
+      try {
+        const targetFolder = LABEL_MAP[targetLabel] ?? targetLabel;
+        for (const threadId of dragData.threadIds) {
+          if (targetFolder === "TRASH") {
+            await trashThread(activeAccountId, threadId, []);
+          } else {
+            await moveThread(activeAccountId, threadId, [], targetFolder);
+          }
+        }
+        removeThreads(dragData.threadIds);
+      } catch (err) {
+        console.error("Failed to move threads:", err);
+      }
+      return;
+    }
+
     const change = resolveLabelChange(targetLabel, dragData.sourceLabel);
     if (!change) return;
 

@@ -11,6 +11,7 @@ import {
   removeThreadLabel,
   moveThread,
 } from "@/services/emailActions";
+import { getCapabilitiesForAccountProvider } from "@/services/email/providerCapabilities";
 import {
   Inbox,
   Archive,
@@ -62,17 +63,24 @@ export function MoveToFolderDialog({
     [accounts, activeAccountId],
   );
   const isImap = account?.provider === "imap";
+  const capabilities = useMemo(
+    () => getCapabilitiesForAccountProvider(account?.provider),
+    [account?.provider],
+  );
+  const canUseLabels = capabilities.labels.add.supported && capabilities.labels.remove.supported;
+  const canMoveFolders = capabilities.messages.move.supported;
 
   // Build the full destination list: system destinations + user labels
   const destinations = useMemo(() => {
-    const userLabels: Destination[] = labels.map((l) => ({
+    const shouldShowUserLabels = isImap ? canMoveFolders : canUseLabels;
+    const userLabels: Destination[] = shouldShowUserLabels ? labels.map((l) => ({
       id: l.id,
       label: l.name,
       icon: Tag,
       type: "label" as const,
-    }));
+    })) : [];
     return [...SYSTEM_DESTINATIONS, ...userLabels];
-  }, [labels]);
+  }, [canMoveFolders, canUseLabels, isImap, labels]);
 
   // Filter destinations by search query
   const filtered = useMemo(() => {

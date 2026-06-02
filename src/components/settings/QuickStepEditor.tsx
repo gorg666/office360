@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Trash2, Pencil, Plus, GripVertical, ChevronDown } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { getLabelsForAccount, type DbLabel } from "@/services/db/labels";
+import { getCapabilitiesForAccountProvider } from "@/services/email/providerCapabilities";
 import {
   getQuickStepsForAccount,
   insertQuickStep,
@@ -16,6 +17,10 @@ import {
 } from "@/services/quickSteps/types";
 import { ALL_CATEGORIES } from "@/services/db/threadCategories";
 import { seedDefaultQuickSteps } from "@/services/quickSteps/defaults";
+
+function isLabelAction(type: QuickStepActionType): boolean {
+  return type === "applyLabel" || type === "removeLabel";
+}
 
 function describeActions(actionsJson: string): string {
   try {
@@ -36,6 +41,7 @@ function describeActions(actionsJson: string): string {
 
 export function QuickStepEditor() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const accounts = useAccountStore((s) => s.accounts);
   const [quickSteps, setQuickSteps] = useState<DbQuickStep[]>([]);
   const [labels, setLabels] = useState<DbLabel[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -48,6 +54,15 @@ export function QuickStepEditor() {
   const [icon, setIcon] = useState("");
   const [continueOnError, setContinueOnError] = useState(false);
   const [actions, setActions] = useState<QuickStepAction[]>([]);
+  const activeAccount = useMemo(
+    () => accounts.find((account) => account.id === activeAccountId),
+    [accounts, activeAccountId],
+  );
+  const hasNativeLabels = getCapabilitiesForAccountProvider(activeAccount?.provider).labels.native.supported;
+  const availableActionMetadata = useMemo(
+    () => ACTION_TYPE_METADATA.filter((meta) => hasNativeLabels || !isLabelAction(meta.type)),
+    [hasNativeLabels],
+  );
 
   const loadQuickSteps = useCallback(async () => {
     if (!activeAccountId) return;
@@ -60,11 +75,15 @@ export function QuickStepEditor() {
   useEffect(() => {
     if (!activeAccountId) return;
     loadQuickSteps();
+    if (!hasNativeLabels) {
+      setLabels([]);
+      return;
+    }
     getLabelsForAccount(activeAccountId).then((l) =>
       setLabels(l.filter((lb) => lb.type === "user")),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadQuickSteps is stable, only re-run on activeAccountId change
-  }, [activeAccountId]);
+  }, [activeAccountId, hasNativeLabels]);
 
   const resetForm = useCallback(() => {
     setName("");
@@ -78,7 +97,10 @@ export function QuickStepEditor() {
   }, []);
 
   const handleSave = useCallback(async () => {
-    if (!activeAccountId || !name.trim() || actions.length === 0) return;
+    const providerActions = hasNativeLabels
+      ? actions
+      : actions.filter((action) => !isLabelAction(action.type));
+    if (!activeAccountId || !name.trim() || providerActions.length === 0) return;
 
     if (editingId) {
       await updateQuickStep(editingId, {
@@ -87,7 +109,7 @@ export function QuickStepEditor() {
         shortcut: shortcut.trim() || null,
         icon: icon.trim() || undefined,
         continueOnError,
-        actions,
+        actions: providerActions,
       });
     } else {
       await insertQuickStep({
@@ -97,13 +119,13 @@ export function QuickStepEditor() {
         shortcut: shortcut.trim() || undefined,
         icon: icon.trim() || undefined,
         continueOnError,
-        actions,
+        actions: providerActions,
       });
     }
 
     resetForm();
     await loadQuickSteps();
-  }, [activeAccountId, name, description, shortcut, icon, continueOnError, actions, editingId, resetForm, loadQuickSteps]);
+  }, [activeAccountId, name, description, shortcut, icon, continueOnError, actions, editingId, resetForm, loadQuickSteps, hasNativeLabels]);
 
   const handleEdit = useCallback((qs: DbQuickStep) => {
     setEditingId(qs.id);
@@ -114,13 +136,14 @@ export function QuickStepEditor() {
     setContinueOnError(qs.continue_on_error === 1);
 
     try {
-      setActions(JSON.parse(qs.actions_json) as QuickStepAction[]);
+      const parsed = JSON.parse(qs.actions_json) as QuickStepAction[];
+      setActions(hasNativeLabels ? parsed : parsed.filter((action) => !isLabelAction(action.type)));
     } catch {
       setActions([]);
     }
 
     setShowForm(true);
-  }, []);
+  }, [hasNativeLabels]);
 
   const handleDelete = useCallback(async (id: string) => {
     await deleteQuickStep(id);
@@ -279,7 +302,7 @@ export function QuickStepEditor() {
                           onChange={(e) => updateAction(index, e.target.value as QuickStepActionType)}
                           className="w-full bg-bg-tertiary text-text-primary text-xs px-2 py-1.5 rounded border border-border-primary appearance-none pr-6"
                         >
-                          {ACTION_TYPE_METADATA.map((m) => (
+                          {availableActionMetadata.map((m) => (
                             <option key={m.type} value={m.type}>
                               {m.label}
                             </option>
@@ -287,7 +310,7 @@ export function QuickStepEditor() {
                         </select>
                         <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
                       </div>
-                      {needsLabelParam && labels.length > 0 && (
+                      {hasNativeLabels && needsLabelParam && labels.length > 0 && (
                         <select
                           value={action.params?.labelId ?? ""}
                           onChange={(e) => updateActionParams(index, { labelId: e.target.value })}

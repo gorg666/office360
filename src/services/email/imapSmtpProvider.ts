@@ -1,5 +1,6 @@
 import type { EmailProvider, EmailFolder, SyncResult } from "./types";
 import type { ParsedMessage } from "../gmail/messageParser";
+import { IMAP_CAPABILITIES } from "./providerCapabilities";
 import { buildImapConfig, buildSmtpConfig } from "../imap/imapConfigBuilder";
 import { imapInitialSync, imapDeltaSync, imapMessageToParsedMessage } from "../imap/imapSync";
 import { mapFolderToLabel, getSyncableFolders } from "../imap/folderMapper";
@@ -110,6 +111,7 @@ function extractSnippet(raw: string, maxLen = 200): string {
 export class ImapSmtpProvider implements EmailProvider {
   readonly accountId: string;
   readonly type = "imap" as const;
+  readonly capabilities = IMAP_CAPABILITIES;
 
   private _imapConfig: ImapConfig | null = null;
   private _smtpConfig: SmtpConfig | null = null;

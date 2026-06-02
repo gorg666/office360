@@ -4,10 +4,11 @@ import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore } from "@/stores/threadStore";
 import { openNewCompose } from "@/utils/openComposeWindow";
 import { useAccountStore } from "@/stores/accountStore";
-import { getGmailClient } from "@/services/gmail/tokenManager";
+import { spamThread } from "@/services/emailActions";
 import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { navigateToLabel, navigateBack, getSelectedThreadId } from "@/router/navigate";
+import { getCapabilitiesForAccountProvider } from "@/services/email/providerCapabilities";
 
 interface Command {
   id: string;
@@ -31,12 +32,22 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const setTheme = useUIStore((s) => s.setTheme);
   const activeLabel = useActiveLabel();
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const accounts = useAccountStore((s) => s.accounts);
   const [templates, setTemplates] = useState<DbTemplate[]>([]);
 
   useEffect(() => {
     if (!isOpen || !activeAccountId) return;
     getTemplatesForAccount(activeAccountId).then(setTemplates);
   }, [isOpen, activeAccountId]);
+
+  const account = useMemo(
+    () => accounts.find((item) => item.id === activeAccountId),
+    [accounts, activeAccountId],
+  );
+  const capabilities = useMemo(
+    () => getCapabilitiesForAccountProvider(account?.provider),
+    [account?.provider],
+  );
 
   const commands: Command[] = useMemo(() => [
     // Navigation
@@ -51,23 +62,26 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     // Actions
     { id: "compose", label: "Compose New Email", shortcut: "c", category: "Actions", action: () => { void openNewCompose(); onClose(); } },
     { id: "deselect", label: "Close Thread", shortcut: "Esc", category: "Actions", action: () => { navigateBack(); onClose(); } },
-    { id: "spam", label: activeLabel === "spam" ? "Not Spam" : "Report Spam", shortcut: "!", category: "Actions", action: async () => {
-      onClose();
-      const selectedId = getSelectedThreadId();
-      const accountId = useAccountStore.getState().activeAccountId;
-      if (!selectedId || !accountId) return;
-      try {
-        const client = await getGmailClient(accountId);
-        if (activeLabel === "spam") {
-          await client.modifyThread(selectedId, ["INBOX"], ["SPAM"]);
-        } else {
-          await client.modifyThread(selectedId, ["SPAM"], ["INBOX"]);
-        }
-        useThreadStore.getState().removeThread(selectedId);
-      } catch (err) {
-        console.error("Spam action failed:", err);
-      }
-    } },
+    ...(capabilities.messages.spam.supported
+      ? [{
+          id: "spam",
+          label: activeLabel === "spam" ? "Not Spam" : "Report Spam",
+          shortcut: "!",
+          category: "Actions",
+          action: async () => {
+            onClose();
+            const selectedId = getSelectedThreadId();
+            const accountId = useAccountStore.getState().activeAccountId;
+            if (!selectedId || !accountId) return;
+            const result = await spamThread(accountId, selectedId, [], activeLabel !== "spam");
+            if (result.success) {
+              useThreadStore.getState().removeThread(selectedId);
+            } else if (result.error) {
+              console.warn("Spam action skipped:", result.error);
+            }
+          },
+        }]
+      : []),
 
     // Tasks
     { id: "task-create", label: "Create Task", category: "Tasks", action: () => {
@@ -106,7 +120,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         onClose();
       },
     })),
-  ], [onClose, activeLabel, toggleSidebar, setTheme, templates]);
+  ], [onClose, activeLabel, capabilities.messages.spam.supported, toggleSidebar, setTheme, templates]);
 
   const filtered = query
     ? commands.filter(

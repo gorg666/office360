@@ -1,8 +1,8 @@
 import { motion } from 'framer-motion'
-import { Github, Code2, EyeOff, HardDrive, Lock } from 'lucide-react'
+import { ShieldCheck, EyeOff, HardDrive, Lock } from 'lucide-react'
 
 const TRUST_SIGNALS = [
-  { icon: Code2, label: 'Open source' },
+  { icon: ShieldCheck, label: 'Proprietary product' },
   { icon: EyeOff, label: 'No tracking' },
   { icon: HardDrive, label: 'Local database' },
   { icon: Lock, label: 'AES-256 encryption' },
@@ -10,7 +10,7 @@ const TRUST_SIGNALS = [
 
 export function OpenSource() {
   return (
-    <section id="open-source" className="relative py-24 md:py-32 px-6 overflow-hidden">
+    <section id="privacy" className="relative py-24 md:py-32 px-6 overflow-hidden">
       {/* Background glow */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-accent/[0.05] rounded-full blur-[100px] pointer-events-none" />
 
@@ -22,8 +22,8 @@ export function OpenSource() {
           viewport={{ once: true }}
           transition={{ duration: 0.7 }}
         >
-          <span className="gradient-text">Open source</span>
-          <span className="text-text-primary"> and free forever</span>
+          <span className="gradient-text">Private by design</span>
+          <span className="text-text-primary">, proprietary by license</span>
         </motion.h2>
 
         <motion.p
@@ -33,7 +33,7 @@ export function OpenSource() {
           viewport={{ once: true }}
           transition={{ duration: 0.5, delay: 0.05 }}
         >
-          Every line of code is public, licensed under Apache 2.0. No telemetry, no data collection, no cloud dependency. Your email stays on your machine.
+          Office360 is proprietary software built around local storage, encrypted credentials, and a no-tracking product model. Your email stays on your machine.
         </motion.p>
 
         <motion.div
@@ -53,22 +53,15 @@ export function OpenSource() {
           ))}
         </motion.div>
 
-        <motion.div
+        <motion.p
+          className="text-text-muted text-sm"
           initial={{ opacity: 0, y: 12 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5, delay: 0.15 }}
         >
-          <a
-            href="https://github.com/avihaymenahem/velo"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-secondary"
-          >
-            <Github size={16} />
-            Star on GitHub
-          </a>
-        </motion.div>
+          Source code and redistribution rights are governed by the Office360 Proprietary License.
+        </motion.p>
       </div>
     </section>
   )

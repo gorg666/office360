@@ -20,6 +20,10 @@ vi.mock("@/services/email/providerFactory", () => ({
   getEmailProvider: vi.fn(),
 }));
 
+vi.mock("@/services/db/accounts", () => ({
+  getAccount: vi.fn(),
+}));
+
 vi.mock("@/services/db/pendingOperations", () => ({
   enqueuePendingOperation: vi.fn(() => Promise.resolve("op-1")),
 }));
@@ -41,6 +45,7 @@ vi.mock("@/router/navigate", () => ({
 import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore } from "@/stores/threadStore";
 import { getEmailProvider } from "@/services/email/providerFactory";
+import { getAccount } from "@/services/db/accounts";
 import { enqueuePendingOperation } from "@/services/db/pendingOperations";
 import {
   archiveThread,
@@ -64,6 +69,7 @@ describe("emailActions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getEmailProvider).mockResolvedValue(mockProvider as never);
+    vi.mocked(getAccount).mockResolvedValue({ id: "acct-1", provider: "gmail_api" } as never);
     vi.mocked(useUIStore.getState).mockReturnValue(createMockUIStoreState() as never);
     vi.mocked(useThreadStore.getState).mockReturnValue(createMockThreadStoreState({
       updateThread: mockUpdateThread,
@@ -105,6 +111,23 @@ describe("emailActions", () => {
       expect(result.success).toBe(true);
       expect(mockRemoveThread).toHaveBeenCalledWith("t1");
       expect(mockProvider.spam).toHaveBeenCalledWith("t1", ["m1"], true);
+    });
+
+    it("rejects unsupported IMAP label actions before provider or optimistic updates", async () => {
+      vi.mocked(getAccount).mockResolvedValue({ id: "acct-1", provider: "imap" } as never);
+
+      const result = await executeEmailAction("acct-1", {
+        type: "addLabel",
+        threadId: "t1",
+        labelId: "Label_1",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("native labels");
+      expect(mockProvider.addLabel).not.toHaveBeenCalled();
+      expect(enqueuePendingOperation).not.toHaveBeenCalled();
+      expect(mockRemoveThread).not.toHaveBeenCalled();
+      expect(mockUpdateThread).not.toHaveBeenCalled();
     });
   });
 

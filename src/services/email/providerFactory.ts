@@ -21,12 +21,11 @@ export async function getEmailProvider(
 
   let provider: EmailProvider;
 
-  if (account.provider === "imap") {
-    provider = new ImapSmtpProvider(accountId);
-  } else {
-    // Default: gmail_api
+  if (account.provider === "gmail_api") {
     const client = await getGmailClient(accountId);
     provider = new GmailApiProvider(accountId, client);
+  } else {
+    provider = new ImapSmtpProvider(accountId);
   }
 
   providers.set(accountId, provider);

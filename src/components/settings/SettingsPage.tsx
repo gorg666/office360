@@ -51,6 +51,7 @@ import { SHORTCUTS, getDefaultKeyMap } from "@/constants/shortcuts";
 import { useShortcutStore } from "@/stores/shortcutStore";
 import { COLOR_THEMES } from "@/constants/themes";
 import { LOCALE_LABELS } from "@/i18n";
+import { getCapabilitiesForAccountProvider } from "@/services/email/providerCapabilities";
 import {
   getAliasesForAccount,
   setDefaultAlias,
@@ -207,6 +208,8 @@ export function SettingsPage() {
   const [vipSenders, setVipSenders] = useState<{ email_address: string; display_name: string | null }[]>([]);
   const [newVipEmail, setNewVipEmail] = useState("");
   const activeMailAccount = accounts.find((a) => a.isActive && a.provider !== "caldav");
+  const activeMailCapabilities = getCapabilitiesForAccountProvider(activeMailAccount?.provider);
+  const hasNativeLabels = activeMailCapabilities.labels.native.supported;
 
   // Load settings from DB
   useEffect(() => {
@@ -1093,12 +1096,14 @@ export function SettingsPage() {
 
               {activeTab === "mail-rules" && (
                 <>
-                  <Section title="Labels">
-                    <p className="text-xs text-text-tertiary mb-3">
-                      Create, rename, recolor, delete, or reorder your Gmail labels.
-                    </p>
-                    <LabelEditor />
-                  </Section>
+                  {hasNativeLabels && (
+                    <Section title="Labels">
+                      <p className="text-xs text-text-tertiary mb-3">
+                        Create, rename, recolor, delete, or reorder your Gmail labels.
+                      </p>
+                      <LabelEditor />
+                    </Section>
+                  )}
 
                   <Section title="Filters">
                     <p className="text-xs text-text-tertiary mb-3">
@@ -1107,12 +1112,14 @@ export function SettingsPage() {
                     <FilterEditor />
                   </Section>
 
-                  <Section title="Smart Labels">
-                    <p className="text-xs text-text-tertiary mb-3">
-                      Describe what emails should get a label using plain English. AI automatically labels matching emails during sync.
-                    </p>
-                    <SmartLabelEditor />
-                  </Section>
+                  {hasNativeLabels && (
+                    <Section title="Smart Labels">
+                      <p className="text-xs text-text-tertiary mb-3">
+                        Describe what emails should get a label using plain English. AI automatically labels matching emails during sync.
+                      </p>
+                      <SmartLabelEditor />
+                    </Section>
+                  )}
 
                   <Section title="Smart Folders">
                     <p className="text-xs text-text-tertiary mb-3">
@@ -1264,7 +1271,7 @@ export function SettingsPage() {
 
                   <ImapCalDavSection />
 
-                  {activeMailAccount?.provider !== "imap" && (
+                  {activeMailAccount?.provider === "gmail_api" && (
                     <Section title="Google API">
                       <div className="space-y-3">
                         <TextField
@@ -1733,7 +1740,7 @@ export function SettingsPage() {
 
                   <Section title="Categories">
                     <p className="text-xs text-text-tertiary mb-1">
-                      Incoming emails are automatically sorted using rule-based heuristics (Gmail labels, sender domain, headers). When AI is enabled, it refines results for better accuracy.
+                      Incoming emails are automatically sorted using rule-based heuristics (provider folders, sender domain, headers). When AI is enabled, it refines results for better accuracy.
                     </p>
                     <p className="text-xs text-text-tertiary mb-3">
                       Enable auto-archive to skip the inbox for specific categories.

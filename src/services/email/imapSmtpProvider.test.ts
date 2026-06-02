@@ -131,6 +131,10 @@ describe("ImapSmtpProvider", () => {
   it("has correct accountId and type", () => {
     expect(provider.accountId).toBe("acc-1");
     expect(provider.type).toBe("imap");
+    expect(provider.capabilities.folders.create.supported).toBe(false);
+    expect(provider.capabilities.folders.rename.supported).toBe(false);
+    expect(provider.capabilities.folders.delete.supported).toBe(false);
+    expect(provider.capabilities.folders.create.reason).toContain("not implemented");
   });
 
   // ---------- Folder operations ----------

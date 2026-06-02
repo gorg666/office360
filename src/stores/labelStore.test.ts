@@ -12,20 +12,27 @@ vi.mock("@/services/gmail/tokenManager", () => ({
   getGmailClient: vi.fn(),
 }));
 
+vi.mock("@/services/db/accounts", () => ({
+  getAccount: vi.fn(),
+}));
+
 import { getLabelsForAccount, deleteLabel as dbDeleteLabel, updateLabelSortOrder, upsertLabel } from "@/services/db/labels";
 import { getGmailClient } from "@/services/gmail/tokenManager";
+import { getAccount } from "@/services/db/accounts";
 
 const mockGetLabels = vi.mocked(getLabelsForAccount);
 const mockDbDeleteLabel = vi.mocked(dbDeleteLabel);
 const mockUpdateSortOrder = vi.mocked(updateLabelSortOrder);
 const mockUpsertLabel = vi.mocked(upsertLabel);
 const mockGetGmailClient = vi.mocked(getGmailClient);
+const mockGetAccount = vi.mocked(getAccount);
 import { createMockGmailClient } from "@/test/mocks";
 
 describe("labelStore", () => {
   beforeEach(() => {
     useLabelStore.setState({ labels: [], isLoading: false });
     vi.clearAllMocks();
+    mockGetAccount.mockResolvedValue({ id: "acc1", provider: "gmail_api" } as never);
   });
 
   it("should have correct default state", () => {
@@ -154,6 +161,19 @@ describe("labelStore", () => {
     expect(mockClient.deleteLabel).toHaveBeenCalledWith("Label_1");
     expect(mockDbDeleteLabel).toHaveBeenCalledWith("acc1", "Label_1");
     expect(mockGetLabels).toHaveBeenCalledWith("acc1");
+  });
+
+  it("should reject unsupported IMAP label CRUD before Gmail API calls", async () => {
+    mockGetAccount.mockResolvedValue({ id: "acc1", provider: "imap" } as never);
+
+    await expect(useLabelStore.getState().createLabel("acc1", "New Label"))
+      .rejects.toThrow("native labels");
+    await expect(useLabelStore.getState().updateLabel("acc1", "Label_1", { name: "Renamed" }))
+      .rejects.toThrow("native labels");
+    await expect(useLabelStore.getState().deleteLabel("acc1", "Label_1"))
+      .rejects.toThrow("native labels");
+
+    expect(mockGetGmailClient).not.toHaveBeenCalled();
   });
 
   it("should reorder labels by updating sort order in DB", async () => {

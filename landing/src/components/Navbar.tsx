@@ -1,10 +1,10 @@
 import { useState, useCallback } from 'react'
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion'
-import { Menu, X, Github } from 'lucide-react'
+import { Menu, X } from 'lucide-react'
 
 const NAV_LINKS = [
   { label: 'Features', href: '#features' },
-  { label: 'Open Source', href: '#open-source' },
+  { label: 'Privacy', href: '#privacy' },
   { label: 'Download', href: '#download' },
 ]
 
@@ -35,8 +35,8 @@ export function Navbar() {
     >
       <nav className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
         <a href="#" className="flex items-center gap-2.5 text-text-primary no-underline">
-          <img src="/logo-white.svg" alt="Velo" className="w-7 h-7 rounded-md" />
-          <span className="font-semibold text-lg tracking-tight">Velo</span>
+          <img src="/logo-white.svg" alt="Office360" className="w-7 h-7 rounded-md" />
+          <span className="font-semibold text-lg tracking-tight">Office360</span>
         </a>
 
         <div className="hidden md:flex items-center gap-8">
@@ -53,15 +53,6 @@ export function Navbar() {
         </div>
 
         <div className="hidden md:flex items-center gap-3">
-          <a
-            href="https://github.com/avihaymenahem/velo"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-secondary !py-2 !px-4 !text-sm"
-          >
-            <Github size={15} />
-            GitHub
-          </a>
           <a
             href="https://github.com/avihaymenahem/velo/releases"
             target="_blank"
@@ -99,11 +90,7 @@ export function Navbar() {
                 {link.label}
               </a>
             ))}
-            <a href="https://github.com/avihaymenahem/velo" target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm !py-2.5 mt-2 justify-center">
-              <Github size={16} />
-              GitHub
-            </a>
-            <a href="https://github.com/avihaymenahem/velo/releases" target="_blank" rel="noopener noreferrer" className="btn-primary text-sm !py-2.5 justify-center">
+            <a href="https://github.com/avihaymenahem/velo/releases" target="_blank" rel="noopener noreferrer" className="btn-primary text-sm !py-2.5 mt-2 justify-center">
               Download
             </a>
           </div>

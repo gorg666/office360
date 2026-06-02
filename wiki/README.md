@@ -1,0 +1,26 @@
+# Office360 Wiki
+
+Эта wiki - living project memory для Office360.
+
+Обновляй её, когда изменение затрагивает system behavior, architecture, provider rules, user-visible workflows, deployment или smoke checks.
+
+## Страницы
+
+- [Обзор системы](system-overview.md) - текущая архитектура и границы продукта.
+- [Provider Capabilities](provider-capabilities.md) - provider model, Gmail/Yandex/IMAP capability decisions и UI gating.
+- [Журнал изменений](change-log.md) - важные implementation и behavior changes.
+- [Правила ведения wiki](wiki-conventions.md) - как поддерживать wiki полезной.
+
+## Текущее продуктовое направление
+
+Office360 сфокусирован на IMAP/SMTP и Yandex mail workflows. Gmail не является целевым провайдером для default product experience и должен оставаться скрытым, если явно не включён как compatibility path.
+
+## Текущий smoke focus
+
+Для provider-capability изменений проверять:
+
+- Yandex/IMAP account picker не показывает Gmail по умолчанию.
+- Yandex/IMAP sidebar не показывает Gmail-native labels.
+- Yandex/IMAP context menus не показывают `Apply Label`.
+- Yandex/IMAP settings не показывают `Google API`, `Labels` или `Smart Labels`.
+- `Move to Folder`, archive, trash, star, mark read, send и sync flows работают.
