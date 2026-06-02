@@ -1,6 +1,6 @@
 ---
 name: office360-mail-tester
-description: Use when verifying Office360 Mail changes with targeted tests, builds, browser smoke tests, installed Tauri desktop smoke, screenshots, acceptance review, and concise release-readiness reporting.
+description: "Use when verifying Office360 Mail changes with targeted tests, builds, browser smoke tests, installed Tauri desktop smoke, screenshots, acceptance review, and concise release-readiness reporting."
 ---
 
 # Office360 Mail Tester

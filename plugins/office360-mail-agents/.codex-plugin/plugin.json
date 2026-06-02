@@ -1,6 +1,6 @@
 {
   "name": "office360-mail-agents",
-  "version": "0.1.0+codex.20260602065424",
+  "version": "0.1.0+codex.20260602102611",
   "description": "Agent workflow plugin for Office360 Mail delivery work.",
   "author": {
     "name": "Office360 Team"

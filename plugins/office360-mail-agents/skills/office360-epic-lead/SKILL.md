@@ -1,6 +1,6 @@
 ---
 name: office360-epic-lead
-description: Use when coordinating Office360 Mail delivery work from a strategy epic, direct user prompt, approved plan, or prior handoff. Creates an implementation brief, ownership plan, acceptance criteria, security/wiki expectations, and Web/Desktop verification path before implementation.
+description: "Use when coordinating Office360 Mail delivery work from a strategy epic, direct user prompt, approved plan, or prior handoff. Creates an implementation brief, ownership plan, acceptance criteria, security/wiki expectations, and Web/Desktop verification path before implementation."
 ---
 
 # Office360 Epic Lead

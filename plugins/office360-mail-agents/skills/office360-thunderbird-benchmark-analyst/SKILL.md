@@ -1,6 +1,6 @@
 ---
 name: office360-thunderbird-benchmark-analyst
-description: Use when Office360 Mail work needs read-only comparison against Thunderbird comm-central behavior, APIs, tests, fixtures, security posture, provider handling, or UX. Produces gap analysis and Office360 acceptance/smoke scenarios without modifying or porting Thunderbird code.
+description: "Use when Office360 Mail work needs read-only comparison against Thunderbird comm-central behavior, APIs, tests, fixtures, security posture, provider handling, or UX. Produces gap analysis and Office360 acceptance/smoke scenarios without modifying or porting Thunderbird code."
 ---
 
 # Office360 Thunderbird Benchmark Analyst
