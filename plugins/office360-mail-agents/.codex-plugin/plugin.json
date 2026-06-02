@@ -1,0 +1,26 @@
+{
+  "name": "office360-mail-agents",
+  "version": "0.1.0+codex.20260602065424",
+  "description": "Agent workflow plugin for Office360 Mail delivery work.",
+  "author": {
+    "name": "Office360 Team"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Office360 Mail Agents",
+    "shortDescription": "Coordinate Office360 Mail delivery with senior engineering and smoke-test agents.",
+    "longDescription": "Project-local Codex plugin for planning, implementing, testing, benchmarking against Thunderbird, and publishing Office360 Mail delivery work through GitVerse.",
+    "developerName": "Office360 Team",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Code",
+      "Review",
+      "Workflow"
+    ],
+    "defaultPrompt": [
+      "Use office360-epic-lead to run an Office360 Mail epic through implementation and smoke tests.",
+      "Use office360-epic-lead to turn this prompt into a delivery plan.",
+      "Use office360-epic-lead to implement, verify, and prepare a PR."
+    ]
+  }
+}
