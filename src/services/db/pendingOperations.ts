@@ -12,13 +12,16 @@ export const QUEUE_OPERATION_STATUSES = [
 
 export type QueueOperationStatus = (typeof QUEUE_OPERATION_STATUSES)[number];
 
-export type QueueUserAction =
-  | "retry"
-  | "cancel"
-  | "reauth"
-  | "edit_settings"
-  | "export_debug"
-  | "wait";
+export const QUEUE_USER_ACTIONS = [
+  "retry",
+  "cancel",
+  "reauth",
+  "edit_settings",
+  "export_debug",
+  "wait",
+] as const;
+
+export type QueueUserAction = (typeof QUEUE_USER_ACTIONS)[number];
 
 const ACTIVE_QUEUE_STATUSES: QueueOperationStatus[] = [
   "pending",
@@ -27,6 +30,37 @@ const ACTIVE_QUEUE_STATUSES: QueueOperationStatus[] = [
   "failed",
   "blocked",
 ];
+
+type QueueInspectorStatusFilter = QueueOperationStatus | "active" | "all";
+
+function isQueueOperationStatus(value: unknown): value is QueueOperationStatus {
+  return typeof value === "string" && (QUEUE_OPERATION_STATUSES as readonly string[]).includes(value);
+}
+
+function isQueueUserAction(value: unknown): value is QueueUserAction {
+  return typeof value === "string" && (QUEUE_USER_ACTIONS as readonly string[]).includes(value);
+}
+
+function normalizeQueueUserAction(value: unknown, fallback: QueueUserAction | null): QueueUserAction | null {
+  return isQueueUserAction(value) ? value : fallback;
+}
+
+function normalizeQueueInspectorStatus(value: unknown): QueueInspectorStatusFilter {
+  if (value === "active" || value === "all" || isQueueOperationStatus(value)) return value;
+  return "active";
+}
+
+function normalizeQueueLimit(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 200;
+  return Math.min(500, Math.max(1, Math.trunc(value)));
+}
+
+function sanitizeQueueText(value: unknown, fallback: string | null = null, maxLength = 512): string | null {
+  if (typeof value !== "string") return fallback;
+  const sanitized = value.replace(/[\u0000-\u001f\u007f]/g, " ").trim();
+  if (!sanitized) return fallback;
+  return sanitized.slice(0, maxLength);
+}
 
 export interface PendingOperation {
   id: string;
@@ -156,6 +190,10 @@ export async function blockOperation(
   } = {},
 ): Promise<void> {
   const db = await getDb();
+  const blockedReason = sanitizeQueueText(reason, "blocked") ?? "blocked";
+  const errorMessage = sanitizeQueueText(options.errorMessage, blockedReason) ?? blockedReason;
+  const diagnosticCode = sanitizeQueueText(options.diagnosticCode, null, 128);
+  const userAction = normalizeQueueUserAction(options.userAction, "retry");
   await db.execute(
     `UPDATE pending_operations
      SET status = 'blocked',
@@ -166,10 +204,10 @@ export async function blockOperation(
          updated_at = unixepoch()
      WHERE id = $5`,
     [
-      options.errorMessage ?? reason,
-      reason,
-      options.diagnosticCode ?? null,
-      options.userAction ?? "retry",
+      errorMessage,
+      blockedReason,
+      diagnosticCode,
+      userAction,
       id,
     ],
   );
@@ -184,6 +222,9 @@ export async function failOperation(
   } = {},
 ): Promise<void> {
   const db = await getDb();
+  const sanitizedErrorMessage = sanitizeQueueText(errorMessage, "Operation failed") ?? "Operation failed";
+  const diagnosticCode = sanitizeQueueText(options.diagnosticCode, null, 128);
+  const userAction = normalizeQueueUserAction(options.userAction, null);
   await db.execute(
     `UPDATE pending_operations
      SET status = 'failed',
@@ -194,9 +235,9 @@ export async function failOperation(
          updated_at = unixepoch()
      WHERE id = $4`,
     [
-      errorMessage,
-      options.diagnosticCode ?? null,
-      options.userAction ?? null,
+      sanitizedErrorMessage,
+      diagnosticCode,
+      userAction,
       id,
     ],
   );
@@ -687,12 +728,12 @@ export function toQueueInspectorItem(op: PendingOperation): QueueInspectorItem {
 
 export async function listQueueInspectorOperations(options: {
   accountId?: string;
-  status?: QueueOperationStatus | "active" | "all";
+  status?: QueueInspectorStatusFilter;
   limit?: number;
 } = {}): Promise<QueueInspectorItem[]> {
   const db = await getDb();
-  const status = options.status ?? "active";
-  const limit = options.limit ?? 200;
+  const status = normalizeQueueInspectorStatus(options.status);
+  const limit = normalizeQueueLimit(options.limit);
   const params: Array<string | number> = [];
   const where: string[] = [];
 

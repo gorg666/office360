@@ -114,7 +114,7 @@ export function QueueEpic03SmokeApp() {
       isOnline: nextOnline,
       pendingOpsCount: summary.active,
     });
-    window.dispatchEvent(new Event("velo-sync-health-changed"));
+    setHealth(await listAccountSyncHealth(smokeAccounts.map((account) => account.id)));
   }, []);
 
   const dispatchQueueChanged = useCallback(() => {
