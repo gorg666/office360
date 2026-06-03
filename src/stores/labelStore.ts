@@ -4,6 +4,7 @@ import { upsertLabel } from "@/services/db/labels";
 import { getGmailClient } from "@/services/gmail/tokenManager";
 import { getAccount } from "@/services/db/accounts";
 import { assertCapabilitySupported, getCapabilitiesForAccountProvider } from "@/services/email/providerCapabilities";
+import { markSmartFoldersMissingReference, rewriteSmartFolderReference } from "@/services/db/smartFolders";
 import type { CapabilitySupport } from "@/services/email/types";
 
 export interface Label {
@@ -14,6 +15,8 @@ export interface Label {
   colorBg: string | null;
   colorFg: string | null;
   sortOrder: number;
+  imapFolderPath: string | null;
+  imapSpecialUse: string | null;
 }
 
 // System labels that are already shown as nav items in the sidebar
@@ -78,6 +81,8 @@ export const useLabelStore = create<LabelState>((set, get) => ({
           colorBg: l.color_bg,
           colorFg: l.color_fg,
           sortOrder: l.sort_order,
+          imapFolderPath: l.imap_folder_path ?? null,
+          imapSpecialUse: l.imap_special_use ?? null,
         }));
       set({ labels, isLoading: false });
     } catch (err) {
@@ -114,6 +119,7 @@ export const useLabelStore = create<LabelState>((set, get) => ({
       await assertLabelCapability(accountId, (capabilities) => capabilities.labels.color, "Set label color");
     }
     const client = await getGmailClient(accountId);
+    const previous = get().labels.find((label) => label.id === labelId);
     const gmailLabel = await client.updateLabel(labelId, updates);
     await upsertLabel({
       id: gmailLabel.id,
@@ -123,14 +129,22 @@ export const useLabelStore = create<LabelState>((set, get) => ({
       colorBg: gmailLabel.color?.backgroundColor ?? null,
       colorFg: gmailLabel.color?.textColor ?? null,
     });
+    if (previous?.name && updates.name && previous.name !== updates.name) {
+      await rewriteSmartFolderReference(accountId, "label", previous.name, updates.name);
+    }
     await get().loadLabels(accountId);
   },
 
   deleteLabel: async (accountId: string, labelId: string) => {
     await assertLabelCapability(accountId, (capabilities) => capabilities.labels.delete, "Delete label");
+    const previous = get().labels.find((label) => label.id === labelId);
     const client = await getGmailClient(accountId);
     await client.deleteLabel(labelId);
     await dbDeleteLabel(accountId, labelId);
+    await markSmartFoldersMissingReference(accountId, "labelid", labelId, `Label ${previous?.name ?? labelId} was deleted.`);
+    if (previous?.name) {
+      await markSmartFoldersMissingReference(accountId, "label", previous.name, `Label ${previous.name} was deleted.`);
+    }
     await get().loadLabels(accountId);
   },
 

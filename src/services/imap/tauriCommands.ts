@@ -18,8 +18,32 @@ export interface ImapFolder {
   name: string;       // decoded display name (last segment)
   delimiter: string;
   special_use: string | null;
+  subscribed: boolean;
+  selectable: boolean;
+  has_children: boolean;
   exists: number;
   unseen: number;
+}
+
+export interface ImapCapabilities {
+  quota: boolean;
+  move_messages: boolean;
+  special_use: boolean;
+}
+
+export interface ImapQuotaResource {
+  name: string;
+  usage: number;
+  limit: number;
+  percent_used: number;
+}
+
+export interface ImapFolderQuota {
+  folder: string;
+  quota_roots: string[];
+  resources: ImapQuotaResource[];
+  supported: boolean;
+  reason: string | null;
 }
 
 export interface ImapMessage {
@@ -133,6 +157,52 @@ export async function imapTestConnection(config: ImapConfig): Promise<string> {
  */
 export async function imapListFolders(config: ImapConfig): Promise<ImapFolder[]> {
   return invoke<ImapFolder[]>('imap_list_folders', { config });
+}
+
+export async function imapCreateFolder(
+  config: ImapConfig,
+  name: string,
+  parentPath?: string | null,
+): Promise<void> {
+  return invoke<void>('imap_create_folder', { config, name, parentPath: parentPath ?? null });
+}
+
+export async function imapDeleteFolder(
+  config: ImapConfig,
+  path: string,
+): Promise<void> {
+  return invoke<void>('imap_delete_folder', { config, path });
+}
+
+export async function imapRenameFolder(
+  config: ImapConfig,
+  path: string,
+  newName: string,
+): Promise<string> {
+  return invoke<string>('imap_rename_folder', { config, path, newName });
+}
+
+export async function imapSetFolderSubscription(
+  config: ImapConfig,
+  path: string,
+  subscribed: boolean,
+): Promise<void> {
+  return invoke<void>('imap_set_folder_subscription', { config, path, subscribed });
+}
+
+export async function imapListSubscribedFolders(config: ImapConfig): Promise<string[]> {
+  return invoke<string[]>('imap_list_subscribed_folders', { config });
+}
+
+export async function imapGetCapabilities(config: ImapConfig): Promise<ImapCapabilities> {
+  return invoke<ImapCapabilities>('imap_get_capabilities', { config });
+}
+
+export async function imapGetFolderQuota(
+  config: ImapConfig,
+  path: string,
+): Promise<ImapFolderQuota> {
+  return invoke<ImapFolderQuota>('imap_get_folder_quota', { config, path });
 }
 
 /**

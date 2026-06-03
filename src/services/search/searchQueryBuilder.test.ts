@@ -80,6 +80,20 @@ describe("buildSearchQuery", () => {
     expect(params).toContain("work");
   });
 
+  it("builds labelid: filter", () => {
+    const parsed: ParsedSearchQuery = { freeText: "", labelId: "Label_123" };
+    const { sql, params } = buildSearchQuery(parsed);
+    expect(sql).toContain("tl.label_id =");
+    expect(params).toContain("Label_123");
+  });
+
+  it("builds folderpath: filter", () => {
+    const parsed: ParsedSearchQuery = { freeText: "", folderPath: "Work/Projects" };
+    const { sql, params } = buildSearchQuery(parsed);
+    expect(sql).toContain("m.imap_folder =");
+    expect(params).toContain("Work/Projects");
+  });
+
   it("adds account filter when provided", () => {
     const parsed: ParsedSearchQuery = { freeText: "test" };
     const { sql, params } = buildSearchQuery(parsed, "account-123");

@@ -9,8 +9,11 @@ export interface DbLabel {
   color_fg: string | null;
   visible: number;
   sort_order: number;
-  imap_folder_path: string | null;
-  imap_special_use: string | null;
+  imap_folder_path?: string | null;
+  imap_special_use?: string | null;
+  imap_subscribed?: number | null;
+  imap_selectable?: number | null;
+  imap_has_children?: number | null;
 }
 
 export async function getLabelsForAccount(
@@ -32,14 +35,20 @@ export async function upsertLabel(label: {
   colorFg?: string | null;
   imapFolderPath?: string | null;
   imapSpecialUse?: string | null;
+  imapSubscribed?: boolean | null;
+  imapSelectable?: boolean | null;
+  imapHasChildren?: boolean | null;
 }): Promise<void> {
   await executeWrite(
-    `INSERT INTO labels (id, account_id, name, type, color_bg, color_fg, imap_folder_path, imap_special_use)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO labels (id, account_id, name, type, color_bg, color_fg, imap_folder_path, imap_special_use, imap_subscribed, imap_selectable, imap_has_children)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT(account_id, id) DO UPDATE SET
        name = $3, type = $4, color_bg = $5, color_fg = $6,
        imap_folder_path = COALESCE($7, imap_folder_path),
-       imap_special_use = COALESCE($8, imap_special_use)`,
+       imap_special_use = COALESCE($8, imap_special_use),
+       imap_subscribed = COALESCE($9, imap_subscribed),
+       imap_selectable = COALESCE($10, imap_selectable),
+       imap_has_children = COALESCE($11, imap_has_children)`,
     [
       label.id,
       label.accountId,
@@ -49,6 +58,9 @@ export async function upsertLabel(label: {
       label.colorFg ?? null,
       label.imapFolderPath ?? null,
       label.imapSpecialUse ?? null,
+      label.imapSubscribed === undefined || label.imapSubscribed === null ? null : (label.imapSubscribed ? 1 : 0),
+      label.imapSelectable === undefined || label.imapSelectable === null ? null : (label.imapSelectable ? 1 : 0),
+      label.imapHasChildren === undefined || label.imapHasChildren === null ? null : (label.imapHasChildren ? 1 : 0),
     ],
   );
 }

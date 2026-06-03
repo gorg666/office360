@@ -104,7 +104,10 @@ export function DndProvider({ children }: DndProviderProps) {
         labels.some((label) => label.id === targetLabel);
       if (!isKnownImapFolder) return;
       try {
-        const targetFolder = LABEL_MAP[targetLabel] ?? targetLabel;
+        const targetFolder =
+          LABEL_MAP[targetLabel] ??
+          labels.find((label) => label.id === targetLabel)?.imapFolderPath ??
+          targetLabel;
         for (const threadId of dragData.threadIds) {
           if (targetFolder === "TRASH") {
             await trashThread(activeAccountId, threadId, []);

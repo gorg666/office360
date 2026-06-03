@@ -848,6 +848,19 @@ const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_pending_ops_account_status ON pending_operations(account_id, status, next_retry_at);
     `,
   },
+  {
+    version: 28,
+    description: "Folder metadata and smart folder reference health",
+    sql: `
+      ALTER TABLE labels ADD COLUMN imap_subscribed INTEGER;
+      ALTER TABLE labels ADD COLUMN imap_selectable INTEGER;
+      ALTER TABLE labels ADD COLUMN imap_has_children INTEGER;
+      ALTER TABLE smart_folders ADD COLUMN status TEXT DEFAULT 'ok';
+      ALTER TABLE smart_folders ADD COLUMN status_reason TEXT;
+      ALTER TABLE smart_folders ADD COLUMN status_updated_at INTEGER;
+      CREATE INDEX IF NOT EXISTS idx_smart_folders_status ON smart_folders(status);
+    `,
+  },
 ];
 
 /**

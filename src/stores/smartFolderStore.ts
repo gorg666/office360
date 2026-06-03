@@ -18,6 +18,9 @@ export interface SmartFolder {
   color: string | null;
   isDefault: boolean;
   sortOrder: number;
+  status: string;
+  statusReason: string | null;
+  statusUpdatedAt: number | null;
 }
 
 function mapDbFolder(db: DbSmartFolder): SmartFolder {
@@ -30,6 +33,9 @@ function mapDbFolder(db: DbSmartFolder): SmartFolder {
     color: db.color,
     isDefault: db.is_default === 1,
     sortOrder: db.sort_order,
+    status: db.status ?? "ok",
+    statusReason: db.status_reason ?? null,
+    statusUpdatedAt: db.status_updated_at ?? null,
   };
 }
 
@@ -47,7 +53,7 @@ interface SmartFolderState {
   ) => Promise<string>;
   updateFolder: (
     id: string,
-    updates: { name?: string; query?: string; icon?: string; color?: string },
+    updates: { name?: string; query?: string; icon?: string; color?: string; status?: string | null; statusReason?: string | null },
   ) => Promise<void>;
   deleteFolder: (id: string) => Promise<void>;
   refreshUnreadCounts: (accountId: string) => Promise<void>;
@@ -85,6 +91,9 @@ export const useSmartFolderStore = create<SmartFolderState>((set, get) => ({
           color: color ?? null,
           isDefault: false,
           sortOrder: folders.length,
+          status: "ok",
+          statusReason: null,
+          statusUpdatedAt: null,
         },
       ],
     });
@@ -96,7 +105,13 @@ export const useSmartFolderStore = create<SmartFolderState>((set, get) => ({
     const { folders } = get();
     set({
       folders: folders.map((f) =>
-        f.id === id ? { ...f, ...updates } : f,
+        f.id === id ? {
+          ...f,
+          ...updates,
+          status: updates.status ?? f.status,
+          statusReason: updates.statusReason === undefined ? f.statusReason : updates.statusReason,
+          statusUpdatedAt: updates.statusReason === undefined ? f.statusUpdatedAt : Math.floor(Date.now() / 1000),
+        } : f,
       ),
     });
   },

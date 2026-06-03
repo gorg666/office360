@@ -24,6 +24,11 @@ vi.mock("../imap/folderMapper", () => ({
 
 vi.mock("../imap/tauriCommands", () => ({
   imapListFolders: vi.fn(),
+  imapCreateFolder: vi.fn(),
+  imapDeleteFolder: vi.fn(),
+  imapRenameFolder: vi.fn(),
+  imapSetFolderSubscription: vi.fn(),
+  imapGetFolderQuota: vi.fn(),
   imapSetFlags: vi.fn(),
   imapMoveMessages: vi.fn(),
   imapDeleteMessages: vi.fn(),
@@ -38,6 +43,11 @@ vi.mock("../imap/tauriCommands", () => ({
 
 vi.mock("../imap/messageHelper", () => ({
   findSpecialFolder: vi.fn(),
+}));
+
+vi.mock("../db/smartFolders", () => ({
+  markSmartFoldersMissingReference: vi.fn(),
+  rewriteSmartFolderReference: vi.fn(),
 }));
 
 vi.mock("../db/messages", () => ({
@@ -69,6 +79,11 @@ import { buildImapConfig, buildSmtpConfig } from "../imap/imapConfigBuilder";
 import { mapFolderToLabel, getSyncableFolders } from "../imap/folderMapper";
 import {
   imapListFolders,
+  imapCreateFolder,
+  imapDeleteFolder,
+  imapRenameFolder,
+  imapSetFolderSubscription,
+  imapGetFolderQuota,
   imapSetFlags,
   imapMoveMessages,
   imapDeleteMessages,
@@ -131,10 +146,9 @@ describe("ImapSmtpProvider", () => {
   it("has correct accountId and type", () => {
     expect(provider.accountId).toBe("acc-1");
     expect(provider.type).toBe("imap");
-    expect(provider.capabilities.folders.create.supported).toBe(false);
-    expect(provider.capabilities.folders.rename.supported).toBe(false);
-    expect(provider.capabilities.folders.delete.supported).toBe(false);
-    expect(provider.capabilities.folders.create.reason).toContain("not implemented");
+    expect(provider.capabilities.folders.create.supported).toBe(true);
+    expect(provider.capabilities.folders.rename.supported).toBe(true);
+    expect(provider.capabilities.folders.delete.supported).toBe(true);
   });
 
   // ---------- Folder operations ----------
@@ -144,17 +158,25 @@ describe("ImapSmtpProvider", () => {
       const rawFolders = [
         {
           path: "INBOX",
+          raw_path: "INBOX",
           name: "INBOX",
           delimiter: "/",
           special_use: "\\Inbox",
+          subscribed: true,
+          selectable: true,
+          has_children: false,
           exists: 42,
           unseen: 5,
         },
         {
           path: "Sent",
+          raw_path: "Sent",
           name: "Sent",
           delimiter: "/",
           special_use: "\\Sent",
+          subscribed: true,
+          selectable: true,
+          has_children: false,
           exists: 100,
           unseen: 0,
         },
@@ -176,9 +198,15 @@ describe("ImapSmtpProvider", () => {
         id: "INBOX",
         name: "INBOX",
         path: "INBOX",
+        rawPath: "INBOX",
         type: "system",
         specialUse: "\\Inbox",
         delimiter: "/",
+        subscribed: true,
+        selectable: true,
+        hasChildren: false,
+        quota: null,
+        retention: provider.capabilities.folders.retention,
         messageCount: 42,
         unreadCount: 5,
       });
@@ -186,26 +214,120 @@ describe("ImapSmtpProvider", () => {
   });
 
   describe("createFolder", () => {
-    it("throws an informative error", async () => {
-      await expect(provider.createFolder("test")).rejects.toThrow(
-        "not supported",
-      );
+    it("creates an IMAP folder and returns the listed folder", async () => {
+      vi.mocked(imapCreateFolder).mockResolvedValue(undefined);
+      vi.mocked(imapListFolders).mockResolvedValue([
+        {
+          path: "Projects",
+          raw_path: "Projects",
+          name: "Projects",
+          delimiter: "/",
+          special_use: null,
+          subscribed: true,
+          selectable: true,
+          has_children: false,
+          exists: 0,
+          unseen: 0,
+        },
+      ]);
+      vi.mocked(getSyncableFolders).mockImplementation((folders) => folders);
+      vi.mocked(mapFolderToLabel).mockImplementation((f) => ({
+        labelId: `folder-${f.path}`,
+        labelName: f.name,
+        type: "user",
+      }));
+
+      const result = await provider.createFolder("Projects");
+
+      expect(imapCreateFolder).toHaveBeenCalledWith(mockImapConfig, "Projects", undefined);
+      expect(result.rawPath).toBe("Projects");
     });
   });
 
   describe("deleteFolder", () => {
-    it("throws an informative error", async () => {
-      await expect(provider.deleteFolder("test")).rejects.toThrow(
-        "not supported",
-      );
+    it("deletes a mutable IMAP folder", async () => {
+      vi.mocked(imapListFolders).mockResolvedValue([
+        {
+          path: "Projects",
+          raw_path: "Projects",
+          name: "Projects",
+          delimiter: "/",
+          special_use: null,
+          subscribed: true,
+          selectable: true,
+          has_children: false,
+          exists: 0,
+          unseen: 0,
+        },
+      ]);
+      vi.mocked(getSyncableFolders).mockImplementation((folders) => folders);
+      vi.mocked(mapFolderToLabel).mockImplementation((f) => ({
+        labelId: `folder-${f.path}`,
+        labelName: f.name,
+        type: "user",
+      }));
+      vi.mocked(imapDeleteFolder).mockResolvedValue(undefined);
+
+      await provider.deleteFolder("Projects");
+
+      expect(imapDeleteFolder).toHaveBeenCalledWith(mockImapConfig, "Projects");
     });
   });
 
   describe("renameFolder", () => {
-    it("throws an informative error", async () => {
-      await expect(provider.renameFolder("old", "new")).rejects.toThrow(
-        "not supported",
-      );
+    it("renames a mutable IMAP folder", async () => {
+      vi.mocked(imapListFolders).mockResolvedValue([
+        {
+          path: "Projects",
+          raw_path: "Projects",
+          name: "Projects",
+          delimiter: "/",
+          special_use: null,
+          subscribed: true,
+          selectable: true,
+          has_children: false,
+          exists: 0,
+          unseen: 0,
+        },
+      ]);
+      vi.mocked(getSyncableFolders).mockImplementation((folders) => folders);
+      vi.mocked(mapFolderToLabel).mockImplementation((f) => ({
+        labelId: `folder-${f.path}`,
+        labelName: f.name,
+        type: "user",
+      }));
+      vi.mocked(imapRenameFolder).mockResolvedValue("Renamed");
+
+      await provider.renameFolder("Projects", "Renamed");
+
+      expect(imapRenameFolder).toHaveBeenCalledWith(mockImapConfig, "Projects", "Renamed");
+    });
+  });
+
+  describe("setFolderSubscription", () => {
+    it("toggles folder subscription", async () => {
+      vi.mocked(imapSetFolderSubscription).mockResolvedValue(undefined);
+
+      await provider.setFolderSubscription("Projects", false);
+
+      expect(imapSetFolderSubscription).toHaveBeenCalledWith(mockImapConfig, "Projects", false);
+    });
+  });
+
+  describe("getFolderQuota", () => {
+    it("maps quota response", async () => {
+      vi.mocked(imapGetFolderQuota).mockResolvedValue({
+        folder: "INBOX",
+        quota_roots: ["Userquota"],
+        resources: [{ name: "STORAGE", usage: 10, limit: 100, percent_used: 10 }],
+        supported: true,
+        reason: null,
+      });
+
+      const quota = await provider.getFolderQuota("INBOX");
+
+      expect(quota.resources[0]?.percentUsed).toBe(10);
+      expect(quota.quotaRoots).toEqual(["Userquota"]);
     });
   });
 

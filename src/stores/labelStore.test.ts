@@ -16,6 +16,11 @@ vi.mock("@/services/db/accounts", () => ({
   getAccount: vi.fn(),
 }));
 
+vi.mock("@/services/db/smartFolders", () => ({
+  markSmartFoldersMissingReference: vi.fn(),
+  rewriteSmartFolderReference: vi.fn(),
+}));
+
 import { getLabelsForAccount, deleteLabel as dbDeleteLabel, updateLabelSortOrder, upsertLabel } from "@/services/db/labels";
 import { getGmailClient } from "@/services/gmail/tokenManager";
 import { getAccount } from "@/services/db/accounts";
@@ -75,6 +80,8 @@ describe("labelStore", () => {
       colorBg: "#4285f4",
       colorFg: "#ffffff",
       sortOrder: 3,
+      imapFolderPath: null,
+      imapSpecialUse: null,
     });
     expect(state.labels[1]).toEqual({
       id: "Label_2",
@@ -84,6 +91,8 @@ describe("labelStore", () => {
       colorBg: null,
       colorFg: null,
       sortOrder: 4,
+      imapFolderPath: null,
+      imapSpecialUse: null,
     });
     expect(state.isLoading).toBe(false);
   });

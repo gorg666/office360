@@ -78,6 +78,7 @@ export function MoveToFolderDialog({
       label: l.name,
       icon: Tag,
       type: "label" as const,
+      folderPath: l.imapFolderPath ?? l.id,
     })) : [];
     return [...SYSTEM_DESTINATIONS, ...userLabels];
   }, [canMoveFolders, canUseLabels, isImap, labels]);
@@ -110,8 +111,7 @@ export function MoveToFolderDialog({
           }
         } else if (dest.type === "label") {
           if (isImap) {
-            // IMAP: move to folder. The label's id is the folder path for IMAP accounts.
-            await moveThread(activeAccountId, threadId, [], dest.id);
+            await moveThread(activeAccountId, threadId, [], dest.folderPath ?? dest.id);
           } else {
             // Gmail: add destination label + remove from current location (archive)
             await addThreadLabel(activeAccountId, threadId, dest.id);
@@ -188,13 +188,12 @@ export function MoveToFolderDialog({
       <div
         ref={overlayRef}
         className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]"
-        onClick={(e) => {
-          if (e.target === e.currentTarget) onClose();
-        }}
+        onClick={onClose}
       >
         <div className="glass-backdrop absolute inset-0" />
         <div
           className="relative bg-bg-primary border border-border-primary rounded-lg glass-modal w-full max-w-md overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
           onKeyDown={handleKeyDown}
         >
           {/* Search input */}

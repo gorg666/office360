@@ -105,6 +105,22 @@ export function buildSearchQuery(
     paramIdx++;
   }
 
+  // labelid: operator for stable Gmail/native label references
+  if (parsed.labelId) {
+    whereClauses.push(
+      `EXISTS (SELECT 1 FROM thread_labels tl WHERE tl.account_id = m.account_id AND tl.thread_id = m.thread_id AND tl.label_id = $${paramIdx})`,
+    );
+    params.push(parsed.labelId);
+    paramIdx++;
+  }
+
+  // folderpath: operator for stable IMAP raw folder references
+  if (parsed.folderPath) {
+    whereClauses.push(`m.imap_folder = $${paramIdx}`);
+    params.push(parsed.folderPath);
+    paramIdx++;
+  }
+
   const whereStr = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
   const orderBy = needsFts ? "ORDER BY rank" : "ORDER BY m.date DESC";
 

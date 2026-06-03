@@ -63,6 +63,16 @@ describe("parseSearchQuery", () => {
     expect(result.label).toBe("work");
   });
 
+  it("parses labelid: operator", () => {
+    const result = parseSearchQuery("labelid:Label_123");
+    expect(result.labelId).toBe("Label_123");
+  });
+
+  it("parses folderpath: operator", () => {
+    const result = parseSearchQuery('folderpath:"Work/Projects"');
+    expect(result.folderPath).toBe("Work/Projects");
+  });
+
   it("parses quoted values", () => {
     const result = parseSearchQuery('from:"John Doe" subject:"Project Update"');
     expect(result.from).toBe("John Doe");
