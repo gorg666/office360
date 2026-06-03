@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Loader2, RefreshCw, Send } from "lucide-react";
+import { AlertCircle, Clock, Loader2, RefreshCw, Send, XCircle } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import {
   getOutboxSendOperations,
   retryOutboxOperation,
+  cancelOutboxOperation,
   type PendingOperation,
 } from "@/services/db/pendingOperations";
 import { triggerQueueFlush } from "@/services/queue/queueProcessor";
@@ -12,11 +13,15 @@ import { parseOutboxSendPreview } from "@/utils/outboxSendPreview";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { GenericEmptyIllustration } from "@/components/ui/illustrations";
 
-export type OutboxDisplayStatus = "pending" | "sending" | "failed";
+export type OutboxDisplayStatus = "pending" | "sending" | "retry_scheduled" | "failed" | "blocked";
 
 function mapOutboxStatus(op: PendingOperation): OutboxDisplayStatus {
   if (op.status === "executing") return "sending";
   if (op.status === "failed") return "failed";
+  if (op.status === "blocked") return "blocked";
+  if (op.status === "retry_scheduled" || (op.status === "pending" && op.next_retry_at && op.next_retry_at > Math.floor(Date.now() / 1000))) {
+    return "retry_scheduled";
+  }
   return "pending";
 }
 
@@ -26,8 +31,12 @@ function statusLabel(status: OutboxDisplayStatus): string {
       return "Ожидает отправки";
     case "sending":
       return "Отправляется";
+    case "retry_scheduled":
+      return "Повтор запланирован";
     case "failed":
       return "Ошибка отправки";
+    case "blocked":
+      return "Нужны действия";
   }
 }
 
@@ -41,6 +50,7 @@ export function OutboxList() {
   const [items, setItems] = useState<PendingOperation[]>([]);
   const [loading, setLoading] = useState(true);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!activeAccountId) {
@@ -87,6 +97,20 @@ export function OutboxList() {
     }
   }, [load]);
 
+  const handleCancel = useCallback(async (id: string) => {
+    setCancellingId(id);
+    try {
+      await cancelOutboxOperation(id);
+      window.dispatchEvent(new Event("velo-queue-changed"));
+      window.dispatchEvent(new Event("velo-outbox-changed"));
+      await load();
+    } catch (err) {
+      console.error("[OutboxList] cancel failed:", err);
+    } finally {
+      setCancellingId(null);
+    }
+  }, [load]);
+
   if (!activeAccountId) {
     return (
       <EmptyState
@@ -120,7 +144,8 @@ export function OutboxList() {
       {items.map((op) => {
         const preview = parseOutboxSendPreview(op.params);
         const displayStatus = mapOutboxStatus(op);
-        const canRetry = displayStatus === "failed";
+        const canRetry = displayStatus === "failed" || displayStatus === "blocked";
+        const canCancel = displayStatus === "failed" || displayStatus === "blocked" || displayStatus === "retry_scheduled";
         return (
           <li
             key={op.id}
@@ -130,7 +155,11 @@ export function OutboxList() {
               <div className="mt-0.5 shrink-0 text-accent">
                 {displayStatus === "sending" ? (
                   <Loader2 size={16} className="animate-spin" />
+                ) : displayStatus === "retry_scheduled" ? (
+                  <Clock size={16} className="text-amber-600" />
                 ) : displayStatus === "failed" ? (
+                  <AlertCircle size={16} className="text-danger" />
+                ) : displayStatus === "blocked" ? (
                   <AlertCircle size={16} className="text-danger" />
                 ) : (
                   <Send size={16} />
@@ -145,8 +174,12 @@ export function OutboxList() {
                     className={`shrink-0 text-[0.625rem] font-medium px-1.5 py-0.5 rounded-full ${
                       displayStatus === "failed"
                         ? "bg-danger/15 text-danger"
+                        : displayStatus === "blocked"
+                          ? "bg-danger/15 text-danger"
                         : displayStatus === "sending"
                           ? "bg-accent/15 text-accent"
+                          : displayStatus === "retry_scheduled"
+                            ? "bg-amber-500/15 text-amber-700"
                           : "bg-bg-tertiary text-text-secondary"
                     }`}
                   >
@@ -159,13 +192,20 @@ export function OutboxList() {
                 <p className="text-xs text-text-tertiary mt-1">
                   {formatOutboxDate(op.created_at)}
                 </p>
-                {op.error_message && displayStatus === "failed" && (
+                {op.next_retry_at && displayStatus === "retry_scheduled" && (
+                  <p className="text-xs text-text-tertiary mt-1">
+                    Следующая попытка: {formatOutboxDate(op.next_retry_at)}
+                  </p>
+                )}
+                {op.error_message && (displayStatus === "failed" || displayStatus === "blocked") && (
                   <p className="text-xs text-danger mt-1 break-words">
                     {op.error_message}
                   </p>
                 )}
               </div>
-              {canRetry && (
+              {(canRetry || canCancel) && (
+                <div className="flex shrink-0 items-center gap-1">
+                  {canRetry && (
                 <button
                   type="button"
                   onClick={() => void handleRetry(op.id)}
@@ -175,6 +215,19 @@ export function OutboxList() {
                   <RefreshCw size={14} className={retryingId === op.id ? "animate-spin" : ""} />
                   Повторить
                 </button>
+                  )}
+                  {canCancel && (
+                    <button
+                      type="button"
+                      onClick={() => void handleCancel(op.id)}
+                      disabled={cancellingId === op.id}
+                      className="shrink-0 flex items-center gap-1 text-xs text-text-tertiary hover:text-danger disabled:opacity-50 press-scale px-2 py-1 rounded"
+                    >
+                      <XCircle size={14} />
+                      Отменить
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </li>

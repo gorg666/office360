@@ -43,6 +43,7 @@ import {
   FolderSearch,
   Loader2,
   MessageCircle,
+  ListChecks,
   type LucideIcon,
 } from "lucide-react";
 import { useTaskStore } from "@/stores/taskStore";
@@ -758,12 +759,25 @@ function PendingOpsIndicator({ collapsed }: { collapsed: boolean }) {
     <div className="px-3 py-2 border-t border-border-primary">
       {collapsed ? (
         <div className="flex justify-center">
-          <span className="bg-accent/20 text-accent text-xs font-medium px-1.5 py-0.5 rounded-full">{pendingOpsCount}</span>
+          <button
+            type="button"
+            onClick={() => navigateToLabel("queue")}
+            className="bg-accent/20 text-accent text-xs font-medium px-1.5 py-0.5 rounded-full hover:bg-accent/30"
+            title="Queue Inspector"
+          >
+            {pendingOpsCount}
+          </button>
         </div>
       ) : (
-        <div className="text-xs text-text-secondary">
-          В очереди операций: {pendingOpsCount}
-        </div>
+        <button
+          type="button"
+          onClick={() => navigateToLabel("queue")}
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-text-secondary hover:bg-sidebar-hover hover:text-sidebar-text"
+        >
+          <ListChecks size={14} className="shrink-0 text-accent" />
+          <span className="min-w-0 flex-1">Очередь операций</span>
+          <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[0.65rem] font-medium text-accent">{pendingOpsCount}</span>
+        </button>
       )}
     </div>
   );

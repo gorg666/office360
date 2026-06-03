@@ -831,6 +831,23 @@ const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_account_diagnostics_layer ON account_diagnostics(layer, updated_at DESC);
     `,
   },
+  {
+    version: 27,
+    description: "Queue observability metadata",
+    sql: `
+      ALTER TABLE pending_operations ADD COLUMN blocked_reason TEXT;
+      ALTER TABLE pending_operations ADD COLUMN diagnostic_code TEXT;
+      ALTER TABLE pending_operations ADD COLUMN user_action TEXT;
+      ALTER TABLE pending_operations ADD COLUMN updated_at INTEGER DEFAULT (unixepoch());
+      UPDATE pending_operations
+         SET status = 'retry_scheduled',
+             updated_at = unixepoch()
+       WHERE status = 'pending'
+         AND next_retry_at IS NOT NULL
+         AND next_retry_at > unixepoch();
+      CREATE INDEX IF NOT EXISTS idx_pending_ops_account_status ON pending_operations(account_id, status, next_retry_at);
+    `,
+  },
 ];
 
 /**

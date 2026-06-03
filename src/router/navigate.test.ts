@@ -32,6 +32,10 @@ import {
   navigateToThread,
   navigateToSettings,
   navigateBackFromSettings,
+  navigateToRepairCenter,
+  navigateBackFromRepair,
+  navigateToQueueInspector,
+  navigateBackFromQueueInspector,
   navigateBack,
   getActiveLabel,
   getSelectedThreadId,
@@ -258,6 +262,105 @@ describe("navigate", () => {
         to: "/mail/$label",
         params: { label: "inbox" },
       });
+    });
+
+    it("should return from repair center to the settings tab that opened it", () => {
+      mockState.location.pathname = "/mail/outbox";
+      navigateToSettings("accounts");
+
+      mockState.location.pathname = "/settings/accounts";
+      navigateToRepairCenter("account-1");
+
+      mockState.location.pathname = "/repair/account-1";
+      navigateBackFromRepair();
+      expect(mockNavigate).toHaveBeenLastCalledWith({
+        to: "/settings/$tab",
+        params: { tab: "accounts" },
+        search: {},
+      });
+
+      mockState.location.pathname = "/settings/accounts";
+      navigateBackFromSettings();
+      expect(mockNavigate).toHaveBeenLastCalledWith({
+        to: "/mail/$label",
+        params: { label: "outbox" },
+        search: {},
+      });
+    });
+
+    it("should return from settings action inside repair back to repair", () => {
+      mockState.location.pathname = "/mail/sent";
+      navigateToSettings("accounts");
+
+      mockState.location.pathname = "/settings/accounts";
+      navigateToRepairCenter("account-1");
+
+      mockState.location.pathname = "/repair/account-1";
+      navigateToSettings("accounts");
+
+      mockState.location.pathname = "/settings/accounts";
+      navigateBackFromSettings();
+      expect(mockNavigate).toHaveBeenLastCalledWith({
+        to: "/repair/$accountId",
+        params: { accountId: "account-1" },
+        search: {},
+      });
+    });
+
+    it("should unwind queue, repair, and settings one level at a time", () => {
+      mockState.location.pathname = "/mail/starred";
+      navigateToSettings("accounts");
+
+      mockState.location.pathname = "/settings/accounts";
+      navigateToRepairCenter("account-1");
+
+      mockState.location.pathname = "/repair/account-1";
+      navigateToQueueInspector();
+
+      mockState.location.pathname = "/queue";
+      navigateBackFromSettings();
+      expect(mockNavigate).toHaveBeenLastCalledWith({
+        to: "/repair/$accountId",
+        params: { accountId: "account-1" },
+        search: {},
+      });
+
+      mockState.location.pathname = "/repair/account-1";
+      navigateBackFromRepair();
+      expect(mockNavigate).toHaveBeenLastCalledWith({
+        to: "/settings/$tab",
+        params: { tab: "accounts" },
+        search: {},
+      });
+
+      mockState.location.pathname = "/settings/accounts";
+      navigateBackFromSettings();
+      expect(mockNavigate).toHaveBeenLastCalledWith({
+        to: "/mail/$label",
+        params: { label: "starred" },
+        search: {},
+      });
+    });
+
+    it("should return from direct queue route to the route that opened it", () => {
+      mockState.location.pathname = "/attachments";
+      navigateToQueueInspector();
+
+      mockState.location.pathname = "/queue";
+      navigateBackFromQueueInspector();
+      expect(mockNavigate).toHaveBeenLastCalledWith({ to: "/attachments" });
+    });
+
+    it("should use browser history for queue when it was opened without navigation snapshot", () => {
+      const historyBack = vi.spyOn(window.history, "back").mockImplementation(() => {});
+      vi.spyOn(window.history, "length", "get").mockReturnValue(2);
+
+      mockState.location.pathname = "/queue";
+      navigateBackFromQueueInspector();
+
+      expect(historyBack).toHaveBeenCalled();
+      expect(mockNavigate).not.toHaveBeenCalled();
+      historyBack.mockRestore();
     });
   });
 

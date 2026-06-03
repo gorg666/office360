@@ -4,13 +4,37 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
 const host = process.env.TAURI_DEV_HOST;
+const queueSmoke = process.env.VITE_QUEUE_SMOKE === "1";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: [
+      ...(queueSmoke
+        ? [
+          {
+            find: "@/services/db/pendingOperations",
+            replacement: path.resolve(__dirname, "./src/dev/queueSmoke/pendingOperationsMock.ts"),
+          },
+          {
+            find: "@/services/queue/queueProcessor",
+            replacement: path.resolve(__dirname, "./src/dev/queueSmoke/queueProcessorMock.ts"),
+          },
+          {
+            find: "@/services/syncHealth",
+            replacement: path.resolve(__dirname, "./src/dev/queueSmoke/syncHealthMock.ts"),
+          },
+          {
+            find: "@/router/navigate",
+            replacement: path.resolve(__dirname, "./src/dev/queueSmoke/navigateMock.ts"),
+          },
+        ]
+        : []),
+      {
+        find: "@",
+        replacement: path.resolve(__dirname, "./src"),
+      },
+    ],
   },
   build: {
     rollupOptions: {

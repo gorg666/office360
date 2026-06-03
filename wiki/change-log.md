@@ -2,6 +2,26 @@
 
 Эта страница фиксирует behavior и system changes, которые влияют на работу Office360. Это не замена Git history, а проектное объяснение важных решений.
 
+## 2026-06-03 - EPIC-03 Sync health и offline queue
+
+Добавлено:
+
+- Explicit queue lifecycle для `pending_operations`: `pending`, `executing`, `retry_scheduled`, `failed`, `blocked`, `cancelled`.
+- Queue Inspector route `/queue` с account/status фильтрами, retry/cancel actions и safe operation preview.
+- Redacted queue DTO: inspector не показывает raw MIME, `rawBase64Url`, body, tokens, passwords, OAuth secrets или auth headers.
+- Outbox использует shared queue status для `sendMessage`, показывает retry scheduled/blocked/failed и поддерживает cancel.
+- Account sync health aggregation: online state, queue counts, diagnostics, sync callbacks и last successful sync.
+- Repair Center и Account Switcher показывают health/queue state without replacing existing diagnostic actions.
+- Offline/global indicators показывают active queue count.
+- IMAP UIDVALIDITY reset сохраняет warning diagnostic и запускает safe folder resync вместо silent data loss.
+- Back navigation между Settings, Repair Center и Queue Inspector теперь возвращает на предыдущий уровень перед выходом из настроек.
+
+Важно:
+
+- Queue storage не переписан полностью; change эволюционирует текущую `pending_operations` table migration-safe.
+- Cancelled операции не исполняются queue processor.
+- Scheduled retries больше не скрываются как обычный `pending`: они видны как `retry_scheduled`.
+
 ## 2026-06-02 - EPIC-02 Account Diagnostics and Repair Center
 
 Добавлено:

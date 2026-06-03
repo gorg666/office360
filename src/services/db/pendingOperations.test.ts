@@ -21,6 +21,12 @@ import {
   compactQueue,
   clearFailedOperations,
   retryFailedOperations,
+  blockOperation,
+  failOperation,
+  cancelOperation,
+  retryOperation,
+  getQueueSummary,
+  listQueueInspectorOperations,
 } from "./pendingOperations";
 import { createMockDb } from "@/test/mocks";
 
@@ -67,7 +73,7 @@ describe("pendingOperations DB service", () => {
     it("updates the status and error message", async () => {
       await updateOperationStatus("op-1", "failed", "Network timeout");
       expect(mockDb.execute).toHaveBeenCalledWith(
-        expect.stringContaining("UPDATE pending_operations SET status"),
+        expect.stringContaining("SET status = $1"),
         ["failed", "Network timeout", "op-1"],
       );
     });
@@ -96,7 +102,7 @@ describe("pendingOperations DB service", () => {
       mockDb.select.mockResolvedValueOnce([{ retry_count: 0, max_retries: 10 }]);
       await incrementRetry("op-1");
       expect(mockDb.execute).toHaveBeenCalledWith(
-        expect.stringContaining("retry_count = $1"),
+        expect.stringContaining("status = 'retry_scheduled'"),
         expect.arrayContaining([1]),
       );
     });
@@ -216,6 +222,97 @@ describe("pendingOperations DB service", () => {
       expect(mockDb.execute).toHaveBeenCalledWith(
         expect.stringContaining("SET status = 'pending'"),
       );
+    });
+  });
+
+  describe("queue status actions", () => {
+    it("blocks an operation with metadata", async () => {
+      await blockOperation("op-1", "Needs re-auth", {
+        diagnosticCode: "OAUTH.REFRESH.EXPIRED_TOKEN",
+        userAction: "reauth",
+      });
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        expect.stringContaining("SET status = 'blocked'"),
+        expect.arrayContaining(["Needs re-auth", "OAUTH.REFRESH.EXPIRED_TOKEN", "reauth", "op-1"]),
+      );
+    });
+
+    it("marks an operation as failed with diagnostic metadata", async () => {
+      await failOperation("op-1", "SMTP rejected", {
+        diagnosticCode: "SMTP.SEND.PROVIDER_ERROR",
+        userAction: "edit_settings",
+      });
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        expect.stringContaining("SET status = 'failed'"),
+        ["SMTP rejected", "SMTP.SEND.PROVIDER_ERROR", "edit_settings", "op-1"],
+      );
+    });
+
+    it("retries a generic operation", async () => {
+      await retryOperation("op-1");
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        expect.stringContaining("SET status = 'pending'"),
+        ["op-1"],
+      );
+    });
+
+    it("cancels a generic operation", async () => {
+      await cancelOperation("op-1");
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        expect.stringContaining("SET status = 'cancelled'"),
+        ["op-1"],
+      );
+    });
+  });
+
+  describe("getQueueSummary", () => {
+    it("summarizes status counts", async () => {
+      mockDb.select.mockResolvedValueOnce([
+        { status: "pending", count: 2 },
+        { status: "retry_scheduled", count: 1 },
+        { status: "failed", count: 1 },
+        { status: "blocked", count: 1 },
+      ]);
+      const summary = await getQueueSummary();
+      expect(summary).toMatchObject({
+        pending: 2,
+        retryScheduled: 1,
+        failed: 1,
+        blocked: 1,
+        active: 5,
+        total: 5,
+      });
+    });
+  });
+
+  describe("listQueueInspectorOperations", () => {
+    it("redacts send payloads from inspector items", async () => {
+      const rawBase64Url = "VG86IHVzZXJAZXhhbXBsZS5jb20NClN1YmplY3Q6IFNlY3JldA0KDQpQcml2YXRlIGJvZHk";
+      mockDb.select.mockResolvedValueOnce([
+        {
+          id: "op-1",
+          account_id: "a1",
+          operation_type: "sendMessage",
+          resource_id: "draft-1",
+          params: JSON.stringify({ rawBase64Url, token: "secret-token" }),
+          status: "failed",
+          retry_count: 1,
+          max_retries: 10,
+          next_retry_at: null,
+          created_at: 100,
+          updated_at: 120,
+          error_message: "SMTP failed",
+          diagnostic_code: "SMTP.SEND.PROVIDER_ERROR",
+          blocked_reason: null,
+          user_action: "edit_settings",
+        },
+      ]);
+
+      const items = await listQueueInspectorOperations();
+      expect(JSON.stringify(items)).not.toContain(rawBase64Url);
+      expect(JSON.stringify(items)).not.toContain("secret-token");
+      expect(items[0]?.preview.title).toBe("Secret");
+      expect(items[0]?.actions).toContain("cancel");
     });
   });
 });

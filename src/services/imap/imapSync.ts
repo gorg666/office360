@@ -46,6 +46,8 @@ import {
 } from "../threading/threadBuilder";
 import { getPendingOpsForResource } from "../db/pendingOperations";
 import { queueNewEmailNotification } from "../notifications/notificationManager";
+import { upsertAccountDiagnostic } from "../db/accountDiagnostics";
+import { createConnectionDiagnostic } from "../diagnostics";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1218,6 +1220,28 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
               `(was ${savedState.uidvalidity}, now ${deltaResult.uidvalidity}). ` +
               `Doing full resync of this folder.`,
           );
+          const diagnostic = createConnectionDiagnostic(
+            `UIDVALIDITY changed for folder ${folder.path}`,
+            {
+              accountId,
+              provider: "imap",
+              layer: "imap",
+              operation: `uidvalidity:${folder.raw_path}`,
+              retryState: "scheduled",
+            },
+          );
+          await upsertAccountDiagnostic({
+            ...diagnostic,
+            severity: "warning",
+            retryable: true,
+            userAction: "retry",
+            userMessage: `Папка ${folder.path} изменила UIDVALIDITY. Delta sync остановлен, выполняется безопасный resync папки.`,
+          }).catch((dbErr) => {
+            console.warn("[diagnostics] Failed to persist UIDVALIDITY diagnostic:", dbErr);
+          });
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event("velo-sync-health-changed"));
+          }
           const sinceDate = computeSinceDate(daysBack);
           const searchResult = await imapSearchFolderResilient(config, folder.raw_path, sinceDate);
           if (searchResult.uids.length === 0) continue;
