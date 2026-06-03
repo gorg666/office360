@@ -8,6 +8,7 @@ vi.mock("@/services/emailActions", () => ({
   updateDraft: vi.fn().mockResolvedValue({ success: true }),
 }));
 
+import { createDraft } from "@/services/emailActions";
 import { createMockAccountStoreState } from "@/test/mocks";
 
 vi.mock("@/stores/accountStore", () => ({
@@ -20,6 +21,7 @@ vi.mock("@/stores/accountStore", () => ({
 
 describe("draftAutoSave", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.useFakeTimers();
     useComposerStore.setState({
       isOpen: true,
@@ -81,4 +83,43 @@ describe("draftAutoSave", () => {
 
     expect(useComposerStore.getState().draftId).toBeNull();
   });
+
+  it("includes cc, bcc, and attachments in saved draft raw MIME", async () => {
+    useComposerStore.setState({
+      cc: ["cc@example.com"],
+      bcc: ["bcc@example.com"],
+      attachments: [
+        {
+          id: "att-1",
+          file: new File(["hello"], "hello.txt", { type: "text/plain" }),
+          filename: "hello.txt",
+          mimeType: "text/plain",
+          size: 5,
+          content: btoa("hello"),
+        },
+      ],
+    });
+    startAutoSave("account-1");
+
+    useComposerStore.getState().setSubject("Updated");
+    await vi.advanceTimersByTimeAsync(3500);
+
+    const raw = vi.mocked(createDraft).mock.calls[0]?.[1];
+    expect(raw).toBeTruthy();
+    const decoded = decodeBase64Url(raw!);
+    expect(decoded).toContain("Cc: cc@example.com");
+    expect(decoded).toContain("Bcc: bcc@example.com");
+    expect(decoded).toContain('filename="hello.txt"');
+  });
 });
+
+function decodeBase64Url(encoded: string): string {
+  let base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+  while (base64.length % 4 !== 0) base64 += "=";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
+}

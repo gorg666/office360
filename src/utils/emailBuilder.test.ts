@@ -181,6 +181,139 @@ describe("emailBuilder", () => {
     expect(decoded).toContain("To: =?UTF-8?B?");
     expect(decoded).toContain("<recipient@example.com>");
   });
+
+  it("neutralizes CRLF header injection in headers and MIME filename parameters", () => {
+    const raw = buildRawEmail({
+      from: 'Alice\r\nX-Injected-From: yes <sender@example.com>',
+      to: ["recipient@example.com\r\nX-Injected-To: yes"],
+      subject: "Hello\r\nX-Injected-Subject: yes",
+      htmlBody: "<p>Hello</p>",
+      inReplyTo: "<original@example.com>\r\nX-Injected-Reply: yes",
+      references: "<root@example.com>\r\nX-Injected-References: yes",
+      attachments: [
+        {
+          filename: "report.txt\r\nX-Injected-Attachment: yes",
+          mimeType: "text/plain",
+          content: btoa("report"),
+        },
+      ],
+    });
+
+    const decoded = decodeBase64Url(raw);
+    expect(decoded).not.toMatch(/^X-Injected-/m);
+    expect(decoded).toContain("Subject: Hello X-Injected-Subject: yes");
+    expect(decoded).toContain("In-Reply-To: <original@example.com> X-Injected-Reply: yes");
+    expect(decoded).toContain('filename="report.txt X-Injected-Attachment: yes"');
+  });
+
+  it("round-trips long Unicode headers and non-ASCII display names", () => {
+    const subject = "Очень длинная тема письма с кириллицей и emoji ✅ повторяется несколько раз";
+    const raw = buildRawEmail({
+      from: "Ефим Подоляк <sender@example.com>",
+      to: ["Получатель <recipient@example.com>"],
+      cc: ["Копия <copy@example.com>"],
+      bcc: ["Скрытый <hidden@example.com>"],
+      subject,
+      htmlBody: "<p>Hello</p>",
+    });
+
+    const decoded = decodeBase64Url(raw);
+    const subjectHeader = decoded.match(/^Subject: (.+)$/m)?.[1];
+    const fromHeader = decoded.match(/^From: (.+)$/m)?.[1];
+    const toHeader = decoded.match(/^To: (.+)$/m)?.[1];
+    const ccHeader = decoded.match(/^Cc: (.+)$/m)?.[1];
+    const bccHeader = decoded.match(/^Bcc: (.+)$/m)?.[1];
+
+    expect(subjectHeader).not.toContain("Очень");
+    expect(decodeMimeWords(subjectHeader)).toBe(subject);
+    expect(decodeMimeWords(fromHeader)).toContain("Ефим Подоляк <sender@example.com>");
+    expect(decodeMimeWords(toHeader)).toContain("Получатель <recipient@example.com>");
+    expect(decodeMimeWords(ccHeader)).toContain("Копия <copy@example.com>");
+    expect(decodeMimeWords(bccHeader)).toContain("Скрытый <hidden@example.com>");
+  });
+
+  it("keeps IDN domains and plus addressing in address headers", () => {
+    const raw = buildRawEmail({
+      from: "sender@example.com",
+      to: ["User <user+tag@пример.рф>"],
+      subject: "IDN",
+      htmlBody: "<p>Hello</p>",
+    });
+
+    const decoded = decodeBase64Url(raw);
+    expect(decoded).toContain("To: User <user+tag@пример.рф>");
+  });
+
+  it("encodes non-ASCII attachment filenames without raw header text", () => {
+    const raw = buildRawEmail({
+      from: "sender@example.com",
+      to: ["to@example.com"],
+      subject: "Attachment",
+      htmlBody: "<p>File</p>",
+      attachments: [
+        {
+          filename: "отчет.txt",
+          mimeType: "text/plain",
+          content: btoa("report"),
+        },
+      ],
+    });
+
+    const decoded = decodeBase64Url(raw);
+    expect(decoded).not.toContain('filename="отчет.txt"');
+    expect(decoded).not.toContain('name="отчет.txt"');
+    expect(decoded).toContain("filename*=UTF-8''%D0%BE%D1%82%D1%87%D0%B5%D1%82.txt");
+    expect(decoded).toContain("name*=UTF-8''%D0%BE%D1%82%D1%87%D0%B5%D1%82.txt");
+  });
+
+  it("wraps attachment base64 lines at 76 characters and supports empty attachments", () => {
+    const raw = buildRawEmail({
+      from: "sender@example.com",
+      to: ["to@example.com"],
+      subject: "Attachment wrapping",
+      htmlBody: "<p>Files</p>",
+      attachments: [
+        { filename: "large.bin", mimeType: "application/octet-stream", content: "A".repeat(180) },
+        { filename: "empty.txt", mimeType: "text/plain", content: "" },
+      ],
+    });
+
+    const decoded = decodeBase64Url(raw);
+    const largePayload = decoded.match(/filename="large\.bin"\r\n\r\n([A\r\n]+)\r\n--/)?.[1];
+    expect(largePayload).toBeTruthy();
+    for (const line of largePayload!.split("\r\n").filter(Boolean)) {
+      expect(line.length).toBeLessThanOrEqual(76);
+    }
+    expect(decoded).toMatch(/filename="empty\.txt"\r\n(?:\r\n)+--/);
+  });
+
+  it("keeps attachments plus inline images nested as mixed related alternative with valid CID references", () => {
+    const inlineImage = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
+    const raw = buildRawEmail({
+      from: "sender@example.com",
+      to: ["to@example.com"],
+      subject: "Inline",
+      htmlBody: `<p>Hello</p><img alt="logo" src="data:image/png;base64,${inlineImage}">`,
+      attachments: [
+        { filename: "file.txt", mimeType: "text/plain", content: btoa("file") },
+      ],
+    });
+
+    const decoded = decodeBase64Url(raw);
+    expect(decoded).toContain("Content-Type: multipart/mixed;");
+    expect(decoded).toContain("Content-Type: multipart/related;");
+    expect(decoded).toContain("Content-Type: multipart/alternative;");
+    expect(decoded.indexOf("multipart/mixed")).toBeLessThan(decoded.indexOf("multipart/related"));
+    expect(decoded.indexOf("multipart/related")).toBeLessThan(decoded.indexOf("multipart/alternative"));
+
+    const cid = decoded.match(/src="cid:([^"]+)"/)?.[1];
+    expect(cid).toBeTruthy();
+    expect(decoded).toContain(`Content-ID: <${cid}>`);
+    expect(decoded).toContain("Content-Disposition: inline");
+
+    const boundaryMatches = [...decoded.matchAll(/boundary="([^"]+)"/g)].map((m) => m[1]);
+    expect(new Set(boundaryMatches).size).toBe(boundaryMatches.length);
+  });
 });
 
 function decodeBase64Url(encoded: string): string {

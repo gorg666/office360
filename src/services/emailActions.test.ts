@@ -157,6 +157,29 @@ describe("emailActions", () => {
       await starThread("acct-1", "t1", ["m1"], true);
       expect(mockUpdateThread).toHaveBeenCalledWith("t1", { isStarred: true });
     });
+
+    it("queues sendMessage when offline and emits Outbox change", async () => {
+      const outboxListener = vi.fn();
+      window.addEventListener("velo-outbox-changed", outboxListener);
+
+      const result = await executeEmailAction("acct-1", {
+        type: "sendMessage",
+        rawBase64Url: "base64data",
+        threadId: "t1",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.queued).toBe(true);
+      expect(mockProvider.sendMessage).not.toHaveBeenCalled();
+      expect(enqueuePendingOperation).toHaveBeenCalledWith(
+        "acct-1",
+        "sendMessage",
+        "t1",
+        expect.objectContaining({ rawBase64Url: "base64data", threadId: "t1" }),
+      );
+      expect(outboxListener).toHaveBeenCalled();
+      window.removeEventListener("velo-outbox-changed", outboxListener);
+    });
   });
 
   describe("network error → queue fallback", () => {
@@ -168,6 +191,26 @@ describe("emailActions", () => {
       expect(result.success).toBe(true);
       expect(result.queued).toBe(true);
       expect(enqueuePendingOperation).toHaveBeenCalled();
+    });
+
+    it("queues sendMessage on retryable SMTP/network error", async () => {
+      vi.mocked(useUIStore.getState).mockReturnValue({ isOnline: true } as never);
+      mockProvider.sendMessage.mockRejectedValueOnce(new Error("network timeout"));
+
+      const result = await executeEmailAction("acct-1", {
+        type: "sendMessage",
+        rawBase64Url: "base64data",
+        threadId: "t1",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.queued).toBe(true);
+      expect(enqueuePendingOperation).toHaveBeenCalledWith(
+        "acct-1",
+        "sendMessage",
+        "t1",
+        expect.objectContaining({ rawBase64Url: "base64data" }),
+      );
     });
   });
 
@@ -191,6 +234,21 @@ describe("emailActions", () => {
       expect(result.success).toBe(false);
       // Revert: set read to false
       expect(mockUpdateThread).toHaveBeenCalledWith("t1", { isRead: false });
+    });
+
+    it("does not queue sendMessage on permanent SMTP error", async () => {
+      vi.mocked(useUIStore.getState).mockReturnValue({ isOnline: true } as never);
+      mockProvider.sendMessage.mockRejectedValueOnce(new Error("SMTP 550 rejected"));
+
+      const result = await executeEmailAction("acct-1", {
+        type: "sendMessage",
+        rawBase64Url: "base64data",
+        threadId: "t1",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeTruthy();
+      expect(enqueuePendingOperation).not.toHaveBeenCalled();
     });
   });
 
