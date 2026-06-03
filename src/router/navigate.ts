@@ -44,6 +44,16 @@ function isSameSnapshotTarget(a: SettingsReturnSnapshot, b: SettingsReturnSnapsh
   return a.pathname === b.pathname && JSON.stringify(a.search) === JSON.stringify(b.search);
 }
 
+function isSettingsReturnSnapshot(snapshot: SettingsReturnSnapshot | null | undefined): snapshot is SettingsReturnSnapshot {
+  return Boolean(
+    snapshot
+      && typeof snapshot.pathname === "string"
+      && snapshot.search
+      && typeof snapshot.search === "object"
+      && typeof snapshot.messengersPanelsOpen === "boolean",
+  );
+}
+
 function captureSettingsReturnLocation(): void {
   const { pathname } = router.state.location;
   if (isSettingsSurfacePath(pathname)) return;
@@ -71,7 +81,12 @@ function navigateToInboxFallback(): void {
   router.navigate({ to: "/mail/$label", params: { label: "inbox" } });
 }
 
-function navigateToSnapshot(snapshot: SettingsReturnSnapshot): void {
+function navigateToSnapshot(snapshot: SettingsReturnSnapshot | null | undefined): void {
+  if (!isSettingsReturnSnapshot(snapshot)) {
+    navigateToInboxFallback();
+    return;
+  }
+
   useUIStore.getState().setMessengersPanelsOpen(snapshot.messengersPanelsOpen);
 
   const { pathname } = snapshot;
@@ -401,7 +416,11 @@ export function navigateBackFromQueueInspector(): void {
   }
 
   if (window.history.length > 1) {
-    window.history.back();
+    try {
+      window.history.back();
+    } catch {
+      navigateToInboxFallback();
+    }
     return;
   }
 

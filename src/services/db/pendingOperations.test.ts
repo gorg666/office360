@@ -237,6 +237,23 @@ describe("pendingOperations DB service", () => {
       );
     });
 
+    it("sanitizes blocked operation metadata", async () => {
+      await blockOperation("op-1", "  Needs\u0000 re-auth\n", {
+        diagnosticCode: "OAUTH.REFRESH.EXPIRED_TOKEN\u0000extra",
+        userAction: "DROP_TABLE",
+        errorMessage: "",
+      });
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        expect.stringContaining("SET status = 'blocked'"),
+        expect.arrayContaining([
+          "Needs  re-auth",
+          "OAUTH.REFRESH.EXPIRED_TOKEN extra",
+          "retry",
+          "op-1",
+        ]),
+      );
+    });
+
     it("marks an operation as failed with diagnostic metadata", async () => {
       await failOperation("op-1", "SMTP rejected", {
         diagnosticCode: "SMTP.SEND.PROVIDER_ERROR",
@@ -245,6 +262,17 @@ describe("pendingOperations DB service", () => {
       expect(mockDb.execute).toHaveBeenCalledWith(
         expect.stringContaining("SET status = 'failed'"),
         ["SMTP rejected", "SMTP.SEND.PROVIDER_ERROR", "edit_settings", "op-1"],
+      );
+    });
+
+    it("sanitizes failed operation metadata", async () => {
+      await failOperation("op-1", "\u0000", {
+        diagnosticCode: "SMTP.SEND.PROVIDER_ERROR\nextra",
+        userAction: "invalid",
+      });
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        expect.stringContaining("SET status = 'failed'"),
+        ["Operation failed", "SMTP.SEND.PROVIDER_ERROR extra", null, "op-1"],
       );
     });
 
@@ -313,6 +341,20 @@ describe("pendingOperations DB service", () => {
       expect(JSON.stringify(items)).not.toContain("secret-token");
       expect(items[0]?.preview.title).toBe("Secret");
       expect(items[0]?.actions).toContain("cancel");
+    });
+
+    it("falls back to active filter and clamps invalid runtime options", async () => {
+      mockDb.select.mockResolvedValueOnce([]);
+
+      await listQueueInspectorOperations({
+        status: "failed'); DROP TABLE pending_operations; --" as never,
+        limit: 9999,
+      });
+
+      expect(mockDb.select).toHaveBeenCalledWith(
+        expect.stringContaining("status IN"),
+        ["pending", "executing", "retry_scheduled", "failed", "blocked", 500],
+      );
     });
   });
 });

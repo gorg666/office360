@@ -353,7 +353,7 @@ describe("navigate", () => {
 
     it("should use browser history for queue when it was opened without navigation snapshot", () => {
       const historyBack = vi.spyOn(window.history, "back").mockImplementation(() => {});
-      vi.spyOn(window.history, "length", "get").mockReturnValue(2);
+      const historyLength = vi.spyOn(window.history, "length", "get").mockReturnValue(2);
 
       mockState.location.pathname = "/queue";
       navigateBackFromQueueInspector();
@@ -361,6 +361,26 @@ describe("navigate", () => {
       expect(historyBack).toHaveBeenCalled();
       expect(mockNavigate).not.toHaveBeenCalled();
       historyBack.mockRestore();
+      historyLength.mockRestore();
+    });
+
+    it("should fall back to inbox if queue browser history back throws", () => {
+      const historyBack = vi.spyOn(window.history, "back").mockImplementation(() => {
+        throw new Error("history failed");
+      });
+      const historyLength = vi.spyOn(window.history, "length", "get").mockReturnValue(2);
+
+      mockState.location.pathname = "/queue";
+      navigateBackFromQueueInspector();
+
+      expect(historyBack).toHaveBeenCalled();
+      expect(mockSetMessengersPanelsOpen).toHaveBeenCalledWith(false);
+      expect(mockNavigate).toHaveBeenLastCalledWith({
+        to: "/mail/$label",
+        params: { label: "inbox" },
+      });
+      historyBack.mockRestore();
+      historyLength.mockRestore();
     });
   });
 
