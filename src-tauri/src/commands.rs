@@ -1,7 +1,8 @@
 use crate::imap::client as imap_client;
 use crate::imap::types::{
     DeltaCheckRequest, DeltaCheckResult, ImapConfig, ImapFetchResult, ImapFolder,
-    ImapFolderSearchResult, ImapFolderStatus, ImapFolderSyncResult, ImapMessage,
+    ImapCapabilities, ImapFolderQuota, ImapFolderSearchResult, ImapFolderStatus,
+    ImapFolderSyncResult, ImapMessage,
 };
 use crate::smtp::client as smtp_client;
 use crate::smtp::types::{SmtpConfig, SmtpSendResult};
@@ -54,6 +55,77 @@ pub async fn imap_list_folders(config: ImapConfig) -> Result<Vec<ImapFolder>, St
     let folders = imap_client::list_folders(&mut session).await?;
     let _ = session.logout().await;
     Ok(folders)
+}
+
+#[tauri::command]
+pub async fn imap_create_folder(
+    config: ImapConfig,
+    name: String,
+    parent_path: Option<String>,
+) -> Result<(), String> {
+    let mut session = imap_client::connect(&config).await?;
+    let result = imap_client::create_folder(&mut session, &name, parent_path.as_deref()).await;
+    let _ = session.logout().await;
+    result
+}
+
+#[tauri::command]
+pub async fn imap_delete_folder(config: ImapConfig, path: String) -> Result<(), String> {
+    let mut session = imap_client::connect(&config).await?;
+    let result = imap_client::delete_folder(&mut session, &path).await;
+    let _ = session.logout().await;
+    result
+}
+
+#[tauri::command]
+pub async fn imap_rename_folder(
+    config: ImapConfig,
+    path: String,
+    new_name: String,
+) -> Result<String, String> {
+    let mut session = imap_client::connect(&config).await?;
+    let result = imap_client::rename_folder(&mut session, &path, &new_name).await;
+    let _ = session.logout().await;
+    result
+}
+
+#[tauri::command]
+pub async fn imap_set_folder_subscription(
+    config: ImapConfig,
+    path: String,
+    subscribed: bool,
+) -> Result<(), String> {
+    let mut session = imap_client::connect(&config).await?;
+    let result = imap_client::set_folder_subscription(&mut session, &path, subscribed).await;
+    let _ = session.logout().await;
+    result
+}
+
+#[tauri::command]
+pub async fn imap_list_subscribed_folders(config: ImapConfig) -> Result<Vec<String>, String> {
+    let mut session = imap_client::connect(&config).await?;
+    let result = imap_client::list_subscribed_folders(&mut session).await;
+    let _ = session.logout().await;
+    result
+}
+
+#[tauri::command]
+pub async fn imap_get_capabilities(config: ImapConfig) -> Result<ImapCapabilities, String> {
+    let mut session = imap_client::connect(&config).await?;
+    let result = imap_client::get_capabilities(&mut session).await;
+    let _ = session.logout().await;
+    result
+}
+
+#[tauri::command]
+pub async fn imap_get_folder_quota(
+    config: ImapConfig,
+    path: String,
+) -> Result<ImapFolderQuota, String> {
+    let mut session = imap_client::connect(&config).await?;
+    let result = imap_client::get_folder_quota(&mut session, &path).await;
+    let _ = session.logout().await;
+    result
 }
 
 #[tauri::command]

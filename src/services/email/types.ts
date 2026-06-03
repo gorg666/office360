@@ -55,11 +55,32 @@ export interface EmailFolder {
   id: string;
   name: string;
   path: string;
+  rawPath: string;
   type: "system" | "user";
   specialUse: string | null;
   delimiter: string;
+  subscribed: boolean;
+  selectable: boolean;
+  hasChildren: boolean;
+  quota: EmailFolderQuota | null;
+  retention: CapabilitySupport;
   messageCount: number;
   unreadCount: number;
+}
+
+export interface EmailFolderQuotaResource {
+  name: string;
+  usage: number;
+  limit: number;
+  percentUsed: number;
+}
+
+export interface EmailFolderQuota {
+  folder: string;
+  quotaRoots: string[];
+  resources: EmailFolderQuotaResource[];
+  supported: boolean;
+  reason?: string;
 }
 
 export interface SyncResult {
@@ -82,6 +103,8 @@ export interface EmailProvider {
   createFolder(name: string, parentPath?: string): Promise<EmailFolder>;
   deleteFolder(path: string): Promise<void>;
   renameFolder(path: string, newName: string): Promise<void>;
+  setFolderSubscription(path: string, subscribed: boolean): Promise<void>;
+  getFolderQuota(path: string): Promise<EmailFolderQuota>;
 
   // Sync operations
   initialSync(

@@ -14,9 +14,12 @@ describe("providerCapabilities", () => {
     expect(GMAIL_CAPABILITIES.labels.remove.supported).toBe(true);
   });
 
-  it("marks IMAP folder CRUD and native labels unsupported with reasons", () => {
-    expect(IMAP_CAPABILITIES.folders.create.supported).toBe(false);
-    expect(IMAP_CAPABILITIES.folders.create.reason).toContain("not implemented");
+  it("supports IMAP folder operations and marks native labels unsupported", () => {
+    expect(IMAP_CAPABILITIES.folders.create.supported).toBe(true);
+    expect(IMAP_CAPABILITIES.folders.rename.supported).toBe(true);
+    expect(IMAP_CAPABILITIES.folders.delete.supported).toBe(true);
+    expect(IMAP_CAPABILITIES.folders.subscribe.supported).toBe(true);
+    expect(IMAP_CAPABILITIES.folders.quota.supported).toBe(true);
     expect(IMAP_CAPABILITIES.labels.add.supported).toBe(false);
     expect(IMAP_CAPABILITIES.labels.add.reason).toContain("native labels");
   });

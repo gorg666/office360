@@ -53,6 +53,9 @@ describe("smartFolderStore", () => {
           sort_order: 0,
           is_default: 1,
           created_at: 1000,
+          status: "ok",
+          status_reason: null,
+          status_updated_at: null,
         },
         {
           id: "sf-2",
@@ -64,6 +67,9 @@ describe("smartFolderStore", () => {
           sort_order: 1,
           is_default: 0,
           created_at: 2000,
+          status: "missing_reference",
+          status_reason: "Folder was deleted",
+          status_updated_at: 2100,
         },
       ]);
 
@@ -81,6 +87,9 @@ describe("smartFolderStore", () => {
         color: null,
         isDefault: true,
         sortOrder: 0,
+        status: "ok",
+        statusReason: null,
+        statusUpdatedAt: null,
       });
       expect(folders[1]).toEqual({
         id: "sf-2",
@@ -91,6 +100,9 @@ describe("smartFolderStore", () => {
         color: "#ff0000",
         isDefault: false,
         sortOrder: 1,
+        status: "missing_reference",
+        statusReason: "Folder was deleted",
+        statusUpdatedAt: 2100,
       });
     });
 
@@ -152,9 +164,12 @@ describe("smartFolderStore", () => {
             query: "is:unread",
             icon: "MailOpen",
             color: null,
-            isDefault: true,
-            sortOrder: 0,
-          },
+          isDefault: true,
+          sortOrder: 0,
+          status: "ok",
+          statusReason: null,
+          statusUpdatedAt: null,
+        },
           {
             id: "sf-2",
             accountId: null,
@@ -162,9 +177,12 @@ describe("smartFolderStore", () => {
             query: "from:boss",
             icon: "Star",
             color: null,
-            isDefault: false,
-            sortOrder: 1,
-          },
+          isDefault: false,
+          sortOrder: 1,
+          status: "ok",
+          statusReason: null,
+          statusUpdatedAt: null,
+        },
         ],
         unreadCounts: { "sf-1": 5, "sf-2": 3 },
       });
@@ -193,6 +211,9 @@ describe("smartFolderStore", () => {
             color: null,
             isDefault: true,
             sortOrder: 0,
+            status: "ok",
+            statusReason: null,
+            statusUpdatedAt: null,
           },
         ],
       });

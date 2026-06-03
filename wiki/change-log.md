@@ -2,6 +2,32 @@
 
 Эта страница фиксирует behavior и system changes, которые влияют на работу Office360. Это не замена Git history, а проектное объяснение важных решений.
 
+## 2026-06-03 - EPIC-04 Folder/Label completeness
+
+Добавлено:
+
+- OpenSpec change `epic-04-folder-label-completeness`.
+- IMAP backend commands for folder `CREATE`, `DELETE`, `RENAME`, `SUBSCRIBE`, `UNSUBSCRIBE`, `LSUB`, `CAPABILITY`, and `GETQUOTAROOT`.
+- Provider contract fields for raw IMAP path, subscription state, selectability, children, quota, and retention support reason.
+- IMAP provider supports folder CRUD, subscription toggles, and best-effort quota discovery.
+- Gmail provider keeps native labels and exposes folder subscription/quota as unsupported with clear reasons.
+- Local labels persist IMAP folder metadata: raw path, special-use, subscribed, selectable, and has-children.
+- Smart folders support stable `labelid:` and `folderpath:` operators.
+- Smart folders are marked `missing_reference` after app-driven label/folder delete; sidebar shows warning state.
+- IMAP move dialog and drag-and-drop use raw `imap_folder_path`, not synthetic local label IDs.
+
+Важно:
+
+- System/special-use IMAP folders are protected from rename/delete in provider service layer.
+- Retention policy remains unsupported and explicit.
+- Full folder management UI is not a separate new screen in this change; future UI surfaces should call the provider folder APIs and capability helpers documented in `provider-capabilities.md`.
+
+Verification:
+
+- Targeted Vitest suite for IMAP commands, provider capabilities, providers, smart/search folders, label store, and move dialog passed.
+- `cargo build` passed in `src-tauri`.
+- `npm run build` passed; Vite emitted existing chunk/dynamic-import warnings.
+
 ## 2026-06-03 - EPIC-03 Sync health и offline queue
 
 Добавлено:

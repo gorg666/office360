@@ -162,6 +162,9 @@ export async function syncFoldersToLabels(
       type: mapping.type,
       imapFolderPath: folder.raw_path,
       imapSpecialUse: folder.special_use,
+      imapSubscribed: folder.subscribed,
+      imapSelectable: folder.selectable,
+      imapHasChildren: folder.has_children,
     });
   }
 

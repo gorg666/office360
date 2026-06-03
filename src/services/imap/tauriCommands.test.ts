@@ -11,6 +11,13 @@ const mockInvoke = vi.mocked(invoke);
 import {
   imapTestConnection,
   imapListFolders,
+  imapCreateFolder,
+  imapDeleteFolder,
+  imapRenameFolder,
+  imapSetFolderSubscription,
+  imapListSubscribedFolders,
+  imapGetCapabilities,
+  imapGetFolderQuota,
   imapFetchMessages,
   imapFetchMessageHeaders,
   imapFetchNewUids,
@@ -64,9 +71,13 @@ describe('IMAP Tauri commands', () => {
     const folders = [
       {
         path: 'INBOX',
+        raw_path: 'INBOX',
         name: 'INBOX',
         delimiter: '/',
         special_use: null,
+        subscribed: true,
+        selectable: true,
+        has_children: false,
         exists: 42,
         unseen: 3,
       },
@@ -79,6 +90,95 @@ describe('IMAP Tauri commands', () => {
       config: testImapConfig,
     });
     expect(result).toEqual(folders);
+  });
+
+  it('imapCreateFolder invokes with correct command and params', async () => {
+    mockInvoke.mockResolvedValue(undefined);
+
+    await imapCreateFolder(testImapConfig, 'Projects', 'Work');
+
+    expect(mockInvoke).toHaveBeenCalledWith('imap_create_folder', {
+      config: testImapConfig,
+      name: 'Projects',
+      parentPath: 'Work',
+    });
+  });
+
+  it('imapDeleteFolder invokes with correct command and params', async () => {
+    mockInvoke.mockResolvedValue(undefined);
+
+    await imapDeleteFolder(testImapConfig, 'Work/Projects');
+
+    expect(mockInvoke).toHaveBeenCalledWith('imap_delete_folder', {
+      config: testImapConfig,
+      path: 'Work/Projects',
+    });
+  });
+
+  it('imapRenameFolder invokes with correct command and params', async () => {
+    mockInvoke.mockResolvedValue('Work/Renamed');
+
+    const result = await imapRenameFolder(testImapConfig, 'Work/Projects', 'Work/Renamed');
+
+    expect(mockInvoke).toHaveBeenCalledWith('imap_rename_folder', {
+      config: testImapConfig,
+      path: 'Work/Projects',
+      newName: 'Work/Renamed',
+    });
+    expect(result).toBe('Work/Renamed');
+  });
+
+  it('imapSetFolderSubscription invokes with correct command and params', async () => {
+    mockInvoke.mockResolvedValue(undefined);
+
+    await imapSetFolderSubscription(testImapConfig, 'Work/Projects', false);
+
+    expect(mockInvoke).toHaveBeenCalledWith('imap_set_folder_subscription', {
+      config: testImapConfig,
+      path: 'Work/Projects',
+      subscribed: false,
+    });
+  });
+
+  it('imapListSubscribedFolders invokes with correct command and params', async () => {
+    mockInvoke.mockResolvedValue(['INBOX']);
+
+    const result = await imapListSubscribedFolders(testImapConfig);
+
+    expect(mockInvoke).toHaveBeenCalledWith('imap_list_subscribed_folders', {
+      config: testImapConfig,
+    });
+    expect(result).toEqual(['INBOX']);
+  });
+
+  it('imapGetCapabilities invokes with correct command and params', async () => {
+    mockInvoke.mockResolvedValue({ quota: true, move_messages: true, special_use: false });
+
+    const result = await imapGetCapabilities(testImapConfig);
+
+    expect(mockInvoke).toHaveBeenCalledWith('imap_get_capabilities', {
+      config: testImapConfig,
+    });
+    expect(result.quota).toBe(true);
+  });
+
+  it('imapGetFolderQuota invokes with correct command and params', async () => {
+    const quota = {
+      folder: 'INBOX',
+      quota_roots: ['Userquota'],
+      resources: [{ name: 'STORAGE', usage: 10, limit: 100, percent_used: 10 }],
+      supported: true,
+      reason: null,
+    };
+    mockInvoke.mockResolvedValue(quota);
+
+    const result = await imapGetFolderQuota(testImapConfig, 'INBOX');
+
+    expect(mockInvoke).toHaveBeenCalledWith('imap_get_folder_quota', {
+      config: testImapConfig,
+      path: 'INBOX',
+    });
+    expect(result).toEqual(quota);
   });
 
   it('imapFetchMessages invokes with correct command and params', async () => {

@@ -1,9 +1,9 @@
 import type { CapabilitySupport, ProviderCapabilities } from "./types";
 
-const IMAP_FOLDER_CRUD_UNSUPPORTED =
-  "IMAP folder create, rename, delete, and subscribe commands are not implemented yet.";
 const IMAP_LABEL_UNSUPPORTED =
   "This provider does not support native labels.";
+const RETENTION_UNSUPPORTED =
+  "Retention policy visibility is not exposed through the current mail provider.";
 const CALDAV_MAIL_UNSUPPORTED =
   "CalDAV accounts are calendar-only and do not support mail actions.";
 
@@ -24,7 +24,7 @@ export const GMAIL_CAPABILITIES: ProviderCapabilities = {
     delete: yes(),
     subscribe: no("Gmail labels do not expose IMAP folder subscriptions."),
     quota: no("Gmail quota is not exposed through the current mail provider."),
-    retention: no("Gmail retention settings are not exposed through the current mail provider."),
+    retention: no(RETENTION_UNSUPPORTED),
   },
   labels: {
     native: yes(),
@@ -63,12 +63,12 @@ export const IMAP_CAPABILITIES: ProviderCapabilities = {
   provider: "imap",
   folders: {
     list: yes(),
-    create: no(IMAP_FOLDER_CRUD_UNSUPPORTED),
-    rename: no(IMAP_FOLDER_CRUD_UNSUPPORTED),
-    delete: no(IMAP_FOLDER_CRUD_UNSUPPORTED),
-    subscribe: no(IMAP_FOLDER_CRUD_UNSUPPORTED),
-    quota: no("IMAP quota commands are not implemented yet."),
-    retention: no("IMAP retention settings are not implemented yet."),
+    create: yes(),
+    rename: yes(),
+    delete: yes(),
+    subscribe: yes(),
+    quota: yes(),
+    retention: no(RETENTION_UNSUPPORTED),
   },
   labels: {
     native: no(IMAP_LABEL_UNSUPPORTED),

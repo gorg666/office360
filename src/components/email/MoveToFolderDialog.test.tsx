@@ -4,12 +4,12 @@ import { MoveToFolderDialog } from "./MoveToFolderDialog";
 
 // Mock dependencies
 vi.mock("@/stores/labelStore", () => ({
-  useLabelStore: vi.fn((selector: (s: { labels: { id: string; name: string; accountId: string; type: string; colorBg: string | null; colorFg: string | null; sortOrder: number }[] }) => unknown) =>
+  useLabelStore: vi.fn((selector: (s: { labels: { id: string; name: string; accountId: string; type: string; colorBg: string | null; colorFg: string | null; sortOrder: number; imapFolderPath: string | null; imapSpecialUse: string | null }[] }) => unknown) =>
     selector({
       labels: [
-        { id: "label-1", name: "Work", accountId: "acc-1", type: "user", colorBg: null, colorFg: null, sortOrder: 0 },
-        { id: "label-2", name: "Personal", accountId: "acc-1", type: "user", colorBg: null, colorFg: null, sortOrder: 1 },
-        { id: "label-3", name: "Finance", accountId: "acc-1", type: "user", colorBg: null, colorFg: null, sortOrder: 2 },
+        { id: "label-1", name: "Work", accountId: "acc-1", type: "user", colorBg: null, colorFg: null, sortOrder: 0, imapFolderPath: "Work", imapSpecialUse: null },
+        { id: "label-2", name: "Personal", accountId: "acc-1", type: "user", colorBg: null, colorFg: null, sortOrder: 1, imapFolderPath: "Personal", imapSpecialUse: null },
+        { id: "label-3", name: "Finance", accountId: "acc-1", type: "user", colorBg: null, colorFg: null, sortOrder: 2, imapFolderPath: "Finance", imapSpecialUse: null },
       ],
     }),
   ),
@@ -199,6 +199,24 @@ describe("MoveToFolderDialog", () => {
       fireEvent.click(overlay);
       expect(defaultProps.onClose).toHaveBeenCalled();
     }
+  });
+
+  it("closes when clicking the glass backdrop layer", () => {
+    const { container } = render(<MoveToFolderDialog {...defaultProps} />);
+
+    const backdrop = container.querySelector(".glass-backdrop");
+    expect(backdrop).not.toBeNull();
+    fireEvent.click(backdrop!);
+
+    expect(defaultProps.onClose).toHaveBeenCalled();
+  });
+
+  it("does not close when clicking inside the dialog", () => {
+    render(<MoveToFolderDialog {...defaultProps} />);
+
+    fireEvent.click(screen.getByPlaceholderText("Move to..."));
+
+    expect(defaultProps.onClose).not.toHaveBeenCalled();
   });
 
   it("renders keyboard hint footer", () => {

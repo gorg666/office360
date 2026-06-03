@@ -1,4 +1,4 @@
-use async_imap::{types::{Flag, Mailbox}, Authenticator, Client, Session};
+use async_imap::{types::{Flag, Mailbox, Name, NameAttribute, QuotaResourceName}, Authenticator, Client, Session};
 use base64::Engine;
 use futures::StreamExt;
 use mail_parser::{MessageParser, MimeHeaders};
@@ -214,6 +214,7 @@ pub async fn list_folders(session: &mut ImapSession) -> Result<Vec<ImapFolder>, 
         .filter_map(|r| r.ok())
         .collect();
 
+    let subscribed_paths = list_subscribed_paths(session).await.unwrap_or_default();
     let mut folders = Vec::new();
     for name in &names {
         let raw_path = name.name().to_string();
@@ -248,12 +249,152 @@ pub async fn list_folders(session: &mut ImapSession) -> Result<Vec<ImapFolder>, 
             name: display_name,
             delimiter,
             special_use,
+            subscribed: subscribed_paths.contains(name.name()),
+            selectable: is_selectable_folder(name),
+            has_children: has_child_folders(name),
             exists,
             unseen,
         });
     }
 
     Ok(folders)
+}
+
+async fn list_subscribed_paths(session: &mut ImapSession) -> Result<std::collections::HashSet<String>, String> {
+    let names_stream = tokio::time::timeout(IMAP_CMD_TIMEOUT, session.lsub(Some(""), Some("*")))
+        .await
+        .map_err(|_| {
+            format!(
+                "LSUB timed out after {}s — check your server settings or network connection",
+                IMAP_CMD_TIMEOUT.as_secs()
+            )
+        })?
+        .map_err(|e| format!("LSUB failed: {e}"))?;
+
+    let names: Vec<_> = tokio::time::timeout(IMAP_CMD_TIMEOUT, names_stream.collect::<Vec<_>>())
+        .await
+        .map_err(|_| format!("LSUB stream timed out after {}s — check your server settings or network connection", IMAP_CMD_TIMEOUT.as_secs()))?
+        .into_iter()
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(names.into_iter().map(|name| name.name().to_string()).collect())
+}
+
+pub async fn list_subscribed_folders(session: &mut ImapSession) -> Result<Vec<String>, String> {
+    let paths = list_subscribed_paths(session).await?;
+    Ok(paths.into_iter().collect())
+}
+
+pub async fn create_folder(session: &mut ImapSession, name: &str, parent_path: Option<&str>) -> Result<(), String> {
+    let raw_name = utf7_imap::encode_utf7_imap(name.to_string());
+    let mailbox = match parent_path {
+        Some(parent) if !parent.is_empty() => format!("{}/{}", parent, raw_name),
+        _ => raw_name,
+    };
+    tokio::time::timeout(IMAP_CMD_TIMEOUT, session.create(&mailbox))
+        .await
+        .map_err(|_| format!("CREATE timed out after {}s", IMAP_CMD_TIMEOUT.as_secs()))?
+        .map_err(|e| format!("CREATE failed: {e}"))
+}
+
+pub async fn delete_folder(session: &mut ImapSession, raw_path: &str) -> Result<(), String> {
+    tokio::time::timeout(IMAP_CMD_TIMEOUT, session.delete(raw_path))
+        .await
+        .map_err(|_| format!("DELETE timed out after {}s", IMAP_CMD_TIMEOUT.as_secs()))?
+        .map_err(|e| format!("DELETE failed: {e}"))
+}
+
+pub async fn rename_folder(session: &mut ImapSession, raw_path: &str, new_name: &str) -> Result<String, String> {
+    let new_raw_path = utf7_imap::encode_utf7_imap(new_name.to_string());
+    tokio::time::timeout(IMAP_CMD_TIMEOUT, session.rename(raw_path, &new_raw_path))
+        .await
+        .map_err(|_| format!("RENAME timed out after {}s", IMAP_CMD_TIMEOUT.as_secs()))?
+        .map_err(|e| format!("RENAME failed: {e}"))?;
+    Ok(new_raw_path)
+}
+
+pub async fn set_folder_subscription(
+    session: &mut ImapSession,
+    raw_path: &str,
+    subscribed: bool,
+) -> Result<(), String> {
+    let result = if subscribed {
+        tokio::time::timeout(IMAP_CMD_TIMEOUT, session.subscribe(raw_path)).await
+    } else {
+        tokio::time::timeout(IMAP_CMD_TIMEOUT, session.unsubscribe(raw_path)).await
+    };
+
+    result
+        .map_err(|_| format!("SUBSCRIBE command timed out after {}s", IMAP_CMD_TIMEOUT.as_secs()))?
+        .map_err(|e| format!("SUBSCRIBE command failed: {e}"))
+}
+
+pub async fn get_capabilities(session: &mut ImapSession) -> Result<ImapCapabilities, String> {
+    let capabilities = tokio::time::timeout(IMAP_CMD_TIMEOUT, session.capabilities())
+        .await
+        .map_err(|_| format!("CAPABILITY timed out after {}s", IMAP_CMD_TIMEOUT.as_secs()))?
+        .map_err(|e| format!("CAPABILITY failed: {e}"))?;
+
+    Ok(ImapCapabilities {
+        quota: capabilities.has_str("QUOTA"),
+        move_messages: capabilities.has_str("MOVE"),
+        special_use: capabilities.has_str("SPECIAL-USE") || capabilities.has_str("XLIST"),
+    })
+}
+
+pub async fn get_folder_quota(session: &mut ImapSession, raw_path: &str) -> Result<ImapFolderQuota, String> {
+    let capabilities = get_capabilities(session).await?;
+    if !capabilities.quota {
+        return Ok(ImapFolderQuota {
+            folder: raw_path.to_string(),
+            quota_roots: Vec::new(),
+            resources: Vec::new(),
+            supported: false,
+            reason: Some("IMAP server does not advertise QUOTA support.".to_string()),
+        });
+    }
+
+    let (roots, quotas) = tokio::time::timeout(IMAP_CMD_TIMEOUT, session.get_quota_root(raw_path))
+        .await
+        .map_err(|_| format!("GETQUOTAROOT timed out after {}s", IMAP_CMD_TIMEOUT.as_secs()))?
+        .map_err(|e| format!("GETQUOTAROOT failed: {e}"))?;
+
+    let quota_roots = roots
+        .iter()
+        .flat_map(|root| root.quota_root_names.clone())
+        .collect::<Vec<_>>();
+    let resources = quotas
+        .into_iter()
+        .flat_map(|quota| {
+            quota.resources.into_iter().map(|resource| {
+                let percent_used = resource.get_usage_percentage();
+                ImapQuotaResource {
+                    name: quota_resource_name(resource.name),
+                    usage: resource.usage,
+                    limit: resource.limit,
+                    percent_used,
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let supported = !quota_roots.is_empty() || !resources.is_empty();
+    Ok(ImapFolderQuota {
+        folder: raw_path.to_string(),
+        quota_roots,
+        resources,
+        supported,
+        reason: if supported { None } else { Some("Server returned no quota for this folder.".to_string()) },
+    })
+}
+
+fn quota_resource_name(name: QuotaResourceName) -> String {
+    match name {
+        QuotaResourceName::Storage => "STORAGE".to_string(),
+        QuotaResourceName::Message => "MESSAGE".to_string(),
+        QuotaResourceName::Atom(value) => value,
+    }
 }
 
 /// Fetch messages from a folder by UID range (e.g. "1:100" or "500:*").
@@ -2046,6 +2187,21 @@ fn detect_special_use(name: &async_imap::types::Name) -> Option<String> {
         "archive" | "archives" | "[gmail]/all mail" => Some("\\Archive".to_string()),
         _ => None,
     }
+}
+
+fn is_selectable_folder(name: &Name) -> bool {
+    !name
+        .attributes()
+        .iter()
+        .any(|attr| matches!(attr, NameAttribute::NoSelect))
+}
+
+fn has_child_folders(name: &Name) -> bool {
+    name.attributes().iter().any(|attr| match attr {
+        NameAttribute::NoInferiors => false,
+        NameAttribute::Extension(value) => value.eq_ignore_ascii_case("\\HasChildren"),
+        _ => false,
+    })
 }
 
 /// Parse a raw email message into our ImapMessage struct.

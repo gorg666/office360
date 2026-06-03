@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { ThreadView } from "./components/email/ThreadView";
+import { MoveToFolderDialog } from "./components/email/MoveToFolderDialog";
 import { Composer } from "./components/composer/Composer";
 import { UndoSendToast } from "./components/composer/UndoSendToast";
 import { useAccountStore } from "./stores/accountStore";
+import { useLabelStore } from "./stores/labelStore";
 import { useUIStore } from "./stores/uiStore";
 import { runMigrations } from "./services/db/migrations";
 import { getAllAccounts } from "./services/db/accounts";
@@ -21,9 +23,11 @@ import { useSuppressBrowserContextMenu } from "./hooks/useSuppressBrowserContext
 export default function ThreadWindow() {
   const { setTheme, setFontScale, setColorTheme } = useUIStore();
   const { setAccounts } = useAccountStore();
+  const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const [thread, setThread] = useState<Thread | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [moveToFolderState, setMoveToFolderState] = useState<{ open: boolean; threadIds: string[] }>({ open: false, threadIds: [] });
   useSuppressBrowserContextMenu();
 
   useEffect(() => {
@@ -89,6 +93,7 @@ export default function ThreadWindow() {
 
         // Set active account to the thread's account (without persisting to settings)
         useAccountStore.setState({ activeAccountId: accountId! });
+        await useLabelStore.getState().loadLabels(accountId!);
 
         // Initialize Gmail clients
         await initializeClients();
@@ -131,6 +136,25 @@ export default function ThreadWindow() {
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- store setters are stable references
   }, []);
+
+  useEffect(() => {
+    const handleMoveToFolder = (e: Event) => {
+      const detail = (e as CustomEvent<{ threadIds: string[] }>).detail;
+      if (!detail?.threadIds?.length) return;
+      setMoveToFolderState({ open: true, threadIds: detail.threadIds });
+    };
+    window.addEventListener("velo-move-to-folder", handleMoveToFolder);
+    return () => window.removeEventListener("velo-move-to-folder", handleMoveToFolder);
+  }, []);
+
+  useEffect(() => {
+    if (!activeAccountId) return;
+    const handleSyncDone = () => {
+      void useLabelStore.getState().loadLabels(activeAccountId);
+    };
+    window.addEventListener("velo-sync-done", handleSyncDone);
+    return () => window.removeEventListener("velo-sync-done", handleSyncDone);
+  }, [activeAccountId]);
 
   // Sync theme class to <html>
   const theme = useUIStore((s) => s.theme);
@@ -227,6 +251,11 @@ export default function ThreadWindow() {
       <Composer />
       <UndoSendToast />
       <ContextMenuPortal />
+      <MoveToFolderDialog
+        isOpen={moveToFolderState.open}
+        threadIds={moveToFolderState.threadIds}
+        onClose={() => setMoveToFolderState({ open: false, threadIds: [] })}
+      />
     </div>
   );
 }

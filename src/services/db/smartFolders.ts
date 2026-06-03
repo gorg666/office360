@@ -10,6 +10,9 @@ export interface DbSmartFolder {
   sort_order: number;
   is_default: number;
   created_at: number;
+  status?: string | null;
+  status_reason?: string | null;
+  status_updated_at?: number | null;
 }
 
 /**
@@ -64,19 +67,66 @@ export async function insertSmartFolder(folder: {
 
 export async function updateSmartFolder(
   id: string,
-  updates: { name?: string; query?: string; icon?: string; color?: string },
+  updates: { name?: string; query?: string; icon?: string; color?: string; status?: string | null; statusReason?: string | null },
 ): Promise<void> {
   const fields: [string, unknown][] = [];
   if (updates.name !== undefined) fields.push(["name", updates.name]);
   if (updates.query !== undefined) fields.push(["query", updates.query]);
   if (updates.icon !== undefined) fields.push(["icon", updates.icon]);
   if (updates.color !== undefined) fields.push(["color", updates.color]);
+  if (updates.status !== undefined) fields.push(["status", updates.status]);
+  if (updates.statusReason !== undefined) {
+    fields.push(["status_reason", updates.statusReason]);
+    fields.push(["status_updated_at", Math.floor(Date.now() / 1000)]);
+  }
 
   const built = buildDynamicUpdate("smart_folders", "id", id, fields);
   if (!built) return;
 
   const db = await getDb();
   await db.execute(built.sql, built.params);
+}
+
+export async function rewriteSmartFolderReference(
+  accountId: string,
+  fromOperator: "label" | "labelid" | "folderpath",
+  fromValue: string,
+  toValue: string,
+): Promise<void> {
+  const folders = await getSmartFolders(accountId);
+  const quoted = `${fromOperator}:"${fromValue}"`;
+  const bare = `${fromOperator}:${fromValue}`;
+  for (const folder of folders) {
+    const nextQuery = folder.query
+      .replaceAll(quoted, `${fromOperator}:"${toValue}"`)
+      .replaceAll(bare, `${fromOperator}:${toValue}`);
+    if (nextQuery !== folder.query) {
+      await updateSmartFolder(folder.id, {
+        query: nextQuery,
+        status: "ok",
+        statusReason: null,
+      });
+    }
+  }
+}
+
+export async function markSmartFoldersMissingReference(
+  accountId: string,
+  operator: "label" | "labelid" | "folderpath",
+  value: string,
+  reason: string,
+): Promise<void> {
+  const folders = await getSmartFolders(accountId);
+  const quoted = `${operator}:"${value}"`;
+  const bare = `${operator}:${value}`;
+  for (const folder of folders) {
+    if (folder.query.includes(quoted) || folder.query.includes(bare)) {
+      await updateSmartFolder(folder.id, {
+        status: "missing_reference",
+        statusReason: reason,
+      });
+    }
+  }
 }
 
 export async function deleteSmartFolder(id: string): Promise<void> {

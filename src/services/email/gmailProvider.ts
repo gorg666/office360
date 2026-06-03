@@ -1,4 +1,4 @@
-import type { EmailProvider, EmailFolder, SyncResult } from "./types";
+import type { EmailProvider, EmailFolder, EmailFolderQuota, SyncResult } from "./types";
 import type { GmailClient } from "../gmail/client";
 import { parseGmailMessage, type ParsedMessage } from "../gmail/messageParser";
 import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
@@ -43,12 +43,18 @@ export class GmailApiProvider implements EmailProvider {
       id: label.id,
       name: label.name,
       path: label.name,
+      rawPath: label.id,
       type: label.type === "system" ? "system" : "user",
       specialUse:
         label.type === "system"
           ? (GMAIL_SPECIAL_USE[label.id] ?? null)
           : null,
       delimiter: "/",
+      subscribed: true,
+      selectable: true,
+      hasChildren: false,
+      quota: null,
+      retention: this.capabilities.folders.retention,
       messageCount: label.messagesTotal ?? 0,
       unreadCount: label.messagesUnread ?? 0,
     }));
@@ -61,9 +67,15 @@ export class GmailApiProvider implements EmailProvider {
       id: label.id,
       name: label.name,
       path: label.name,
+      rawPath: label.id,
       type: "user",
       specialUse: null,
       delimiter: "/",
+      subscribed: true,
+      selectable: true,
+      hasChildren: false,
+      quota: null,
+      retention: this.capabilities.folders.retention,
       messageCount: 0,
       unreadCount: 0,
     };
@@ -76,6 +88,20 @@ export class GmailApiProvider implements EmailProvider {
 
   async renameFolder(path: string, newName: string): Promise<void> {
     await this.client.updateLabel(path, { name: newName });
+  }
+
+  async setFolderSubscription(_path: string, _subscribed: boolean): Promise<void> {
+    throw new Error(this.capabilities.folders.subscribe.reason ?? "Gmail labels do not support subscriptions.");
+  }
+
+  async getFolderQuota(path: string): Promise<EmailFolderQuota> {
+    return {
+      folder: path,
+      quotaRoots: [],
+      resources: [],
+      supported: false,
+      reason: this.capabilities.folders.quota.reason,
+    };
   }
 
   async initialSync(

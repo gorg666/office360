@@ -1,7 +1,7 @@
 /**
  * Parses search query strings with operator support.
  * Supported operators: from:, to:, subject:, has:attachment, is:unread, is:read,
- * is:starred, before:, after:, label:
+ * is:starred, before:, after:, label:, labelid:, folderpath:
  */
 
 export interface ParsedSearchQuery {
@@ -16,9 +16,11 @@ export interface ParsedSearchQuery {
   before?: number; // unix timestamp (seconds)
   after?: number;  // unix timestamp (seconds)
   label?: string;
+  labelId?: string;
+  folderPath?: string;
 }
 
-const OPERATOR_REGEX = /(?:^|\s)(from|to|subject|has|is|before|after|label):\s*(?:"([^"]+)"|(\S+))/gi;
+const OPERATOR_REGEX = /(?:^|\s)(from|to|subject|has|is|before|after|label|labelid|folderpath):\s*(?:"([^"]+)"|(\S+))/gi;
 
 /**
  * Parse a date string like YYYY/MM/DD or YYYY-MM-DD into a unix timestamp (seconds).
@@ -95,6 +97,12 @@ export function parseSearchQuery(input: string): ParsedSearchQuery {
       }
       case "label":
         result.label = value;
+        break;
+      case "labelid":
+        result.labelId = value;
+        break;
+      case "folderpath":
+        result.folderPath = value;
         break;
     }
   }

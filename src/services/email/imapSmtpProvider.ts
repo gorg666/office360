@@ -1,4 +1,4 @@
-import type { EmailProvider, EmailFolder, SyncResult } from "./types";
+import type { EmailProvider, EmailFolder, EmailFolderQuota, SyncResult } from "./types";
 import type { ParsedMessage } from "../gmail/messageParser";
 import { IMAP_CAPABILITIES } from "./providerCapabilities";
 import { buildImapConfig, buildSmtpConfig } from "../imap/imapConfigBuilder";
@@ -6,6 +6,11 @@ import { imapInitialSync, imapDeltaSync, imapMessageToParsedMessage } from "../i
 import { mapFolderToLabel, getSyncableFolders } from "../imap/folderMapper";
 import {
   imapListFolders,
+  imapCreateFolder,
+  imapDeleteFolder,
+  imapRenameFolder,
+  imapSetFolderSubscription,
+  imapGetFolderQuota,
   imapSetFlags,
   imapMoveMessages,
   imapDeleteMessages,
@@ -29,6 +34,7 @@ import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { getDb } from "../db/connection";
 import { getMessagesForThread, upsertMessage } from "../db/messages";
 import { upsertThread, setThreadLabels, getThreadLabelIds, getThreadById } from "../db/threads";
+import { markSmartFoldersMissingReference, rewriteSmartFolderReference } from "../db/smartFolders";
 
 /**
  * Decode base64url (Gmail/RFC 4648 URL-safe, no padding) to a UTF-8 string.
@@ -104,6 +110,41 @@ function extractSnippet(raw: string, maxLen = 200): string {
     .slice(0, maxLen);
 }
 
+const PROTECTED_SPECIAL_USES = new Set([
+  "\\Inbox",
+  "\\Sent",
+  "\\Drafts",
+  "\\Trash",
+  "\\Junk",
+  "\\Archive",
+  "\\All",
+]);
+
+function isProtectedFolderPath(path: string): boolean {
+  return path.toUpperCase() === "INBOX";
+}
+
+function ensureMutableFolder(path: string, specialUse?: string | null): void {
+  if (isProtectedFolderPath(path) || (specialUse && PROTECTED_SPECIAL_USES.has(specialUse))) {
+    throw new Error("System and special-use folders cannot be renamed or deleted.");
+  }
+}
+
+function mapQuota(quota: Awaited<ReturnType<typeof imapGetFolderQuota>>): EmailFolderQuota {
+  return {
+    folder: quota.folder,
+    quotaRoots: quota.quota_roots,
+    resources: quota.resources.map((resource) => ({
+      name: resource.name,
+      usage: resource.usage,
+      limit: resource.limit,
+      percentUsed: resource.percent_used,
+    })),
+    supported: quota.supported,
+    reason: quota.reason ?? undefined,
+  };
+}
+
 /**
  * EmailProvider adapter for IMAP/SMTP accounts.
  * Delegates to Tauri IMAP/SMTP commands via the imapSync engine.
@@ -174,9 +215,15 @@ export class ImapSmtpProvider implements EmailProvider {
         id: mapping.labelId,
         name: mapping.labelName,
         path: f.path,
+        rawPath: f.raw_path,
         type: mapping.type as "system" | "user",
         specialUse: f.special_use,
         delimiter: f.delimiter,
+        subscribed: f.subscribed,
+        selectable: f.selectable,
+        hasChildren: f.has_children,
+        quota: null,
+        retention: this.capabilities.folders.retention,
         messageCount: f.exists,
         unreadCount: f.unseen,
       };
@@ -184,27 +231,67 @@ export class ImapSmtpProvider implements EmailProvider {
   }
 
   async createFolder(
-    _name: string,
-    _parentPath?: string,
+    name: string,
+    parentPath?: string,
   ): Promise<EmailFolder> {
-    throw new Error(
-      "Creating folders is not supported for IMAP accounts via the current command set. " +
-        "Please create the folder directly on the mail server.",
+    const config = await this.getImapConfig();
+    await imapCreateFolder(config, name, parentPath);
+    const folders = await this.listFolders();
+    const created = folders.find((folder) =>
+      folder.rawPath === name ||
+      folder.path === name ||
+      folder.name === name ||
+      (parentPath ? folder.rawPath === `${parentPath}/${name}` || folder.path === `${parentPath}/${name}` : false)
+    );
+    if (created) return created;
+    return {
+      id: `folder-${parentPath ? `${parentPath}/${name}` : name}`,
+      name,
+      path: parentPath ? `${parentPath}/${name}` : name,
+      rawPath: parentPath ? `${parentPath}/${name}` : name,
+      type: "user",
+      specialUse: null,
+      delimiter: "/",
+      subscribed: true,
+      selectable: true,
+      hasChildren: false,
+      quota: null,
+      retention: this.capabilities.folders.retention,
+      messageCount: 0,
+      unreadCount: 0,
+    };
+  }
+
+  async deleteFolder(path: string): Promise<void> {
+    const folder = (await this.listFolders()).find((f) => f.rawPath === path || f.path === path);
+    ensureMutableFolder(path, folder?.specialUse);
+    const config = await this.getImapConfig();
+    await imapDeleteFolder(config, folder?.rawPath ?? path);
+    await markSmartFoldersMissingReference(
+      this.accountId,
+      "folderpath",
+      folder?.rawPath ?? path,
+      `Folder ${folder?.name ?? path} was deleted.`,
     );
   }
 
-  async deleteFolder(_path: string): Promise<void> {
-    throw new Error(
-      "Deleting folders is not supported for IMAP accounts via the current command set. " +
-        "Please delete the folder directly on the mail server.",
-    );
+  async renameFolder(path: string, newName: string): Promise<void> {
+    const folder = (await this.listFolders()).find((f) => f.rawPath === path || f.path === path);
+    ensureMutableFolder(path, folder?.specialUse);
+    const config = await this.getImapConfig();
+    const nextRawPath = await imapRenameFolder(config, folder?.rawPath ?? path, newName);
+    await rewriteSmartFolderReference(this.accountId, "folderpath", folder?.rawPath ?? path, nextRawPath);
   }
 
-  async renameFolder(_path: string, _newName: string): Promise<void> {
-    throw new Error(
-      "Renaming folders is not supported for IMAP accounts via the current command set. " +
-        "Please rename the folder directly on the mail server.",
-    );
+  async setFolderSubscription(path: string, subscribed: boolean): Promise<void> {
+    const config = await this.getImapConfig();
+    await imapSetFolderSubscription(config, path, subscribed);
+  }
+
+  async getFolderQuota(path: string): Promise<EmailFolderQuota> {
+    const config = await this.getImapConfig();
+    const quota = await imapGetFolderQuota(config, path);
+    return mapQuota(quota);
   }
 
   // ---- Sync operations ----

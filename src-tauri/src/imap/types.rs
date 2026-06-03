@@ -19,8 +19,35 @@ pub struct ImapFolder {
     pub name: String,     // decoded display name (last segment)
     pub delimiter: String,
     pub special_use: Option<String>, // "\Sent", "\Trash", "\Drafts", "\Junk", "\Archive", "\All"
+    pub subscribed: bool,
+    pub selectable: bool,
+    pub has_children: bool,
     pub exists: u32,
     pub unseen: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImapCapabilities {
+    pub quota: bool,
+    pub move_messages: bool,
+    pub special_use: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImapQuotaResource {
+    pub name: String,
+    pub usage: u64,
+    pub limit: u64,
+    pub percent_used: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImapFolderQuota {
+    pub folder: String,
+    pub quota_roots: Vec<String>,
+    pub resources: Vec<ImapQuotaResource>,
+    pub supported: bool,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

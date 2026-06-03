@@ -44,6 +44,7 @@ import {
   Loader2,
   MessageCircle,
   ListChecks,
+  AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 import { useTaskStore } from "@/stores/taskStore";
@@ -548,11 +549,15 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
               const Icon = getSmartFolderIcon(folder.icon);
               const isActive = activeLabel === `smart-folder:${folder.id}`;
               const count = smartFolderCounts[folder.id] ?? 0;
+              const hasReferenceIssue = folder.status === "missing_reference";
+              const title = hasReferenceIssue
+                ? `${folder.name}: ${folder.statusReason ?? "Saved view needs attention"}`
+                : folder.name;
               return (
                 <button
                   key={folder.id}
                   onClick={() => navigateToLabel(`smart-folder:${folder.id}`)}
-                  title={collapsed ? folder.name : undefined}
+                  title={collapsed || hasReferenceIssue ? title : undefined}
                   className={`flex items-center w-full py-2 text-sm transition-colors press-scale ${
                     collapsed ? "justify-center px-0" : "gap-3 px-3 text-left"
                   } ${
@@ -569,6 +574,13 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                   {!collapsed && (
                     <>
                       <span className="flex-1 truncate">{folder.name}</span>
+                      {hasReferenceIssue && (
+                        <AlertTriangle
+                          size={13}
+                          className="shrink-0 text-warning"
+                          aria-label={folder.statusReason ?? "Smart folder reference missing"}
+                        />
+                      )}
                       {count > 0 && (
                         <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
                           {count}
