@@ -2,6 +2,26 @@
 
 Эта страница фиксирует behavior и system changes, которые влияют на работу Office360. Это не замена Git history, а проектное объяснение важных решений.
 
+## 2026-06-03 - EPIC-05 Compose/MIME reliability
+
+Добавлено:
+
+- OpenSpec change `epic-05-compose-mime-reliability`.
+- MIME regression fixtures for outgoing `emailBuilder`: CRLF/header injection, Unicode subjects/display names, Bcc, IDN/plus addressing, non-ASCII filenames, empty/large attachments, inline CID images, multipart nesting, and reply headers.
+- Header hardening for reply headers and attachment MIME parameters.
+- ASCII-safe encoded MIME parameters for non-ASCII attachment filenames.
+- Base64 wrapping helper for attachment and inline-image payloads.
+- Draft autosave now includes Cc, Bcc, and attachments in saved raw MIME.
+- Scheduled send stores attachment payload with the inserted scheduled row, avoiding latest-row lookup races.
+- Scheduled send lifecycle tests cover `pending -> sending -> sent`, transient retry back to `pending`, and permanent failure to `failed`.
+- Send lifecycle tests cover offline queued send, retryable SMTP/network queueing, permanent SMTP rejection, and IMAP Sent-copy fallback.
+
+Важно:
+
+- Bcc remains present in raw outgoing MIME for delivery, but local IMAP fallback sent copies continue to redact stored Bcc fields.
+- IMAP Sent-copy success still avoids a local optimistic sent duplicate; Sent-copy failure creates exactly one local fallback copy.
+- Full MIME parser rewrite, OpenPGP/S/MIME, and cloud attachments remain out of scope.
+
 ## 2026-06-03 - EPIC-04 Folder/Label completeness
 
 Добавлено:

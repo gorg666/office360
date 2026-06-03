@@ -11,7 +11,15 @@ import { createBackgroundChecker } from "../backgroundCheckers";
 /**
  * Check for scheduled emails that are ready to be sent.
  */
-async function checkScheduledEmails(): Promise<void> {
+function isTransientScheduledSendError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return /\b4\d{2}\b/.test(message)
+    || lower.includes("network")
+    || lower.includes("timeout")
+    || lower.includes("econnrefused");
+}
+
+export async function checkScheduledEmails(): Promise<void> {
   const pending = await getPendingScheduledEmails();
 
   for (const email of pending) {
@@ -64,10 +72,7 @@ async function checkScheduledEmails(): Promise<void> {
       console.error(`Failed to send scheduled email ${email.id}:`, err);
       // Distinguish transient vs permanent errors
       const message = err instanceof Error ? err.message : String(err);
-      const isTransient = message.includes("5") && /\b5\d{2}\b/.test(message)
-        || message.toLowerCase().includes("network")
-        || message.toLowerCase().includes("timeout")
-        || message.toLowerCase().includes("econnrefused");
+      const isTransient = isTransientScheduledSendError(message);
       // Revert to pending for transient errors (allows retry), mark failed for permanent
       await updateScheduledEmailStatus(email.id, isTransient ? "pending" : "failed");
     }

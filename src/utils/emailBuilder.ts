@@ -5,6 +5,8 @@ export interface EmailAttachment {
   filename: string;
   mimeType: string;
   content: string; // base64-encoded content
+  contentId?: string;
+  disposition?: "attachment" | "inline";
 }
 
 export interface EmailDraft {
@@ -45,6 +47,33 @@ function sanitizeHeaderValue(value: string): string {
   return value.replace(/[\r\n]+/g, " ").trim();
 }
 
+function sanitizeMimeToken(value: string, fallback: string): string {
+  const sanitized = sanitizeHeaderValue(value);
+  if (!sanitized) return fallback;
+  return sanitized.replace(/[^\w.+-]+/g, "_");
+}
+
+function quoteMimeParameterValue(value: string): string {
+  return sanitizeHeaderValue(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function encodeMimeParameter(name: string, value: string): string {
+  const sanitized = sanitizeHeaderValue(value);
+  if (/^[\x20-\x7E]*$/.test(sanitized)) {
+    return `${name}="${quoteMimeParameterValue(sanitized)}"`;
+  }
+  return `${name}*=UTF-8''${encodeURIComponent(sanitized)}`;
+}
+
+function wrapBase64(value: string): string[] {
+  if (!value) return [""];
+  const lines: string[] = [];
+  for (let i = 0; i < value.length; i += 76) {
+    lines.push(value.slice(i, i + 76));
+  }
+  return lines;
+}
+
 function encodeMimeHeaderValue(value: string): string {
   const sanitized = sanitizeHeaderValue(value);
   if (!/[^\x20-\x7E]/.test(sanitized)) return sanitized;
@@ -64,7 +93,7 @@ function encodeMimeHeaderValue(value: string): string {
 
   return chunks
     .map((chunk) => `=?UTF-8?B?${base64EncodeUtf8(chunk)}?=`)
-    .join(" ");
+    .join("");
 }
 
 function encodeAddressHeaderValue(value: string): string {
@@ -143,7 +172,11 @@ function extractInlineImages(html: string): { html: string; images: InlineImage[
 function generateMessageId(from: string): string {
   const timestamp = Date.now();
   const random = Math.random().toString(36).slice(2, 10);
-  const domain = from.includes("@") ? from.split("@")[1] : "office360.local";
+  const sanitized = sanitizeHeaderValue(from);
+  const domain = sanitizeMimeToken(
+    sanitized.match(/@([^>\s]+)/)?.[1] ?? "office360.local",
+    "office360.local",
+  );
   return `<${timestamp}.${random}@${domain}>`;
 }
 
@@ -167,10 +200,10 @@ export function buildRawEmail(draft: EmailDraft): string {
   lines.push(`MIME-Version: 1.0`);
 
   if (draft.inReplyTo) {
-    lines.push(`In-Reply-To: ${draft.inReplyTo}`);
+    lines.push(`In-Reply-To: ${sanitizeHeaderValue(draft.inReplyTo)}`);
   }
   if (draft.references) {
-    lines.push(`References: ${draft.references}`);
+    lines.push(`References: ${sanitizeHeaderValue(draft.references)}`);
   }
 
   const { html: processedHtml, images: inlineImages } = extractInlineImages(draft.htmlBody);
@@ -207,9 +240,7 @@ export function buildRawEmail(draft: EmailDraft): string {
         lines.push(`Content-ID: <${img.cid}>`);
         lines.push("Content-Disposition: inline");
         lines.push("");
-        for (let i = 0; i < img.base64.length; i += 76) {
-          lines.push(img.base64.slice(i, i + 76));
-        }
+        lines.push(...wrapBase64(img.base64));
         lines.push("");
       }
       lines.push(`--${relatedBoundary}--`);
@@ -224,15 +255,18 @@ export function buildRawEmail(draft: EmailDraft): string {
       lines.push("");
       // Attachment parts
       for (const att of draft.attachments!) {
+        const filenameParam = encodeMimeParameter("filename", att.filename);
+        const nameParam = encodeMimeParameter("name", att.filename);
+        const disposition = att.disposition ?? "attachment";
         lines.push(`--${mixedBoundary}`);
-        lines.push(`Content-Type: ${att.mimeType}; name="${att.filename}"`);
+        lines.push(`Content-Type: ${sanitizeHeaderValue(att.mimeType)}; ${nameParam}`);
         lines.push("Content-Transfer-Encoding: base64");
-        lines.push(`Content-Disposition: attachment; filename="${att.filename}"`);
-        lines.push("");
-        const raw = att.content;
-        for (let i = 0; i < raw.length; i += 76) {
-          lines.push(raw.slice(i, i + 76));
+        if (att.contentId) {
+          lines.push(`Content-ID: <${sanitizeHeaderValue(att.contentId).replace(/[<>]/g, "")}>`);
         }
+        lines.push(`Content-Disposition: ${disposition}; ${filenameParam}`);
+        lines.push("");
+        lines.push(...wrapBase64(att.content));
         lines.push("");
       }
       lines.push(`--${mixedBoundary}--`);

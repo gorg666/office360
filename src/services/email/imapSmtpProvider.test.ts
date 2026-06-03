@@ -631,6 +631,8 @@ describe("ImapSmtpProvider", () => {
       await expect(provider.sendMessage(rawBase64Url)).rejects.toThrow(
         "SMTP send failed: Authentication failed",
       );
+      expect(upsertMessage).not.toHaveBeenCalled();
+      expect(upsertThread).not.toHaveBeenCalled();
     });
 
     it("succeeds even if Sent folder copy fails", async () => {
@@ -646,8 +648,8 @@ describe("ImapSmtpProvider", () => {
       const spy = vi.spyOn(console, "error").mockImplementation(() => {});
       const result = await provider.sendMessage(rawBase64Url);
       expect(result.id).toMatch(/^imap-sent-/);
-      // Should still have saved locally
-      expect(upsertMessage).toHaveBeenCalled();
+      // Should create exactly one local fallback copy.
+      expect(upsertMessage).toHaveBeenCalledTimes(1);
       spy.mockRestore();
     });
   });

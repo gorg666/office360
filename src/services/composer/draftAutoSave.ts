@@ -30,6 +30,8 @@ async function saveDraft(): Promise<void> {
     const raw = buildRawEmail({
       from: account.email,
       to: state.to.length > 0 ? state.to : [""],
+      cc: state.cc.length > 0 ? state.cc : undefined,
+      bcc: state.bcc.length > 0 ? state.bcc : undefined,
       subject: state.subject,
       htmlBody: state.bodyHtml,
       inReplyTo: replyHeaders.inReplyTo,

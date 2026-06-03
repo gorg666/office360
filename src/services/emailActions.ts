@@ -334,6 +334,10 @@ async function executeViaProvider(
   }
 }
 
+function isPermanentSmtpSendError(action: EmailAction, message: string): boolean {
+  return action.type === "sendMessage" && /\b5\d{2}\b/.test(message);
+}
+
 function getCapabilityForAction(
   capabilities: ProviderCapabilities,
   action: EmailAction,
@@ -423,20 +427,22 @@ export async function executeEmailAction(
     return { success: true, data };
   } catch (err) {
     const classified = classifyError(err);
+    const shouldQueueForRetry = classified.isRetryable
+      && !isPermanentSmtpSendError(action, classified.message);
     const account = await getAccount(accountId).catch(() => null);
     const diagnostic = createConnectionDiagnostic(err, {
       accountId,
       provider: account?.provider,
       layer: action.type === "sendMessage" ? "smtp" : "provider",
       operation: action.type,
-      retryState: classified.isRetryable ? "scheduled" : "failed",
+      retryState: shouldQueueForRetry ? "scheduled" : "failed",
       authMethod: account?.auth_method,
     });
     await upsertAccountDiagnostic(diagnostic).catch((dbErr) => {
       console.warn("[diagnostics] Failed to persist email action diagnostic:", dbErr);
     });
 
-    if (classified.isRetryable) {
+    if (shouldQueueForRetry) {
       // Queue for retry
       await enqueuePendingOperation(
         accountId,
