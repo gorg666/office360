@@ -77,6 +77,7 @@ UI hiding недостаточно. Service entry points также должны
 - `src/services/emailActions.ts` проверяет capabilities до optimistic updates, local DB updates, provider calls и offline queue writes.
 - `src/stores/labelStore.ts` rejects unsupported label CRUD до Gmail client access.
 - `src/services/email/providerFactory.ts` создаёт `GmailApiProvider` только для explicit `gmail_api`.
+- Если queued provider action больше не поддерживается или требует user action, queue processor переводит operation в `blocked`/`failed` с diagnostic вместо silent drop.
 
 ## Smoke checklist
 

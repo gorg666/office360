@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, Check, Plus, UserPlus, Calendar, Copy, Settings
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { ContactAvatar } from "@/components/ui/ContactAvatar";
 import { getUnreadInboxCountsByAccount } from "@/services/db/threads";
+import { listAccountSyncHealth, syncHealthStatusLabel, type AccountSyncHealthStatus } from "@/services/syncHealth";
 import { navigateToLabel } from "@/router/navigate";
 
 interface AccountSwitcherProps {
@@ -20,6 +21,7 @@ export function AccountSwitcher({
   const { accounts, activeAccountId, setActiveAccount } = useAccountStore();
   const [open, setOpen] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [healthStatuses, setHealthStatuses] = useState<Record<string, AccountSyncHealthStatus>>({});
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
@@ -81,9 +83,12 @@ export function AccountSwitcher({
     const accountIds = accounts.map((account) => account.id);
     let cancelled = false;
 
-    async function refreshUnreadCounts() {
+    async function refreshAccountState() {
       try {
-        const counts = await getUnreadInboxCountsByAccount(accountIds);
+        const [counts, health] = await Promise.all([
+          getUnreadInboxCountsByAccount(accountIds),
+          listAccountSyncHealth(accountIds),
+        ]);
         if (!cancelled) {
           setUnreadCounts((current) => {
             const currentKeys = Object.keys(current);
@@ -92,17 +97,22 @@ export function AccountSwitcher({
               && nextKeys.every((key) => current[key] === counts[key]);
             return unchanged ? current : counts;
           });
+          setHealthStatuses(Object.fromEntries(health.map((item) => [item.accountId, item.status])));
         }
       } catch (err) {
-        console.error("Failed to load account unread counts:", err);
+        console.error("Failed to load account state:", err);
       }
     }
 
-    void refreshUnreadCounts();
-    window.addEventListener("velo-sync-done", refreshUnreadCounts);
+    void refreshAccountState();
+    window.addEventListener("velo-sync-done", refreshAccountState);
+    window.addEventListener("velo-queue-changed", refreshAccountState);
+    window.addEventListener("velo-sync-health-changed", refreshAccountState);
     return () => {
       cancelled = true;
-      window.removeEventListener("velo-sync-done", refreshUnreadCounts);
+      window.removeEventListener("velo-sync-done", refreshAccountState);
+      window.removeEventListener("velo-queue-changed", refreshAccountState);
+      window.removeEventListener("velo-sync-health-changed", refreshAccountState);
     };
   }, [accounts]);
 
@@ -208,6 +218,7 @@ export function AccountSwitcher({
           {accounts.map((account) => {
             const isActive = account.id === activeAccountId;
             const unreadCount = unreadCounts[account.id] ?? 0;
+            const healthStatus = healthStatuses[account.id];
             return (
               <button
                 key={account.id}
@@ -232,6 +243,11 @@ export function AccountSwitcher({
                   <div className="text-xs text-text-secondary truncate leading-tight">
                     {account.email}
                   </div>
+                  {healthStatus && healthStatus !== "healthy" && (
+                    <div className="mt-0.5 text-[0.625rem] text-text-tertiary">
+                      {syncHealthStatusLabel(healthStatus)}
+                    </div>
+                  )}
                 </div>
                 <UnreadBadge count={unreadCount} placement="inline" />
                 {isActive && (

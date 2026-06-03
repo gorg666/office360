@@ -12,7 +12,19 @@ vi.mock("../db/pendingOperations", () => ({
   deleteOperation: vi.fn(() => Promise.resolve()),
   incrementRetry: vi.fn(() => Promise.resolve()),
   getPendingOpsCount: vi.fn(() => Promise.resolve(0)),
+  getQueueSummary: vi.fn(() => Promise.resolve({
+    pending: 0,
+    executing: 0,
+    retryScheduled: 0,
+    failed: 0,
+    blocked: 0,
+    cancelled: 0,
+    active: 0,
+    total: 0,
+  })),
   compactQueue: vi.fn(() => Promise.resolve(0)),
+  blockOperation: vi.fn(() => Promise.resolve()),
+  failOperation: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("../emailActions", () => ({
@@ -49,6 +61,8 @@ import {
   deleteOperation,
   incrementRetry,
   compactQueue,
+  blockOperation,
+  failOperation,
 } from "../db/pendingOperations";
 import { executeQueuedAction } from "../emailActions";
 import { classifyError } from "@/utils/networkErrors";
@@ -148,7 +162,7 @@ describe("queueProcessor", () => {
 
     await triggerQueueFlush();
 
-    expect(updateOperationStatus).toHaveBeenCalledWith("op-1", "pending", "Failed to fetch");
+    expect(updateOperationStatus).toHaveBeenCalledWith("op-1", "retry_scheduled", "Failed to fetch");
     expect(incrementRetry).toHaveBeenCalledWith("op-1");
     expect(deleteOperation).not.toHaveBeenCalled();
   });
@@ -178,7 +192,40 @@ describe("queueProcessor", () => {
 
     await triggerQueueFlush();
 
-    expect(updateOperationStatus).toHaveBeenCalledWith("op-1", "failed", "Bad request");
+    expect(failOperation).toHaveBeenCalledWith("op-1", "Bad request", expect.objectContaining({
+      diagnosticCode: expect.any(String),
+    }));
+  });
+
+  it("blocks auth errors with re-auth diagnostics", async () => {
+    vi.mocked(getPendingOperations).mockResolvedValueOnce([
+      {
+        id: "op-1",
+        account_id: "acct-1",
+        operation_type: "archive",
+        resource_id: "t1",
+        params: '{"threadId":"t1","messageIds":[]}',
+        status: "pending",
+        retry_count: 0,
+        max_retries: 10,
+        next_retry_at: null,
+        created_at: 1000,
+        error_message: null,
+      },
+    ]);
+    vi.mocked(executeQueuedAction).mockRejectedValueOnce(new Error("401 invalid_grant refresh token expired"));
+    vi.mocked(classifyError).mockReturnValueOnce({
+      type: "auth",
+      isRetryable: false,
+      message: "401 invalid_grant refresh token expired",
+    });
+
+    await triggerQueueFlush();
+
+    expect(blockOperation).toHaveBeenCalledWith("op-1", expect.any(String), expect.objectContaining({
+      diagnosticCode: expect.any(String),
+      userAction: "reauth",
+    }));
   });
 
   it("updates pending count after processing", async () => {

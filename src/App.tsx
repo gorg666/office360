@@ -51,6 +51,8 @@ import {
   stopQueueProcessor,
   triggerQueueFlush,
 } from "./services/queue/queueProcessor";
+import { getQueueSummary } from "./services/db/pendingOperations";
+import { recordSyncHealthStatus } from "./services/syncHealth";
 import {
   startPreCacheManager,
   stopPreCacheManager,
@@ -172,22 +174,34 @@ export default function App() {
   useEffect(() => {
     const { setOnline } = useUIStore.getState();
     setOnline(navigator.onLine);
+    const updateQueueCount = () => {
+      void getQueueSummary()
+        .then((summary) => useUIStore.getState().setPendingOpsCount(summary.active))
+        .catch((err) => console.warn("[queue] Failed to refresh queue summary:", err));
+    };
+    updateQueueCount();
 
     const handleOnline = () => {
       setOnline(true);
+      window.dispatchEvent(new Event("velo-sync-health-changed"));
       void triggerQueueFlush();
       const accounts = useAccountStore.getState().accounts;
       const activeAccountId = useAccountStore.getState().activeAccountId;
       const accountIds = getSyncableAccountIds(accounts, activeAccountId);
       if (accountIds.length > 0) triggerSync(accountIds);
     };
-    const handleOffline = () => setOnline(false);
+    const handleOffline = () => {
+      setOnline(false);
+      window.dispatchEvent(new Event("velo-sync-health-changed"));
+    };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
+    window.addEventListener("velo-queue-changed", updateQueueCount);
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("velo-queue-changed", updateQueueCount);
     };
   }, []);
 
@@ -481,6 +495,7 @@ export default function App() {
   const backfillDoneRef = useRef(false);
   useEffect(() => {
     const unsub = onSyncStatus((accountId, status, _progress, error) => {
+      recordSyncHealthStatus(accountId, status);
       if (status === "done") {
         window.dispatchEvent(new Event("velo-sync-done"));
         updateBadgeCount();

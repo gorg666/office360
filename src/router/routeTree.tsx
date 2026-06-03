@@ -16,6 +16,7 @@ const CalendarPage = lazy(() => import("@/components/calendar/CalendarPage").the
 const TasksPage = lazy(() => import("@/components/tasks/TasksPage").then((m) => ({ default: m.TasksPage })));
 const AttachmentLibrary = lazy(() => import("@/components/attachments/AttachmentLibrary").then((m) => ({ default: m.AttachmentLibrary })));
 const AccountRepairCenter = lazy(() => import("@/components/repair/AccountRepairCenter").then((m) => ({ default: m.AccountRepairCenter })));
+const QueueInspector = lazy(() => import("@/components/queue/QueueInspector").then((m) => ({ default: m.QueueInspector })));
 
 // ---------- Search param validation ----------
 const VALID_CATEGORIES = ["Primary", "Updates", "Promotions", "Social", "Newsletters"] as const;
@@ -95,6 +96,16 @@ function RepairCenterWrapper() {
     <ErrorBoundary name="AccountRepairCenter">
       <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading repair center...</div>}>
         <AccountRepairCenter />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
+function QueueInspectorWrapper() {
+  return (
+    <ErrorBoundary name="QueueInspector">
+      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading queue...</div>}>
+        <QueueInspector />
       </Suspense>
     </ErrorBoundary>
   );
@@ -213,6 +224,13 @@ export const repairAccountRoute = createRoute({
   component: RepairCenterWrapper,
 });
 
+// ---------- /queue ----------
+export const queueRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "queue",
+  component: QueueInspectorWrapper,
+});
+
 // ---------- /messengers (открыть панель и перейти во входящие) ----------
 export const messengersRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -252,6 +270,7 @@ export const routeTree = rootRoute.addChildren([
   calendarRoute,
   repairRoute,
   repairAccountRoute,
+  queueRoute,
   messengersRoute,
   helpIndexRoute,
   helpTopicRoute,

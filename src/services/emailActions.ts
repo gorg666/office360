@@ -143,6 +143,14 @@ function revertOptimisticUpdate(action: EmailAction): void {
   }
 }
 
+function emitQueueChanged(action?: EmailAction): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event("velo-queue-changed"));
+  if (action?.type === "sendMessage") {
+    window.dispatchEvent(new Event("velo-outbox-changed"));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Local DB updates (so offline reads reflect changes)
 // ---------------------------------------------------------------------------
@@ -405,9 +413,7 @@ export async function executeEmailAction(
       getResourceId(action),
       actionToParams(action),
     );
-    if (action.type === "sendMessage") {
-      window.dispatchEvent(new Event("velo-outbox-changed"));
-    }
+    emitQueueChanged(action);
     return { success: true, queued: true };
   }
 
@@ -438,9 +444,7 @@ export async function executeEmailAction(
         getResourceId(action),
         actionToParams(action),
       );
-      if (action.type === "sendMessage") {
-        window.dispatchEvent(new Event("velo-outbox-changed"));
-      }
+      emitQueueChanged(action);
       return { success: true, queued: true };
     }
 

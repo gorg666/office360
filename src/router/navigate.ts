@@ -13,6 +13,7 @@ type SettingsReturnSnapshot = {
 };
 
 let settingsReturnSnapshot: SettingsReturnSnapshot | null = null;
+let settingsSurfaceReturnStack: SettingsReturnSnapshot[] = [];
 
 function isSettingsPath(pathname: string): boolean {
   return /^\/settings(\/|$)/.test(pathname);
@@ -22,20 +23,176 @@ function isRepairPath(pathname: string): boolean {
   return /^\/repair(\/|$)/.test(pathname);
 }
 
-function captureSettingsReturnLocation(): void {
-  const { pathname, search } = router.state.location;
-  if (isSettingsPath(pathname) || isRepairPath(pathname)) return;
+function isQueuePath(pathname: string): boolean {
+  return /^\/queue(\/|$)/.test(pathname);
+}
 
-  settingsReturnSnapshot = {
+function isSettingsSurfacePath(pathname: string): boolean {
+  return isSettingsPath(pathname) || isRepairPath(pathname) || isQueuePath(pathname);
+}
+
+function captureCurrentLocation(): SettingsReturnSnapshot {
+  const { pathname, search } = router.state.location;
+  return {
     pathname,
     search: { ...(search as Record<string, unknown>) },
     messengersPanelsOpen: useUIStore.getState().messengersPanelsOpen,
   };
 }
 
+function isSameSnapshotTarget(a: SettingsReturnSnapshot, b: SettingsReturnSnapshot): boolean {
+  return a.pathname === b.pathname && JSON.stringify(a.search) === JSON.stringify(b.search);
+}
+
+function captureSettingsReturnLocation(): void {
+  const { pathname } = router.state.location;
+  if (isSettingsSurfacePath(pathname)) return;
+
+  settingsReturnSnapshot = captureCurrentLocation();
+  settingsSurfaceReturnStack = [];
+}
+
+function rememberSettingsSurfaceReturnLocation(): void {
+  const { pathname } = router.state.location;
+  if (!isSettingsSurfacePath(pathname)) {
+    captureSettingsReturnLocation();
+    return;
+  }
+
+  const snapshot = captureCurrentLocation();
+  const previous = settingsSurfaceReturnStack[settingsSurfaceReturnStack.length - 1];
+  if (!previous || !isSameSnapshotTarget(previous, snapshot)) {
+    settingsSurfaceReturnStack.push(snapshot);
+  }
+}
+
 function navigateToInboxFallback(): void {
   useUIStore.getState().setMessengersPanelsOpen(false);
   router.navigate({ to: "/mail/$label", params: { label: "inbox" } });
+}
+
+function navigateToSnapshot(snapshot: SettingsReturnSnapshot): void {
+  useUIStore.getState().setMessengersPanelsOpen(snapshot.messengersPanelsOpen);
+
+  const { pathname } = snapshot;
+  const search = snapshot.search as Record<string, string>;
+
+  const settingsMatch = pathname.match(/^\/settings(?:\/([^/]+))?$/);
+  if (settingsMatch) {
+    router.navigate({
+      to: "/settings/$tab",
+      params: { tab: settingsMatch[1] ?? "general" },
+      search,
+    });
+    return;
+  }
+
+  const mailThreadMatch = pathname.match(/^\/mail\/([^/]+)\/thread\/([^/]+)$/);
+  if (mailThreadMatch) {
+    router.navigate({
+      to: "/mail/$label/thread/$threadId",
+      params: { label: mailThreadMatch[1]!, threadId: mailThreadMatch[2]! },
+      search,
+    });
+    return;
+  }
+
+  const mailMatch = pathname.match(/^\/mail\/([^/]+)$/);
+  if (mailMatch) {
+    router.navigate({
+      to: "/mail/$label",
+      params: { label: mailMatch[1]! },
+      search,
+    });
+    return;
+  }
+
+  const labelThreadMatch = pathname.match(/^\/label\/([^/]+)\/thread\/([^/]+)$/);
+  if (labelThreadMatch) {
+    router.navigate({
+      to: "/label/$labelId/thread/$threadId",
+      params: { labelId: labelThreadMatch[1]!, threadId: labelThreadMatch[2]! },
+      search,
+    });
+    return;
+  }
+
+  const labelMatch = pathname.match(/^\/label\/([^/]+)$/);
+  if (labelMatch) {
+    router.navigate({
+      to: "/label/$labelId",
+      params: { labelId: labelMatch[1]! },
+      search,
+    });
+    return;
+  }
+
+  const smartFolderThreadMatch = pathname.match(/^\/smart-folder\/([^/]+)\/thread\/([^/]+)$/);
+  if (smartFolderThreadMatch) {
+    router.navigate({
+      to: "/smart-folder/$folderId/thread/$threadId",
+      params: { folderId: smartFolderThreadMatch[1]!, threadId: smartFolderThreadMatch[2]! },
+      search,
+    });
+    return;
+  }
+
+  const smartFolderMatch = pathname.match(/^\/smart-folder\/([^/]+)$/);
+  if (smartFolderMatch) {
+    router.navigate({
+      to: "/smart-folder/$folderId",
+      params: { folderId: smartFolderMatch[1]! },
+      search,
+    });
+    return;
+  }
+
+  if (pathname === "/attachments") {
+    router.navigate({ to: "/attachments" });
+    return;
+  }
+
+  if (pathname === "/calendar") {
+    router.navigate({ to: "/calendar" });
+    return;
+  }
+
+  if (pathname === "/tasks") {
+    router.navigate({ to: "/tasks" });
+    return;
+  }
+
+  if (pathname === "/repair") {
+    router.navigate({ to: "/repair", search });
+    return;
+  }
+
+  const repairMatch = pathname.match(/^\/repair\/([^/]+)$/);
+  if (repairMatch) {
+    router.navigate({
+      to: "/repair/$accountId",
+      params: { accountId: repairMatch[1]! },
+      search,
+    });
+    return;
+  }
+
+  if (pathname === "/queue") {
+    router.navigate({ to: "/queue", search });
+    return;
+  }
+
+  const helpMatch = pathname.match(/^\/help(?:\/([^/]+))?$/);
+  if (helpMatch) {
+    router.navigate({
+      to: "/help/$topic",
+      params: { topic: helpMatch[1] ?? "getting-started" },
+      search,
+    });
+    return;
+  }
+
+  navigateToInboxFallback();
 }
 
 /**
@@ -83,6 +240,11 @@ export function navigateToLabel(
 
   if (label === "repair") {
     navigateToRepairCenter();
+    return;
+  }
+
+  if (label === "queue") {
+    navigateToQueueInspector();
     return;
   }
 
@@ -187,7 +349,10 @@ export function navigateToThread(threadId: string): void {
  * Navigate to settings with an optional tab.
  */
 export function navigateToSettings(tab = "general"): void {
-  captureSettingsReturnLocation();
+  const { pathname } = router.state.location;
+  if (!isSettingsPath(pathname)) {
+    rememberSettingsSurfaceReturnLocation();
+  }
   router.navigate({ to: "/settings/$tab", params: { tab } });
 }
 
@@ -195,141 +360,27 @@ export function navigateToSettings(tab = "general"): void {
  * Leave settings and return to the route the user came from (or inbox fallback).
  */
 export function navigateBackFromSettings(): void {
-  const snapshot = settingsReturnSnapshot;
-  settingsReturnSnapshot = null;
-  const currentPathname = router.state.location.pathname;
+  const surfaceSnapshot = settingsSurfaceReturnStack.pop();
+  if (surfaceSnapshot) {
+    navigateToSnapshot(surfaceSnapshot);
+    return;
+  }
 
-  if (!snapshot || (isSettingsPath(snapshot.pathname) && !isRepairPath(currentPathname))) {
+  const returnSnapshot = settingsReturnSnapshot;
+  settingsReturnSnapshot = null;
+  if (!returnSnapshot) {
     navigateToInboxFallback();
     return;
   }
 
-  useUIStore.getState().setMessengersPanelsOpen(snapshot.messengersPanelsOpen);
-
-  const { pathname } = snapshot;
-  const search = snapshot.search as Record<string, string>;
-
-  const settingsMatch = pathname.match(/^\/settings(?:\/([^/]+))?$/);
-  if (settingsMatch) {
-    router.navigate({
-      to: "/settings/$tab",
-      params: { tab: settingsMatch[1] ?? "general" },
-      search,
-    });
-    return;
-  }
-
-  const mailThreadMatch = pathname.match(/^\/mail\/([^/]+)\/thread\/([^/]+)$/);
-  if (mailThreadMatch) {
-    router.navigate({
-      to: "/mail/$label/thread/$threadId",
-      params: { label: mailThreadMatch[1]!, threadId: mailThreadMatch[2]! },
-      search,
-    });
-    return;
-  }
-
-  const mailMatch = pathname.match(/^\/mail\/([^/]+)$/);
-  if (mailMatch) {
-    router.navigate({
-      to: "/mail/$label",
-      params: { label: mailMatch[1]! },
-      search,
-    });
-    return;
-  }
-
-  const labelThreadMatch = pathname.match(/^\/label\/([^/]+)\/thread\/([^/]+)$/);
-  if (labelThreadMatch) {
-    router.navigate({
-      to: "/label/$labelId/thread/$threadId",
-      params: { labelId: labelThreadMatch[1]!, threadId: labelThreadMatch[2]! },
-      search,
-    });
-    return;
-  }
-
-  const labelMatch = pathname.match(/^\/label\/([^/]+)$/);
-  if (labelMatch) {
-    router.navigate({
-      to: "/label/$labelId",
-      params: { labelId: labelMatch[1]! },
-      search,
-    });
-    return;
-  }
-
-  const smartFolderThreadMatch = pathname.match(/^\/smart-folder\/([^/]+)\/thread\/([^/]+)$/);
-  if (smartFolderThreadMatch) {
-    router.navigate({
-      to: "/smart-folder/$folderId/thread/$threadId",
-      params: { folderId: smartFolderThreadMatch[1]!, threadId: smartFolderThreadMatch[2]! },
-      search,
-    });
-    return;
-  }
-
-  const smartFolderMatch = pathname.match(/^\/smart-folder\/([^/]+)$/);
-  if (smartFolderMatch) {
-    router.navigate({
-      to: "/smart-folder/$folderId",
-      params: { folderId: smartFolderMatch[1]! },
-      search,
-    });
-    return;
-  }
-
-  if (pathname === "/attachments") {
-    router.navigate({ to: "/attachments" });
-    return;
-  }
-
-  if (pathname === "/calendar") {
-    router.navigate({ to: "/calendar" });
-    return;
-  }
-
-  if (pathname === "/tasks") {
-    router.navigate({ to: "/tasks" });
-    return;
-  }
-
-  if (pathname === "/repair") {
-    router.navigate({ to: "/repair" });
-    return;
-  }
-
-  const repairMatch = pathname.match(/^\/repair\/([^/]+)$/);
-  if (repairMatch) {
-    router.navigate({
-      to: "/repair/$accountId",
-      params: { accountId: repairMatch[1]! },
-      search,
-    });
-    return;
-  }
-
-  const helpMatch = pathname.match(/^\/help(?:\/([^/]+))?$/);
-  if (helpMatch) {
-    router.navigate({
-      to: "/help/$topic",
-      params: { topic: helpMatch[1] ?? "getting-started" },
-      search,
-    });
-    return;
-  }
-
-  navigateToInboxFallback();
+  navigateToSnapshot(returnSnapshot);
 }
 
 export function navigateToRepairCenter(accountId?: string): void {
-  const { pathname, search } = router.state.location;
-  if (!isRepairPath(pathname)) {
-    settingsReturnSnapshot = {
-      pathname,
-      search: { ...(search as Record<string, unknown>) },
-      messengersPanelsOpen: useUIStore.getState().messengersPanelsOpen,
-    };
+  const { pathname } = router.state.location;
+  const targetPathname = accountId ? `/repair/${accountId}` : "/repair";
+  if (pathname !== targetPathname) {
+    rememberSettingsSurfaceReturnLocation();
   }
 
   if (accountId) {
@@ -341,6 +392,28 @@ export function navigateToRepairCenter(accountId?: string): void {
 
 export function navigateBackFromRepair(): void {
   navigateBackFromSettings();
+}
+
+export function navigateBackFromQueueInspector(): void {
+  if (settingsSurfaceReturnStack.length > 0 || settingsReturnSnapshot) {
+    navigateBackFromSettings();
+    return;
+  }
+
+  if (window.history.length > 1) {
+    window.history.back();
+    return;
+  }
+
+  navigateToInboxFallback();
+}
+
+export function navigateToQueueInspector(): void {
+  const { pathname } = router.state.location;
+  if (!isQueuePath(pathname)) {
+    rememberSettingsSurfaceReturnLocation();
+  }
+  router.navigate({ to: "/queue" });
 }
 
 /**

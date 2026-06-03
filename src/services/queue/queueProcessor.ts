@@ -5,8 +5,11 @@ import {
   updateOperationStatus,
   deleteOperation,
   incrementRetry,
-  getPendingOpsCount,
+  getQueueSummary,
   compactQueue,
+  blockOperation,
+  failOperation,
+  type QueueUserAction,
 } from "../db/pendingOperations";
 import { executeQueuedAction } from "../emailActions";
 import { classifyError } from "@/utils/networkErrors";
@@ -21,6 +24,7 @@ let checker: BackgroundChecker | null = null;
 function emitOutboxChanged(): void {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event("velo-outbox-changed"));
+    window.dispatchEvent(new Event("velo-queue-changed"));
   }
 }
 
@@ -87,10 +91,24 @@ async function processQueue(): Promise<void> {
       });
 
       if (classified.isRetryable) {
-        await updateOperationStatus(op.id, "pending", classified.message);
+        await updateOperationStatus(op.id, "retry_scheduled", classified.message);
         await incrementRetry(op.id);
+      } else if (
+        classified.type === "auth" ||
+        diagnostic.severity === "blocked" ||
+        diagnostic.userAction === "reauth" ||
+        diagnostic.reason === "unsupported_capability"
+      ) {
+        await blockOperation(op.id, diagnostic.userMessage, {
+          diagnosticCode: diagnostic.debugCode,
+          userAction: diagnostic.userAction as QueueUserAction,
+          errorMessage: diagnostic.rawCause ?? classified.message,
+        });
       } else {
-        await updateOperationStatus(op.id, "failed", classified.message);
+        await failOperation(op.id, classified.message, {
+          diagnosticCode: diagnostic.debugCode,
+          userAction: op.operation_type === "sendMessage" ? "edit_settings" : diagnostic.userAction,
+        });
       }
       emitOutboxChanged();
     }
@@ -101,8 +119,8 @@ async function processQueue(): Promise<void> {
 }
 
 async function updatePendingCount(): Promise<void> {
-  const count = await getPendingOpsCount();
-  useUIStore.getState().setPendingOpsCount(count);
+  const summary = await getQueueSummary();
+  useUIStore.getState().setPendingOpsCount(summary.active);
 }
 
 export function startQueueProcessor(): void {
