@@ -2,6 +2,19 @@
 
 Эта страница фиксирует behavior и system changes, которые влияют на работу Office360. Это не замена Git history, а проектное объяснение важных решений.
 
+## 2026-06-03 - Full test suite и local app build stabilization
+
+Изменено:
+
+- Full Vitest suite стабилизируется как отдельный change от `main`, без расширения EPIC-05 scope.
+- Default Tauri bundle target переведён на macOS `.app`, чтобы локальный `npm run tauri build` не падал на secondary DMG packaging.
+- DMG packaging оставлен явной release-only командой `npm run tauri:build:dmg`.
+
+Важно:
+
+- `npm run build` уже собирает frontend без ошибок; Vite warnings по chunks/dynamic imports остаются известным техническим долгом.
+- DMG issue остаётся отдельной packaging задачей: `.app` artifact создаётся успешно, failure происходит внутри generated `bundle_dmg.sh`.
+
 ## 2026-06-03 - EPIC-05 Compose/MIME reliability
 
 Добавлено:

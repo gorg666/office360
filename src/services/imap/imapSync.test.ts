@@ -48,6 +48,7 @@ vi.mock("../db/threads", () => ({
   setThreadLabels: vi.fn(),
   addThreadLabels: vi.fn(),
   deleteThread: vi.fn(),
+  deleteThreadsWithoutMessages: vi.fn(() => 0),
 }));
 vi.mock("../db/attachments", () => ({
   upsertAttachment: vi.fn(),

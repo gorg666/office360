@@ -14,23 +14,21 @@ describe("SetupClientId", () => {
     expect(saveButton).toBeDisabled();
   });
 
-  it("disables Save button when only client ID is provided", () => {
+  it("enables Save button when only client ID is provided", () => {
     render(<SetupClientId onComplete={() => {}} onCancel={() => {}} />);
-    const inputs = screen.getAllByRole("textbox");
-    // Client ID is the text input; secret is password (not a textbox role)
     const clientIdInput = screen.getByPlaceholderText(
       "Paste your Client ID here...",
     );
     fireEvent.change(clientIdInput, { target: { value: "my-client-id" } });
 
     const saveButton = screen.getByText("Save & Continue");
-    expect(saveButton).toBeDisabled();
+    expect(saveButton).not.toBeDisabled();
   });
 
   it("disables Save button when only client secret is provided", () => {
     render(<SetupClientId onComplete={() => {}} onCancel={() => {}} />);
     const secretInput = screen.getByPlaceholderText(
-      "Paste your Client Secret here...",
+      "Optional Client Secret (usually blank for Desktop apps)",
     );
     fireEvent.change(secretInput, { target: { value: "my-secret" } });
 
@@ -44,7 +42,7 @@ describe("SetupClientId", () => {
       "Paste your Client ID here...",
     );
     const secretInput = screen.getByPlaceholderText(
-      "Paste your Client Secret here...",
+      "Optional Client Secret (usually blank for Desktop apps)",
     );
 
     fireEvent.change(clientIdInput, { target: { value: "my-client-id" } });
@@ -54,10 +52,10 @@ describe("SetupClientId", () => {
     expect(saveButton).not.toBeDisabled();
   });
 
-  it("shows helper text about client secret being required", () => {
+  it("shows helper text about optional desktop client secret", () => {
     render(<SetupClientId onComplete={() => {}} onCancel={() => {}} />);
     expect(
-      screen.getByText("Required for Web application credentials"),
+      screen.getByText("Usually not required for Desktop application credentials with PKCE."),
     ).toBeInTheDocument();
   });
 

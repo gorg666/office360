@@ -58,6 +58,7 @@ import {
   triggerSync,
   onSyncStatus,
   resyncAccount,
+  markSyncDatabaseReady,
 } from "./syncManager";
 import { clearAccountHistoryId, getAccount } from "../db/accounts";
 import { getGmailClient } from "./tokenManager";
@@ -108,6 +109,7 @@ describe("syncManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     stopBackgroundSync();
+    markSyncDatabaseReady();
     mockGetGmailClient.mockResolvedValue(
       {} as ReturnType<typeof getGmailClient> extends Promise<infer T>
         ? T
@@ -320,7 +322,7 @@ describe("syncManager", () => {
       unsub();
 
       expect(errors).toHaveLength(1);
-      expect(errors[0]).toBe("authentication failed for user@test.com");
+      expect(errors[0]).toBe("GMAIL_API: не удалось войти. Проверьте пароль или пароль приложения.");
       expect(errors[0]).not.toBe("Unknown error");
     });
 
@@ -338,7 +340,7 @@ describe("syncManager", () => {
       unsub();
 
       expect(errors).toHaveLength(1);
-      expect(errors[0]).toBe("Unknown error");
+      expect(errors[0]).toBe("GMAIL_API: провайдер вернул ошибку. Повторите попытку.");
     });
   });
 });

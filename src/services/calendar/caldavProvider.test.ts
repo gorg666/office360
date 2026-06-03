@@ -284,7 +284,7 @@ describe("CalDAVProvider", () => {
 
       expect(result).toEqual({
         success: false,
-        message: "Authentication failed",
+        message: "CALDAV: не удалось войти. Проверьте пароль или пароль приложения.",
       });
 
       // Verify client was reset by confirming a second call attempts login again
@@ -320,7 +320,7 @@ describe("CalDAVProvider", () => {
 
       expect(result).toEqual({
         success: false,
-        message: "Connection failed",
+        message: "CALDAV: провайдер вернул ошибку. Повторите попытку.",
       });
     });
 

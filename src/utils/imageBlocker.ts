@@ -31,10 +31,22 @@ export function stripRemoteImages(html: string): string {
  * Restore previously blocked remote images by moving data-blocked-src back to src.
  */
 export function restoreRemoteImages(html: string): string {
-  return html.replace(
-    /(<img\b[^>]*?)\sdata-blocked-src\s*=\s*(["'])(https?:\/\/[^"']*)\2([^>]*?)\ssrc\s*=\s*(["'])\5/gi,
-    '$1 src=$2$3$2$4',
-  );
+  return html.replace(/<img\b[^>]*\sdata-blocked-src\s*=\s*["']https?:\/\/[^"']*["'][^>]*>/gi, (tag) => {
+    const blocked = tag.match(/\sdata-blocked-src\s*=\s*(["'])(https?:\/\/[^"']*)\1/i);
+    if (!blocked) return tag;
+
+    const quote = blocked[1]!;
+    const src = blocked[2]!;
+    let restored = tag.replace(/\sdata-blocked-src\s*=\s*(["'])https?:\/\/[^"']*\1/i, "");
+
+    if (/\ssrc\s*=\s*(["'])[^"']*\1/i.test(restored)) {
+      restored = restored.replace(/\ssrc\s*=\s*(["'])[^"']*\1/i, ` src=${quote}${src}${quote}`);
+    } else {
+      restored = restored.replace(/<img\b/i, `<img src=${quote}${src}${quote}`);
+    }
+
+    return restored;
+  });
 }
 
 /**

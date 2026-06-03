@@ -5,9 +5,8 @@ import type { AttachmentWithContext, AttachmentSender } from "@/services/db/atta
 
 // Mock dependencies
 vi.mock("@/stores/accountStore", () => ({
-  useAccountStore: vi.fn((selector: (s: { accounts: { id: string; isActive: boolean }[] }) => unknown) =>
-    selector({ accounts: [{ id: "acc-1", isActive: true }] }),
-  ),
+  useAccountStore: vi.fn((selector: (s: { accounts: { id: string; isActive: boolean }[]; activeAccountId: string }) => unknown) =>
+    selector({ accounts: [{ id: "acc-1", isActive: true }], activeAccountId: "acc-1" })),
 }));
 
 vi.mock("@/services/db/attachments", () => ({
@@ -29,6 +28,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 vi.mock("@tauri-apps/plugin-fs", () => ({
   writeFile: vi.fn(),
+  BaseDirectory: { AppData: 26 },
 }));
 
 vi.mock("@/router/navigate", () => ({
@@ -82,6 +82,11 @@ const mockSenders: AttachmentSender[] = [
 describe("AttachmentLibrary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal("IntersectionObserver", class {
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    });
   });
 
   it("renders empty state when no attachments", async () => {
@@ -90,7 +95,7 @@ describe("AttachmentLibrary", () => {
 
     render(<AttachmentLibrary />);
 
-    expect(await screen.findByText("No attachments yet")).toBeInTheDocument();
+    expect(await screen.findByText("Вложений пока нет")).toBeInTheDocument();
   });
 
   it("renders attachments in grid view", async () => {
@@ -110,7 +115,7 @@ describe("AttachmentLibrary", () => {
     render(<AttachmentLibrary />);
     await screen.findByText("report.pdf");
 
-    fireEvent.click(screen.getByTitle("List view"));
+    fireEvent.click(screen.getByTitle("Вид списком"));
 
     expect(screen.getByText("report.pdf")).toBeInTheDocument();
   });
@@ -122,7 +127,7 @@ describe("AttachmentLibrary", () => {
     render(<AttachmentLibrary />);
     await screen.findByText("report.pdf");
 
-    fireEvent.change(screen.getByPlaceholderText("Search attachments..."), {
+    fireEvent.change(screen.getByPlaceholderText("Поиск вложений..."), {
       target: { value: "report" },
     });
 
@@ -137,8 +142,7 @@ describe("AttachmentLibrary", () => {
     render(<AttachmentLibrary />);
     await screen.findByText("report.pdf");
 
-    // Select "Images" type filter
-    const typeSelect = screen.getByDisplayValue("All types");
+    const typeSelect = screen.getByDisplayValue("Все типы");
     fireEvent.change(typeSelect, { target: { value: "images" } });
 
     expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
@@ -152,7 +156,7 @@ describe("AttachmentLibrary", () => {
     render(<AttachmentLibrary />);
     await screen.findByText("report.pdf");
 
-    expect(screen.getByText("(2)")).toBeInTheDocument();
+    expect(screen.getByText((_content, element) => element?.textContent === "(2)")).toBeInTheDocument();
   });
 
   it("renders header with title", async () => {
@@ -161,6 +165,6 @@ describe("AttachmentLibrary", () => {
 
     render(<AttachmentLibrary />);
 
-    expect(await screen.findByText("Attachments")).toBeInTheDocument();
+    expect(await screen.findByText("Вложения")).toBeInTheDocument();
   });
 });

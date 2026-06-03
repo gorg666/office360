@@ -6,8 +6,7 @@ describe("stripRemoteImages", () => {
     const html = '<img src="http://tracker.example.com/pixel.gif" />';
     const result = stripRemoteImages(html);
     expect(result).toContain('data-blocked-src="http://tracker.example.com/pixel.gif"');
-    // The original src should be replaced with empty string
-    expect(result).toContain('src=""');
+    expect(result).toContain('src="data:image/gif;base64,');
     // Make sure original src= with URL is gone (not counting the data-blocked-src)
     expect(result.replace(/data-blocked-src="[^"]*"/g, "")).not.toContain('src="http://');
   });
@@ -74,7 +73,7 @@ describe("restoreRemoteImages", () => {
 
 describe("hasBlockedImages", () => {
   it("returns true when blocked images exist", () => {
-    const html = '<img data-blocked-src="https://cdn.example.com/img.png" src="" />';
+    const html = '<img data-blocked-src="https://cdn.example.com/img.png" src="data:image/gif;base64,abc" />';
     expect(hasBlockedImages(html)).toBe(true);
   });
 
