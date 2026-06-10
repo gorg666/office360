@@ -88,4 +88,15 @@ export interface DebugBundle {
     calendarProvider?: string | null;
   }>;
   diagnostics: ConnectionDiagnostic[];
+  securityWarnings?: Array<{
+    id: string;
+    accountId: string;
+    messageId: string;
+    kind: string;
+    severity: string;
+    reason: string;
+    recommendedAction: string;
+    actions: string[];
+    persistentChoice?: boolean;
+  }>;
 }

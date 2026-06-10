@@ -27,7 +27,14 @@ describe("LabelEditor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAccountStore.setState({
-      accounts: [{ id: "acc1", email: "test@test.com", displayName: "Test", avatarUrl: null, isActive: true }],
+      accounts: [{
+        id: "acc1",
+        email: "test@test.com",
+        displayName: "Test",
+        avatarUrl: null,
+        isActive: true,
+        provider: "gmail_api",
+      }],
       activeAccountId: "acc1",
     });
     setStoreWithLabels([]);

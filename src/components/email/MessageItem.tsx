@@ -3,6 +3,7 @@ import { formatFullDate } from "@/utils/date";
 import { EmailRenderer } from "./EmailRenderer";
 import { InlineAttachmentPreview } from "./InlineAttachmentPreview";
 import { AttachmentList, getAttachmentsForMessage } from "./AttachmentList";
+import { PhishingBanner } from "./PhishingBanner";
 import type { DbMessage } from "@/services/db/messages";
 import type { DbAttachment } from "@/services/db/attachments";
 import { MailMinus } from "lucide-react";
@@ -10,6 +11,9 @@ import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
 import { ContactAvatar } from "@/components/ui/ContactAvatar";
 import { resolveMessageSenderDisplay, type ThreadSenderContext } from "@/utils/senderDisplay";
+import { scanMessageLinks } from "@/services/phishing/phishingScanner";
+import { addToPhishingAllowlist } from "@/services/db/phishingAllowlist";
+import type { MessageScanResult } from "@/utils/phishingDetector";
 
 const EMPTY_CONTACT_NAMES = new Map<string, string>();
 
@@ -31,6 +35,8 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
   const [expanded, setExpanded] = useState(isLast);
   const [attachments, setAttachments] = useState<DbAttachment[]>([]);
   const [authBannerDismissed, setAuthBannerDismissed] = useState(false);
+  const [phishingScanResult, setPhishingScanResult] = useState<MessageScanResult | null>(null);
+  const [phishingBannerDismissed, setPhishingBannerDismissed] = useState(false);
   const attachmentsLoadedRef = useRef(false);
 
   const loadAttachments = async () => {
@@ -58,6 +64,30 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
       loadAttachments();
     }
   }, [focused]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!expanded || !message.body_html) {
+      setPhishingScanResult(null);
+      return;
+    }
+
+    let cancelled = false;
+    scanMessageLinks(message.account_id, message.id, message.body_html, message.from_address)
+      .then((result) => {
+        if (!cancelled) {
+          setPhishingScanResult(result);
+          setPhishingBannerDismissed(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.warn("Failed to scan message links:", err);
+          setPhishingScanResult(null);
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [expanded, message.account_id, message.body_html, message.from_address, message.id]);
 
   const handleToggle = () => {
     const willExpand = !expanded;
@@ -89,6 +119,21 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     threadSender,
   );
   const hasRenderableBody = Boolean((message.body_html ?? message.body_text ?? "").trim());
+
+  const handleTrustPhishingSender = async () => {
+    if (!message.from_address) {
+      setPhishingBannerDismissed(true);
+      return;
+    }
+    try {
+      await addToPhishingAllowlist(message.account_id, message.from_address);
+    } catch (err) {
+      console.warn("Failed to trust phishing sender:", err);
+    } finally {
+      setPhishingBannerDismissed(true);
+      setPhishingScanResult(null);
+    }
+  };
 
   return (
     <div ref={ref} className={`border-b border-border-secondary last:border-b-0 ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""} ${focused ? "ring-2 ring-inset ring-accent/50" : ""}`} onContextMenu={onContextMenu}>
@@ -137,8 +182,19 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
           {!authBannerDismissed && (
             <AuthWarningBanner
               authResults={message.auth_results}
+              accountId={message.account_id}
+              messageId={message.id}
               senderAddress={message.from_address}
               onDismiss={() => setAuthBannerDismissed(true)}
+            />
+          )}
+
+          {!phishingBannerDismissed && phishingScanResult?.showBanner && (
+            <PhishingBanner
+              accountId={message.account_id}
+              messageId={message.id}
+              scanResult={phishingScanResult}
+              onTrustSender={handleTrustPhishingSender}
             />
           )}
 
@@ -170,6 +226,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
               inlineAttachments={attachments.filter((a) =>
                 a.content_id && getContentIdKeys(a.content_id).some((key) => referencedCids.has(key))
               )}
+              linkScanResult={phishingScanResult}
             />
           ) : (
             <div className="py-8 text-center text-text-tertiary text-sm">Loading...</div>
@@ -281,4 +338,3 @@ function UnsubscribeLink({
     </button>
   );
 }
-

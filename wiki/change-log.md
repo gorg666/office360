@@ -2,6 +2,37 @@
 
 Эта страница фиксирует behavior и system changes, которые влияют на работу Office360. Это не замена Git history, а проектное объяснение важных решений.
 
+## 2026-06-10 - EPIC-09 SecurityWarning reader layer
+
+Добавлено:
+
+- Общий `SecurityWarning` contract для remote content, suspicious links, sender auth и unsafe attachments.
+- Remote image warning переведен на общий warning UI; Spam больше не предлагает persistent sender allowlist и продолжает блокировать remote images.
+- Expanded message reader запускает phishing scan и передает result в renderer для link confirmation.
+- High-risk/suspicious links открываются только после confirmation с target URL и displayed link text.
+- Sender auth failure banner использует общий warning layer.
+- Executable/script/archive-risk attachments требуют explicit confirmation перед preview/download.
+- Debug bundle поддерживает privacy-safe security warning summaries без raw HTML/body/MIME/secrets.
+- Wiki page `security-privacy.md`.
+
+Важно:
+
+- OpenPGP/S/MIME, malware scanning и server-side anti-spam остаются вне P0 scope.
+- Sender allowlist для remote images остается scoped by account and sender.
+
+## 2026-06-03 - Full test suite и local app build stabilization
+
+Изменено:
+
+- Full Vitest suite стабилизируется как отдельный change от `main`, без расширения EPIC-05 scope.
+- Default Tauri bundle target переведён на macOS `.app`, чтобы локальный `npm run tauri build` не падал на secondary DMG packaging.
+- DMG packaging оставлен явной release-only командой `npm run tauri:build:dmg`.
+
+Важно:
+
+- `npm run build` уже собирает frontend без ошибок; Vite warnings по chunks/dynamic imports остаются известным техническим долгом.
+- DMG issue остаётся отдельной packaging задачей: `.app` artifact создаётся успешно, failure происходит внутри generated `bundle_dmg.sh`.
+
 ## 2026-06-03 - EPIC-05 Compose/MIME reliability
 
 Добавлено:

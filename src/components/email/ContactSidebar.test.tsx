@@ -42,6 +42,12 @@ vi.mock("@/services/db/threads", () => ({
   getThreadLabelIds: vi.fn(),
 }));
 
+vi.mock("@/components/ui/ContactAvatar", () => ({
+  ContactAvatar: ({ name, email }: { name?: string | null; email?: string | null }) => (
+    <span data-testid="contact-avatar">{name ?? email}</span>
+  ),
+}));
+
 vi.mock("@/router/navigate", () => ({
   navigateToThread: vi.fn(),
 }));

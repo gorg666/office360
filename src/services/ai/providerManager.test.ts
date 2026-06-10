@@ -119,7 +119,7 @@ describe("providerManager", () => {
       });
 
       await getActiveProvider();
-      expect(createGeminiProvider).toHaveBeenCalledWith("AItest", "gemini-2.5-flash-preview-05-20");
+      expect(createGeminiProvider).toHaveBeenCalledWith("AItest", "gemini-2.5-flash");
     });
 
     it("uses custom model from settings when configured", async () => {
@@ -178,7 +178,7 @@ describe("providerManager", () => {
       });
 
       await getActiveProvider();
-      expect(createOllamaProvider).toHaveBeenCalledWith("http://localhost:11434", "llama3.2");
+      expect(createOllamaProvider).toHaveBeenCalledWith("http://localhost:11434", "llama3.2", undefined);
     });
 
     it("uses default ollama url and model when not configured", async () => {
@@ -188,7 +188,7 @@ describe("providerManager", () => {
       });
 
       await getActiveProvider();
-      expect(createOllamaProvider).toHaveBeenCalledWith("http://localhost:11434", "llama3.2");
+      expect(createOllamaProvider).toHaveBeenCalledWith("http://localhost:11434", "llama3.2", undefined);
     });
 
     it("throws NOT_CONFIGURED when API key is missing", async () => {

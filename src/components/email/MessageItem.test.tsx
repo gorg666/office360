@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { createRef } from "react";
 import { MessageItem } from "./MessageItem";
 import type { DbMessage } from "@/services/db/messages";
 
 vi.mock("./EmailRenderer", () => ({
-  EmailRenderer: () => <div data-testid="email-renderer" />,
+  EmailRenderer: (props: { linkScanResult?: unknown }) => (
+    <div
+      data-testid="email-renderer"
+      data-has-link-scan={props.linkScanResult ? "true" : "false"}
+    />
+  ),
 }));
 
 vi.mock("./InlineAttachmentPreview", () => ({
@@ -25,8 +30,25 @@ vi.mock("./AuthWarningBanner", () => ({
   AuthWarningBanner: () => null,
 }));
 
+vi.mock("./PhishingBanner", () => ({
+  PhishingBanner: ({ onTrustSender }: { onTrustSender: () => void }) => (
+    <button data-testid="phishing-banner" onClick={onTrustSender}>Trust sender</button>
+  ),
+}));
+
 vi.mock("@/components/ui/ContactAvatar", () => ({
   ContactAvatar: () => <div data-testid="contact-avatar" />,
+}));
+
+const mockScanMessageLinks = vi.fn();
+const mockAddToPhishingAllowlist = vi.fn();
+
+vi.mock("@/services/phishing/phishingScanner", () => ({
+  scanMessageLinks: (...args: unknown[]) => mockScanMessageLinks(...args),
+}));
+
+vi.mock("@/services/db/phishingAllowlist", () => ({
+  addToPhishingAllowlist: (...args: unknown[]) => mockAddToPhishingAllowlist(...args),
 }));
 
 function makeMessage(overrides: Partial<DbMessage> = {}): DbMessage {
@@ -63,6 +85,8 @@ function makeMessage(overrides: Partial<DbMessage> = {}): DbMessage {
 describe("MessageItem", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockScanMessageLinks.mockReturnValue(new Promise(() => {}));
+    mockAddToPhishingAllowlist.mockResolvedValue(undefined);
   });
 
   it("renders sender name", () => {
@@ -132,5 +156,43 @@ describe("MessageItem", () => {
       <MessageItem ref={ref} message={makeMessage()} isLast={true} blockImages={false} />,
     );
     expect(ref.current).toBeInstanceOf(HTMLDivElement);
+  });
+
+  it("scans expanded HTML messages and passes result to renderer", async () => {
+    mockScanMessageLinks.mockResolvedValue({
+      messageId: "m1",
+      links: [],
+      maxRiskScore: 0,
+      suspiciousLinkCount: 0,
+      showBanner: false,
+      scannedAt: 1,
+    });
+
+    render(<MessageItem message={makeMessage()} isLast={true} blockImages={false} />);
+
+    await waitFor(() => {
+      expect(mockScanMessageLinks).toHaveBeenCalledWith("a1", "m1", "<p>Hello</p>", "bob@example.com");
+      expect(screen.getByTestId("email-renderer")).toHaveAttribute("data-has-link-scan", "true");
+    });
+  });
+
+  it("shows phishing banner and can trust sender", async () => {
+    mockScanMessageLinks.mockResolvedValue({
+      messageId: "m1",
+      links: [],
+      maxRiskScore: 60,
+      suspiciousLinkCount: 1,
+      showBanner: true,
+      scannedAt: 1,
+    });
+
+    render(<MessageItem message={makeMessage()} isLast={true} blockImages={false} />);
+
+    const trustButton = await screen.findByTestId("phishing-banner");
+    trustButton.click();
+
+    await waitFor(() => {
+      expect(mockAddToPhishingAllowlist).toHaveBeenCalledWith("a1", "bob@example.com");
+    });
   });
 });

@@ -33,6 +33,12 @@ vi.mock("@/hooks/useRouteNavigation", () => ({
   useActiveLabel: () => "inbox",
 }));
 
+vi.mock("@/components/ui/ContactAvatar", () => ({
+  ContactAvatar: ({ name }: { name?: string | null }) => (
+    <span data-testid="contact-avatar">{name?.slice(0, 1) ?? "?"}</span>
+  ),
+}));
+
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
     id: "t1",

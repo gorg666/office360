@@ -308,4 +308,32 @@ describe("AttachmentList", () => {
       expect(mockFetchAttachment).toHaveBeenCalled();
     });
   });
+
+  it("requires confirmation before previewing risky attachments", async () => {
+    mockFetchAttachment.mockResolvedValue({
+      data: btoa("exe-content"),
+      size: 11,
+    });
+
+    render(
+      <AttachmentList
+        accountId="acc-1"
+        messageId="msg-1"
+        attachments={[makeAttachment({
+          filename: "installer.exe",
+          mime_type: "application/x-msdownload",
+        })]}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("installer.exe"));
+
+    expect(screen.getAllByText("Risky attachment").length).toBeGreaterThan(0);
+    expect(mockFetchAttachment).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Preview attachment"));
+
+    expect(await screen.findByText("Preview not available for this file type")).toBeInTheDocument();
+    expect(mockFetchAttachment).not.toHaveBeenCalled();
+  });
 });

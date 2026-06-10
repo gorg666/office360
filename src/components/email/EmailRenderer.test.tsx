@@ -1,6 +1,8 @@
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import { act } from "react";
 import { EmailRenderer } from "./EmailRenderer";
 import type { DbAttachment } from "@/services/db/attachments";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 // Mock dependencies
 vi.mock("@tauri-apps/plugin-opener", () => ({
@@ -189,5 +191,62 @@ describe("EmailRenderer", () => {
     );
 
     expect(mockFetchAttachment).not.toHaveBeenCalled();
+  });
+
+  it("does not offer persistent remote image allowlist for spam", () => {
+    render(
+      <EmailRenderer
+        html='<img src="https://tracker.example.com/pixel.gif" />'
+        text={null}
+        blockImages={true}
+        senderAddress="sender@example.com"
+        accountId="acc-1"
+        messageId="msg-1"
+        isSpam={true}
+      />,
+    );
+
+    expect(screen.getByText("Remote content blocked")).toBeInTheDocument();
+    expect(screen.getByText("Load once")).toBeInTheDocument();
+    expect(screen.queryByText("Always allow sender")).not.toBeInTheDocument();
+  });
+
+  it("confirms high-risk links before opening externally", async () => {
+    const { container } = render(
+      <EmailRenderer
+        html='<a href="https://evil.example/login">https://bank.example/login</a>'
+        text={null}
+        linkScanResult={{
+          messageId: "msg-1",
+          links: [{
+            url: "https://evil.example/login",
+            displayText: "https://bank.example/login",
+            riskScore: 60,
+            riskLevel: "high",
+            triggeredRules: [{ ruleId: "display-mismatch", name: "Mismatch", score: 60, detail: "mismatch" }],
+          }],
+          maxRiskScore: 60,
+          suspiciousLinkCount: 1,
+          showBanner: true,
+          scannedAt: 1,
+        }}
+      />,
+    );
+
+    const iframe = container.querySelector("iframe")!;
+    await waitFor(() => {
+      expect(iframe.contentDocument?.querySelector("a")).toBeTruthy();
+    });
+
+    act(() => {
+      iframe.contentDocument?.querySelector("a")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(openUrl).not.toHaveBeenCalled();
+    expect(await screen.findByText("Target URL")).toBeInTheDocument();
+    expect(screen.getByText("https://evil.example/login")).toBeInTheDocument();
+    expect(screen.getByText("https://bank.example/login")).toBeInTheDocument();
   });
 });
