@@ -453,6 +453,8 @@ export const HELP_CATEGORIES: HelpCategory[] = [
           { text: "is:unread / is:starred / is:read — фильтр по статусу" },
           { text: "before:2024-06-01 / after:2024-01-01 — фильтр по датам" },
           { text: "label:work — фильтр по метке" },
+          { text: "labelid:Label_123 — стабильная ссылка на метку" },
+          { text: "folderpath:\"Work/Projects\" — стабильная ссылка на IMAP-папку" },
           { text: "Операторы можно комбинировать: from:jane subject:report has:attachment." },
         ],
       },
@@ -1333,7 +1335,7 @@ export const CONTEXTUAL_TIPS: Record<string, ContextualTip> = {
   },
   "search-operators": {
     title: "Операторы поиска",
-    body: "Используйте from:, to:, subject:, has:attachment, is:unread, before:, after: и label:, чтобы сузить поиск.",
+    body: "Используйте from:, to:, subject:, has:attachment, is:read, is:unread, is:starred, before:, after:, label:, labelid: и folderpath:, чтобы сузить поиск.",
     helpTopic: "search-navigation",
   },
   "filters": {

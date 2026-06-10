@@ -24,6 +24,8 @@ import {
   getSmartFolderById,
   insertSmartFolder,
   updateSmartFolder,
+  rewriteSmartFolderReference,
+  markSmartFoldersMissingReference,
   deleteSmartFolder,
   updateSmartFolderSortOrder,
 } from "./smartFolders";
@@ -167,6 +169,95 @@ describe("smartFolders service", () => {
       expect(mockDb.execute).toHaveBeenCalledWith(
         "DELETE FROM smart_folders WHERE id = $1",
         ["sf-1"],
+      );
+    });
+  });
+
+  describe("reference maintenance", () => {
+    it("marks labelid smart folders as missing_reference", async () => {
+      mockDb.select.mockResolvedValueOnce([
+        {
+          id: "sf-label",
+          account_id: "acc-1",
+          name: "Deleted label",
+          query: "labelid:Label_123 is:unread",
+          icon: "Tag",
+          color: null,
+          sort_order: 0,
+          is_default: 0,
+          created_at: 1234567890,
+        },
+      ]);
+      vi.mocked(buildDynamicUpdate).mockReturnValue({
+        sql: "UPDATE smart_folders SET status = $1 WHERE id = $2",
+        params: ["missing_reference", "sf-label"],
+      });
+
+      await markSmartFoldersMissingReference(
+        "acc-1",
+        "labelid",
+        "Label_123",
+        "Label Work was deleted.",
+      );
+
+      expect(buildDynamicUpdate).toHaveBeenCalledWith(
+        "smart_folders",
+        "id",
+        "sf-label",
+        [
+          ["status", "missing_reference"],
+          ["status_reason", "Label Work was deleted."],
+          ["status_updated_at", expect.any(Number)],
+        ],
+      );
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        "UPDATE smart_folders SET status = $1 WHERE id = $2",
+        ["missing_reference", "sf-label"],
+      );
+    });
+
+    it("rewrites quoted folderpath references and clears missing_reference status", async () => {
+      mockDb.select.mockResolvedValueOnce([
+        {
+          id: "sf-folder",
+          account_id: "acc-1",
+          name: "Project folder",
+          query: 'folderpath:"Work/Old" has:attachment',
+          icon: "Folder",
+          color: null,
+          sort_order: 0,
+          is_default: 0,
+          created_at: 1234567890,
+          status: "missing_reference",
+          status_reason: "Folder Work/Old was deleted.",
+        },
+      ]);
+      vi.mocked(buildDynamicUpdate).mockReturnValue({
+        sql: "UPDATE smart_folders SET query = $1 WHERE id = $2",
+        params: ['folderpath:"Work/New" has:attachment', "sf-folder"],
+      });
+
+      await rewriteSmartFolderReference(
+        "acc-1",
+        "folderpath",
+        "Work/Old",
+        "Work/New",
+      );
+
+      expect(buildDynamicUpdate).toHaveBeenCalledWith(
+        "smart_folders",
+        "id",
+        "sf-folder",
+        [
+          ["query", 'folderpath:"Work/New" has:attachment'],
+          ["status", "ok"],
+          ["status_reason", null],
+          ["status_updated_at", expect.any(Number)],
+        ],
+      );
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        "UPDATE smart_folders SET query = $1 WHERE id = $2",
+        ['folderpath:"Work/New" has:attachment', "sf-folder"],
       );
     });
   });

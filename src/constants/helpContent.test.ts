@@ -5,6 +5,7 @@ import {
   getAllCards,
   getCategoryById,
 } from "./helpContent";
+import { SUPPORTED_SEARCH_OPERATORS } from "@/services/search/searchParser";
 
 const VALID_SETTINGS_TABS = [
   "general", "notifications", "composing", "mail-rules", "people",
@@ -77,6 +78,20 @@ describe("helpContent", () => {
     for (const card of allCards) {
       expect(card.categoryId).toBeTruthy();
       expect(card.categoryLabel).toBeTruthy();
+    }
+  });
+
+  it("documents every supported search operator in search help", () => {
+    const searchOperatorsCard = getAllCards().find((card) => card.id === "search-operators");
+    const contextualTip = CONTEXTUAL_TIPS["search-operators"];
+    const helpText = [
+      searchOperatorsCard?.description,
+      ...(searchOperatorsCard?.tips?.map((tip) => tip.text) ?? []),
+      contextualTip?.body,
+    ].join(" ");
+
+    for (const operator of SUPPORTED_SEARCH_OPERATORS) {
+      expect(helpText).toContain(operator);
     }
   });
 });

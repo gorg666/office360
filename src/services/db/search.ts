@@ -1,5 +1,6 @@
 import { getDb } from "./connection";
 import { parseSearchQuery, hasSearchOperators } from "../search/searchParser";
+import type { ParsedSearchQuery } from "../search/searchParser";
 import { buildSearchQuery } from "../search/searchQueryBuilder";
 
 export interface SearchResult {
@@ -14,9 +15,27 @@ export interface SearchResult {
   rank: number;
 }
 
+function hasStructuredFilters(parsed: ParsedSearchQuery): boolean {
+  return Boolean(
+    parsed.freeText ||
+      parsed.from ||
+      parsed.to ||
+      parsed.subject ||
+      parsed.hasAttachment ||
+      parsed.isUnread ||
+      parsed.isRead ||
+      parsed.isStarred ||
+      parsed.before !== undefined ||
+      parsed.after !== undefined ||
+      parsed.label ||
+      parsed.labelId ||
+      parsed.folderPath,
+  );
+}
+
 /**
  * Full-text search across messages using FTS5.
- * Supports search operators: from:, to:, subject:, has:attachment, is:unread, etc.
+ * Supports deterministic operators declared by the search parser.
  */
 export async function searchMessages(
   query: string,
@@ -32,10 +51,7 @@ export async function searchMessages(
   if (hasSearchOperators(ftsQuery)) {
     const parsed = parseSearchQuery(ftsQuery);
     // If we have no free text and no operators matched usefully, fall through
-    if (parsed.freeText || parsed.from || parsed.to || parsed.subject ||
-        parsed.hasAttachment || parsed.isUnread || parsed.isRead ||
-        parsed.isStarred || parsed.before !== undefined || parsed.after !== undefined ||
-        parsed.label) {
+    if (hasStructuredFilters(parsed)) {
       const { sql, params } = buildSearchQuery(parsed, accountId, limit);
       return db.select<SearchResult[]>(sql, params);
     }

@@ -20,6 +20,21 @@ export interface ParsedSearchQuery {
   folderPath?: string;
 }
 
+export const SUPPORTED_SEARCH_OPERATORS = [
+  "from:",
+  "to:",
+  "subject:",
+  "has:attachment",
+  "is:read",
+  "is:unread",
+  "is:starred",
+  "before:",
+  "after:",
+  "label:",
+  "labelid:",
+  "folderpath:",
+] as const;
+
 const OPERATOR_REGEX = /(?:^|\s)(from|to|subject|has|is|before|after|label|labelid|folderpath):\s*(?:"([^"]+)"|(\S+))/gi;
 
 /**

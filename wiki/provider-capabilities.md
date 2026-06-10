@@ -98,6 +98,8 @@ Saved searches поддерживают stable references:
 - `folderpath:<rawPath>` для IMAP raw folder paths;
 - legacy `label:<name>` продолжает работать по имени label.
 
+Operator-only saved searches with `labelid:` and `folderpath:` execute through structured local SQL, not FTS fallback. Это важно для saved views без free text: они фильтруют по стабильной ссылке даже без обычного поискового текста.
+
 При app-driven rename Velo rewrites matching saved references. При delete Velo marks affected smart folders as `missing_reference`; sidebar показывает warning indicator and title reason вместо silent wrong results.
 
 ## Service enforcement
