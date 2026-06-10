@@ -2,6 +2,27 @@
 
 Эта страница фиксирует behavior и system changes, которые влияют на работу Office360. Это не замена Git history, а проектное объяснение важных решений.
 
+## 2026-06-10 - EPIC-06 Search and smart folders
+
+Добавлено:
+
+- OpenSpec change `epic-06-search-smart-folders`.
+- Search help синхронизирован с parser-supported operators: `from:`, `to:`, `subject:`, `has:attachment`, `is:read`, `is:unread`, `is:starred`, `before:`, `after:`, `label:`, `labelid:`, `folderpath:`.
+- Operator-only searches for `labelid:` and `folderpath:` теперь выполняются через structured SQL query builder, а не через FTS fallback.
+- Regression tests закрепляют db search routing, help/parser consistency и smart folder reference maintenance для `labelid:`/`folderpath:`.
+
+Важно:
+
+- Unsupported operator-like tokens, например `priority:high`, остаются plain text search, пока parser явно их не поддерживает.
+- AI/Ask Inbox остается слоем поверх deterministic search; generated answer copy не смешивается с deterministic citations.
+
+Verification:
+
+- Targeted Vitest для db search, help content, smart folders, parser и query builder passed.
+- Full `npm run test` passed.
+- `npm run build` passed с существующими Vite chunk/dynamic-import warnings.
+- `npm run tauri build` passed и собрал `src-tauri/target/release/bundle/macos/Office360.app`.
+
 ## 2026-06-10 - EPIC-09 SecurityWarning reader layer
 
 Добавлено:

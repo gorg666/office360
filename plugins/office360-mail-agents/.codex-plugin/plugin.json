@@ -20,7 +20,8 @@
     "defaultPrompt": [
       "Use office360-epic-lead to run an Office360 Mail epic through implementation and smoke tests.",
       "Use office360-epic-lead to turn this prompt into a delivery plan.",
-      "Use office360-epic-lead to implement, verify, and prepare a PR."
+      "Use office360-epic-lead to implement, verify, and prepare a PR.",
+      "Use office360-release-pr to mark an implemented epic complete, refresh the installed desktop app, write test steps, push, and create a GitVerse PR."
     ]
   }
 }
