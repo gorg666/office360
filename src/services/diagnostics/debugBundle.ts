@@ -1,12 +1,14 @@
 import type { DbAccount } from "@/services/db/accounts";
 import type { ConnectionDiagnostic, DebugBundle } from "./types";
 import { redactDebugBundleValue } from "./redaction";
+import { summarizeSecurityWarnings, type SecurityWarning } from "@/services/security/securityWarnings";
 
 const APP_VERSION = import.meta.env["VITE_APP_VERSION"] ?? "unknown";
 
 export function buildDebugBundle(
   accounts: DbAccount[],
   diagnostics: ConnectionDiagnostic[],
+  securityWarnings: SecurityWarning[] = [],
 ): DebugBundle {
   return redactDebugBundleValue({
     schemaVersion: 1,
@@ -29,5 +31,6 @@ export function buildDebugBundle(
       calendarProvider: account.calendar_provider,
     })),
     diagnostics,
+    securityWarnings: summarizeSecurityWarnings(securityWarnings),
   });
 }

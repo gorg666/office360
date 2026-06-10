@@ -35,9 +35,8 @@ export function LinkConfirmDialog({ linkAnalysis, onCancel, onConfirm }: LinkCon
     >
       {/* Content */}
       <div className="px-4 py-3 space-y-3">
-        {/* URL display */}
         <div>
-          <label className="text-xs text-text-tertiary block mb-1">Full URL</label>
+          <label className="text-xs text-text-tertiary block mb-1">Target URL</label>
           <div className="flex items-start gap-2 p-2 bg-bg-tertiary rounded-md">
             <ExternalLink size={14} className="text-text-tertiary shrink-0 mt-0.5" />
             <span className="text-xs text-text-primary break-all font-mono leading-relaxed">
@@ -46,11 +45,10 @@ export function LinkConfirmDialog({ linkAnalysis, onCancel, onConfirm }: LinkCon
           </div>
         </div>
 
-        {/* Display text if different */}
         {linkAnalysis.displayText && (
           <div>
-            <label className="text-xs text-text-tertiary block mb-1">Link text</label>
-            <p className="text-xs text-text-secondary px-2">
+            <label className="text-xs text-text-tertiary block mb-1">Displayed link text</label>
+            <p className="text-xs text-text-secondary px-2 break-all">
               {linkAnalysis.displayText}
             </p>
           </div>

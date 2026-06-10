@@ -2,6 +2,24 @@
 
 Эта страница фиксирует behavior и system changes, которые влияют на работу Office360. Это не замена Git history, а проектное объяснение важных решений.
 
+## 2026-06-10 - EPIC-09 SecurityWarning reader layer
+
+Добавлено:
+
+- Общий `SecurityWarning` contract для remote content, suspicious links, sender auth и unsafe attachments.
+- Remote image warning переведен на общий warning UI; Spam больше не предлагает persistent sender allowlist и продолжает блокировать remote images.
+- Expanded message reader запускает phishing scan и передает result в renderer для link confirmation.
+- High-risk/suspicious links открываются только после confirmation с target URL и displayed link text.
+- Sender auth failure banner использует общий warning layer.
+- Executable/script/archive-risk attachments требуют explicit confirmation перед preview/download.
+- Debug bundle поддерживает privacy-safe security warning summaries без raw HTML/body/MIME/secrets.
+- Wiki page `security-privacy.md`.
+
+Важно:
+
+- OpenPGP/S/MIME, malware scanning и server-side anti-spam остаются вне P0 scope.
+- Sender allowlist для remote images остается scoped by account and sender.
+
 ## 2026-06-03 - Full test suite и local app build stabilization
 
 Изменено:

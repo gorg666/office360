@@ -1,5 +1,4 @@
 import { useRef, useCallback, useLayoutEffect, useMemo, useState, useEffect } from "react";
-import { ImageOff } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { stripRemoteImages, hasBlockedImages } from "@/utils/imageBlocker";
 import { addToAllowlist } from "@/services/db/imageAllowlist";
@@ -7,6 +6,10 @@ import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 import { useUIStore } from "@/stores/uiStore";
 import type { DbAttachment } from "@/services/db/attachments";
 import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
+import type { LinkAnalysis, MessageScanResult } from "@/utils/phishingDetector";
+import { LinkConfirmDialog } from "./LinkConfirmDialog";
+import { SecurityWarningBanner } from "./SecurityWarningBanner";
+import { createRemoteContentWarning, findLinkAnalysis, type SecurityWarningAction } from "@/services/security/securityWarnings";
 
 interface EmailRendererProps {
   html: string | null;
@@ -19,6 +22,7 @@ interface EmailRendererProps {
   isSpam?: boolean;
   messageId?: string | null;
   inlineAttachments?: DbAttachment[];
+  linkScanResult?: MessageScanResult | null;
 }
 
 export function EmailRenderer({
@@ -31,12 +35,14 @@ export function EmailRenderer({
   isSpam = false,
   messageId,
   inlineAttachments,
+  linkScanResult,
 }: EmailRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const rafRef = useRef<number>(0);
   const [overrideShow, setOverrideShow] = useState(false);
   const [cidMap, setCidMap] = useState<Map<string, string>>(new Map());
+  const [pendingLink, setPendingLink] = useState<LinkAnalysis | null>(null);
 
   const theme = useUIStore((s) => s.theme);
   const isDark = theme === "dark"
@@ -212,6 +218,11 @@ export function EmailRenderer({
       const anchor = target.closest("a");
       if (anchor?.href) {
         e.preventDefault();
+        const analysis = findLinkAnalysis(linkScanResult, anchor.href, anchor.textContent ?? "");
+        if (analysis) {
+          setPendingLink(analysis);
+          return;
+        }
         openUrl(anchor.href).catch((err) => {
           console.error("Failed to open link:", err);
         });
@@ -224,7 +235,7 @@ export function EmailRenderer({
       observerRef.current?.disconnect();
       cancelAnimationFrame(rafRef.current);
     };
-  }, [bodyHtml, isDark, isPlainText]);
+  }, [bodyHtml, isDark, isPlainText, linkScanResult]);
 
   const handleLoadImages = useCallback(() => {
     setOverrideShow(true);
@@ -237,29 +248,43 @@ export function EmailRenderer({
     setOverrideShow(true);
   }, [accountId, senderAddress]);
 
+  const remoteContentWarning = useMemo(() => {
+    if (!blocked) return null;
+    return createRemoteContentWarning({
+      accountId: accountId ?? "unknown",
+      messageId: messageId ?? "message",
+      senderAddress,
+      isSpam,
+    });
+  }, [accountId, blocked, isSpam, messageId, senderAddress]);
+
+  const handleRemoteWarningAction = useCallback((action: SecurityWarningAction) => {
+    if (action === "allow_once") {
+      handleLoadImages();
+      return;
+    }
+    if (action === "always_allow_sender") {
+      void handleAlwaysLoad();
+    }
+  }, [handleAlwaysLoad, handleLoadImages]);
+
+  const handleConfirmLink = useCallback(() => {
+    if (!pendingLink) return;
+    const url = pendingLink.url;
+    setPendingLink(null);
+    openUrl(url).catch((err) => {
+      console.error("Failed to open link:", err);
+    });
+  }, [pendingLink]);
+
   return (
     <div>
-      {blocked && (
-        <div className="flex items-center gap-2 px-3 py-2 mb-2 text-xs bg-bg-tertiary rounded-md border border-border-secondary">
-          <ImageOff size={14} className="text-text-tertiary shrink-0" />
-          <span className="text-text-secondary">
-            Images hidden to protect your privacy.
-          </span>
-          <button
-            onClick={handleLoadImages}
-            className="text-accent hover:text-accent-hover font-medium"
-          >
-            Load images
-          </button>
-          {senderAddress && accountId && (
-            <button
-              onClick={handleAlwaysLoad}
-              className="text-accent hover:text-accent-hover font-medium"
-            >
-              Always load from sender
-            </button>
-          )}
-        </div>
+      {remoteContentWarning && (
+        <SecurityWarningBanner
+          warning={remoteContentWarning}
+          onAction={handleRemoteWarningAction}
+          className="mb-2"
+        />
       )}
       <iframe
         ref={iframeRef}
@@ -268,6 +293,13 @@ export function EmailRenderer({
         style={{ overflow: "hidden" }}
         title="Email content"
       />
+      {pendingLink && (
+        <LinkConfirmDialog
+          linkAnalysis={pendingLink}
+          onCancel={() => setPendingLink(null)}
+          onConfirm={handleConfirmLink}
+        />
+      )}
     </div>
   );
 }
@@ -300,4 +332,3 @@ function getEffectiveInlineMimeType(attachment: DbAttachment): string {
   if (filename.endsWith(".bmp")) return "image/bmp";
   return "image/jpeg";
 }
-

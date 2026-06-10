@@ -9,6 +9,7 @@
 - [Обзор системы](system-overview.md) - текущая архитектура и границы продукта.
 - [Provider Capabilities](provider-capabilities.md) - provider model, Gmail/Yandex/IMAP capability decisions и UI gating.
 - [Account Diagnostics](account-diagnostics.md) - ConnectionDiagnostic, Repair Center и privacy-safe debug export.
+- [Security & Privacy](security-privacy.md) - SecurityWarning contract, remote content, phishing links, risky attachments и debug redaction.
 - [Журнал изменений](change-log.md) - важные implementation и behavior changes.
 - [Правила ведения wiki](wiki-conventions.md) - как поддерживать wiki полезной.
 
@@ -32,3 +33,10 @@ Office360 сфокусирован на IMAP/SMTP и Yandex mail workflows. Gmai
 - Expired OAuth token ведёт к re-auth.
 - TLS/certificate failure не выглядит как wrong password.
 - Debug export не содержит secrets или raw mail.
+
+Для security/privacy изменений проверять:
+
+- Remote images остаются blocked by default, а Spam игнорирует sender allowlist.
+- Suspicious link confirmation показывает target URL и displayed link text.
+- Risky attachments требуют explicit confirmation перед preview/download.
+- Debug bundle содержит только summaries security warnings, без raw HTML/body/MIME.
