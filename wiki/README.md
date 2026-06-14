@@ -9,7 +9,7 @@
 - [Обзор системы](system-overview.md) - текущая архитектура и границы продукта.
 - [Provider Capabilities](provider-capabilities.md) - provider model, Gmail/Yandex/IMAP capability decisions и UI gating.
 - [Microsoft 365 / Exchange Status](microsoft-365-exchange-status.md) - Graph-first decision, IMAP/SMTP compatibility path и unsupported enterprise boundaries.
-- [Account Diagnostics](account-diagnostics.md) - ConnectionDiagnostic, Repair Center и privacy-safe debug export.
+- [Account Diagnostics](account-diagnostics.md) - ConnectionDiagnostic, Repair Center и privacy-safe support bundle.
 - [Contacts and address book](contacts-address-book.md) - contact aggregate, identities, vCard compatibility и текущие границы sync scope.
 - [Calendar invitations](calendar-invitations.md) - invite detection, thread invite card, local-first RSVP и границы remote delivery.
 - [Security & Privacy](security-privacy.md) - SecurityWarning contract, remote content, phishing links, risky attachments и debug redaction.
@@ -33,16 +33,16 @@ Microsoft OAuth для Outlook/Hotmail/Live является IMAP/SMTP compatibi
 - Yandex/IMAP settings не показывают `Google API`, `Labels` или `Smart Labels`.
 - `Move to Folder`, archive, trash, star, mark read, send и sync flows работают.
 
-Для account-diagnostics изменений проверять:
+Для account-diagnostics и support bundle изменений проверять:
 
 - IMAP и SMTP failures отображаются отдельными diagnostics.
 - Expired OAuth token ведёт к re-auth.
 - TLS/certificate failure не выглядит как wrong password.
-- Debug export не содержит secrets или raw mail.
+- Support bundle export не содержит secrets или raw mail.
 
 Для security/privacy изменений проверять:
 
 - Remote images остаются blocked by default, а Spam игнорирует sender allowlist.
 - Suspicious link confirmation показывает target URL и displayed link text.
 - Risky attachments требуют explicit confirmation перед preview/download.
-- Debug bundle содержит только summaries security warnings, без raw HTML/body/MIME.
+- Support bundle содержит только summaries security warnings, без raw HTML/body/MIME.

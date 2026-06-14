@@ -1,3 +1,7 @@
+import type { QueueInspectorItem } from "@/services/db/pendingOperations";
+import type { SecurityWarningSummary } from "@/services/security/securityWarnings";
+import type { AccountSyncHealth } from "@/services/syncHealth";
+
 export type DiagnosticLayer =
   | "oauth"
   | "imap"
@@ -99,4 +103,40 @@ export interface DebugBundle {
     actions: string[];
     persistentChoice?: boolean;
   }>;
+}
+
+export interface SupportDebugBundle {
+  schemaVersion: 2;
+  exportedAt: string;
+  app: {
+    name: "Office360 Mail";
+    version: string;
+    tauriVersion?: string;
+    platform?: string;
+    arch?: string;
+    webview?: string;
+  };
+  scope: {
+    accountId?: string;
+    includeQueue: true;
+    includeDiagnostics: true;
+  };
+  accounts: Array<{
+    id: string;
+    email: string;
+    provider: string | null;
+    authMethod?: string | null;
+    imapHost?: string | null;
+    imapPort?: number | null;
+    imapSecurity?: string | null;
+    smtpHost?: string | null;
+    smtpPort?: number | null;
+    smtpSecurity?: string | null;
+    oauthProvider?: string | null;
+    calendarProvider?: string | null;
+  }>;
+  diagnostics: ConnectionDiagnostic[];
+  syncHealth: AccountSyncHealth[];
+  queue: QueueInspectorItem[];
+  securityWarnings?: SecurityWarningSummary[];
 }

@@ -8,7 +8,16 @@ export type {
   DiagnosticRetryState,
   DiagnosticSeverity,
   DiagnosticUserAction,
+  SupportDebugBundle,
 } from "./types";
-export { buildDebugBundle } from "./debugBundle";
+export {
+  buildDebugBundle,
+  buildSupportDebugBundle,
+  collectSupportDebugBundle,
+  saveSupportDebugBundle,
+  type BuildSupportDebugBundleInput,
+  type CollectSupportDebugBundleOptions,
+  type SaveSupportDebugBundleResult,
+} from "./debugBundle";
 export { createConnectionDiagnostic, createSuccessDiagnostic, diagnosticSummary } from "./connectionDiagnostic";
 export { redactDebugBundleValue, redactDiagnosticText } from "./redaction";

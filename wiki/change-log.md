@@ -2,6 +2,24 @@
 
 Эта страница фиксирует behavior и system changes, которые влияют на работу Office360. Это не замена Git history, а проектное объяснение важных решений.
 
+## 2026-06-14 - EPIC-11 Support debug bundle first slice
+
+Добавлено:
+
+- OpenSpec change `epic-11-support-debug-bundle`.
+- `SupportDebugBundle` schema v2 поверх existing `DebugBundle` schema v1.
+- Support bundle export включает app/system metadata, sanitized account summary, persisted diagnostics, account sync health, redacted queue inspector summaries и optional security warning summaries.
+- Desktop save flow через Tauri save dialog + local JSON write, с browser Blob fallback.
+- Account Repair Center экспортирует support bundle даже без persisted diagnostics.
+- Settings > About получил карточку `Support bundle`.
+- Wiki contract для privacy-safe support bundle и redaction policy.
+
+Важно:
+
+- Thunderbird/provider import/export, backup/restore, automatic upload и DB migration не входят в этот slice.
+- Queue export использует redacted `QueueInspectorItem`, не raw `pending_operations.params`.
+- Bundle не должен включать tokens, passwords, OAuth client secrets, auth headers, raw MIME, raw bodies или full DB dumps.
+
 ## 2026-06-14 - EPIC-10 Enterprise and Exchange strategy
 
 Добавлено:

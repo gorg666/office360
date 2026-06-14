@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { getAllAccounts, getAccount, updateOAuthImapAccount, type DbAccount } from "@/services/db/accounts";
 import { clearAccountDiagnostic, listAccountDiagnostics } from "@/services/db/accountDiagnostics";
-import { buildDebugBundle, type ConnectionDiagnostic } from "@/services/diagnostics";
+import { collectSupportDebugBundle, saveSupportDebugBundle, type ConnectionDiagnostic } from "@/services/diagnostics";
 import { listAccountSyncHealth, syncHealthStatusLabel, type AccountSyncHealth } from "@/services/syncHealth";
 import { triggerSync } from "@/services/gmail/syncManager";
 import { reauthorizeAccount } from "@/services/gmail/tokenManager";
@@ -72,6 +72,8 @@ export function AccountRepairCenter() {
   const [loading, setLoading] = useState(true);
   const [actionState, setActionState] = useState<Record<string, ActionState>>({});
   const [actionError, setActionError] = useState<string | null>(null);
+  const [exportState, setExportState] = useState<ActionState>("idle");
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -199,18 +201,26 @@ export function AccountRepairCenter() {
     }
   }, [load]);
 
-  const handleExport = useCallback(() => {
-    const bundle = buildDebugBundle(accounts, diagnostics);
-    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `office360-debug-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  }, [accounts, diagnostics]);
+  const handleExport = useCallback(async () => {
+    setExportState("running");
+    setExportStatus(null);
+    setActionError(null);
+    try {
+      const bundle = await collectSupportDebugBundle({ accountId });
+      const result = await saveSupportDebugBundle(bundle);
+      if (result.fallback) {
+        setExportStatus("Support bundle downloaded with browser fallback.");
+      } else if (result.path) {
+        setExportStatus(`Support bundle saved to ${result.path}`);
+      } else {
+        setExportStatus("Support bundle export canceled.");
+      }
+      setExportState("done");
+    } catch (err) {
+      setExportState("error");
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
+  }, [accountId]);
 
   return (
     <div className="flex-1 overflow-y-auto bg-bg-primary/50">
@@ -221,14 +231,19 @@ export function AccountRepairCenter() {
           </button>
           <div className="min-w-0">
             <h1 className="text-base font-semibold text-text-primary">Account Repair Center</h1>
-            <p className="text-xs text-text-tertiary">Диагностика аккаунтов, восстановление и privacy-safe debug export</p>
+            <p className="text-xs text-text-tertiary">Диагностика аккаунтов, восстановление и privacy-safe support bundle</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Button variant="secondary" icon={<RefreshCw size={14} />} onClick={() => void load()} disabled={loading}>
               Обновить
             </Button>
-            <Button variant="primary" icon={<Download size={14} />} onClick={handleExport} disabled={diagnostics.length === 0}>
-              Export debug
+            <Button
+              variant="primary"
+              icon={exportState === "running" ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              onClick={() => void handleExport()}
+              disabled={loading || exportState === "running"}
+            >
+              Export support bundle
             </Button>
           </div>
         </div>
@@ -238,6 +253,11 @@ export function AccountRepairCenter() {
         {actionError && (
           <div className="mb-4 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
             {actionError}
+          </div>
+        )}
+        {exportStatus && (
+          <div className="mb-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
+            {exportStatus}
           </div>
         )}
 
