@@ -24,6 +24,7 @@ vi.mock("@/services/db/contacts", () => ({
   updateContactNotes: vi.fn(() => Promise.resolve()),
   getAttachmentsFromContact: vi.fn(() => Promise.resolve([])),
   getContactsFromSameDomain: vi.fn(() => Promise.resolve([])),
+  getContactIdentities: vi.fn(() => Promise.resolve([])),
   getLatestAuthResult: vi.fn(() => Promise.resolve(null)),
 }));
 
@@ -62,6 +63,7 @@ import {
   getContactByEmail,
   getAttachmentsFromContact,
   getContactsFromSameDomain,
+  getContactIdentities,
   getLatestAuthResult,
 } from "@/services/db/contacts";
 import { isVipSender } from "@/services/db/notificationVips";
@@ -105,6 +107,36 @@ describe("ContactSidebar", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Edit name")).toBeInTheDocument();
+    });
+  });
+
+  it("shows additional identities for managed contacts", async () => {
+    vi.mocked(getContactByEmail).mockResolvedValueOnce(mockContact);
+    vi.mocked(getContactIdentities).mockResolvedValueOnce([
+      {
+        id: "i-1",
+        contact_id: "c-1",
+        email: "alice@company.com",
+        label: null,
+        display_name: null,
+        is_primary: 1,
+        source_type: "local",
+      },
+      {
+        id: "i-2",
+        contact_id: "c-1",
+        email: "a.smith@company.com",
+        label: null,
+        display_name: null,
+        is_primary: 0,
+        source_type: "local",
+      },
+    ]);
+
+    render(<ContactSidebar {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("a.smith@company.com")).toBeInTheDocument();
     });
   });
 

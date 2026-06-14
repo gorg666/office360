@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { searchContacts, type DbContact } from "@/services/db/contacts";
+import { searchContacts, type ContactSearchResult } from "@/services/db/contacts";
 
 interface AddressInputProps {
   label: string;
@@ -15,7 +15,7 @@ export function AddressInput({
   placeholder = "Добавьте получателей...",
 }: AddressInputProps) {
   const [inputValue, setInputValue] = useState("");
-  const [suggestions, setSuggestions] = useState<DbContact[]>([]);
+  const [suggestions, setSuggestions] = useState<ContactSearchResult[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -73,7 +73,7 @@ export function AddressInput({
     if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
       e.preventDefault();
       if (showSuggestions && selectedIdx >= 0) {
-        addAddress(suggestions[selectedIdx]!.email);
+        addAddress(suggestions[selectedIdx]!.identity_email ?? suggestions[selectedIdx]!.email);
       } else if (inputValue.trim()) {
         addAddress(inputValue);
       }
@@ -132,19 +132,19 @@ export function AddressInput({
           <div className="absolute top-full left-0 mt-1 w-full bg-bg-primary border border-border-primary rounded-md shadow-lg z-50 py-1">
             {suggestions.map((contact, i) => (
               <button
-                key={contact.id}
+                key={`${contact.id}:${contact.identity_email ?? contact.email}`}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => addAddress(contact.email)}
+                onClick={() => addAddress(contact.identity_email ?? contact.email)}
                 className={`w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover ${
                   i === selectedIdx ? "bg-bg-hover" : ""
                 }`}
               >
                 <div className="text-text-primary">
-                  {contact.display_name ?? contact.email}
+                  {contact.display_name ?? contact.identity_email ?? contact.email}
                 </div>
-                {contact.display_name && (
+                {(contact.display_name || contact.identity_email) && (
                   <div className="text-xs text-text-tertiary">
-                    {contact.email}
+                    {contact.identity_email ?? contact.email}
                   </div>
                 )}
               </button>

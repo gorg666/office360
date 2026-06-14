@@ -1,20 +1,21 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Search, Pencil, Trash2, Check, X } from "lucide-react";
 import {
-  getAllContacts,
-  updateContact,
+  getAllContactsWithIdentities,
+  saveManagedContact,
   deleteContact,
-  type DbContact,
+  type ManagedContact,
 } from "@/services/db/contacts";
 
 export function ContactEditor() {
-  const [contacts, setContacts] = useState<DbContact[]>([]);
+  const [contacts, setContacts] = useState<ManagedContact[]>([]);
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [editEmails, setEditEmails] = useState("");
 
   const loadContacts = useCallback(async () => {
-    const all = await getAllContacts();
+    const all = await getAllContactsWithIdentities();
     setContacts(all);
   }, []);
 
@@ -29,18 +30,30 @@ export function ContactEditor() {
     return contacts.filter(
       (c) =>
         c.email.toLowerCase().includes(q) ||
-        (c.display_name?.toLowerCase().includes(q) ?? false),
+        (c.display_name?.toLowerCase().includes(q) ?? false) ||
+        c.identities.some((identity) => identity.email.toLowerCase().includes(q)),
     );
   }, [contacts, search]);
 
-  const handleEdit = (contact: DbContact) => {
+  const handleEdit = (contact: ManagedContact) => {
     setEditingId(contact.id);
     setEditName(contact.display_name ?? "");
+    setEditEmails(contact.identities.map((identity) => identity.email).join(", "));
   };
 
   const handleSaveEdit = async () => {
     if (!editingId) return;
-    await updateContact(editingId, editName || null);
+    const identities = editEmails
+      .split(",")
+      .map((email) => email.trim())
+      .filter(Boolean);
+    if (identities.length === 0) return;
+    await saveManagedContact({
+      id: editingId,
+      displayName: editName || null,
+      identities,
+      primaryEmail: identities[0] ?? null,
+    });
     setEditingId(null);
     await loadContacts();
   };
@@ -79,6 +92,7 @@ export function ContactEditor() {
             >
               {editingId === contact.id ? (
                 <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 space-y-1">
                   <input
                     type="text"
                     value={editName}
@@ -91,6 +105,18 @@ export function ContactEditor() {
                     autoFocus
                     placeholder="Display name"
                   />
+                  <input
+                    type="text"
+                    value={editEmails}
+                    onChange={(e) => setEditEmails(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveEdit();
+                      if (e.key === "Escape") setEditingId(null);
+                    }}
+                    className="w-full min-w-0 px-2 py-0.5 bg-bg-tertiary border border-border-primary rounded text-xs text-text-primary outline-none focus:border-accent"
+                    placeholder="Email identities, comma-separated"
+                  />
+                  </div>
                   <button
                     onClick={handleSaveEdit}
                     className="p-1 text-success hover:bg-bg-hover rounded"
@@ -110,11 +136,9 @@ export function ContactEditor() {
                     <div className="text-sm text-text-primary truncate">
                       {contact.display_name ?? contact.email}
                     </div>
-                    {contact.display_name && (
-                      <div className="text-xs text-text-tertiary truncate">
-                        {contact.email}
-                      </div>
-                    )}
+                    <div className="text-xs text-text-tertiary truncate">
+                      {contact.identities.map((identity) => identity.email).join(", ")}
+                    </div>
                   </div>
                   <div className="flex items-center gap-1">
                     <span className="text-xs text-text-tertiary mr-2">

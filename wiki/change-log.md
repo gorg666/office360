@@ -2,6 +2,25 @@
 
 Эта страница фиксирует behavior и system changes, которые влияют на работу Office360. Это не замена Git history, а проектное объяснение важных решений.
 
+## 2026-06-14 - EPIC-07 Contacts and address book
+
+Добавлено:
+
+- OpenSpec change `epic-07-contacts-address-book`.
+- Additive migration v29 для contact aggregate metadata и `contact_identities`.
+- Existing inferred contacts backfill в primary identity без потери `contacts.email`, frequency, notes и avatar fields.
+- Managed contact APIs для display name, multiple email identities, identity lookup и inferred-update preservation.
+- vCard import/export helpers для core fields: `UID`, `FN`, `EMAIL`, `NOTE`, `ORG`, `TITLE`.
+- Composer autocomplete ищет и выбирает matched identity email, сохраняя frequency ranking.
+- Settings > People > Contacts редактирует display name и comma-separated email identities.
+- Contact sidebar показывает дополнительные identities и сохраняет notes/avatar/stats/same-domain/files/auth context.
+- Wiki page `contacts-address-book.md`.
+
+Важно:
+
+- Live CardDAV/Google/Microsoft/Yandex contacts sync, mailing lists и отдельный address book route остаются future scope.
+- `contacts.email` остается compatibility primary email для существующих callers.
+
 ## 2026-06-10 - EPIC-06 Search and smart folders
 
 Добавлено:

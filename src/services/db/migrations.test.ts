@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { MIGRATIONS } from "./migrations";
 
 // Mirror of splitStatements from migrations.ts for testing
 function splitStatements(sql: string): string[] {
@@ -102,5 +103,17 @@ describe("splitStatements", () => {
     const sql = "CREATE TABLE backend (id INT); CREATE TABLE foo (id INT);";
     const result = splitStatements(sql);
     expect(result).toHaveLength(2);
+  });
+});
+
+describe("contacts address book migration", () => {
+  it("adds identity table and backfills existing contacts", () => {
+    const migration = MIGRATIONS.find((item) => item.version === 29);
+
+    expect(migration?.sql).toContain("contact_identities");
+    expect(migration?.sql).toContain("ALTER TABLE contacts ADD COLUMN contact_type");
+    expect(migration?.sql).toContain("ALTER TABLE contacts ADD COLUMN vcard_raw");
+    expect(migration?.sql).toContain("INSERT OR IGNORE INTO contact_identities");
+    expect(migration?.sql).toContain("LOWER(email)");
   });
 });

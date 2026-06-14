@@ -9,6 +9,7 @@
 - [Обзор системы](system-overview.md) - текущая архитектура и границы продукта.
 - [Provider Capabilities](provider-capabilities.md) - provider model, Gmail/Yandex/IMAP capability decisions и UI gating.
 - [Account Diagnostics](account-diagnostics.md) - ConnectionDiagnostic, Repair Center и privacy-safe debug export.
+- [Contacts and address book](contacts-address-book.md) - contact aggregate, identities, vCard compatibility и текущие границы sync scope.
 - [Security & Privacy](security-privacy.md) - SecurityWarning contract, remote content, phishing links, risky attachments и debug redaction.
 - [Журнал изменений](change-log.md) - важные implementation и behavior changes.
 - [Правила ведения wiki](wiki-conventions.md) - как поддерживать wiki полезной.
