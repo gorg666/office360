@@ -1,6 +1,6 @@
 import { getDb, withTransaction } from "./connection";
 
-const MIGRATIONS = [
+export const MIGRATIONS = [
   {
     version: 1,
     description: "Initial schema",
@@ -859,6 +859,54 @@ const MIGRATIONS = [
       ALTER TABLE smart_folders ADD COLUMN status_reason TEXT;
       ALTER TABLE smart_folders ADD COLUMN status_updated_at INTEGER;
       CREATE INDEX IF NOT EXISTS idx_smart_folders_status ON smart_folders(status);
+    `,
+  },
+  {
+    version: 29,
+    description: "Contacts address book aggregates and identities",
+    sql: `
+      ALTER TABLE contacts ADD COLUMN contact_type TEXT DEFAULT 'inferred';
+      ALTER TABLE contacts ADD COLUMN user_edited INTEGER DEFAULT 0;
+      ALTER TABLE contacts ADD COLUMN vcard_uid TEXT;
+      ALTER TABLE contacts ADD COLUMN vcard_raw TEXT;
+      ALTER TABLE contacts ADD COLUMN organization TEXT;
+      ALTER TABLE contacts ADD COLUMN title TEXT;
+      ALTER TABLE contacts ADD COLUMN source_type TEXT DEFAULT 'inferred';
+      ALTER TABLE contacts ADD COLUMN source_id TEXT;
+      ALTER TABLE contacts ADD COLUMN sync_provider TEXT;
+      ALTER TABLE contacts ADD COLUMN sync_account_id TEXT;
+      ALTER TABLE contacts ADD COLUMN sync_etag TEXT;
+      ALTER TABLE contacts ADD COLUMN sync_status TEXT;
+      ALTER TABLE contacts ADD COLUMN deleted_at INTEGER;
+
+      CREATE TABLE IF NOT EXISTS contact_identities (
+        id TEXT PRIMARY KEY,
+        contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+        email TEXT NOT NULL UNIQUE,
+        label TEXT,
+        display_name TEXT,
+        is_primary INTEGER DEFAULT 0,
+        source_type TEXT DEFAULT 'inferred',
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch())
+      );
+      CREATE INDEX IF NOT EXISTS idx_contact_identities_contact ON contact_identities(contact_id);
+      CREATE INDEX IF NOT EXISTS idx_contact_identities_primary ON contact_identities(contact_id, is_primary DESC);
+
+      INSERT OR IGNORE INTO contact_identities (
+        id, contact_id, email, display_name, is_primary, source_type, created_at, updated_at
+      )
+      SELECT
+        id || ':primary',
+        id,
+        LOWER(email),
+        display_name,
+        1,
+        'inferred',
+        created_at,
+        updated_at
+      FROM contacts
+      WHERE email IS NOT NULL AND TRIM(email) != '';
     `,
   },
 ];

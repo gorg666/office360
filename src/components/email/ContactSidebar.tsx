@@ -7,7 +7,9 @@ import {
   getContactByEmail, getContactStats, getRecentThreadsWithContact,
   upsertContact, updateContact, updateContactNotes,
   getAttachmentsFromContact, getContactsFromSameDomain, getLatestAuthResult,
+  getContactIdentities,
   type ContactStats, type DbContact, type ContactAttachment, type SameDomainContact,
+  type ContactIdentity,
 } from "@/services/db/contacts";
 import { isVipSender, addVipSender, removeVipSender } from "@/services/db/notificationVips";
 import { useThreadStore } from "@/stores/threadStore";
@@ -35,6 +37,7 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [attachments, setAttachments] = useState<ContactAttachment[]>([]);
   const [sameDomainContacts, setSameDomainContacts] = useState<SameDomainContact[]>([]);
+  const [identities, setIdentities] = useState<ContactIdentity[]>([]);
   const [authResults, setAuthResults] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [addedFeedback, setAddedFeedback] = useState(false);
@@ -84,6 +87,13 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
       if (cancelled) return;
       setContact(c);
       setNotes(c?.notes ?? "");
+      if (c) {
+        getContactIdentities(c.id).then((items) => {
+          if (!cancelled) setIdentities(items);
+        });
+      } else {
+        setIdentities([]);
+      }
     });
 
     // Load stats
@@ -179,6 +189,7 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
 
   const displayName = contact?.display_name ?? name ?? email.split("@")[0];
   const domain = email.includes("@") ? email.split("@")[1] : null;
+  const otherIdentities = identities.filter((identity) => identity.email.toLowerCase() !== email.toLowerCase());
 
   return (
     <div className="w-72 h-full border-l border-border-primary bg-bg-secondary overflow-y-auto shrink-0">
@@ -235,6 +246,19 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
           <div className="text-xs text-text-tertiary mt-0.5">
             {email}
           </div>
+          {otherIdentities.length > 0 && (
+            <div className="mt-2 w-full space-y-0.5">
+              {otherIdentities.map((identity) => (
+                <div
+                  key={identity.id}
+                  className="text-[0.6875rem] text-text-tertiary truncate"
+                  title={identity.email}
+                >
+                  {identity.email}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Quick Actions Row */}

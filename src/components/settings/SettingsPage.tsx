@@ -1142,7 +1142,7 @@ export function SettingsPage() {
                 <>
                   <Section title="Contacts">
                     <p className="text-xs text-text-tertiary mb-3">
-                      Contacts are automatically added when you send or receive emails. Edit display names or remove contacts below.
+                      Contacts are automatically added from mail activity and can be managed with multiple email identities.
                     </p>
                     <ContactEditor />
                   </Section>
