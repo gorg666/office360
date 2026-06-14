@@ -2,6 +2,24 @@
 
 Эта страница фиксирует behavior и system changes, которые влияют на работу Office360. Это не замена Git history, а проектное объяснение важных решений.
 
+## 2026-06-14 - EPIC-08 Calendar invitations
+
+Добавлено:
+
+- OpenSpec change `epic-08-calendar-invitations`.
+- Additive migration v30 для `calendar_invitations`.
+- Invite-aware iCalendar parser для `METHOD`, `SEQUENCE`, `RECURRENCE-ID`, `TZID`, cancellation, organizer и attendees.
+- Detection из raw calendar body и `.ics` / `text/calendar` attachments.
+- Thread invite card с event details, cancellation/update state, timezone warning и RSVP buttons.
+- Local-first RSVP для Accept/Tentative/Decline с projection accepted/tentative invites в local calendar event store.
+- Queue dispatch для `calendarRsvp`, отделенный от existing email queue actions.
+- Wiki page `calendar-invitations.md`.
+
+Важно:
+
+- Remote provider RSVP delivery пока не реализован и явно блокируется как `unsupported_capability`; local RSVP decision остается сохраненным и visible.
+- Full calendar replacement UI, Exchange calendar и scheduling assistant остаются вне первого slice.
+
 ## 2026-06-14 - EPIC-07 Contacts and address book
 
 Добавлено:

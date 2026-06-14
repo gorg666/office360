@@ -117,3 +117,18 @@ describe("contacts address book migration", () => {
     expect(migration?.sql).toContain("LOWER(email)");
   });
 });
+
+describe("calendar invitations migration", () => {
+  it("adds invitation table with RSVP metadata and stable identity key", () => {
+    const migration = MIGRATIONS.find((item) => item.version === 30);
+
+    expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS calendar_invitations");
+    expect(migration?.sql).toContain("event_uid TEXT NOT NULL");
+    expect(migration?.sql).toContain("recurrence_key TEXT NOT NULL DEFAULT ''");
+    expect(migration?.sql).toContain("rsvp_status TEXT NOT NULL DEFAULT 'needs_action'");
+    expect(migration?.sql).toContain("queued_operation_id TEXT");
+    expect(migration?.sql).toContain("raw_ical TEXT NOT NULL");
+    expect(migration?.sql).toContain("UNIQUE(account_id, event_uid, recurrence_key)");
+    expect(migration?.sql).toContain("idx_calendar_invitations_thread");
+  });
+});

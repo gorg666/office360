@@ -909,6 +909,46 @@ export const MIGRATIONS = [
       WHERE email IS NOT NULL AND TRIM(email) != '';
     `,
   },
+  {
+    version: 30,
+    description: "Calendar invitation records and RSVP metadata",
+    sql: `
+      CREATE TABLE IF NOT EXISTS calendar_invitations (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        thread_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        event_uid TEXT NOT NULL,
+        recurrence_id TEXT,
+        recurrence_key TEXT NOT NULL DEFAULT '',
+        method TEXT,
+        sequence INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'confirmed',
+        summary TEXT,
+        description TEXT,
+        location TEXT,
+        start_time INTEGER NOT NULL DEFAULT 0,
+        end_time INTEGER NOT NULL DEFAULT 0,
+        is_all_day INTEGER NOT NULL DEFAULT 0,
+        timezone_id TEXT,
+        timezone_warning INTEGER NOT NULL DEFAULT 0,
+        organizer_email TEXT,
+        attendees_json TEXT,
+        rsvp_status TEXT NOT NULL DEFAULT 'needs_action',
+        rsvp_queue_status TEXT,
+        queued_operation_id TEXT,
+        calendar_event_id TEXT,
+        raw_ical TEXT NOT NULL,
+        source_hash TEXT NOT NULL,
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch()),
+        UNIQUE(account_id, event_uid, recurrence_key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_calendar_invitations_thread ON calendar_invitations(account_id, thread_id, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_calendar_invitations_message ON calendar_invitations(account_id, message_id);
+      CREATE INDEX IF NOT EXISTS idx_calendar_invitations_rsvp_queue ON calendar_invitations(rsvp_queue_status, updated_at DESC);
+    `,
+  },
 ];
 
 /**

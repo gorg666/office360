@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { MessageItem } from "./MessageItem";
 import { ActionBar } from "./ActionBar";
 import { getMessagesForThread, upsertMessage, type DbMessage } from "@/services/db/messages";
-import { upsertAttachment } from "@/services/db/attachments";
+import { getAttachmentsForMessage, upsertAttachment } from "@/services/db/attachments";
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
@@ -24,7 +24,14 @@ import { AiTaskExtractDialog } from "@/components/tasks/AiTaskExtractDialog";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { MessageSkeleton } from "@/components/ui/Skeleton";
 import { RawMessageModal } from "./RawMessageModal";
+import { CalendarInviteCard } from "./CalendarInviteCard";
 import { getContactDisplayNameMap } from "@/services/db/contacts";
+import { listInvitationsForThread, type CalendarInvitationRsvpStatus, type DbCalendarInvitation } from "@/services/db/calendarInvitations";
+import {
+  detectInvitationsFromAttachments,
+  detectInvitationsInMessage,
+  respondToCalendarInvitation,
+} from "@/services/calendar/invitations";
 import { normalizeEmail } from "@/utils/emailUtils";
 import { resolveContactHeaderName } from "@/utils/senderDisplay";
 import { openThreadPopOut } from "@/utils/openThreadWindow";
@@ -61,6 +68,8 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
   const [blockRemoteImages, setBlockRemoteImages] = useState<boolean | null>(null);
   const [allowlistedSenders, setAllowlistedSenders] = useState<Set<string>>(new Set());
   const [contactDisplayNames, setContactDisplayNames] = useState<Map<string, string>>(() => new Map());
+  const [calendarInvitations, setCalendarInvitations] = useState<DbCalendarInvitation[]>([]);
+  const [respondingInvitationId, setRespondingInvitationId] = useState<string | null>(null);
   const hydrationAttemptedRef = useRef<Set<string>>(new Set());
 
   const messageSenderEmailsKey = useMemo(() => {
@@ -108,6 +117,72 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
     });
     return () => { cancelled = true; };
   }, [activeAccountId, messageSenderEmailsKey]);
+
+  const refreshCalendarInvitations = useCallback(async () => {
+    if (!activeAccountId) return;
+    const rows = await listInvitationsForThread(activeAccountId, thread.id);
+    setCalendarInvitations(rows);
+  }, [activeAccountId, thread.id]);
+
+  useEffect(() => {
+    if (!activeAccountId) {
+      setCalendarInvitations([]);
+      return;
+    }
+    const handler = () => {
+      void refreshCalendarInvitations();
+    };
+    window.addEventListener("velo-calendar-invitations-changed", handler);
+    return () => window.removeEventListener("velo-calendar-invitations-changed", handler);
+  }, [activeAccountId, refreshCalendarInvitations]);
+
+  useEffect(() => {
+    if (!activeAccountId || messages.length === 0) {
+      setCalendarInvitations([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      const provider = await getEmailProvider(activeAccountId).catch((err) => {
+        console.warn("Failed to load provider for calendar invitation attachments:", err);
+        return null;
+      });
+
+      for (const msg of messages) {
+        await detectInvitationsInMessage({
+          accountId: activeAccountId,
+          threadId: msg.thread_id,
+          messageId: msg.id,
+          bodyText: msg.body_text,
+          bodyHtml: msg.body_html,
+        });
+
+        if (provider) {
+          const attachments = await getAttachmentsForMessage(activeAccountId, msg.id);
+          await detectInvitationsFromAttachments({
+            accountId: activeAccountId,
+            threadId: msg.thread_id,
+            messageId: msg.id,
+            attachments,
+            provider,
+          }).catch((err) => {
+            console.warn("Failed to detect calendar invitation attachment:", err);
+          });
+        }
+      }
+
+      const rows = await listInvitationsForThread(activeAccountId, thread.id);
+      if (!cancelled) setCalendarInvitations(rows);
+    })().catch((err) => {
+      console.warn("Failed to detect calendar invitations:", err);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAccountId, messages, thread.id]);
 
   // IMAP initial sync stores headers first for fast list rendering. Hydrate the
   // opened thread body on demand and persist it so the next open is instant.
@@ -488,6 +563,22 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
     }
   }, [messages, thread.subject]);
 
+  const handleInvitationResponse = useCallback(async (
+    invitationId: string,
+    status: CalendarInvitationRsvpStatus,
+  ) => {
+    if (!activeAccountId) return;
+    setRespondingInvitationId(invitationId);
+    try {
+      await respondToCalendarInvitation(activeAccountId, invitationId, status);
+      await refreshCalendarInvitations();
+    } catch (err) {
+      console.error("Failed to respond to calendar invitation:", err);
+    } finally {
+      setRespondingInvitationId(null);
+    }
+  }, [activeAccountId, refreshCalendarInvitations]);
+
   if (loading) {
     return (
       <div className="flex flex-col h-full">
@@ -558,6 +649,15 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
             messages={messages}
           />
         )}
+
+        {calendarInvitations.map((invitation) => (
+          <CalendarInviteCard
+            key={invitation.id}
+            invitation={invitation}
+            responding={respondingInvitationId === invitation.id}
+            onRespond={handleInvitationResponse}
+          />
+        ))}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto">
