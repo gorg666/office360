@@ -31,6 +31,10 @@ vi.mock("../emailActions", () => ({
   executeQueuedAction: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock("../calendar/invitations", () => ({
+  executeCalendarQueuedAction: vi.fn(() => Promise.resolve()),
+}));
+
 vi.mock("../db/accountDiagnostics", () => ({
   upsertAccountDiagnostic: vi.fn(() => Promise.resolve()),
 }));
@@ -65,6 +69,7 @@ import {
   failOperation,
 } from "../db/pendingOperations";
 import { executeQueuedAction } from "../emailActions";
+import { executeCalendarQueuedAction } from "../calendar/invitations";
 import { classifyError } from "@/utils/networkErrors";
 import { startQueueProcessor, stopQueueProcessor, triggerQueueFlush } from "./queueProcessor";
 import { createMockUIStoreState } from "@/test/mocks";
@@ -134,6 +139,33 @@ describe("queueProcessor", () => {
       threadId: "t1",
       messageIds: [],
     });
+    expect(deleteOperation).toHaveBeenCalledWith("op-1");
+  });
+
+  it("dispatches calendar RSVP operations to calendar executor", async () => {
+    vi.mocked(getPendingOperations).mockResolvedValueOnce([
+      {
+        id: "op-1",
+        account_id: "acct-1",
+        operation_type: "calendarRsvp",
+        resource_id: "invite-1",
+        params: '{"invitationId":"invite-1","rsvpStatus":"accepted"}',
+        status: "pending",
+        retry_count: 0,
+        max_retries: 10,
+        next_retry_at: null,
+        created_at: 1000,
+        error_message: null,
+      },
+    ]);
+
+    await triggerQueueFlush();
+
+    expect(executeCalendarQueuedAction).toHaveBeenCalledWith("acct-1", "calendarRsvp", {
+      invitationId: "invite-1",
+      rsvpStatus: "accepted",
+    });
+    expect(executeQueuedAction).not.toHaveBeenCalled();
     expect(deleteOperation).toHaveBeenCalledWith("op-1");
   });
 

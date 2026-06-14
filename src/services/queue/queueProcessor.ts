@@ -12,6 +12,7 @@ import {
   type QueueUserAction,
 } from "../db/pendingOperations";
 import { executeQueuedAction } from "../emailActions";
+import { executeCalendarQueuedAction } from "../calendar/invitations";
 import { classifyError } from "@/utils/networkErrors";
 import { triggerSync } from "../gmail/syncManager";
 import { upsertAccountDiagnostic } from "../db/accountDiagnostics";
@@ -63,7 +64,11 @@ async function processQueue(): Promise<void> {
       emitOutboxChanged();
 
       const params = JSON.parse(op.params) as Record<string, unknown>;
-      await executeQueuedAction(op.account_id, op.operation_type, params);
+      if (op.operation_type === "calendarRsvp") {
+        await executeCalendarQueuedAction(op.account_id, op.operation_type, params);
+      } else {
+        await executeQueuedAction(op.account_id, op.operation_type, params);
+      }
 
       await deleteOperation(op.id);
       emitOutboxChanged();

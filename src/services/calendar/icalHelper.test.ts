@@ -1,4 +1,4 @@
-import { generateVEvent, parseVEvent } from "./icalHelper";
+import { generateVEvent, parseICalendarInvite, parseVEvent } from "./icalHelper";
 import type { CreateEventInput } from "./types";
 
 beforeEach(() => {
@@ -452,6 +452,86 @@ describe("parseVEvent", () => {
     expect(attendees[0].email).toBe("plain@example.com");
     expect(attendees[0].displayName).toBeUndefined();
     expect(attendees[0].responseStatus).toBeUndefined();
+  });
+});
+
+describe("parseICalendarInvite", () => {
+  it("parses invite metadata and supported timezone metadata", () => {
+    const ical = [
+      "BEGIN:VCALENDAR",
+      "METHOD:REQUEST",
+      "BEGIN:VEVENT",
+      "UID:invite-1",
+      "SEQUENCE:3",
+      "SUMMARY:Planning",
+      "DTSTART;TZID=Europe/Moscow:20260620T100000",
+      "DTEND;TZID=Europe/Moscow:20260620T110000",
+      "ORGANIZER;CN=Lead:mailto:lead@example.com",
+      "ATTENDEE;CN=Alex;PARTSTAT=NEEDS-ACTION:mailto:alex@example.com",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const result = parseICalendarInvite(ical);
+
+    expect(result.event.uid).toBe("invite-1");
+    expect(result.method).toBe("REQUEST");
+    expect(result.sequence).toBe(3);
+    expect(result.timezoneId).toBe("Europe/Moscow");
+    expect(result.timezoneWarning).toBe(false);
+    expect(result.isCancelled).toBe(false);
+    expect(result.attendees).toEqual([
+      {
+        email: "alex@example.com",
+        displayName: "Alex",
+        responseStatus: "needs-action",
+      },
+    ]);
+  });
+
+  it("marks unsupported timezone metadata as risky", () => {
+    const ical = [
+      "BEGIN:VCALENDAR",
+      "METHOD:REQUEST",
+      "BEGIN:VEVENT",
+      "UID:invite-unsupported-tz",
+      "SUMMARY:Planning",
+      "DTSTART;TZID=Mars/Phobos:20260620T100000",
+      "DTEND;TZID=Mars/Phobos:20260620T110000",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const result = parseICalendarInvite(ical);
+
+    expect(result.timezoneId).toBe("Mars/Phobos");
+    expect(result.timezoneWarning).toBe(true);
+  });
+
+  it("parses cancellation and recurrence identity", () => {
+    const ical = [
+      "BEGIN:VCALENDAR",
+      "METHOD:CANCEL",
+      "BEGIN:VEVENT",
+      "UID:invite-2",
+      "SEQUENCE:4",
+      "RECURRENCE-ID;TZID=Europe/Moscow:20260621T100000",
+      "STATUS:CANCELLED",
+      "SUMMARY:Cancelled instance",
+      "DTSTART;TZID=Europe/Moscow:20260621T100000",
+      "DTEND;TZID=Europe/Moscow:20260621T110000",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const result = parseICalendarInvite(ical);
+
+    expect(result.method).toBe("CANCEL");
+    expect(result.sequence).toBe(4);
+    expect(result.recurrenceId).toBe("20260621T100000");
+    expect(result.recurrenceIdTime).toBeGreaterThan(0);
+    expect(result.isCancelled).toBe(true);
+    expect(result.event.status).toBe("cancelled");
   });
 });
 

@@ -1,5 +1,30 @@
 import type { CalendarEventData, CreateEventInput, UpdateEventInput } from "./types";
 
+export interface ParsedICalAttendee {
+  email: string;
+  displayName?: string;
+  responseStatus?: string;
+}
+
+export interface ParsedCalendarInvitation {
+  event: CalendarEventData;
+  method: string | null;
+  sequence: number;
+  recurrenceId: string | null;
+  recurrenceIdTime: number | null;
+  timezoneId: string | null;
+  timezoneWarning: boolean;
+  isCancelled: boolean;
+  attendees: ParsedICalAttendee[];
+}
+
+interface ICalContentLine {
+  name: string;
+  params: Record<string, string>;
+  rawName: string;
+  value: string;
+}
+
 /**
  * Generate a VEVENT iCalendar string from event input.
  */
@@ -142,10 +167,98 @@ export function parseVEvent(icalData: string, href?: string): CalendarEventData 
   };
 }
 
+/**
+ * Parse iTIP/iMIP invitation metadata while preserving the existing event shape.
+ */
+export function parseICalendarInvite(icalData: string, href?: string): ParsedCalendarInvitation {
+  const lines = unfoldLines(icalData);
+  const event = parseVEvent(icalData, href);
+  const attendees = event.attendeesJson
+    ? JSON.parse(event.attendeesJson) as ParsedICalAttendee[]
+    : [];
+
+  let method: string | null = null;
+  let sequence = 0;
+  let recurrenceId: string | null = null;
+  let recurrenceIdTime: number | null = null;
+  let timezoneId: string | null = null;
+  let hasTimezoneParseRisk = false;
+
+  for (const rawLine of lines) {
+    const line = parseContentLine(rawLine);
+    if (!line) continue;
+
+    switch (line.name) {
+      case "METHOD":
+        method = line.value.toUpperCase();
+        break;
+      case "SEQUENCE":
+        sequence = Number.parseInt(line.value, 10);
+        if (!Number.isFinite(sequence)) sequence = 0;
+        break;
+      case "RECURRENCE-ID":
+        recurrenceId = line.value;
+        recurrenceIdTime = parseICalDateTime(line.value, line.params.VALUE === "DATE");
+        if (line.params.TZID) {
+          timezoneId = line.params.TZID;
+          hasTimezoneParseRisk ||= !isSupportedTimeZone(line.params.TZID);
+        }
+        hasTimezoneParseRisk ||= !Number.isFinite(recurrenceIdTime);
+        break;
+      case "DTSTART":
+      case "DTEND":
+        if (line.params.TZID) {
+          timezoneId ??= line.params.TZID;
+          hasTimezoneParseRisk ||= !isSupportedTimeZone(line.params.TZID);
+        }
+        break;
+    }
+  }
+
+  const isCancelled = method === "CANCEL" || event.status.toLowerCase() === "cancelled";
+  const timezoneWarning = hasTimezoneParseRisk
+    || !Number.isFinite(event.startTime)
+    || !Number.isFinite(event.endTime);
+
+  return {
+    event,
+    method,
+    sequence,
+    recurrenceId,
+    recurrenceIdTime,
+    timezoneId,
+    timezoneWarning,
+    isCancelled,
+    attendees,
+  };
+}
+
 /** Unfold continuation lines (RFC 5545 §3.1) */
 function unfoldLines(icalData: string): string[] {
   const raw = icalData.replace(/\r\n[ \t]/g, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   return raw.split("\n").filter((l) => l.length > 0);
+}
+
+function parseContentLine(line: string): ICalContentLine | null {
+  const colonIndex = line.indexOf(":");
+  if (colonIndex === -1) return null;
+
+  const rawName = line.slice(0, colonIndex);
+  const value = line.slice(colonIndex + 1);
+  const [namePart, ...paramParts] = rawName.split(";");
+  const name = namePart?.toUpperCase();
+  if (!name) return null;
+
+  const params: Record<string, string> = {};
+  for (const part of paramParts) {
+    const eqIndex = part.indexOf("=");
+    if (eqIndex === -1) continue;
+    const key = part.slice(0, eqIndex).toUpperCase();
+    const rawValue = part.slice(eqIndex + 1);
+    params[key] = rawValue.replace(/^"(.*)"$/, "$1");
+  }
+
+  return { name, params, rawName, value };
 }
 
 function formatDateTimeUTC(date: Date): string {
@@ -199,4 +312,13 @@ function parseICalDateTime(value: string, isAllDay: boolean): number {
     : new Date(y, m, d, h, min, s);
 
   return Math.floor(date.getTime() / 1000);
+}
+
+function isSupportedTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
 }
