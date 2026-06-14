@@ -37,6 +37,8 @@ describe("getOAuthProvider", () => {
     expect(provider!.scopes).toContain("openid");
     expect(provider!.scopes).toContain("profile");
     expect(provider!.scopes).toContain("email");
+    expect(provider!.scopes).not.toContain("Mail.Read");
+    expect(provider!.scopes).not.toContain("Mail.ReadWrite");
     expect(provider!.userInfoUrl).toBeUndefined();
     expect(provider!.usePkce).toBe(true);
   });

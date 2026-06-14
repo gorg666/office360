@@ -1,6 +1,6 @@
 import type { ParsedMessage } from "../gmail/messageParser";
 
-export type AccountProvider = "gmail_api" | "imap" | "caldav";
+export type AccountProvider = "gmail_api" | "imap" | "caldav" | "exchange";
 
 export interface CapabilitySupport {
   supported: boolean;

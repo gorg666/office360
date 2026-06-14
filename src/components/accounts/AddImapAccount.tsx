@@ -980,6 +980,12 @@ export function AddImapAccount({
           </div>
         )}
 
+        {providerId === "microsoft" && (
+          <div className="rounded-lg border border-warning/20 bg-warning/10 p-3 text-xs text-text-secondary">
+            Microsoft sign-in here connects mail through OAuth-protected IMAP/SMTP. Native Exchange/Graph mail, shared mailboxes, Exchange calendar, and Exchange contacts are planned but unavailable in this build.
+          </div>
+        )}
+
         {saveError && usesManagedOAuthFlow && (
           <div className="bg-danger/10 border border-danger/20 rounded-lg p-3 text-sm text-danger">
             {saveError}
@@ -991,7 +997,7 @@ export function AddImapAccount({
             ? "Введите email и подтвердите вход в браузере. После успешной авторизации аккаунт и календарь будут добавлены автоматически."
             : <>Чтобы получить Client ID, зарегистрируйте приложение в {providerName}.{" "}</>}
           {providerId === "microsoft" && (
-            <>Register at the Azure Portal (App Registrations) with redirect URI <code className="text-accent">http://127.0.0.1:17248</code>.</>
+            <>Register at the Azure Portal (App Registrations) with redirect URI <code className="text-accent">http://127.0.0.1:17248</code> and IMAP/SMTP OAuth scopes.</>
           )}
           {providerId === "yahoo" && (
             <>Register at the Yahoo Developer Network with redirect URI <code className="text-accent">http://127.0.0.1:17248</code>.</>

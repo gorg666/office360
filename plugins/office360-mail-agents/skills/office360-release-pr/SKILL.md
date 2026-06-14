@@ -33,6 +33,9 @@ Use this skill after implementation is complete and the user asks to publish or 
    - Stop the installed app before replacement.
    - Replace `/Applications/Office360.app` with the fresh bundle using `ditto --rsrc --extattr`.
    - Verify `/Applications/Office360.app/Contents/MacOS/office360` timestamp.
+   - Verify signing with `codesign -vvv --strict /Applications/Office360.app`.
+   - If local `.app` signing is invalid after replacement, run `codesign --force --deep --sign - /Applications/Office360.app` and repeat strict validation.
+   - Run installed desktop smoke. Use `npm run smoke:desktop` for generic visibility and a feature-specific `--scenario` for UI changes, for example `npm run smoke:desktop -- --restart --scenario add-account-exchange --screenshot artifacts/desktop-smoke/add-account-exchange.png`.
    - If replacement requires approval, request escalation rather than skipping it.
 
 5. Write user test steps.
@@ -59,5 +62,6 @@ Report:
 - Installed app source and destination paths.
 - How the user can test the updated desktop client.
 - Commands run and pass/fail results.
+- Feature-specific desktop smoke scenario and screenshot path for UI changes.
 - Branch, commit, and PR URL.
 - Any residual risk or skipped smoke check.

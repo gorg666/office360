@@ -209,8 +209,8 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
       ? "Подключение через OAuth с полной поддержкой Gmail API"
       : "Connect via OAuth with full Gmail API support",
     imapDescription: locale === "ru"
-      ? "Подключите любого почтового провайдера с ручной настройкой серверов"
-      : "Connect any email provider with manual server configuration",
+      ? "IMAP/SMTP, включая Outlook через Microsoft OAuth. Это не native Exchange."
+      : "IMAP/SMTP, including Outlook via Microsoft OAuth. This is not native Exchange.",
     caldavTitle: locale === "ru" ? "CalDAV (только календарь)" : "CalDAV (Calendar Only)",
     caldavDescription: locale === "ru"
       ? "Подключите iCloud, Fastmail, Nextcloud или любой сервер календаря CalDAV"

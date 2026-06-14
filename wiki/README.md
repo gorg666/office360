@@ -8,16 +8,20 @@
 
 - [Обзор системы](system-overview.md) - текущая архитектура и границы продукта.
 - [Provider Capabilities](provider-capabilities.md) - provider model, Gmail/Yandex/IMAP capability decisions и UI gating.
+- [Microsoft 365 / Exchange Status](microsoft-365-exchange-status.md) - Graph-first decision, IMAP/SMTP compatibility path и unsupported enterprise boundaries.
 - [Account Diagnostics](account-diagnostics.md) - ConnectionDiagnostic, Repair Center и privacy-safe debug export.
 - [Contacts and address book](contacts-address-book.md) - contact aggregate, identities, vCard compatibility и текущие границы sync scope.
 - [Calendar invitations](calendar-invitations.md) - invite detection, thread invite card, local-first RSVP и границы remote delivery.
 - [Security & Privacy](security-privacy.md) - SecurityWarning contract, remote content, phishing links, risky attachments и debug redaction.
+- [Testing Process](testing-process.md) - обязательные layers проверки, installed desktop smoke и screenshot evidence.
 - [Журнал изменений](change-log.md) - важные implementation и behavior changes.
 - [Правила ведения wiki](wiki-conventions.md) - как поддерживать wiki полезной.
 
 ## Текущее продуктовое направление
 
 Office360 сфокусирован на IMAP/SMTP и Yandex mail workflows. Gmail не является целевым провайдером для default product experience и должен оставаться скрытым, если явно не включён как compatibility path.
+
+Microsoft OAuth для Outlook/Hotmail/Live является IMAP/SMTP compatibility path. Native Microsoft 365/Exchange через Graph, shared mailboxes, Exchange calendar и contacts пока planned/unsupported.
 
 ## Текущий smoke focus
 

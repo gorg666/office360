@@ -1,5 +1,6 @@
 import {
   CALDAV_CAPABILITIES,
+  EXCHANGE_CAPABILITIES,
   GMAIL_CAPABILITIES,
   IMAP_CAPABILITIES,
   getCapabilitiesForAccountProvider,
@@ -29,6 +30,13 @@ describe("providerCapabilities", () => {
     expect(CALDAV_CAPABILITIES.messages.archive.reason).toContain("calendar-only");
   });
 
+  it("marks native Exchange/Graph capabilities unsupported until an adapter exists", () => {
+    expect(EXCHANGE_CAPABILITIES.messages.rawFetch.supported).toBe(false);
+    expect(EXCHANGE_CAPABILITIES.compose.send.supported).toBe(false);
+    expect(EXCHANGE_CAPABILITIES.diagnostics.testIncoming.supported).toBe(false);
+    expect(EXCHANGE_CAPABILITIES.messages.rawFetch.reason).toContain("Native Exchange/Graph support is planned");
+  });
+
   it("uses Gmail capabilities only for explicit gmail_api accounts", () => {
     expect(getCapabilitiesForAccountProvider("gmail_api").provider).toBe("gmail_api");
   });
@@ -41,5 +49,10 @@ describe("providerCapabilities", () => {
     expect(getCapabilitiesForAccountProvider("yandex").provider).toBe("imap");
     expect(getCapabilitiesForAccountProvider("yandex_oauth").provider).toBe("imap");
     expect(getCapabilitiesForAccountProvider(null).provider).toBe("imap");
+  });
+
+  it("does not let future exchange accounts fall back to IMAP capabilities", () => {
+    expect(getCapabilitiesForAccountProvider("exchange").provider).toBe("exchange");
+    expect(getCapabilitiesForAccountProvider("exchange").folders.list.supported).toBe(false);
   });
 });

@@ -53,6 +53,16 @@ describe("findWellKnownProvider", () => {
     expect(result!.oauthProviderId).toBe("microsoft");
   });
 
+  it("treats Outlook autodiscovery as Microsoft OAuth over IMAP/SMTP, not native Exchange", () => {
+    const result = discoverSettings("user@outlook.com");
+
+    expect(result).not.toBeNull();
+    expect(result!.settings.imapHost).toBe("imap-mail.outlook.com");
+    expect(result!.settings.smtpHost).toBe("smtp-mail.outlook.com");
+    expect(result!.oauthProviderId).toBe("microsoft");
+    expect(result!.authMethods).toEqual(["oauth2"]);
+  });
+
   it("returns settings for hotmail.com (outlook alias)", () => {
     const result = findWellKnownProvider("hotmail.com");
     expect(result).not.toBeNull();

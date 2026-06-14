@@ -2,6 +2,37 @@
 
 Эта страница фиксирует behavior и system changes, которые влияют на работу Office360. Это не замена Git history, а проектное объяснение важных решений.
 
+## 2026-06-14 - EPIC-10 Enterprise and Exchange strategy
+
+Добавлено:
+
+- OpenSpec change `epic-10-enterprise-exchange-strategy`.
+- ADR `DEC-007`: Graph-first для будущего Exchange Online/Microsoft 365 native adapter.
+- Wiki page `microsoft-365-exchange-status.md`.
+- Explicit unsupported `exchange` provider capabilities.
+- `providerFactory` reject для `provider = "exchange"` вместо IMAP fallback.
+- Account setup guardrails: Microsoft OAuth is IMAP/SMTP compatibility; Microsoft 365/Exchange native path is hidden from provider choices until an adapter exists.
+- Help copy для Outlook/Microsoft OAuth обновлен без implied native Exchange support.
+
+Важно:
+
+- Graph/EWS runtime calls, DB migration, production Exchange adapter, shared mailboxes, Exchange calendar и Exchange contacts не входят в этот slice.
+- Existing Outlook/Hotmail/Live setup remains IMAP/SMTP over Microsoft OAuth.
+
+## 2026-06-14 - Desktop smoke process
+
+Добавлено:
+
+- Script `scripts/desktop-smoke.mjs`.
+- NPM command `npm run smoke:desktop`.
+- Wiki page `testing-process.md`.
+- `artifacts/` ignored for generated smoke screenshots.
+
+Важно:
+
+- UI changes больше нельзя считать полностью проверенными без installed desktop smoke evidence или явного residual risk.
+- Desktop smoke запускает installed `/Applications/Office360.app`, активирует `com.office360.desktop`, проверяет окно `office360` и пишет screenshot evidence в `artifacts/desktop-smoke/`.
+
 ## 2026-06-14 - EPIC-08 Calendar invitations
 
 Добавлено:
