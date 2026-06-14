@@ -58,14 +58,14 @@ Default sequence:
 4. If `npm run tauri build` produces the OS app bundle but fails only on secondary packaging such as DMG creation, report that packaging failure separately and continue installed-app refresh from the produced app bundle.
 5. Stop the currently installed app before replacement.
 6. Replace or install the freshly built desktop artifact for the current OS.
-7. Verify the installed app path, executable timestamp, and source artifact path.
+7. Verify the installed app path, executable timestamp, source artifact path, and code-signing health where the OS supports it.
 8. Run desktop smoke against the installed app, not only the dev server.
 
 OS-specific refresh guidance:
 
 | OS | Fresh artifact | Installed app refresh |
 | --- | --- | --- |
-| macOS | `src-tauri/target/release/bundle/macos/Office360.app` | Quit `Office360`, replace `/Applications/Office360.app` with the fresh `.app` bundle using a metadata-preserving copy such as `ditto --rsrc --extattr`, then verify `/Applications/Office360.app/Contents/MacOS/office360`. |
+| macOS | `src-tauri/target/release/bundle/macos/Office360.app` | Quit `Office360`, replace `/Applications/Office360.app` with the fresh `.app` bundle using a metadata-preserving copy such as `ditto --rsrc --extattr`, verify `/Applications/Office360.app/Contents/MacOS/office360`, then run `codesign -vvv --strict /Applications/Office360.app`. If strict validation fails for a local unsigned build, run `codesign --force --deep --sign - /Applications/Office360.app` and repeat strict validation before smoke. |
 | Windows | `src-tauri/target/release/bundle/msi/*.msi` or `src-tauri/target/release/bundle/nsis/*.exe` | Stop `Office360.exe`, run the fresh installer silently when supported, otherwise document the manual installer step. Verify the installed executable under `%LOCALAPPDATA%\Programs\Office360\` or `%ProgramFiles%\Office360\` according to the installer target. |
 | Linux | `src-tauri/target/release/bundle/appimage/*.AppImage`, `src-tauri/target/release/bundle/deb/*.deb`, or `src-tauri/target/release/bundle/rpm/*.rpm` | Prefer the native package for the distro (`apt install ./...deb`, `dnf install ./...rpm`, or equivalent). For AppImage-only builds, replace the local executable copy used for smoke tests and mark it executable. Verify the installed command or AppImage path. |
 
@@ -92,7 +92,9 @@ Required after installed app refresh, and whenever Tauri, packaging, installed a
 
 - Build and replace the installed app using the OS-specific Installed App Refresh workflow above.
 - Smoke the same user-facing workflow in the desktop shell.
+- Use `npm run smoke:desktop` for generic app visibility only. For UI behavior changes, add or run a feature-specific scenario that opens the changed workflow and asserts the visible guardrails/copy. Example: `npm run smoke:desktop -- --restart --scenario add-account-exchange --screenshot artifacts/desktop-smoke/add-account-exchange.png`.
 - Check account switching, sidebar/settings/context menus, native window behavior, logs, and obvious rendering regressions.
+- For Add Account / Exchange guardrails, the `add-account-exchange` scenario must assert that IMAP/SMTP Microsoft OAuth is not native Exchange and that Microsoft 365 / Exchange is not shown as a provider choice until an adapter exists.
 - If desktop smoke cannot run locally, state why and keep it as residual risk. Do not call the branch fully verified.
 
 ## Review checklist

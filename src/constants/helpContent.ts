@@ -165,7 +165,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         title: "Настройка IMAP/SMTP аккаунта",
         summary: "Добавьте почту не из Gmail через IMAP и SMTP.",
         description:
-          "Для IMAP/SMTP аккаунта выберите добавление IMAP-аккаунта в переключателе аккаунтов. Мастер попросит указать адрес, имя отправителя, пароль или OAuth2-данные, затем проверить параметры IMAP и SMTP. Для Outlook, Yahoo, iCloud, Fastmail, Zoho, AOL и GMX настройки сервера подставляются автоматически. Outlook и Hotmail требуют OAuth2, так как обычный пароль Microsoft отключила. Данные доступа перед сохранением шифруются локально.",
+          "Для IMAP/SMTP аккаунта выберите добавление IMAP-аккаунта в переключателе аккаунтов. Мастер попросит указать адрес, имя отправителя, пароль или OAuth2-данные, затем проверить параметры IMAP и SMTP. Для Outlook, Yahoo, iCloud, Fastmail, Zoho, AOL и GMX настройки сервера подставляются автоматически. Outlook и Hotmail подключаются через Microsoft OAuth поверх IMAP/SMTP; это не native Exchange/Graph. Данные доступа перед сохранением шифруются локально.",
         tips: [
           { text: "Автоопределение работает для Outlook, Yahoo, iCloud, Fastmail, Zoho, AOL и GMX." },
           { text: "Для Outlook/Hotmail нужен OAuth2 и Client ID из Azure Portal." },
@@ -184,7 +184,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         title: "Настройка Outlook аккаунта",
         summary: "Как подключить Outlook, Hotmail или Live.",
         description:
-          "Microsoft требует OAuth2 для Outlook, Hotmail и Live, поэтому обычный пароль не подойдет. Зарегистрируйте приложение в Azure Portal, получите Application Client ID и включите публичные клиентские потоки. В разрешениях добавьте offline_access, email, openid, profile, User.Read, а также IMAP.AccessAsUser.All и SMTP.Send для Exchange Online. В приложении выберите IMAP-аккаунт, введите личную Outlook-почту, вставьте Client ID, оставьте Client Secret пустым и войдите через Microsoft. Новым аккаунтам Outlook иногда требуется до 24 часов, чтобы Microsoft включила IMAP/SMTP доступ.",
+          "Microsoft требует OAuth2 для Outlook, Hotmail и Live, поэтому обычный пароль не подойдет. Зарегистрируйте приложение в Azure Portal, получите Application Client ID и включите публичные клиентские потоки. В разрешениях добавьте offline_access, email, openid, profile, User.Read, а также outlook.office.com IMAP.AccessAsUser.All и SMTP.Send. В приложении выберите IMAP-аккаунт, введите личную Outlook-почту, вставьте Client ID, оставьте Client Secret пустым и войдите через Microsoft. Этот путь подключает почту через IMAP/SMTP, а не native Exchange/Graph; shared mailboxes, Exchange calendar и Exchange contacts пока запланированы. Новым аккаунтам Outlook иногда требуется до 24 часов, чтобы Microsoft включила IMAP/SMTP доступ.",
         tips: [
           { text: "Для регистрации приложения удобнее использовать бесплатный tenant из M365 Developer Program." },
           { text: "В Azure Portal входите под M365 developer аккаунтом, а не личной Outlook-почтой." },
@@ -193,6 +193,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
           { text: "Client Secret для настольного приложения не нужен." },
           { text: "Включите Allow public client flows в разделе Authentication." },
           { text: "Если Exchange Online не виден в разрешениях, добавьте IMAP и SMTP scopes через Manifest." },
+          { text: "Native Exchange/Graph adapter, shared mailboxes, Exchange calendar и contacts пока недоступны." },
           { text: "Токены обновляются автоматически, повторно входить обычно не нужно." },
         ],
         relatedSettingsTab: "accounts",

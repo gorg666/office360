@@ -14,6 +14,10 @@ Compatibility provider:
 
 - Gmail API через `gmail_api`.
 
+Planned / unsupported provider:
+
+- Microsoft 365/Exchange native через future `exchange` provider value. Current Outlook/Microsoft OAuth setup is IMAP/SMTP compatibility, not this native provider.
+
 Gmail скрыт в provider picker по умолчанию. Он показывается только при `VITE_ENABLE_GMAIL_PROVIDER=true`.
 
 ## Capability profiles
@@ -36,6 +40,7 @@ src/services/email/types.ts
 | --- | --- |
 | `gmail_api` | Gmail API capabilities |
 | `caldav` | calendar-only mail-disabled capabilities |
+| `exchange` | native Exchange/Graph planned but unsupported capabilities |
 | `imap` | IMAP-compatible capabilities |
 | `imap_smtp` | IMAP-compatible capabilities |
 | `yandex`, `yandex_oauth` | IMAP-compatible capabilities |
@@ -43,6 +48,29 @@ src/services/email/types.ts
 | `null`, unknown, legacy values | IMAP-compatible capabilities |
 
 Только explicit `gmail_api` accounts получают native Gmail label capabilities.
+
+Только explicit `exchange` accounts получают unsupported Exchange profile. Это guardrail: future/native Exchange rows не должны silently fall back to IMAP behavior.
+
+## Microsoft 365 / Exchange status
+
+Current supported path:
+
+- Outlook/Hotmail/Live mail through Microsoft OAuth over IMAP/SMTP.
+- OAuth scopes use `outlook.office.com` IMAP/SMTP permissions.
+- This path is compatibility mail access, not native Exchange/Graph.
+
+Planned/unsupported until a dedicated adapter exists:
+
+- Native Exchange Online/Microsoft 365 mail through Graph.
+- Shared mailboxes.
+- Send-as/delegated mailbox flows.
+- Exchange calendar sync.
+- Exchange contacts sync.
+
+Strategic decision:
+
+- Future Exchange Online/Microsoft 365 native support is Graph-first.
+- EWS is deferred to future on-premises or legacy exceptions.
 
 ## Gmail-native labels
 
@@ -112,6 +140,7 @@ UI hiding недостаточно. Service entry points также должны
 - `src/stores/labelStore.ts` rejects unsupported label CRUD до Gmail client access.
 - `src/services/email/imapSmtpProvider.ts` gates destructive special-folder rename/delete and calls IMAP folder commands.
 - `src/services/email/providerFactory.ts` создаёт `GmailApiProvider` только для explicit `gmail_api`.
+- `src/services/email/providerFactory.ts` rejects explicit `exchange` accounts until native Exchange/Graph adapter exists.
 - Если queued provider action больше не поддерживается или требует user action, queue processor переводит operation в `blocked`/`failed` с diagnostic вместо silent drop.
 
 ## Smoke checklist
@@ -130,6 +159,15 @@ UI hiding недостаточно. Service entry points также должны
 10. Quota is shown when server supports `QUOTA`; otherwise unavailable reason is visible.
 11. Archive, trash, star, mark read, send и sync flows работают.
 12. Smart folder with `folderpath:<rawPath>` is marked missing when that folder is deleted.
+
+Проверить Microsoft/Exchange guardrails:
+
+1. Account picker shows IMAP/SMTP as the Microsoft OAuth compatibility path for Outlook.
+2. Account picker does not show Microsoft 365/Exchange as a provider choice until an adapter exists.
+3. Microsoft OAuth setup says it connects through IMAP/SMTP.
+4. Native Exchange/Graph, shared mailboxes, Exchange calendar and contacts are not presented as available.
+5. `getCapabilitiesForAccountProvider("exchange")` returns unsupported Exchange capabilities, not IMAP.
+6. `getEmailProvider` rejects an `exchange` account with a clear unsupported message.
 
 Проверить на explicit `gmail_api` account, если Gmail включён:
 

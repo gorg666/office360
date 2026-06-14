@@ -3,6 +3,7 @@ import { GmailApiProvider } from "./gmailProvider";
 import { ImapSmtpProvider } from "./imapSmtpProvider";
 import { getAccount } from "../db/accounts";
 import { getGmailClient } from "../gmail/tokenManager";
+import { EXCHANGE_UNSUPPORTED_REASON } from "./providerCapabilities";
 
 const providers = new Map<string, EmailProvider>();
 
@@ -24,6 +25,8 @@ export async function getEmailProvider(
   if (account.provider === "gmail_api") {
     const client = await getGmailClient(accountId);
     provider = new GmailApiProvider(accountId, client);
+  } else if (account.provider === "exchange") {
+    throw new Error(EXCHANGE_UNSUPPORTED_REASON);
   } else {
     provider = new ImapSmtpProvider(accountId);
   }

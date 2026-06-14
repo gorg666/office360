@@ -64,6 +64,7 @@ debug-*.mjs
 
 # Coverage
 coverage/
+artifacts/
 
 # Temporary files
 *.tmp

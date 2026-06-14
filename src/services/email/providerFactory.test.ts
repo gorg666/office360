@@ -210,6 +210,40 @@ describe("providerFactory", () => {
     );
   });
 
+  it("rejects native exchange accounts instead of falling back to IMAP", async () => {
+    vi.mocked(getAccount).mockResolvedValue({
+      id: "acc-exchange",
+      email: "user@contoso.com",
+      display_name: null,
+      avatar_url: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      history_id: null,
+      last_sync_at: null,
+      is_active: 1,
+      created_at: 0,
+      updated_at: 0,
+      provider: "exchange",
+      imap_host: null,
+      imap_port: null,
+      imap_security: null,
+      smtp_host: null,
+      smtp_port: null,
+      smtp_security: null,
+      auth_method: "oauth",
+      imap_password: null,
+      oauth_provider: "microsoft",
+      oauth_client_id: null,
+      oauth_client_secret: null,
+    });
+
+    await expect(getEmailProvider("acc-exchange")).rejects.toThrow(
+      "Native Exchange/Graph support is planned but unavailable",
+    );
+    expect(getGmailClient).not.toHaveBeenCalled();
+  });
+
   it("invalidateProviderConfig clears IMAP config cache", async () => {
     vi.mocked(getAccount).mockResolvedValue({
       id: "acc-6",
