@@ -10,6 +10,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { collectSupportDebugBundle, saveSupportDebugBundle } from "@/services/diagnostics";
 import { APP_NAME_EN } from "@/i18n";
 import appIcon from "@/assets/icon.png";
 
@@ -91,6 +92,8 @@ export function SettingsAboutPanel() {
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   const [updateCheckDone, setUpdateCheckDone] = useState(false);
   const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [exportingSupportBundle, setExportingSupportBundle] = useState(false);
+  const [supportBundleStatus, setSupportBundleStatus] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -178,6 +181,27 @@ export function SettingsAboutPanel() {
     }
   };
 
+  const handleExportSupportBundle = async () => {
+    setExportingSupportBundle(true);
+    setSupportBundleStatus(null);
+    try {
+      const bundle = await collectSupportDebugBundle();
+      const result = await saveSupportDebugBundle(bundle);
+      if (result.fallback) {
+        setSupportBundleStatus("Support bundle downloaded with browser fallback.");
+      } else if (result.path) {
+        setSupportBundleStatus(`Saved to ${result.path}`);
+      } else {
+        setSupportBundleStatus("Export canceled.");
+      }
+    } catch (err) {
+      console.error("Support bundle export failed:", err);
+      setSupportBundleStatus("Support bundle export failed.");
+    } finally {
+      setExportingSupportBundle(false);
+    }
+  };
+
   const updateAction = updateVersion ? (
     <Button
       variant="primary"
@@ -226,6 +250,31 @@ export function SettingsAboutPanel() {
         ) : (
           <p className="text-sm text-text-tertiary">
             Click &quot;Check for Updates&quot; to find a new version.
+          </p>
+        )}
+      </SettingsCard>
+
+      <SettingsCard
+        title="Support bundle"
+        description="Local JSON export for support. Nothing is sent automatically; secrets and raw mail are redacted."
+        action={
+          <Button
+            variant="secondary"
+            size="md"
+            icon={<Download size={14} />}
+            onClick={() => void handleExportSupportBundle()}
+            disabled={exportingSupportBundle}
+            className="bg-bg-tertiary text-text-primary border border-border-primary"
+          >
+            {exportingSupportBundle ? "Exporting..." : "Export"}
+          </Button>
+        }
+      >
+        {supportBundleStatus ? (
+          <p className="text-sm text-text-secondary">{supportBundleStatus}</p>
+        ) : (
+          <p className="text-sm text-text-tertiary">
+            Includes app metadata, account diagnostics, sync health, and redacted queue state.
           </p>
         )}
       </SettingsCard>

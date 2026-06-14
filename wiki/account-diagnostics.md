@@ -1,6 +1,6 @@
 # Account Diagnostics and Repair Center
 
-Office360 нормализует ошибки аккаунтов в `ConnectionDiagnostic`, чтобы onboarding, sync, outbox, calendar и support/debug flows показывали одну модель причины и действия.
+Office360 нормализует ошибки аккаунтов в `ConnectionDiagnostic`, чтобы onboarding, sync, outbox, calendar и support bundle flows показывали одну модель причины и действия.
 
 ## Контракт
 
@@ -54,7 +54,7 @@ Entry points:
 
 - sync error toast;
 - Settings > Accounts > Repair;
-- direct route for support/debug checks.
+- direct route for support checks.
 
 Repair Center показывает account health summary, diagnostic cards by layer, retry state, reason, debug code, last update time и sanitized details collapsed by default.
 
@@ -100,26 +100,41 @@ Auth failures (`expired_token`, `invalid_credentials`, `missing_scope`) веду
 - Retryable failures получают `retryState` и остаются compatible с outbox queue.
 - CalDAV test/sync failures сохраняются как `caldav`.
 
-## Privacy-safe debug export
+## Privacy-safe support bundle
 
-Debug export создаёт локальный JSON bundle и не отправляет его автоматически.
+Support bundle создаёт локальный JSON package и не отправляет его автоматически. Это первый slice EPIC-11: troubleshooting export для support/QA без Thunderbird import/export, backup/restore или remote telemetry.
 
-Bundle может включать:
+Schema v2 (`SupportDebugBundle`) включает:
 
-- app name/version;
-- account id/email/provider/settings summary;
-- persisted diagnostics;
-- debug code;
-- sanitized raw cause.
+- `schemaVersion: 2` и `exportedAt`;
+- app metadata: name, version, Tauri version, platform, arch, WebView when available;
+- scope: optional `accountId`, `includeQueue: true`, `includeDiagnostics: true`;
+- sanitized account id/email/provider/auth/server summary;
+- persisted `ConnectionDiagnostic[]`;
+- account sync health summary;
+- latest redacted Queue Inspector items, limited by the service default;
+- optional summarized `SecurityWarning[]`.
+
+Support bundle save flow:
+
+- desktop app opens a Tauri save dialog and writes JSON to the selected path;
+- browser preview falls back to Blob download;
+- UI shows saved path or fallback status;
+- Settings > About exposes all-account export;
+- Account Repair Center exposes account-scoped export and keeps it available even when no diagnostics exist.
 
 Bundle не должен включать:
 
 - access/refresh/id tokens;
 - passwords или app passwords;
 - OAuth client secrets;
+- auth headers;
 - raw message bodies;
 - raw MIME;
+- raw `pending_operations.params`;
 - full local database dumps.
+
+Legacy `DebugBundle` schema v1 remains as compatibility service API, but new UI entry points use `SupportDebugBundle` schema v2.
 
 ## Smoke checklist
 
@@ -129,7 +144,7 @@ Bundle не должен включать:
 4. TLS/certificate текст классифицируется как `tls_failed` и предлагает проверить TLS.
 5. Sync error toast открывает `/repair/$activeAccountId`.
 6. Settings > Accounts > Repair открывает Repair Center для выбранного аккаунта.
-7. Export debug создаёт JSON без tokens/passwords/raw mail.
+7. Export support bundle создаёт JSON без tokens/passwords/raw mail.
 8. Queue Inspector `/queue` показывает failed/blocked/pending операции без raw MIME/secrets.
 9. Failed Outbox send можно retry/cancel, cancel переводит operation в `cancelled`.
 10. UIDVALIDITY warning виден в health/diagnostics после folder resync.
