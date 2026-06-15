@@ -40,7 +40,6 @@ import { SignatureEditor } from "./SignatureEditor";
 import { TemplateEditor } from "./TemplateEditor";
 import { FilterEditor } from "./FilterEditor";
 import { LabelEditor } from "./LabelEditor";
-import { ContactEditor } from "./ContactEditor";
 import { SubscriptionManager } from "./SubscriptionManager";
 import { SmartFolderEditor } from "./SmartFolderEditor";
 import { QuickStepEditor } from "./QuickStepEditor";
@@ -1140,13 +1139,6 @@ export function SettingsPage() {
 
               {activeTab === "people" && (
                 <>
-                  <Section title="Contacts">
-                    <p className="text-xs text-text-tertiary mb-3">
-                      Contacts are automatically added from mail activity and can be managed with multiple email identities.
-                    </p>
-                    <ContactEditor />
-                  </Section>
-
                   <Section title="Subscriptions">
                     <p className="text-xs text-text-tertiary mb-3">
                       View all detected newsletter and promotional senders. Unsubscribe using RFC 8058 one-click POST, mailto, or browser fallback.

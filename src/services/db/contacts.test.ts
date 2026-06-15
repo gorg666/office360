@@ -294,14 +294,58 @@ describe("contacts service", () => {
         "END:VCARD",
       ].join("\r\n"));
 
-      expect(parsed).toEqual({
+      expect(parsed).toMatchObject({
         uid: "contact-1",
         displayName: "Alice Example",
+        firstName: null,
+        lastName: null,
+        nickname: null,
         emails: ["alice@example.com", "alias@example.com"],
         notes: "VIP",
         organization: "Example Inc",
         title: "Director",
+        role: null,
+        timezone: null,
       });
+      expect(parsed.emailLabels.get("alias@example.com")).toBe("WORK");
+    });
+
+    it("parses rich Thunderbird-style vCard fields", () => {
+      const parsed = parseVCard([
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        "UID:contact-2",
+        "FN:Bob Example",
+        "N:Example;Bob;;;",
+        "NICKNAME:Bobby",
+        "EMAIL;TYPE=WORK,PREF:bob@example.com",
+        "TEL;TYPE=CELL:+1 555 0100",
+        "URL;TYPE=WORK:https://example.com",
+        "ADR;TYPE=HOME:;;Main St 1;Boston;MA;02101;US",
+        "TZ:America/New_York",
+        "BDAY:1990-01-02",
+        "ANNIVERSARY:2020-03-04",
+        "ROLE:Lead",
+        "IMPP;TYPE=WORK:xmpp:bob@example.com",
+        "END:VCARD",
+      ].join("\r\n"));
+
+      expect(parsed).toMatchObject({
+        uid: "contact-2",
+        firstName: "Bob",
+        lastName: "Example",
+        nickname: "Bobby",
+        phones: [{ kind: "phone", value: "+1 555 0100", label: "CELL", isPrimary: false }],
+        urls: [{ kind: "url", value: "https://example.com", label: "WORK", isPrimary: false }],
+        addresses: [{ label: "HOME", street: "Main St 1", city: "Boston", region: "MA", postalCode: "02101", country: "US" }],
+        timezone: "America/New_York",
+        role: "Lead",
+        impps: [{ kind: "impp", value: "xmpp:bob@example.com", label: "WORK" }],
+      });
+      expect(parsed.specialDates).toEqual([
+        { kind: "birthday", value: "1990-01-02" },
+        { kind: "anniversary", value: "2020-03-04" },
+      ]);
     });
 
     it("exports core contact fields to vCard", () => {

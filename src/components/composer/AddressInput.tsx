@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { searchContacts, type ContactSearchResult } from "@/services/db/contacts";
+import { searchRecipientSuggestions, type RecipientSuggestion } from "@/services/db/contacts";
 
 interface AddressInputProps {
   label: string;
@@ -15,7 +15,7 @@ export function AddressInput({
   placeholder = "Добавьте получателей...",
 }: AddressInputProps) {
   const [inputValue, setInputValue] = useState("");
-  const [suggestions, setSuggestions] = useState<ContactSearchResult[]>([]);
+  const [suggestions, setSuggestions] = useState<RecipientSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -35,7 +35,7 @@ export function AddressInput({
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
       if (value.length >= 2) {
         searchTimerRef.current = setTimeout(async () => {
-          const results = await searchContacts(value, 5);
+          const results = await searchRecipientSuggestions(value, 8);
           setSuggestions(results);
           setShowSuggestions(results.length > 0);
           setSelectedIdx(-1);
@@ -73,7 +73,7 @@ export function AddressInput({
     if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
       e.preventDefault();
       if (showSuggestions && selectedIdx >= 0) {
-        addAddress(suggestions[selectedIdx]!.identity_email ?? suggestions[selectedIdx]!.email);
+        addAddress(suggestions[selectedIdx]!.address);
       } else if (inputValue.trim()) {
         addAddress(inputValue);
       }
@@ -132,19 +132,19 @@ export function AddressInput({
           <div className="absolute top-full left-0 mt-1 w-full bg-bg-primary border border-border-primary rounded-md shadow-lg z-50 py-1">
             {suggestions.map((contact, i) => (
               <button
-                key={`${contact.id}:${contact.identity_email ?? contact.email}`}
+                key={`${contact.kind}:${contact.id}:${contact.address}`}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => addAddress(contact.identity_email ?? contact.email)}
+                onClick={() => addAddress(contact.address)}
                 className={`w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover ${
                   i === selectedIdx ? "bg-bg-hover" : ""
                 }`}
               >
                 <div className="text-text-primary">
-                  {contact.display_name ?? contact.identity_email ?? contact.email}
+                  {contact.label}
                 </div>
-                {(contact.display_name || contact.identity_email) && (
+                {(contact.detail || contact.address) && (
                   <div className="text-xs text-text-tertiary">
-                    {contact.identity_email ?? contact.email}
+                    {contact.kind === "list" ? `List - ${contact.detail}` : contact.address}
                   </div>
                 )}
               </button>

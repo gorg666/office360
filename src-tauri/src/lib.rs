@@ -22,7 +22,9 @@ use tauri_plugin_autostart::MacosLauncher;
 
 mod commands;
 mod audio;
+mod contact_avatars;
 mod imap;
+mod ldap;
 mod messengers;
 mod oauth;
 mod smtp;
@@ -110,6 +112,8 @@ pub fn run() {
             close_splashscreen,
             open_devtools,
             audio::play_notification_sound,
+            contact_avatars::save_contact_avatar,
+            contact_avatars::delete_contact_avatar,
             commands::imap_test_connection,
             commands::imap_list_folders,
             commands::imap_create_folder,
@@ -137,6 +141,8 @@ pub fn run() {
             commands::imap_delta_check,
             commands::smtp_send_email,
             commands::smtp_test_connection,
+            ldap::ldap_test_connection,
+            ldap::ldap_search,
             messengers::messenger_request,
             messengers::messenger_download_file,
             messengers::messenger_send_file_base64,

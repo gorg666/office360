@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { fetchAndCacheGravatarUrl } from "@/services/contacts/gravatar";
 import { getContactByEmail } from "@/services/db/contacts";
 import { useAccountStore } from "@/stores/accountStore";
@@ -77,6 +78,11 @@ function isYandexPasportAvatarUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+function renderableAvatarUrl(url: string): string {
+  if (/^(https?|data|blob|asset):/i.test(url)) return url;
+  return convertFileSrc(url);
 }
 
 interface ContactAvatarProps {
@@ -170,11 +176,12 @@ export function ContactAvatar({
   ]);
 
   const currentAvatarUrl = avatarCandidates[candidateIndex] ?? null;
+  const currentAvatarSrc = currentAvatarUrl ? renderableAvatarUrl(currentAvatarUrl) : null;
 
-  if (currentAvatarUrl) {
+  if (currentAvatarUrl && currentAvatarSrc) {
     return (
       <img
-        src={currentAvatarUrl}
+        src={currentAvatarSrc}
         alt={display}
         className={`${className} object-cover`}
         loading="lazy"

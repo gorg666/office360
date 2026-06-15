@@ -17,6 +17,7 @@ const TasksPage = lazy(() => import("@/components/tasks/TasksPage").then((m) => 
 const AttachmentLibrary = lazy(() => import("@/components/attachments/AttachmentLibrary").then((m) => ({ default: m.AttachmentLibrary })));
 const AccountRepairCenter = lazy(() => import("@/components/repair/AccountRepairCenter").then((m) => ({ default: m.AccountRepairCenter })));
 const QueueInspector = lazy(() => import("@/components/queue/QueueInspector").then((m) => ({ default: m.QueueInspector })));
+const ContactsPage = lazy(() => import("@/components/contacts/ContactsPage").then((m) => ({ default: m.ContactsPage })));
 
 // ---------- Search param validation ----------
 const VALID_CATEGORIES = ["Primary", "Updates", "Promotions", "Social", "Newsletters"] as const;
@@ -106,6 +107,16 @@ function QueueInspectorWrapper() {
     <ErrorBoundary name="QueueInspector">
       <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading queue...</div>}>
         <QueueInspector />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
+function ContactsPageWrapper() {
+  return (
+    <ErrorBoundary name="ContactsPage">
+      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading contacts...</div>}>
+        <ContactsPage />
       </Suspense>
     </ErrorBoundary>
   );
@@ -231,6 +242,13 @@ export const queueRoute = createRoute({
   component: QueueInspectorWrapper,
 });
 
+// ---------- /contacts ----------
+export const contactsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "contacts",
+  component: ContactsPageWrapper,
+});
+
 // ---------- /messengers (открыть панель и перейти во входящие) ----------
 export const messengersRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -271,6 +289,7 @@ export const routeTree = rootRoute.addChildren([
   repairRoute,
   repairAccountRoute,
   queueRoute,
+  contactsRoute,
   messengersRoute,
   helpIndexRoute,
   helpTopicRoute,

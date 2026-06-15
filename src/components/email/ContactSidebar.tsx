@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Mail, Clock, X, Send, Copy, Star, UserPlus, Check, PenLine,
-  Paperclip, Building2, ChevronDown, ChevronRight,
+  Paperclip, Building2, ChevronDown, ChevronRight, Users,
 } from "lucide-react";
 import {
   getContactByEmail, getContactStats, getRecentThreadsWithContact,
@@ -15,7 +15,7 @@ import { isVipSender, addVipSender, removeVipSender } from "@/services/db/notifi
 import { useThreadStore } from "@/stores/threadStore";
 import { openNewCompose } from "@/utils/openComposeWindow";
 import { getThreadById, getThreadLabelIds } from "@/services/db/threads";
-import { navigateToThread } from "@/router/navigate";
+import { navigateToLabel, navigateToThread } from "@/router/navigate";
 import { formatRelativeDate } from "@/utils/date";
 import { formatFileSize, getFileIcon } from "@/utils/fileTypeHelpers";
 import { AuthBadge } from "./AuthBadge";
@@ -122,6 +122,10 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
   const handleCompose = useCallback(() => {
     void openNewCompose({ to: [email] });
   }, [email]);
+
+  const handleOpenAddressBook = useCallback(() => {
+    navigateToLabel("contacts");
+  }, []);
 
   const handleCopyEmail = useCallback(() => {
     navigator.clipboard.writeText(email);
@@ -287,6 +291,13 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
             }`}
           >
             <Star size={16} fill={isVip ? "currentColor" : "none"} />
+          </button>
+          <button
+            onClick={handleOpenAddressBook}
+            title="Open in Address Book"
+            className="p-2 text-text-secondary hover:text-accent hover:bg-bg-hover rounded-lg transition-colors"
+          >
+            <Users size={16} />
           </button>
         </div>
 

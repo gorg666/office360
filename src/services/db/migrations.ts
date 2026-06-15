@@ -949,6 +949,155 @@ export const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_calendar_invitations_rsvp_queue ON calendar_invitations(rsvp_queue_status, updated_at DESC);
     `,
   },
+  {
+    version: 31,
+    description: "Full address book directories, rich contact fields, and mailing lists",
+    sql: `
+      CREATE TABLE IF NOT EXISTS contact_directories (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'local',
+        source_type TEXT,
+        source_id TEXT,
+        account_id TEXT,
+        server_url TEXT,
+        username TEXT,
+        auth_ref TEXT,
+        remote_url TEXT,
+        sync_token TEXT,
+        ctag TEXT,
+        sync_status TEXT DEFAULT 'idle',
+        sync_error TEXT,
+        read_only INTEGER DEFAULT 0,
+        ldap_host TEXT,
+        ldap_port INTEGER,
+        ldap_security TEXT,
+        ldap_base_dn TEXT,
+        ldap_filter TEXT,
+        ldap_bind_dn TEXT,
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch()),
+        last_synced_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_contact_directories_kind ON contact_directories(kind);
+
+      INSERT OR IGNORE INTO contact_directories (id, name, kind, source_type, read_only)
+      VALUES
+        ('personal', 'Personal Address Book', 'local', 'local', 0),
+        ('collected', 'Collected Addresses', 'collected', 'inferred', 0);
+
+      ALTER TABLE contacts ADD COLUMN directory_id TEXT REFERENCES contact_directories(id);
+      ALTER TABLE contacts ADD COLUMN first_name TEXT;
+      ALTER TABLE contacts ADD COLUMN last_name TEXT;
+      ALTER TABLE contacts ADD COLUMN nickname TEXT;
+      ALTER TABLE contacts ADD COLUMN role TEXT;
+      ALTER TABLE contacts ADD COLUMN timezone TEXT;
+      ALTER TABLE contacts ADD COLUMN birthday TEXT;
+      ALTER TABLE contacts ADD COLUMN anniversary TEXT;
+      ALTER TABLE contacts ADD COLUMN remote_url TEXT;
+      ALTER TABLE contacts ADD COLUMN remote_uid TEXT;
+      ALTER TABLE contacts ADD COLUMN sync_hash TEXT;
+      ALTER TABLE contacts ADD COLUMN last_synced_at INTEGER;
+      ALTER TABLE contacts ADD COLUMN read_only INTEGER DEFAULT 0;
+      CREATE INDEX IF NOT EXISTS idx_contacts_directory ON contacts(directory_id);
+      CREATE INDEX IF NOT EXISTS idx_contacts_remote_url ON contacts(remote_url);
+
+      UPDATE contacts
+      SET directory_id = CASE
+        WHEN contact_type = 'managed' OR user_edited = 1 THEN 'personal'
+        ELSE 'collected'
+      END
+      WHERE directory_id IS NULL;
+
+      CREATE TABLE IF NOT EXISTS contact_methods (
+        id TEXT PRIMARY KEY,
+        contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        value TEXT NOT NULL,
+        label TEXT,
+        display_name TEXT,
+        is_primary INTEGER DEFAULT 0,
+        sort_order INTEGER DEFAULT 0,
+        source_type TEXT,
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch())
+      );
+      CREATE INDEX IF NOT EXISTS idx_contact_methods_contact ON contact_methods(contact_id, kind, sort_order);
+      CREATE INDEX IF NOT EXISTS idx_contact_methods_value ON contact_methods(kind, value);
+
+      INSERT OR IGNORE INTO contact_methods (
+        id, contact_id, kind, value, label, display_name, is_primary, sort_order, source_type, created_at, updated_at
+      )
+      SELECT
+        id || ':method',
+        contact_id,
+        'email',
+        email,
+        label,
+        display_name,
+        is_primary,
+        CASE WHEN is_primary = 1 THEN 0 ELSE 10 END,
+        source_type,
+        created_at,
+        updated_at
+      FROM contact_identities;
+
+      CREATE TABLE IF NOT EXISTS contact_addresses (
+        id TEXT PRIMARY KEY,
+        contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+        label TEXT,
+        street TEXT,
+        city TEXT,
+        region TEXT,
+        postal_code TEXT,
+        country TEXT,
+        sort_order INTEGER DEFAULT 0,
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch())
+      );
+      CREATE INDEX IF NOT EXISTS idx_contact_addresses_contact ON contact_addresses(contact_id, sort_order);
+
+      CREATE TABLE IF NOT EXISTS contact_special_dates (
+        id TEXT PRIMARY KEY,
+        contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        value TEXT NOT NULL,
+        label TEXT,
+        sort_order INTEGER DEFAULT 0,
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch())
+      );
+      CREATE INDEX IF NOT EXISTS idx_contact_special_dates_contact ON contact_special_dates(contact_id, kind);
+
+      CREATE TABLE IF NOT EXISTS contact_lists (
+        id TEXT PRIMARY KEY,
+        directory_id TEXT NOT NULL REFERENCES contact_directories(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        nickname TEXT,
+        description TEXT,
+        source_type TEXT DEFAULT 'local',
+        remote_url TEXT,
+        sync_etag TEXT,
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch()),
+        deleted_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_contact_lists_directory ON contact_lists(directory_id);
+
+      CREATE TABLE IF NOT EXISTS contact_list_members (
+        id TEXT PRIMARY KEY,
+        list_id TEXT NOT NULL REFERENCES contact_lists(id) ON DELETE CASCADE,
+        contact_id TEXT REFERENCES contacts(id) ON DELETE SET NULL,
+        email TEXT NOT NULL,
+        display_name TEXT,
+        sort_order INTEGER DEFAULT 0,
+        created_at INTEGER DEFAULT (unixepoch()),
+        UNIQUE(list_id, email)
+      );
+      CREATE INDEX IF NOT EXISTS idx_contact_list_members_list ON contact_list_members(list_id, sort_order);
+      CREATE INDEX IF NOT EXISTS idx_contact_list_members_email ON contact_list_members(email);
+    `,
+  },
 ];
 
 /**

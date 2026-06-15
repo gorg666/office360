@@ -67,6 +67,17 @@ Planned/unsupported until a dedicated adapter exists:
 - Exchange calendar sync.
 - Exchange contacts sync.
 
+## Contacts directories
+
+Address Book directories are separate from mail provider capabilities:
+
+- Local and collected contacts are always available.
+- CardDAV directories are user-configured and sync vCard data through `tsdav`; they are not implied by an IMAP account.
+- LDAP directories are read-only in EPIC-13 and expose configuration, backend reachability test, and bounded search through the desktop backend.
+- Native Microsoft Graph/Yandex360 contacts sync remains planned/unsupported unless the user configures a compatible CardDAV endpoint.
+
+Provider UI must not imply Exchange/Graph/Yandex organization-wide contacts are available through normal mail account setup.
+
 Strategic decision:
 
 - Future Exchange Online/Microsoft 365 native support is Graph-first.
