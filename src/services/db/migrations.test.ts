@@ -132,3 +132,19 @@ describe("calendar invitations migration", () => {
     expect(migration?.sql).toContain("idx_calendar_invitations_thread");
   });
 });
+
+describe("full address book migration", () => {
+  it("adds directories, rich fields, mailing lists, and compatibility backfill", () => {
+    const migration = MIGRATIONS.find((item) => item.version === 31);
+
+    expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS contact_directories");
+    expect(migration?.sql).toContain("INSERT OR IGNORE INTO contact_directories");
+    expect(migration?.sql).toContain("ALTER TABLE contacts ADD COLUMN directory_id");
+    expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS contact_methods");
+    expect(migration?.sql).toContain("INSERT OR IGNORE INTO contact_methods");
+    expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS contact_addresses");
+    expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS contact_special_dates");
+    expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS contact_lists");
+    expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS contact_list_members");
+  });
+});

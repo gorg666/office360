@@ -177,6 +177,11 @@ function navigateToSnapshot(snapshot: SettingsReturnSnapshot | null | undefined)
     return;
   }
 
+  if (pathname === "/contacts") {
+    router.navigate({ to: "/contacts" });
+    return;
+  }
+
   if (pathname === "/repair") {
     router.navigate({ to: "/repair", search });
     return;
@@ -235,6 +240,11 @@ export function navigateToLabel(
 
   if (label === "calendar") {
     router.navigate({ to: "/calendar" });
+    return;
+  }
+
+  if (label === "contacts") {
+    router.navigate({ to: "/contacts" });
     return;
   }
 
@@ -510,6 +520,9 @@ export function getActiveLabel(): string {
     }
     if (match.routeId === "/calendar") {
       return "calendar";
+    }
+    if (match.routeId === "/contacts") {
+      return "contacts";
     }
     if (match.routeId === "/repair" || match.routeId === "/repair/$accountId") {
       return "repair";

@@ -67,6 +67,7 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = 
   { id: "messengers", label: "Мессенджеры", icon: MessageCircle },
   { id: "tasks", label: "Tasks", icon: CheckSquare },
   { id: "calendar", label: "Calendar", icon: Calendar },
+  { id: "contacts", label: "Contacts", icon: Users },
   { id: "attachments", label: "Attachments", icon: Paperclip },
   { id: "smart-folders", label: "Smart Folders", icon: FolderSearch },
   { id: "labels", label: "Labels", icon: Tag },
@@ -228,7 +229,7 @@ function getSmartFolderIcon(iconName: string): LucideIcon {
 }
 
 const LABELS_COLLAPSED_COUNT = 3;
-const SERVICE_NAV_IDS = new Set(["messengers", "tasks", "calendar", "attachments"]);
+const SERVICE_NAV_IDS = new Set(["messengers", "tasks", "calendar", "contacts", "attachments"]);
 
 export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const activeLabel = useActiveLabel();
@@ -388,7 +389,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
 
   return (
     <aside
-      className={`no-select flex flex-col bg-sidebar-bg text-sidebar-text border-r border-border-primary transition-all duration-200 glass-panel ${
+      className={`no-select flex shrink-0 flex-col bg-sidebar-bg text-sidebar-text border-r border-border-primary transition-all duration-200 glass-panel ${
         collapsed ? "w-16" : "w-60"
       }`}
     >

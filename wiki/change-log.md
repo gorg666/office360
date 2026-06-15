@@ -2,6 +2,43 @@
 
 Эта страница фиксирует behavior и system changes, которые влияют на работу Office360. Это не замена Git history, а проектное объяснение важных решений.
 
+## 2026-06-15 - Address Book contact photos
+
+Добавлено:
+
+- Contact preview and contact list use the shared `ContactAvatar` renderer instead of static initials/user icons.
+- Inline contact editor supports staged contact photo changes: remote URL, local image upload, and remove.
+- Uploaded contact photos are center-cropped to a square avatar, stored as managed local files under app data `contact-avatars/`, and referenced through `contacts.avatar_url`.
+
+Важно:
+
+- Photo changes are applied only on contact save and participate in the dirty-form confirmation flow.
+- Cleanup deletes only app-managed local avatar files, never remote URLs.
+
+## 2026-06-14 - EPIC-13 Full Address Book
+
+Добавлено:
+
+- OpenSpec change `epic-13-full-address-book`.
+- Additive migration v31 для address book directories, rich contact methods, postal addresses, special dates, mailing lists и sync metadata.
+- Dedicated route `/contacts` и sidebar item `Contacts`.
+- Full Address Book UI: directories, contacts, mailing lists, rich contact editor, vCard import/export, CardDAV setup/test/sync, LDAP setup/test/search.
+- Address Book creation actions now live in the left Address Book column: `New contact` is the primary action, address-book setup opens in a modal, and contact creation selects the target address book in the form.
+- Contact create/edit and import now open in the right details pane instead of modal dialogs; dirty contact forms require confirmation before navigation.
+- Address Book columns are resizable and persist widths in `contacts.columnWidths.v1`; import uses a Thunderbird-like wizard with functional vCard import and placeholder unsupported formats.
+- Rich vCard parser/export для `N`, `NICKNAME`, repeated `EMAIL`/`TEL`/`URL`, `ADR`, `TZ`, `ORG`, `TITLE`, `ROLE`, `BDAY`, `ANNIVERSARY`, `IMPP`.
+- Composer autocomplete теперь использует recipient suggestions и показывает mailing lists alongside contacts.
+- Contact sidebar получил переход в Address Book.
+- Settings > People no longer contains contact/address-book management; contacts are managed from the sidebar `Contacts` route.
+
+Важно:
+
+- `contacts` и `contact_identities` остаются compatibility layer для существующих mail flows.
+- Existing inferred contacts backfill в `Collected Addresses`, managed/user contacts - в `Personal Address Book`.
+- CardDAV sync использует `tsdav` и encrypted password reference; текущая стратегия - full-fetch/upsert с ETag metadata.
+- LDAP в этом slice read-only: directory config, backend reachability test и bounded search без LDAP write.
+- CardDAV/LDAP secrets не логируются и не должны попадать в support bundle.
+
 ## 2026-06-14 - EPIC-11 Support debug bundle first slice
 
 Добавлено:

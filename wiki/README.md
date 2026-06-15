@@ -10,7 +10,7 @@
 - [Provider Capabilities](provider-capabilities.md) - provider model, Gmail/Yandex/IMAP capability decisions и UI gating.
 - [Microsoft 365 / Exchange Status](microsoft-365-exchange-status.md) - Graph-first decision, IMAP/SMTP compatibility path и unsupported enterprise boundaries.
 - [Account Diagnostics](account-diagnostics.md) - ConnectionDiagnostic, Repair Center и privacy-safe support bundle.
-- [Contacts and address book](contacts-address-book.md) - contact aggregate, identities, vCard compatibility и текущие границы sync scope.
+- [Contacts and address book](contacts-address-book.md) - full Address Book, directories, rich vCard contacts, mailing lists, CardDAV и LDAP boundaries.
 - [Calendar invitations](calendar-invitations.md) - invite detection, thread invite card, local-first RSVP и границы remote delivery.
 - [Security & Privacy](security-privacy.md) - SecurityWarning contract, remote content, phishing links, risky attachments и debug redaction.
 - [Testing Process](testing-process.md) - обязательные layers проверки, installed desktop smoke и screenshot evidence.
@@ -46,3 +46,11 @@ Microsoft OAuth для Outlook/Hotmail/Live является IMAP/SMTP compatibi
 - Suspicious link confirmation показывает target URL и displayed link text.
 - Risky attachments требуют explicit confirmation перед preview/download.
 - Support bundle содержит только summaries security warnings, без raw HTML/body/MIME.
+
+Для Address Book изменений проверять:
+
+- `/contacts` открывается из sidebar и Settings > People.
+- Existing inferred contacts видны в `Collected Addresses`, managed contacts - в `Personal Address Book`.
+- Rich contact save не ломает compose autocomplete и sender display names.
+- vCard import/export не теряет supported rich fields.
+- CardDAV/LDAP credentials не появляются в UI status, logs или support bundle.

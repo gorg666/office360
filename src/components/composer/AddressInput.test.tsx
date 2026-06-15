@@ -5,7 +5,7 @@ import { AddressInput } from "./AddressInput";
 // Mock the contacts search
 const mockSearchContacts = vi.fn().mockResolvedValue([]);
 vi.mock("@/services/db/contacts", () => ({
-  searchContacts: (...args: unknown[]) => mockSearchContacts(...args),
+  searchRecipientSuggestions: (...args: unknown[]) => mockSearchContacts(...args),
 }));
 
 describe("AddressInput debounce behavior", () => {
@@ -44,7 +44,7 @@ describe("AddressInput debounce behavior", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250);
     });
-    expect(mockSearchContacts).toHaveBeenCalledWith("jo", 5);
+    expect(mockSearchContacts).toHaveBeenCalledWith("jo", 8);
   });
 
   it("should not search when input is too short", async () => {
@@ -89,20 +89,17 @@ describe("AddressInput debounce behavior", () => {
       await vi.advanceTimersByTimeAsync(250);
     });
     expect(mockSearchContacts).toHaveBeenCalledTimes(1);
-    expect(mockSearchContacts).toHaveBeenCalledWith("john", 5);
+    expect(mockSearchContacts).toHaveBeenCalledWith("john", 8);
   });
 
   it("adds the matched identity email from autocomplete", async () => {
     mockSearchContacts.mockResolvedValueOnce([
       {
         id: "c-1",
-        email: "primary@example.com",
-        identity_email: "alias@example.com",
-        display_name: "Alice Example",
-        avatar_url: null,
-        frequency: 8,
-        last_contacted_at: null,
-        notes: null,
+        kind: "contact",
+        label: "Alice Example",
+        address: "alias@example.com",
+        detail: null,
       },
     ]);
     const onChange = vi.fn();
