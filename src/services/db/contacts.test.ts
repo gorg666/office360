@@ -24,7 +24,7 @@ import {
   updateContactNotes, getAttachmentsFromContact,
   getContactsFromSameDomain, getLatestAuthResult,
   getContactByEmail, saveManagedContact, upsertContact,
-  parseVCard, buildVCardForContact,
+  saveRichContact, parseVCard, buildVCardForContact,
   type DbContact,
   type ContactIdentity,
 } from "./contacts";
@@ -276,6 +276,96 @@ describe("contacts service", () => {
         expect.stringContaining("CASE WHEN $1 = 1 THEN display_name"),
         [1, "Alice Inferred", "c-1"],
       );
+    });
+
+    it("keeps the first primary non-email method per kind", async () => {
+      const saved: DbContact = {
+        id: "c-1",
+        email: "alice@example.com",
+        display_name: "Alice",
+        avatar_url: null,
+        frequency: 1,
+        last_contacted_at: null,
+        notes: null,
+        read_only: 0,
+        source_type: "local",
+      };
+      const identities: ContactIdentity[] = [{
+        id: "i-1",
+        contact_id: "c-1",
+        email: "alice@example.com",
+        label: null,
+        display_name: null,
+        is_primary: 1,
+        source_type: "local",
+      }];
+      mockDb.select.mockImplementation(async (query: string) => {
+        if (query.includes("FROM contacts")) return [saved];
+        if (query.includes("FROM contact_identities")) return identities;
+        return [];
+      });
+
+      await saveRichContact({
+        id: "c-1",
+        displayName: "Alice",
+        identities: ["alice@example.com"],
+        methods: [
+          { kind: "phone", value: "+1 555 0100", isPrimary: true },
+          { kind: "phone", value: "+1 555 0101", isPrimary: true },
+          { kind: "url", value: "https://example.com", isPrimary: true },
+        ],
+      });
+
+      const methodInserts = mockDb.execute.mock.calls
+        .filter(([query]) => String(query).includes("INSERT INTO contact_methods"))
+        .map(([, params]) => params as unknown[]);
+      const phoneInserts = methodInserts.filter((params) => params[2] === "phone");
+      const urlInsert = methodInserts.find((params) => params[2] === "url");
+
+      expect(phoneInserts.map((params) => params[6])).toEqual([1, 0]);
+      expect(urlInsert?.[6]).toBe(1);
+    });
+
+    it("allows rich contact sync etag and status to be explicitly cleared", async () => {
+      const saved: DbContact = {
+        id: "c-1",
+        email: "alice@example.com",
+        display_name: "Alice",
+        avatar_url: null,
+        frequency: 1,
+        last_contacted_at: null,
+        notes: null,
+        sync_etag: "old-etag",
+        sync_status: "dirty",
+        read_only: 0,
+        source_type: "carddav",
+      };
+      const identities: ContactIdentity[] = [{
+        id: "i-1",
+        contact_id: "c-1",
+        email: "alice@example.com",
+        label: null,
+        display_name: null,
+        is_primary: 1,
+        source_type: "carddav",
+      }];
+      mockDb.select.mockImplementation(async (query: string) => {
+        if (query.includes("FROM contacts")) return [saved];
+        if (query.includes("FROM contact_identities")) return identities;
+        return [];
+      });
+
+      await saveRichContact({
+        id: "c-1",
+        displayName: "Alice",
+        identities: ["alice@example.com"],
+        syncEtag: null,
+        syncStatus: null,
+      });
+
+      const syncUpdate = mockDb.execute.mock.calls.find(([query]) => String(query).includes("sync_etag = CASE"));
+      expect(syncUpdate?.[0]).toContain("sync_status = CASE");
+      expect(syncUpdate?.[1]).toEqual(expect.arrayContaining([1, null, 1, null, "c-1"]));
     });
   });
 
