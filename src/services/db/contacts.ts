@@ -345,13 +345,19 @@ function normalizeContactMethods(
     });
   }
 
-  return out.map((method, index) => ({
-    ...method,
-    sortOrder: method.sortOrder ?? index,
-    isPrimary: method.kind === "email"
+  const primaryMethodKinds = new Set<string>();
+  return out.map((method, index) => {
+    const isEmail = method.kind === "email";
+    const isPrimary = isEmail
       ? method.isPrimary === true
-      : method.isPrimary === true && !out.some((other) => other.kind === method.kind && other !== method && other.isPrimary === true),
-  }));
+      : method.isPrimary === true && !primaryMethodKinds.has(method.kind);
+    if (!isEmail && isPrimary) primaryMethodKinds.add(method.kind);
+    return {
+      ...method,
+      sortOrder: method.sortOrder ?? index,
+      isPrimary,
+    };
+  });
 }
 
 function normalizeAddressInputs(addresses: ContactAddressInput[] | undefined): Required<ContactAddressInput>[] {
@@ -725,6 +731,8 @@ export async function saveRichContact(input: SaveRichContactInput): Promise<Rich
     ...(input.anniversary ? [{ kind: "anniversary", value: input.anniversary }] : []),
     ...(input.specialDates ?? []),
   ]);
+  const syncEtagProvided = Object.prototype.hasOwnProperty.call(input, "syncEtag") ? 1 : 0;
+  const syncStatusProvided = Object.prototype.hasOwnProperty.call(input, "syncStatus") ? 1 : 0;
 
   await withTransaction(async (lockedDb) => {
     await lockedDb.execute(
@@ -739,11 +747,11 @@ export async function saveRichContact(input: SaveRichContactInput): Promise<Rich
            anniversary = $8,
            remote_url = COALESCE($9, remote_url),
            remote_uid = COALESCE($10, remote_uid),
-           sync_etag = COALESCE($11, sync_etag),
-           sync_status = COALESCE($12, sync_status),
-           read_only = $13,
+           sync_etag = CASE WHEN $11 = 1 THEN $12 ELSE sync_etag END,
+           sync_status = CASE WHEN $13 = 1 THEN $14 ELSE sync_status END,
+           read_only = $15,
            updated_at = unixepoch()
-       WHERE id = $14`,
+       WHERE id = $16`,
       [
         input.directoryId ?? null,
         input.firstName ?? null,
@@ -755,7 +763,9 @@ export async function saveRichContact(input: SaveRichContactInput): Promise<Rich
         input.anniversary ?? null,
         input.remoteUrl ?? null,
         input.remoteUid ?? null,
+        syncEtagProvided,
         input.syncEtag ?? null,
+        syncStatusProvided,
         input.syncStatus ?? null,
         input.readOnly ? 1 : saved.read_only ?? 0,
         saved.id,
