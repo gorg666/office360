@@ -1098,6 +1098,11 @@ export const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_contact_list_members_email ON contact_list_members(email);
     `,
   },
+  {
+    version: 32,
+    description: "Persist OAuth granted scopes for service readiness",
+    sql: `ALTER TABLE accounts ADD COLUMN oauth_granted_scopes TEXT;`,
+  },
 ];
 
 /**

@@ -68,4 +68,20 @@ describe("yandex360 client", () => {
       yandex360Request({ token: "token", method: "GET", path: "/v1/orgs" }),
     ).rejects.toThrow("Недостаточно прав");
   });
+
+  it("does not include raw response bodies in generic error messages", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ access_token: "secret-token", raw: "provider-payload" }), {
+        status: 500,
+        statusText: "Server Error",
+      }),
+    );
+
+    await expect(
+      yandex360Request({ token: "token", method: "GET", path: "/v1/orgs" }),
+    ).rejects.toThrow("Подробности скрыты");
+    await expect(
+      yandex360Request({ token: "token", method: "GET", path: "/v1/orgs" }),
+    ).rejects.not.toThrow("secret-token");
+  });
 });

@@ -182,6 +182,7 @@ export function AccountRepairCenter() {
           oauthProvider: account.oauth_provider,
           oauthClientId: account.oauth_client_id,
           oauthClientSecret: account.oauth_client_secret,
+          oauthGrantedScopes: tokens.scope ?? account.oauth_granted_scopes,
           imapUsername: account.imap_username,
           acceptInvalidCerts: account.accept_invalid_certs === 1,
         });
@@ -230,8 +231,8 @@ export function AccountRepairCenter() {
             <ArrowLeft size={18} />
           </button>
           <div className="min-w-0">
-            <h1 className="text-base font-semibold text-text-primary">Account Repair Center</h1>
-            <p className="text-xs text-text-tertiary">Диагностика аккаунтов, восстановление и privacy-safe support bundle</p>
+            <h1 className="text-base font-semibold text-text-primary">Восстановление аккаунта</h1>
+            <p className="text-xs text-text-tertiary">Диагностика, повторный вход и безопасный пакет для поддержки</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Button variant="secondary" icon={<RefreshCw size={14} />} onClick={() => void load()} disabled={loading}>

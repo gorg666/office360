@@ -413,6 +413,7 @@ export function AddImapAccount({
           oauthProvider: accountForm.oauthProvider!,
           oauthClientId: accountForm.oauthClientId.trim(),
           oauthClientSecret: accountForm.oauthClientSecret.trim() || null,
+          oauthGrantedScopes: accountForm.oauthGrantedScopes,
           imapUsername,
           acceptInvalidCerts: accountForm.acceptInvalidCerts,
         };

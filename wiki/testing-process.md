@@ -1,4 +1,4 @@
-# Testing Process
+   # Testing Process
 
 Эта страница фиксирует минимальный процесс проверки Office360, чтобы UI changes не считались проверенными только по unit tests или сборке.
 

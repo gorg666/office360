@@ -43,6 +43,9 @@ function reasonFromMessage(raw: string, context: DiagnosticContext): DiagnosticR
   if (/\b429\b|rate limit|rate_limited|too many requests/i.test(raw)) {
     return "rate_limited";
   }
+  if (/\b403\b|forbidden|недостаточно прав|tariff|тариф/i.test(raw)) {
+    return "unsupported_capability";
+  }
   if (/quota|storage full|over quota/i.test(raw)) {
     return "quota";
   }

@@ -21,6 +21,8 @@
 
 Office360 сфокусирован на IMAP/SMTP и Yandex mail workflows. Gmail не является целевым провайдером для default product experience и должен оставаться скрытым, если явно не включён как compatibility path.
 
+Yandex 360 default flow is ordinary work-account OAuth through Yandex ID. Organization administration is a separate admin scenario and must not appear as the primary mailbox setup path.
+
 Microsoft OAuth для Outlook/Hotmail/Live является IMAP/SMTP compatibility path. Native Microsoft 365/Exchange через Graph, shared mailboxes, Exchange calendar и contacts пока planned/unsupported.
 
 ## Текущий smoke focus
@@ -32,6 +34,7 @@ Microsoft OAuth для Outlook/Hotmail/Live является IMAP/SMTP compatibi
 - Yandex/IMAP context menus не показывают `Apply Label`.
 - Yandex/IMAP settings не показывают `Google API`, `Labels` или `Smart Labels`.
 - `Move to Folder`, archive, trash, star, mark read, send и sync flows работают.
+- Settings > Яндекс 360 показывает account hub, а не raw Admin API token console.
 
 Для account-diagnostics и support bundle изменений проверять:
 
