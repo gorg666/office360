@@ -73,6 +73,19 @@ describe("createConnectionDiagnostic", () => {
     expect(diagnostic.userAction).toBe("retry");
   });
 
+  it("maps provider 403 to unsupported capability guidance", () => {
+    const diagnostic = createConnectionDiagnostic("HTTP 403 forbidden: тариф не позволяет операцию", {
+      layer: "provider",
+      operation: "yandex360",
+      provider: "imap",
+      authMethod: "oauth2",
+    });
+
+    expect(diagnostic.reason).toBe("unsupported_capability");
+    expect(diagnostic.userAction).toBe("contact_admin");
+    expect(diagnostic.retryable).toBe(false);
+  });
+
   it("uses provider_error fallback for unclassified provider failures", () => {
     const diagnostic = createConnectionDiagnostic("unexpected upstream failure", {
       layer: "provider",

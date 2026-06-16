@@ -2,6 +2,22 @@
 
 Эта страница фиксирует behavior и system changes, которые влияют на работу Office360. Это не замена Git history, а проектное объяснение важных решений.
 
+## 2026-06-15 - EPIC-12 Yandex 360 work account foundation
+
+Добавлено:
+
+- OpenSpec change `epic-12-yandex360-work-account-foundation`.
+- Settings > Яндекс 360 теперь показывает рабочий аккаунт Яндекс 360 для подключенных через Яндекс ID почтовых аккаунтов вместо raw Admin API console.
+- Статус сервисов по аккаунту: Почта, Календарь, Мессенджер и Задачи.
+- Persisted `oauth_granted_scopes` для вычисления missing scopes после Yandex OAuth onboarding/reauth.
+- Yandex 360 diagnostics distinguish missing/expired scopes, provider 403/tariff limits and 429 throttling.
+
+Важно:
+
+- Административное управление сотрудниками, доменами, аудитом и общими ящиками не смешивается с обычным подключением почтового аккаунта и требует отдельного администраторского сценария.
+- Raw admin OAuth token entry and raw endpoint execution are not part of the primary Yandex 360 UX.
+- Support bundle and diagnostics must not include OAuth tokens, OAuth client secrets, auth headers or raw Yandex API responses.
+
 ## 2026-06-15 - Address Book contact photos
 
 Добавлено:

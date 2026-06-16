@@ -10,9 +10,9 @@ Office360 - local-first workspace вокруг почты:
 - compose, drafts, send, aliases, signatures, templates и attachments;
 - calendar через CalDAV/provider integrations;
 - tasks, attachments, messengers и AI-assisted productivity;
-- Yandex 360 administration surfaces, где это применимо.
+- Yandex 360 work account hub для обычных Яндекс ID аккаунтов.
 
-Основная provider-модель: IMAP/SMTP плюс Yandex-specific OAuth и workspace capabilities. Gmail API support является compatibility-only и скрыт по умолчанию.
+Основная provider-модель: IMAP/SMTP плюс Yandex-specific OAuth work account capabilities. Gmail API support является compatibility-only и скрыт по умолчанию. Org-level Yandex 360 administration is a separate admin scenario, not the primary user flow.
 
 ## Frontend
 

@@ -99,6 +99,9 @@ Auth failures (`expired_token`, `invalid_credentials`, `missing_scope`) веду
 - TLS/certificate failure классифицируется как `tls_failed`, не как wrong password.
 - Retryable failures получают `retryState` и остаются compatible с outbox queue.
 - CalDAV test/sync failures сохраняются как `caldav`.
+- Yandex 360 work account missing scopes (`mail:imap_full`, `mail:smtp`, `calendar:all`) ведут к `missing_scope` и `reauth`.
+- Yandex provider 403/tariff/permission failures показываются как limited provider capability, not as a prompt for raw admin tokens.
+- Yandex provider 429 остаётся retryable `rate_limited`.
 
 ## Privacy-safe support bundle
 
@@ -129,6 +132,7 @@ Bundle не должен включать:
 - passwords или app passwords;
 - OAuth client secrets;
 - auth headers;
+- raw Yandex API responses;
 - raw message bodies;
 - raw MIME;
 - raw `pending_operations.params`;

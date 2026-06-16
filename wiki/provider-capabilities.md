@@ -8,6 +8,7 @@ Default target providers:
 
 - IMAP/SMTP;
 - Yandex Mail через Yandex ID/OAuth;
+- Yandex 360 work account foundation для ordinary `user@company.ru` accounts;
 - будущие POP3-oriented flows.
 
 Compatibility provider:
@@ -77,6 +78,19 @@ Address Book directories are separate from mail provider capabilities:
 - Native Microsoft Graph/Yandex360 contacts sync remains planned/unsupported unless the user configures a compatible CardDAV endpoint.
 
 Provider UI must not imply Exchange/Graph/Yandex organization-wide contacts are available through normal mail account setup.
+
+## Yandex 360 work accounts
+
+Settings > Яндекс 360 показывает account hub для уже подключенных Yandex ID OAuth аккаунтов. Это ordinary work-account flow, не admin workspace management.
+
+Service readiness:
+
+- Mail requires `mail:imap_full` and `mail:smtp`.
+- Calendar uses the existing Yandex CalDAV path and requires `calendar:all` when the saved OAuth grant exposes scopes.
+- Messenger is shown separately from Telemost and can use the connected Yandex ID account or a configured bot token.
+- Tasks are shown as the Office360 task workspace for the connected work account.
+
+Admin-only employee/domain/audit/shared-mailbox management is a separate administrator scenario. The primary Yandex 360 settings UX must not ask for a raw admin API token or expose raw endpoint execution.
 
 Strategic decision:
 
@@ -170,6 +184,8 @@ UI hiding недостаточно. Service entry points также должны
 10. Quota is shown when server supports `QUOTA`; otherwise unavailable reason is visible.
 11. Archive, trash, star, mark read, send и sync flows работают.
 12. Smart folder with `folderpath:<rawPath>` is marked missing when that folder is deleted.
+13. Settings > Яндекс 360 lists the Yandex ID account as a work account and does not show raw Admin API token fields.
+14. Missing `mail:smtp` or `calendar:all` scopes show re-auth/Repair Center guidance.
 
 Проверить Microsoft/Exchange guardrails:
 

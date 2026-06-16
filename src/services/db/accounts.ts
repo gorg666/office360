@@ -27,6 +27,7 @@ export interface DbAccount {
   oauth_provider: string | null;
   oauth_client_id: string | null;
   oauth_client_secret: string | null;
+  oauth_granted_scopes?: string | null;
   imap_username: string | null;
   caldav_url: string | null;
   caldav_username: string | null;
@@ -313,6 +314,7 @@ export async function insertOAuthImapAccount(account: {
   oauthProvider: string;
   oauthClientId: string;
   oauthClientSecret: string | null;
+  oauthGrantedScopes?: string | null;
   imapUsername?: string | null;
   acceptInvalidCerts?: boolean;
 }): Promise<void> {
@@ -325,8 +327,8 @@ export async function insertOAuthImapAccount(account: {
   const calDavUsername = account.oauthProvider === "yandex" ? account.email : null;
   const calendarProvider = account.oauthProvider === "yandex" ? "caldav" : null;
   await executeWrite(
-    `INSERT INTO accounts (id, email, display_name, avatar_url, access_token, refresh_token, token_expires_at, provider, imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security, auth_method, imap_password, oauth_provider, oauth_client_id, oauth_client_secret, imap_username, accept_invalid_certs, caldav_url, caldav_username, calendar_provider)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'imap', $8, $9, $10, $11, $12, $13, 'oauth2', NULL, $14, $15, $16, $17, $18, $19, $20, $21)`,
+    `INSERT INTO accounts (id, email, display_name, avatar_url, access_token, refresh_token, token_expires_at, provider, imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security, auth_method, imap_password, oauth_provider, oauth_client_id, oauth_client_secret, oauth_granted_scopes, imap_username, accept_invalid_certs, caldav_url, caldav_username, calendar_provider)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'imap', $8, $9, $10, $11, $12, $13, 'oauth2', NULL, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
     [
       account.id,
       account.email,
@@ -344,6 +346,7 @@ export async function insertOAuthImapAccount(account: {
       account.oauthProvider,
       account.oauthClientId,
       encClientSecret,
+      account.oauthGrantedScopes ?? null,
       account.imapUsername || null,
       account.acceptInvalidCerts ? 1 : 0,
       calDavUrl,
@@ -370,6 +373,7 @@ export async function updateOAuthImapAccount(account: {
   oauthProvider: string;
   oauthClientId: string;
   oauthClientSecret: string | null;
+  oauthGrantedScopes?: string | null;
   imapUsername?: string | null;
   acceptInvalidCerts?: boolean;
 }): Promise<void> {
@@ -400,13 +404,14 @@ export async function updateOAuthImapAccount(account: {
          oauth_provider = $13,
          oauth_client_id = $14,
          oauth_client_secret = $15,
-         imap_username = $16,
-         accept_invalid_certs = $17,
-         caldav_url = CASE WHEN $19 = 1 AND (caldav_url IS NULL OR caldav_url = '') THEN $20 ELSE caldav_url END,
-         caldav_username = CASE WHEN $19 = 1 AND (caldav_username IS NULL OR caldav_username = '') THEN $1 ELSE caldav_username END,
-         calendar_provider = CASE WHEN $19 = 1 AND (calendar_provider IS NULL OR calendar_provider = '') THEN 'caldav' ELSE calendar_provider END,
+         oauth_granted_scopes = COALESCE($16, oauth_granted_scopes),
+         imap_username = $17,
+         accept_invalid_certs = $18,
+         caldav_url = CASE WHEN $20 = 1 AND (caldav_url IS NULL OR caldav_url = '') THEN $21 ELSE caldav_url END,
+         caldav_username = CASE WHEN $20 = 1 AND (caldav_username IS NULL OR caldav_username = '') THEN $1 ELSE caldav_username END,
+         calendar_provider = CASE WHEN $20 = 1 AND (calendar_provider IS NULL OR calendar_provider = '') THEN 'caldav' ELSE calendar_provider END,
          updated_at = unixepoch()
-     WHERE id = $18`,
+     WHERE id = $19`,
     [
       account.email,
       account.displayName,
@@ -423,6 +428,7 @@ export async function updateOAuthImapAccount(account: {
       account.oauthProvider,
       account.oauthClientId,
       encClientSecret,
+      account.oauthGrantedScopes ?? null,
       account.imapUsername || null,
       account.acceptInvalidCerts ? 1 : 0,
       account.id,

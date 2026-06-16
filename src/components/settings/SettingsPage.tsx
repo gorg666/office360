@@ -45,7 +45,7 @@ import { SmartFolderEditor } from "./SmartFolderEditor";
 import { QuickStepEditor } from "./QuickStepEditor";
 import { SmartLabelEditor } from "./SmartLabelEditor";
 import { ImapCredentialsEditor } from "./ImapCredentialsEditor";
-import { Yandex360AdminPanel } from "./yandex360/Yandex360AdminPanel";
+import { Yandex360AccountHub } from "./yandex360/Yandex360AccountHub";
 import { SHORTCUTS, getDefaultKeyMap } from "@/constants/shortcuts";
 import { useShortcutStore } from "@/stores/shortcutStore";
 import { COLOR_THEMES } from "@/constants/themes";
@@ -1202,22 +1202,22 @@ export function SettingsPage() {
                                   disabled={resyncStatus[account.id] === "syncing"}
                                   className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50"
                                 >
-                                  {resyncStatus[account.id] === "syncing" && "Resyncing..."}
-                                  {resyncStatus[account.id] === "done" && "Done!"}
-                                  {resyncStatus[account.id] === "error" && "Failed"}
-                                  {(!resyncStatus[account.id] || resyncStatus[account.id] === "idle") && "Resync"}
+                                  {resyncStatus[account.id] === "syncing" && (locale === "ru" ? "Синхронизация..." : "Resyncing...")}
+                                  {resyncStatus[account.id] === "done" && (locale === "ru" ? "Готово!" : "Done!")}
+                                  {resyncStatus[account.id] === "error" && (locale === "ru" ? "Ошибка" : "Failed")}
+                                  {(!resyncStatus[account.id] || resyncStatus[account.id] === "idle") && (locale === "ru" ? "Синхронизировать" : "Resync")}
                                 </button>
                                 <button
                                   onClick={() => navigateToRepairCenter(account.id)}
                                   className="text-xs text-accent hover:text-accent-hover transition-colors"
                                 >
-                                  Repair
+                                  {locale === "ru" ? "Исправить" : "Repair"}
                                 </button>
                                 <button
                                   onClick={() => handleRemoveAccount(account.id)}
                                   className="text-xs text-danger hover:text-danger/80 transition-colors"
                                 >
-                                  Remove
+                                  {locale === "ru" ? "Удалить" : "Remove"}
                                 </button>
                               </div>
                             </div>
@@ -1376,8 +1376,8 @@ export function SettingsPage() {
               )}
 
               {activeTab === "yandex360" && (
-                <Section title="Яндекс 360 Admin API">
-                  <Yandex360AdminPanel />
+                <Section title="Рабочие аккаунты Яндекс 360">
+                  <Yandex360AccountHub />
                 </Section>
               )}
 

@@ -7,3 +7,4 @@ export * from "./errors";
 export * from "./mailAdmin";
 export * from "./security";
 export * from "./types";
+export * from "./workAccount";
