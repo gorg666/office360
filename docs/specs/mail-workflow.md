@@ -89,7 +89,7 @@ Draft
 
 **Реализация:** `f908ac4` feat(mail): add outbox send queue view
 
-**Семантика Outbox (фаза 2):** `01b5e47` feat(mail): clarify outbox send queue status — Outbox = очередь pending/failed retryable отправки, **не** Sent.
+**Семантика Outbox (фаза 2):** `8ca5be2` feat(mail): clarify outbox send queue status — Outbox = очередь pending/failed retryable отправки, **не** Sent.
 
 * offline send → Outbox;
 * online retryable send error → Outbox;
@@ -99,7 +99,7 @@ Draft
 
 **Send feedback (фаза 1):** `701a127` fix(mail): preserve drafts on send failure — composer/inline reply обрабатывают `ActionResult`: success/queued очищают draft/reply; failed сохраняет черновик и показывает toast.
 
-**Folder editing:** capability-gated — Gmail supported; IMAP/Yandex disabled until backend support is implemented.
+**Folder editing:** capability-gated in `372a3c5` — Gmail supported; IMAP/Yandex disabled until backend support is implemented.
 
 **Итог UI (фаза 2):**
 
@@ -246,7 +246,7 @@ Draft
 3. `feat(mail): open messages in separate window on double click`
 4. `feat(mail): add outbox send queue view`
 5. `701a127` `fix(mail): preserve drafts on send failure`
-6. `01b5e47` `feat(mail): clarify outbox send queue status`
+6. `8ca5be2` `feat(mail): clarify outbox send queue status`
 
 ## Сопутствующая стабилизация
 
