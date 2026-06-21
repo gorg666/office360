@@ -46,6 +46,10 @@ import {
 } from "lucide-react";
 import { useTaskStore } from "@/stores/taskStore";
 import { getOutboxSendCount } from "@/services/db/pendingOperations";
+import {
+  FOLDER_EDITING_UNSUPPORTED_MESSAGE,
+  supportsFolderEditing,
+} from "@/services/email/providerCapabilities";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -125,6 +129,7 @@ function DroppableLabelItem({
   onClick,
   onContextMenu,
   onEditClick,
+  canEditFolders,
 }: {
   label: Label;
   isActive: boolean;
@@ -132,6 +137,7 @@ function DroppableLabelItem({
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onEditClick: () => void;
+  canEditFolders: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: label.id });
   const initial = (label.name[0] ?? "?").toUpperCase();
@@ -177,16 +183,18 @@ function DroppableLabelItem({
             <Tag size={14} className="shrink-0" />
           )}
           <span className="flex-1 truncate">{label.name}</span>
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => { e.stopPropagation(); onEditClick(); }}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onEditClick(); } }}
-            className="opacity-0 group-hover:opacity-100 p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-opacity"
-            title="Edit label"
-          >
-            <Pencil size={12} />
-          </span>
+          {canEditFolders && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => { e.stopPropagation(); onEditClick(); }}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onEditClick(); } }}
+              className="opacity-0 group-hover:opacity-100 p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-opacity"
+              title="Edit label"
+            >
+              <Pencil size={12} />
+            </span>
+          )}
         </>
       )}
     </button>
@@ -225,6 +233,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     void openNewCompose();
   }, []);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const activeAccount = useAccountStore((s) =>
+    s.accounts.find((account) => account.id === s.activeAccountId),
+  );
+  const canEditFolders = supportsFolderEditing(activeAccount?.provider);
   const labels = useLabelStore((s) => s.labels);
   const loadLabels = useLabelStore((s) => s.loadLabels);
   const deleteLabel = useLabelStore((s) => s.deleteLabel);
@@ -333,14 +345,14 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, [activeAccountId, loadLabels, refreshSmartFolderCounts]);
 
   const handleDeleteLabel = useCallback(async (labelId: string) => {
-    if (!activeAccountId) return;
+    if (!activeAccountId || !canEditFolders) return;
     try {
       await deleteLabel(activeAccountId, labelId);
       if (editingLabelId === labelId) setEditingLabelId(null);
     } catch {
       // Silently fail in sidebar — user can use Settings for detailed errors
     }
-  }, [activeAccountId, deleteLabel, editingLabelId]);
+  }, [activeAccountId, canEditFolders, deleteLabel, editingLabelId]);
 
   const handleFormDone = useCallback(() => {
     setEditingLabelId(null);
@@ -348,9 +360,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, []);
 
   const handleEditLabel = useCallback((labelId: string) => {
+    if (!canEditFolders) return;
     setShowNewLabelForm(false);
     setEditingLabelId(labelId);
-  }, []);
+  }, [canEditFolders]);
 
   const handleLabelContextMenu = useCallback((e: React.MouseEvent, labelId: string) => {
     e.preventDefault();
@@ -362,9 +375,14 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, [openMenu, handleEditLabel, handleDeleteLabel]);
 
   const handleAddLabel = useCallback(() => {
+    if (!canEditFolders) return;
     setEditingLabelId(null);
     setShowNewLabelForm(true);
-  }, []);
+  }, [canEditFolders]);
+
+  useEffect(() => {
+    if (!canEditFolders) handleFormDone();
+  }, [canEditFolders, handleFormDone]);
 
   const [showSmartFolderModal, setShowSmartFolderModal] = useState(false);
 
@@ -586,8 +604,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 </span>
                 <button
                   onClick={handleAddLabel}
-                  className="p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-colors"
-                  title="Add label"
+                  disabled={!canEditFolders}
+                  className="p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-sidebar-text/40"
+                  title={canEditFolders ? "Add label" : FOLDER_EDITING_UNSUPPORTED_MESSAGE}
                 >
                   <Plus size={14} />
                 </button>
@@ -603,6 +622,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                   onClick={() => navigateToLabel(label.id)}
                   onContextMenu={(e) => handleLabelContextMenu(e, label.id)}
                   onEditClick={() => handleEditLabel(label.id)}
+                  canEditFolders={canEditFolders}
                 />
                 {editingLabelId === label.id && activeAccountId && !collapsed && (
                   <LabelForm
@@ -627,6 +647,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         onClick={() => navigateToLabel(label.id)}
                         onContextMenu={(e) => handleLabelContextMenu(e, label.id)}
                         onEditClick={() => handleEditLabel(label.id)}
+                        canEditFolders={canEditFolders}
                       />
                       {editingLabelId === label.id && activeAccountId && !collapsed && (
                         <LabelForm

@@ -3,9 +3,17 @@ import { Trash2, Pencil, ChevronUp, ChevronDown, X } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { LabelForm } from "@/components/labels/LabelForm";
+import {
+  FOLDER_EDITING_UNSUPPORTED_MESSAGE,
+  supportsFolderEditing,
+} from "@/services/email/providerCapabilities";
 
 export function LabelEditor() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const activeAccount = useAccountStore((s) =>
+    s.accounts.find((account) => account.id === s.activeAccountId),
+  );
+  const canEditFolders = supportsFolderEditing(activeAccount?.provider);
   const { labels, loadLabels, deleteLabel, reorderLabels } = useLabelStore();
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -26,13 +34,14 @@ export function LabelEditor() {
   }, []);
 
   const handleEdit = useCallback((label: Label) => {
+    if (!canEditFolders) return;
     setEditingId(label.id);
     setShowForm(true);
     setError(null);
-  }, []);
+  }, [canEditFolders]);
 
   const handleDelete = useCallback(async (label: Label) => {
-    if (!activeAccountId) return;
+    if (!activeAccountId || !canEditFolders) return;
     setError(null);
     try {
       await deleteLabel(activeAccountId, label.id);
@@ -40,7 +49,11 @@ export function LabelEditor() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete label");
     }
-  }, [activeAccountId, deleteLabel, editingId, resetForm]);
+  }, [activeAccountId, canEditFolders, deleteLabel, editingId, resetForm]);
+
+  useEffect(() => {
+    if (!canEditFolders) resetForm();
+  }, [canEditFolders, resetForm]);
 
   const handleMoveUp = useCallback(async (index: number) => {
     if (!activeAccountId || index === 0) return;
@@ -73,6 +86,12 @@ export function LabelEditor() {
             <X size={12} />
           </button>
         </div>
+      )}
+
+      {!canEditFolders && (
+        <p className="text-xs text-text-tertiary">
+          {FOLDER_EDITING_UNSUPPORTED_MESSAGE}
+        </p>
       )}
 
       {labels.length === 0 && !showForm && (
@@ -112,20 +131,24 @@ export function LabelEditor() {
               >
                 <ChevronDown size={13} />
               </button>
-              <button
-                onClick={() => handleEdit(label)}
-                className="p-1 text-text-tertiary hover:text-text-primary"
-                title="Edit"
-              >
-                <Pencil size={13} />
-              </button>
-              <button
-                onClick={() => handleDelete(label)}
-                className="p-1 text-text-tertiary hover:text-danger"
-                title="Delete"
-              >
-                <Trash2 size={13} />
-              </button>
+              {canEditFolders && (
+                <>
+                  <button
+                    onClick={() => handleEdit(label)}
+                    className="p-1 text-text-tertiary hover:text-text-primary"
+                    title="Edit"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(label)}
+                    className="p-1 text-text-tertiary hover:text-danger"
+                    title="Delete"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </>
+              )}
             </div>
           </div>
           {/* Inline edit form under the label being edited */}
@@ -150,7 +173,9 @@ export function LabelEditor() {
       ) : !showForm && (
         <button
           onClick={() => { setShowForm(true); setEditingId(null); setError(null); }}
-          className="text-xs text-accent hover:text-accent-hover"
+          disabled={!canEditFolders}
+          title={!canEditFolders ? FOLDER_EDITING_UNSUPPORTED_MESSAGE : undefined}
+          className="text-xs text-accent hover:text-accent-hover disabled:text-text-tertiary disabled:cursor-not-allowed"
         >
           + Add label
         </button>

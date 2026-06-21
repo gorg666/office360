@@ -10,6 +10,7 @@ export const LOCALE_LABELS: Record<AppLocale, string> = {
 };
 
 const ru: Record<string, string> = {
+  "Folder editing is not supported for this account provider yet.": "Редактирование папок пока не поддерживается для этого провайдера.",
   "Velo": APP_NAME_RU,
   "Velo Mail": APP_NAME_RU,
   "Office360": APP_NAME_RU,

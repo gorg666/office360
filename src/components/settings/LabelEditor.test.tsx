@@ -27,7 +27,7 @@ describe("LabelEditor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAccountStore.setState({
-      accounts: [{ id: "acc1", email: "test@test.com", displayName: "Test", avatarUrl: null, isActive: true }],
+      accounts: [{ id: "acc1", email: "test@test.com", displayName: "Test", avatarUrl: null, isActive: true, provider: "gmail_api" }],
       activeAccountId: "acc1",
     });
     setStoreWithLabels([]);
@@ -37,6 +37,23 @@ describe("LabelEditor", () => {
     render(<LabelEditor />);
     expect(screen.getByText("No user labels")).toBeInTheDocument();
     expect(screen.getByText("+ Add label")).toBeInTheDocument();
+  });
+
+  it("blocks folder editing controls for IMAP accounts", () => {
+    useAccountStore.setState({
+      accounts: [{ id: "acc1", email: "imap@test.com", displayName: "IMAP", avatarUrl: null, isActive: true, provider: "imap" }],
+      activeAccountId: "acc1",
+    });
+    setStoreWithLabels([
+      { id: "L1", accountId: "acc1", name: "Server folder", type: "user", colorBg: null, colorFg: null, sortOrder: 0 },
+    ]);
+
+    render(<LabelEditor />);
+
+    expect(screen.getByText("Folder editing is not supported for this account provider yet.")).toBeInTheDocument();
+    expect(screen.getByText("+ Add label")).toBeDisabled();
+    expect(screen.queryByTitle("Edit")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Delete")).not.toBeInTheDocument();
   });
 
   it("renders labels list", () => {

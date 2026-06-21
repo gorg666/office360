@@ -99,6 +99,8 @@ Draft
 
 **Send feedback (фаза 1):** `701a127` fix(mail): preserve drafts on send failure — composer/inline reply обрабатывают `ActionResult`: success/queued очищают draft/reply; failed сохраняет черновик и показывает toast.
 
+**Folder editing:** capability-gated — Gmail supported; IMAP/Yandex disabled until backend support is implemented.
+
 **Итог UI (фаза 2):**
 
 * добавлена папка `Outbox` / «Исходящие»;

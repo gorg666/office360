@@ -43,6 +43,7 @@ import { triggerSync } from "@/services/gmail/syncManager";
 import { useUIStore } from "@/stores/uiStore";
 import { setThreadCategory, ALL_CATEGORIES } from "@/services/db/threadCategories";
 import { openThreadPopOut } from "@/utils/openThreadWindow";
+import { supportsFolderEditing } from "@/services/email/providerCapabilities";
 
 function buildQuote(msg: { from_name: string | null; from_address: string | null; date: string | number; body_html: string | null; body_text: string | null }): string {
   const date = new Date(msg.date).toLocaleString();
@@ -129,6 +130,10 @@ function SidebarLabelMenu({
   const onEdit = data["onEdit"] as (() => void) | undefined;
   const onDelete = data["onDelete"] as (() => void) | undefined;
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const activeAccount = useAccountStore((s) =>
+    s.accounts.find((account) => account.id === s.activeAccountId),
+  );
+  const canEditFolders = supportsFolderEditing(activeAccount?.provider);
 
   const handleSync = () => {
     if (!activeAccountId) return;
@@ -144,20 +149,24 @@ function SidebarLabelMenu({
       icon: RefreshCw,
       action: handleSync,
     },
-    { id: "sep-sync", label: "", separator: true },
-    {
-      id: "edit-label",
-      label: "Edit label",
-      icon: Pencil,
-      action: () => onEdit?.(),
-    },
-    {
-      id: "delete-label",
-      label: "Delete label",
-      icon: Trash2,
-      danger: true,
-      action: () => onDelete?.(),
-    },
+    ...(canEditFolders
+      ? [
+          { id: "sep-sync", label: "", separator: true },
+          {
+            id: "edit-label",
+            label: "Edit label",
+            icon: Pencil,
+            action: () => onEdit?.(),
+          },
+          {
+            id: "delete-label",
+            label: "Delete label",
+            icon: Trash2,
+            danger: true,
+            action: () => onDelete?.(),
+          },
+        ] satisfies ContextMenuItem[]
+      : []),
   ];
 
   return <ContextMenu items={items} position={position} onClose={onClose} />;
