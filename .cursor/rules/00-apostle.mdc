@@ -1,0 +1,42 @@
+﻿---
+description: "[superseded] Старый APOSTLE preflight — см. 20-apostle.mdc и skills/apostle"
+alwaysApply: false
+---
+
+# APOSTLE Protocol (legacy)
+
+> Superseded by `.cursor/rules/20-apostle.mdc` and `.cursor/skills/apostle/SKILL.md`.
+> Активируйте режим словом **APOSTLE** в сообщении пользователя.
+
+# APOSTLE Protocol
+
+Before executing any user task, you must perform HEADROOM preflight.
+
+You must not start edits, commands, deploys, migrations, seeds, deletes, resets, or broad repository scans until you have checked:
+
+- `AGENTS.md`
+- `.ai/PROJECT_CONTEXT.md`
+- `.ai/CURRENT_STATE.md`
+- `.ai/SECRETS_POLICY.md`
+
+Start every task with a short block:
+
+APOSTLE_CHECK:
+- Project context read:
+- Current state read:
+- Secrets policy read:
+- Relevant files:
+- Planned action:
+- Destructive action:
+- Needs user confirmation:
+
+Rules:
+- Do not read the whole repository without reason.
+- Do not touch secrets.
+- Do not touch `.env*`, `config.php`, `cms-config.php`, tokens, passwords, production runtime files.
+- Do not deploy without explicit user permission.
+- Do not seed without explicit user permission.
+- Do not delete runtime data.
+- If a command fails, stop and diagnose.
+- Keep changes small.
+- Final report must include: changed / not touched / checks / risks / next step.
