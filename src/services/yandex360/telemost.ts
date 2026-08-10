@@ -7,6 +7,9 @@ export interface TelemostConference {
   id: string;
   joinUrl: string;
   liveStreamWatchUrl: string | null;
+  waitingRoomLevel?: "PUBLIC" | "ORGANIZATION" | "ADMINS" | "UNKNOWN";
+  liveStream?: { accessLevel?: string; title?: string; description?: string; watchUrl?: string };
+  sipUriMeeting?: string;
 }
 
 interface TelemostCreateResponse {
@@ -14,10 +17,23 @@ interface TelemostCreateResponse {
   join_url?: string;
   live_stream?: {
     watch_url?: string;
+    access_level?: string;
+    title?: string;
+    description?: string;
   };
+  waiting_room_level?: TelemostConference["waitingRoomLevel"];
+  sip_uri_meeting?: string;
   error?: string;
   message?: string;
   description?: string;
+}
+
+export interface TelemostConferenceOptions {
+  accountId: string | null;
+  cohostEmails?: string[];
+  waitingRoomLevel?: "PUBLIC" | "ORGANIZATION" | "ADMINS";
+  autoSummarization?: boolean;
+  liveStream?: { accessLevel: "PUBLIC" | "ORGANIZATION"; title?: string; description?: string };
 }
 
 function isYandexOAuthAccount(account: DbAccount): boolean {
@@ -59,11 +75,29 @@ function formatTelemostError(status: number, body: TelemostCreateResponse): stri
   return body.message || body.description || body.error || `Телемост API вернул ошибку ${status}.`;
 }
 
-export async function createTelemostConference(options: {
-  accountId: string | null;
-  cohostEmails?: string[];
-  waitingRoomLevel?: "PUBLIC" | "ORGANIZATION" | "ADMINS";
-}): Promise<TelemostConference> {
+function mapConference(body: TelemostCreateResponse): TelemostConference {
+  if (!body.id || !body.join_url) throw new Error("Телемост API не вернул ссылку встречи.");
+  return {
+    id: body.id,
+    joinUrl: body.join_url,
+    liveStreamWatchUrl: body.live_stream?.watch_url ?? null,
+    waitingRoomLevel: body.waiting_room_level,
+    liveStream: body.live_stream ? { accessLevel: body.live_stream.access_level, title: body.live_stream.title, description: body.live_stream.description, watchUrl: body.live_stream.watch_url } : undefined,
+    sipUriMeeting: body.sip_uri_meeting,
+  };
+}
+
+async function telemostRequest(accountId: string | null, url: string, init: RequestInit): Promise<TelemostCreateResponse> {
+  const account = await resolveTelemostAccount(accountId);
+  const token = await ensureFreshToken(account);
+  if (!token) throw new Error("Яндекс OAuth token не найден. Переавторизуйте аккаунт.");
+  const response = await fetch(url, { ...init, headers: { Authorization: `OAuth ${token}`, "Content-Type": "application/json", ...init.headers } });
+  const body = await response.json().catch(() => ({})) as TelemostCreateResponse;
+  if (!response.ok) throw new Error(formatTelemostError(response.status, body));
+  return body;
+}
+
+export async function createTelemostConference(options: TelemostConferenceOptions): Promise<TelemostConference> {
   const account = await resolveTelemostAccount(options.accountId);
   const token = await ensureFreshToken(account);
   if (!token) {
@@ -79,6 +113,12 @@ export async function createTelemostConference(options: {
     body: JSON.stringify({
       waiting_room_level: options.waitingRoomLevel ?? "PUBLIC",
       cohosts: parseEmails(options.cohostEmails ?? []),
+      is_auto_summarization_enabled: options.autoSummarization ?? false,
+      live_stream: options.liveStream ? {
+        access_level: options.liveStream.accessLevel,
+        title: options.liveStream.title,
+        description: options.liveStream.description,
+      } : undefined,
     }),
   });
 
@@ -91,9 +131,22 @@ export async function createTelemostConference(options: {
     throw new Error("Телемост API не вернул ссылку встречи.");
   }
 
-  return {
-    id: body.id,
-    joinUrl: body.join_url,
-    liveStreamWatchUrl: body.live_stream?.watch_url ?? null,
-  };
+  return mapConference(body);
+}
+
+export async function getTelemostConference(accountId: string | null, id: string): Promise<TelemostConference> {
+  return mapConference(await telemostRequest(accountId, `${TELEMOST_CREATE_URL}/${encodeURIComponent(id)}`, { method: "GET" }));
+}
+
+export async function updateTelemostConference(options: TelemostConferenceOptions & { id: string }): Promise<TelemostConference> {
+  const body = await telemostRequest(options.accountId, `${TELEMOST_CREATE_URL}/${encodeURIComponent(options.id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      waiting_room_level: options.waitingRoomLevel,
+      cohosts: options.cohostEmails ? parseEmails(options.cohostEmails) : undefined,
+      is_auto_summarization_enabled: options.autoSummarization,
+      live_stream: options.liveStream ? { access_level: options.liveStream.accessLevel, title: options.liveStream.title, description: options.liveStream.description } : undefined,
+    }),
+  });
+  return mapConference(body);
 }
