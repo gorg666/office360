@@ -40,7 +40,7 @@ class HostApp final : public CefApp {
  public:
   void OnBeforeCommandLineProcessing(const CefString&, CefRefPtr<CefCommandLine> command_line) override {
     command_line->AppendSwitch("disable-gpu");
-    command_line->AppendSwitch("disable-gpu-compositing");
+    command_line->AppendSwitch("disable-video-capture-use-gpu-memory-buffer");
   }
   IMPLEMENT_REFCOUNTING(HostApp);
 };
@@ -97,6 +97,7 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
     for (const auto* origin : {"https://telemost.yandex.ru", "https://telemost.360.yandex.ru"}) {
       context->SetContentSetting(origin, origin, CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_MIC, CEF_CONTENT_SETTING_VALUE_ALLOW);
       context->SetContentSetting(origin, origin, CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA, CEF_CONTENT_SETTING_VALUE_ALLOW);
+      context->SetContentSetting(origin, origin, CEF_CONTENT_SETTING_TYPE_DISPLAY_CAPTURE, CEF_CONTENT_SETTING_VALUE_ALLOW);
     }
     const HWND hwnd = browser_->GetHost()->GetWindowHandle();
     if (g_has_bounds) SetWindowPos(hwnd, HWND_TOP, g_x, g_y, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -138,7 +139,8 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
   }
   bool OnRequestMediaAccessPermission(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, const CefString& origin, uint32_t permissions, CefRefPtr<CefMediaAccessCallback> callback) override {
     if (!domTrusted(origin.ToString())) { callback->Cancel(); return true; }
-    const uint32_t supported = CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE | CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE;
+    const uint32_t supported = CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE | CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE |
+                               CEF_MEDIA_PERMISSION_DESKTOP_AUDIO_CAPTURE | CEF_MEDIA_PERMISSION_DESKTOP_VIDEO_CAPTURE;
     const uint32_t allowed = permissions & supported;
     if (allowed != permissions || allowed == 0) { callback->Cancel(); return true; }
     callback->Continue(allowed);
