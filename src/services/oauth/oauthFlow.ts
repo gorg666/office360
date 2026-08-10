@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { cefCreate, cefInitialize, cefSetBounds, cefSetVisible } from "@/services/cef";
 import type { OAuthProviderConfig } from "./providers";
-import { getYandexOAuthConfigDiagnostics } from "./providers";
 import { normalizeYandexUserInfo } from "./yandexProfile";
 import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
 
@@ -27,6 +27,27 @@ export interface ProviderUserInfo {
   email: string;
   name: string;
   picture?: string;
+}
+
+async function openAuthorization(provider: OAuthProviderConfig, authUrl: string): Promise<() => Promise<void>> {
+  if (provider.id !== "yandex") {
+    await openUrl(authUrl);
+    return async () => {};
+  }
+
+  await cefInitialize();
+  const margin = 32;
+  const sidebar = 240;
+  await cefSetBounds({
+    x: sidebar + margin,
+    y: 72,
+    width: Math.max(640, window.innerWidth - sidebar - margin * 2),
+    height: Math.max(520, window.innerHeight - 104),
+    deviceScaleFactor: window.devicePixelRatio || 1,
+  });
+  await cefCreate(authUrl);
+  await cefSetVisible(true);
+  return async () => { await cefSetVisible(false); };
 }
 
 function generateCodeVerifier(): string {
@@ -65,7 +86,7 @@ export async function startProviderOAuthFlow(
   provider: OAuthProviderConfig,
   clientId: string,
   clientSecret?: string,
-  options?: { loginHint?: string },
+  options?: { loginHint?: string; scopes?: string[] },
 ): Promise<{ tokens: TokenResponse; userInfo: ProviderUserInfo }> {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
@@ -96,28 +117,15 @@ export async function startProviderOAuthFlow(
   }
   if (provider.id === "yandex") {
     params.force_confirm = "yes";
+    if (options?.scopes?.length) params.scope = options.scopes.join(",");
     if (options?.loginHint) {
       params.login_hint = options.loginHint;
     }
-    const yandexDiagnostics = getYandexOAuthConfigDiagnostics();
-    console.info("[oauth][yandex] client_id (effective):", clientId);
-    console.info("[oauth][yandex] client_id source:", yandexDiagnostics.clientIdSource);
-    console.info("[oauth][yandex] env client_id:", yandexDiagnostics.envClientId ?? "<empty>");
-    console.info("[oauth][yandex] fallback client_id:", yandexDiagnostics.fallbackClientId);
-    console.info("[oauth] Yandex OAuth scopes:", provider.scopes);
-    console.info("[oauth] Yandex OAuth scope string:", "omitted");
-    console.info("[oauth] Yandex redirect URI:", redirectUri);
   } else {
     params.scope = scopeValue;
   }
 
   const authUrl = `${provider.authUrl}?${new URLSearchParams(params).toString()}`;
-  if (provider.id === "yandex") {
-    const sentScope = new URL(authUrl).searchParams.get("scope");
-    console.info("[oauth] Yandex authorize URL scope query:", sentScope ?? "omitted");
-    console.info("[oauth][yandex] scope: omitted");
-    console.info("[oauth][yandex] authorize URL:", authUrl);
-  }
 
   const serverPromise = invoke<OAuthServerResult>("start_oauth_server", {
     port: OAUTH_CALLBACK_PORT,
@@ -125,9 +133,13 @@ export async function startProviderOAuthFlow(
   });
 
   await new Promise((r) => setTimeout(r, 100));
-  await openUrl(authUrl);
-
-  const result = await serverPromise;
+  const closeAuthorization = await openAuthorization(provider, authUrl);
+  let result: OAuthServerResult;
+  try {
+    result = await serverPromise;
+  } finally {
+    await closeAuthorization();
+  }
 
   if (result.state !== oauthState) {
     throw new Error("OAuth state mismatch — possible CSRF attack. Please try again.");
@@ -160,9 +172,6 @@ export async function startProviderOAuthFlow(
     codeVerifier,
     clientSecret,
   );
-  if (provider.id === "yandex") {
-    console.info("[oauth][yandex] token response scope:", tokens.scope ?? "<empty>");
-  }
 
   const userInfo = await fetchUserInfo(provider, tokens);
 

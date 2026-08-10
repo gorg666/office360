@@ -5,7 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { ChevronRight, Download, File, Folder, FolderPlus, Link, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { createDiskFolder, deleteDiskResource, getDiskDownloadUrl, getDiskQuota, getDiskResource, listDiskResources, moveDiskResource, publishDiskResource, searchDisk, unpublishDiskResource, uploadDiskFile, type DiskResource } from "@/services/yandex/disk";
-import { reauthorizeYandexAccount } from "@/services/yandex/accountApi";
+import { authorizeYandexServices, getYandexServiceClientId } from "@/services/yandex/accountApi";
 import { ServicePageShell } from "./ServicePageShell";
 
 function joinPath(parent: string, name: string) { return `${parent.replace(/\/$/, "")}/${name}`; }
@@ -45,7 +45,13 @@ export function DiskPage() {
   const reconnect = async () => {
     if (!accountId) return;
     setReauthorizing(true); setError(null);
-    try { await reauthorizeYandexAccount(accountId); await load(); }
+    try {
+      const storedClientId = await getYandexServiceClientId(accountId);
+      const clientId = window.prompt("Client ID отдельного API OAuth-приложения Яндекса", storedClientId ?? "");
+      if (!clientId?.trim()) return;
+      await authorizeYandexServices(accountId, clientId);
+      await load();
+    }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { setReauthorizing(false); }
   };

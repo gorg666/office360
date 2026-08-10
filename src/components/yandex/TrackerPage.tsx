@@ -3,7 +3,7 @@ import { MessageSquarePlus, Plus, RefreshCw, Search } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { useAccountStore } from "@/stores/accountStore";
-import { getYandexContext, getStoredYandexOrgId, listYandexOrganizations, reauthorizeYandexAccount, setStoredYandexOrgId } from "@/services/yandex/accountApi";
+import { authorizeYandexServices, getYandexContext, getYandexServiceClientId, getStoredYandexOrgId, listYandexOrganizations, setStoredYandexOrgId } from "@/services/yandex/accountApi";
 import { addTrackerComment, createTrackerIssue, executeTrackerTransition, getTrackerIssue, listTrackerAttachments, listTrackerComments, listTrackerPriorities, listTrackerQueues, listTrackerStatuses, listTrackerTransitions, searchTrackerIssues, updateTrackerIssue, uploadTrackerAttachment, type TrackerAttachment, type TrackerComment, type TrackerIssue, type TrackerQueue, type TrackerRef, type TrackerTransition } from "@/services/yandex/tracker";
 import { ServicePageShell } from "./ServicePageShell";
 
@@ -48,7 +48,13 @@ export function TrackerPage() {
   const reconnect = async () => {
     if (!accountId) return;
     setReauthorizing(true); setError(null);
-    try { await reauthorizeYandexAccount(accountId); await initialize(); }
+    try {
+      const storedClientId = await getYandexServiceClientId(accountId);
+      const clientId = window.prompt("Client ID отдельного API OAuth-приложения Яндекса", storedClientId ?? "");
+      if (!clientId?.trim()) return;
+      await authorizeYandexServices(accountId, clientId);
+      await initialize();
+    }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { setReauthorizing(false); }
   };

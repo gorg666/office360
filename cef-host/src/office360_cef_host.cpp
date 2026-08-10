@@ -65,7 +65,8 @@ bool trusted(const std::string& url) {
   std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
   const bool yandex = host == "yandex.ru" || (host.size() > 10 && host.substr(host.size() - 10) == ".yandex.ru");
   const bool ya = host == "ya.ru" || (host.size() > 6 && host.substr(host.size() - 6) == ".ya.ru");
-  return scheme == "https" && (yandex || ya);
+  const bool oauthCallback = scheme == "http" && (host == "localhost" || host == "127.0.0.1" || host == "::1");
+  return (scheme == "https" && (yandex || ya)) || oauthCallback;
 }
 bool domTrusted(const std::string& url) {
   CefURLParts parts{}; if (!CefParseURL(url, parts)) return false;

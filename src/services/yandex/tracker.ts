@@ -1,4 +1,4 @@
-import { getYandexContext, getStoredYandexOrgId, parseApiError } from "./accountApi";
+import { getYandexServiceContext, getStoredYandexOrgId, parseApiError } from "./accountApi";
 
 const API = "https://api.tracker.yandex.net/v3";
 export interface TrackerRef { id?: string; key?: string; display?: string; }
@@ -13,7 +13,7 @@ export interface TrackerTransition { id: string; display: string; to?: TrackerRe
 export interface TrackerAttachment { id: string; name: string; content?: string; size?: number; createdAt?: string; }
 
 async function request<T>(accountId: string | null, path: string, init: RequestInit = {}): Promise<T> {
-  const { account, token } = await getYandexContext(accountId);
+  const { account, token } = await getYandexServiceContext(accountId);
   const orgId = await getStoredYandexOrgId(account.id);
   if (!orgId) throw new Error("Укажите организацию Яндекс 360 в настройках интеграции.");
   const response = await fetch(`${API}${path}`, {
@@ -37,7 +37,7 @@ export const listTrackerTransitions = (accountId: string | null, key: string) =>
 export const executeTrackerTransition = (accountId: string | null, key: string, transitionId: string) => request<TrackerIssue>(accountId, `/issues/${encodeURIComponent(key)}/transitions/${encodeURIComponent(transitionId)}/_execute`, { method: "POST", body: "{}" });
 export const listTrackerAttachments = (accountId: string | null, key: string) => request<TrackerAttachment[]>(accountId, `/issues/${encodeURIComponent(key)}/attachments`);
 export async function uploadTrackerAttachment(accountId: string | null, key: string, name: string, data: Uint8Array): Promise<TrackerAttachment> {
-  const { account, token } = await getYandexContext(accountId); const orgId = await getStoredYandexOrgId(account.id);
+  const { account, token } = await getYandexServiceContext(accountId); const orgId = await getStoredYandexOrgId(account.id);
   if (!orgId) throw new Error("Укажите организацию Яндекс 360 в настройках интеграции.");
   const form = new FormData(); form.append("file", new Blob([new Uint8Array(data)]), name);
   const response = await fetch(`${API}/issues/${encodeURIComponent(key)}/attachments`, { method: "POST", headers: { Authorization: `OAuth ${token}`, "X-Org-ID": orgId }, body: form });

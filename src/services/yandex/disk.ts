@@ -1,4 +1,4 @@
-import { getYandexContext, parseApiError } from "./accountApi";
+import { getYandexServiceContext, parseApiError } from "./accountApi";
 
 const API = "https://cloud-api.yandex.net/v1/disk";
 export type DiskResourceType = "file" | "dir";
@@ -12,7 +12,7 @@ export interface DiskListing {
 export interface DiskQuota { total_space: number; used_space: number; trash_size: number; }
 
 async function request<T>(path: string, accountId: string | null, init: RequestInit = {}): Promise<T> {
-  const { token } = await getYandexContext(accountId);
+  const { token } = await getYandexServiceContext(accountId);
   const response = await fetch(`${API}${path}`, { ...init, headers: { Authorization: `OAuth ${token}`, ...init.headers } });
   if (!response.ok) throw await parseApiError(response);
   if (response.status === 204 || response.status === 201 && response.headers.get("content-length") === "0") return undefined as T;
