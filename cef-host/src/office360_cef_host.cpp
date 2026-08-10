@@ -198,6 +198,7 @@ extern "C" int o360_cef_initialize(void* parent, const wchar_t* profile, const w
 extern "C" int o360_cef_create(const char* url) {
   if (!g_initialized || !g_parent) return 0;
   g_client = new Client(); CefWindowInfo info; RECT rect{}; GetClientRect(g_parent, &rect); info.SetAsChild(g_parent, CefRect(0, 0, rect.right, rect.bottom));
+  info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
   CefBrowserSettings settings; return CefBrowserHost::CreateBrowser(info, g_client, url, settings, nullptr, nullptr) ? 1 : 0;
 }
 extern "C" void o360_cef_set_bounds(int x,int y,int w,int h){g_x=x;g_y=y;g_width=std::max(1,w);g_height=std::max(1,h);g_has_bounds=true;ui([]{if(g_client&&g_client->browser())SetWindowPos(g_client->browser()->GetHost()->GetWindowHandle(),HWND_TOP,g_x,g_y,g_width,g_height,SWP_NOACTIVATE|SWP_SHOWWINDOW);});}
