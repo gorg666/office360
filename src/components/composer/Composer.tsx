@@ -32,6 +32,7 @@ import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
 import { resolveFromAddress } from "@/utils/resolveFromAddress";
 import { openComposeWindow, isComposeStandaloneWindow } from "@/utils/openComposeWindow";
 import { startAutoSave, stopAutoSave } from "@/services/composer/draftAutoSave";
+import { notifySendEmailOutcome } from "@/utils/handleSendEmailResult";
 import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates";
 import { readFileAsBase64 } from "@/utils/fileUtils";
 import { interpolateVariables } from "@/utils/templateVariables";
@@ -77,6 +78,7 @@ export function Composer() {
   // Note: bodyHtml intentionally NOT subscribed — TipTap manages its own editor state.
   // Subscribing would cause full re-renders on every keystroke.
   const closeComposer = useComposerStore((s) => s.closeComposer);
+  const openComposer = useComposerStore((s) => s.openComposer);
   const setTo = useComposerStore((s) => s.setTo);
   const setCc = useComposerStore((s) => s.setCc);
   const setBcc = useComposerStore((s) => s.setBcc);
@@ -341,24 +343,56 @@ export function Composer() {
 
     const timer = setTimeout(async () => {
       try {
-        await sendEmail(activeAccountId, raw, state.threadId ?? undefined);
+        const result = await sendEmail(activeAccountId, raw, state.threadId ?? undefined);
+        const outcome = notifySendEmailOutcome(result);
 
-        // Delete draft if it was saved
+        if (outcome === "failed") {
+          openComposer({
+            mode: state.mode,
+            to: state.to,
+            cc: state.cc,
+            bcc: state.bcc,
+            subject: state.subject,
+            bodyHtml: html,
+            threadId: state.threadId,
+            inReplyToMessageId: state.inReplyToMessageId,
+            draftId: currentDraftId,
+          });
+          startAutoSave(activeAccountId);
+          return;
+        }
+
         if (currentDraftId) {
           try { await deleteDraftAction(activeAccountId, currentDraftId); } catch { /* ignore */ }
         }
 
-        // Send & archive: remove from inbox if replying to a thread
-        if (useUIStore.getState().sendAndArchive && state.threadId) {
+        if (outcome === "success" && useUIStore.getState().sendAndArchive && state.threadId) {
           try { await archiveThread(activeAccountId, state.threadId, []); } catch { /* ignore */ }
         }
 
-        // Update contacts frequency
-        for (const addr of [...state.to, ...state.cc, ...state.bcc]) {
-          await upsertContact(addr, null);
+        if (outcome === "success") {
+          for (const addr of [...state.to, ...state.cc, ...state.bcc]) {
+            await upsertContact(addr, null);
+          }
         }
       } catch (err) {
         console.error("Failed to send email:", err);
+        notifySendEmailOutcome({
+          success: false,
+          error: "Message could not be sent. Please fix the issue and try again.",
+        });
+        openComposer({
+          mode: state.mode,
+          to: state.to,
+          cc: state.cc,
+          bcc: state.bcc,
+          subject: state.subject,
+          bodyHtml: html,
+          threadId: state.threadId,
+          inReplyToMessageId: state.inReplyToMessageId,
+          draftId: currentDraftId,
+        });
+        startAutoSave(activeAccountId);
       } finally {
         useComposerStore.getState().setUndoSendVisible(false);
         sendingRef.current = false;

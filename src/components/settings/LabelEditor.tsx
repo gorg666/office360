@@ -3,7 +3,11 @@ import { Trash2, Pencil, ChevronUp, ChevronDown, X } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { LabelForm } from "@/components/labels/LabelForm";
-import { getCapabilitiesForAccountProvider, getUnsupportedReason } from "@/services/email/providerCapabilities";
+import {
+  FOLDER_EDITING_UNSUPPORTED_MESSAGE,
+  getCapabilitiesForAccountProvider,
+  getUnsupportedReason,
+} from "@/services/email/providerCapabilities";
 
 export function LabelEditor() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
@@ -32,6 +36,7 @@ export function LabelEditor() {
   const canCreateLabel = capabilities.labels.create.supported;
   const canRenameLabel = capabilities.labels.rename.supported;
   const canDeleteLabel = capabilities.labels.delete.supported;
+  const canEditFolders = canCreateLabel || canRenameLabel || canDeleteLabel;
   const createDisabledReason = getUnsupportedReason(capabilities.labels.create) ?? undefined;
   const renameDisabledReason = getUnsupportedReason(capabilities.labels.rename) ?? undefined;
   const deleteDisabledReason = getUnsupportedReason(capabilities.labels.delete) ?? undefined;
@@ -53,6 +58,10 @@ export function LabelEditor() {
       setError(err instanceof Error ? err.message : "Failed to delete label");
     }
   }, [activeAccountId, canDeleteLabel, deleteLabel, editingId, resetForm]);
+
+  useEffect(() => {
+    if (!canEditFolders) resetForm();
+  }, [canEditFolders, resetForm]);
 
   const handleMoveUp = useCallback(async (index: number) => {
     if (!activeAccountId || index === 0) return;
@@ -85,6 +94,12 @@ export function LabelEditor() {
             <X size={12} />
           </button>
         </div>
+      )}
+
+      {!canEditFolders && (
+        <p className="text-xs text-text-tertiary">
+          {FOLDER_EDITING_UNSUPPORTED_MESSAGE}
+        </p>
       )}
 
       {labels.length === 0 && !showForm && (

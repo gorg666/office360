@@ -27,6 +27,7 @@ import {
   retryOperation,
   getQueueSummary,
   listQueueInspectorOperations,
+  getOutboxSendCount,
 } from "./pendingOperations";
 import { createMockDb } from "@/test/mocks";
 
@@ -355,6 +356,33 @@ describe("pendingOperations DB service", () => {
         expect.stringContaining("status IN"),
         ["pending", "executing", "retry_scheduled", "failed", "blocked", 500],
       );
+    });
+  });
+
+  describe("getOutboxSendCount", () => {
+    it("counts only visible sendMessage queue statuses for an account", async () => {
+      mockDb.select.mockResolvedValueOnce([{ count: 3 }]);
+
+      await expect(getOutboxSendCount("acct-1")).resolves.toBe(3);
+      expect(mockDb.select).toHaveBeenCalledWith(
+        expect.stringContaining("operation_type = 'sendMessage'"),
+        ["pending", "executing", "retry_scheduled", "failed", "blocked", "acct-1"],
+      );
+    });
+
+    it("counts all accounts when accountId is omitted", async () => {
+      mockDb.select.mockResolvedValueOnce([{ count: 5 }]);
+
+      await expect(getOutboxSendCount()).resolves.toBe(5);
+      expect(mockDb.select).toHaveBeenCalledWith(
+        expect.stringContaining("operation_type = 'sendMessage'"),
+        ["pending", "executing", "retry_scheduled", "failed", "blocked"],
+      );
+    });
+
+    it("returns zero when the query has no rows", async () => {
+      mockDb.select.mockResolvedValueOnce([]);
+      await expect(getOutboxSendCount("acct-1")).resolves.toBe(0);
     });
   });
 });

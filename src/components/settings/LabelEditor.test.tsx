@@ -46,6 +46,23 @@ describe("LabelEditor", () => {
     expect(screen.getByText("+ Add label")).toBeInTheDocument();
   });
 
+  it("blocks folder editing controls for IMAP accounts", () => {
+    useAccountStore.setState({
+      accounts: [{ id: "acc1", email: "imap@test.com", displayName: "IMAP", avatarUrl: null, isActive: true, provider: "imap" }],
+      activeAccountId: "acc1",
+    });
+    setStoreWithLabels([
+      { id: "L1", accountId: "acc1", name: "Server folder", type: "user", colorBg: null, colorFg: null, sortOrder: 0 },
+    ]);
+
+    render(<LabelEditor />);
+
+    expect(screen.getByText("Folder editing is not supported for this account provider yet.")).toBeInTheDocument();
+    expect(screen.getByText("+ Add label")).toBeDisabled();
+    expect(screen.getAllByTitle(/native labels/i)).toHaveLength(3);
+    expect(screen.getAllByRole("button").filter((button) => button.hasAttribute("disabled"))).not.toHaveLength(0);
+  });
+
   it("renders labels list", () => {
     setStoreWithLabels([
       { id: "L1", accountId: "acc1", name: "Work", type: "user", colorBg: "#fb4c2f", colorFg: "#ffffff", sortOrder: 0 },

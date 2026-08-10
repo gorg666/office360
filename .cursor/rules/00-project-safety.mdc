@@ -1,0 +1,40 @@
+---
+description: VELO / Office360 — базовая безопасность git, секретов и diff (всегда)
+alwaysApply: true
+---
+
+# Project safety (VELO / Office360)
+
+**Project:** `velo-office360-api-ya-clean`  
+**Product:** VELO / Office360 — Tauri desktop mail client (Yandex IMAP/OAuth).
+
+## Secrets and environment
+
+- Never print, log, commit, or paste: `.env`, `.env.*`, API keys, OAuth tokens, refresh tokens, passwords, client secrets.
+- Do not read `.env*` unless the user explicitly asks for a specific non-secret key name.
+- Reference env **variable names** only (e.g. `VITE_YANDEX_OAUTH_SCOPES`), never values.
+
+## Git safety
+
+- Before any file edits: run `git status -sb` and note branch/state.
+- Never `git push` unless the user explicitly requests push in that message.
+- Never `git add .` — stage only paths relevant to the task.
+- Never force-push, hard-reset, or rewrite history on `main` / `master`.
+- Do not switch to or modify `main` unless explicitly asked.
+- Commit only when the user explicitly asks to commit.
+- Prefer small, focused diffs; one concern per change set.
+
+## Commands
+
+- No destructive commands (`rm -rf`, `git reset --hard`, DB drops, mass deletes) without explicit user approval.
+- Do not run `npm`, `cargo`, or long builds unless the task requires checks and the user allows it.
+
+## Noise / false diffs
+
+- Do not edit `src-tauri/Cargo.toml` if the only change would be line-ending or whitespace noise.
+- Do not reformat unrelated files.
+
+## Scope
+
+- Nested repo under `YALINUX360/`; default branch for mail work: `office360-mail-workflow`.
+- Prefer targeted reads; avoid whole-repo scans without reason.

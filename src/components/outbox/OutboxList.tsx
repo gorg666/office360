@@ -28,7 +28,7 @@ function mapOutboxStatus(op: PendingOperation): OutboxDisplayStatus {
 function statusLabel(status: OutboxDisplayStatus): string {
   switch (status) {
     case "pending":
-      return "Ожидает отправки";
+      return "Waiting to send";
     case "sending":
       return "Отправляется";
     case "retry_scheduled":
@@ -115,8 +115,8 @@ export function OutboxList() {
     return (
       <EmptyState
         illustration={GenericEmptyIllustration}
-        title="Нет подключённого аккаунта"
-        subtitle="Добавьте почтовый аккаунт"
+        title="No account connected"
+        subtitle="Add a mail account"
       />
     );
   }
@@ -133,8 +133,8 @@ export function OutboxList() {
     return (
       <EmptyState
         icon={Send}
-        title="Исходящих писем нет"
-        subtitle="Письма, ожидающие отправки, появятся здесь"
+        title="No messages are waiting to be sent"
+        subtitle="Offline or temporarily failed messages will appear here"
       />
     );
   }
@@ -213,7 +213,7 @@ export function OutboxList() {
                   className="shrink-0 flex items-center gap-1 text-xs text-accent hover:text-accent/80 disabled:opacity-50 press-scale px-2 py-1 rounded"
                 >
                   <RefreshCw size={14} className={retryingId === op.id ? "animate-spin" : ""} />
-                  Повторить
+                  Retry
                 </button>
                   )}
                   {canCancel && (

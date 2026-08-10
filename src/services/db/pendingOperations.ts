@@ -321,6 +321,29 @@ export async function getFailedOpsCount(accountId?: string): Promise<number> {
 
 const OUTBOX_SEND_STATUSES = ["pending", "executing", "retry_scheduled", "failed", "blocked"] as const;
 
+/** Count of sendMessage ops visible in Outbox (pending, executing, failed). */
+export async function getOutboxSendCount(accountId?: string): Promise<number> {
+  const db = await getDb();
+  const statusPlaceholders = OUTBOX_SEND_STATUSES.map((_, i) => `$${i + 1}`).join(", ");
+  if (accountId) {
+    const rows = await db.select<{ count: number }[]>(
+      `SELECT COUNT(*) as count FROM pending_operations
+       WHERE account_id = $${OUTBOX_SEND_STATUSES.length + 1}
+         AND operation_type = 'sendMessage'
+         AND status IN (${statusPlaceholders})`,
+      [...OUTBOX_SEND_STATUSES, accountId],
+    );
+    return rows[0]?.count ?? 0;
+  }
+  const rows = await db.select<{ count: number }[]>(
+    `SELECT COUNT(*) as count FROM pending_operations
+     WHERE operation_type = 'sendMessage'
+       AND status IN (${statusPlaceholders})`,
+    [...OUTBOX_SEND_STATUSES],
+  );
+  return rows[0]?.count ?? 0;
+}
+
 /** Pending/failed send operations for the Outbox view (sendMessage only). */
 export async function getOutboxSendOperations(
   accountId?: string,

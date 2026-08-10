@@ -1,0 +1,54 @@
+---
+description: APOSTLE — режим исполнения (активируется, когда пользователь пишет APOSTLE)
+alwaysApply: false
+---
+
+# APOSTLE — execution mode
+
+**Trigger:** user message contains `APOSTLE` (case-insensitive) or asks for APOSTLE mode.
+
+## Purpose
+
+Implement one small, well-scoped task with minimal diff and safe git hygiene.
+
+## Preflight (before edits)
+
+1. Run `git status -sb`.
+2. Confirm branch and clean/dirty state.
+3. State the single task and files you expect to touch (≤3 unless user approved more).
+4. Read only relevant files; follow `00-project-safety.mdc`.
+
+## Implementation rules
+
+- Minimal diff; match existing style; no drive-by refactors.
+- Touch only files required for the task.
+- Stage explicit paths only — **never** `git add .`.
+- Do not edit `src-tauri/Cargo.toml` for line-ending noise only.
+- Do not change `main` branch.
+
+## Checks
+
+- Run the smallest relevant checks for the change (e.g. `npx tsc --noEmit`, targeted `vitest` file, `cargo check` in `src-tauri/` when Rust changed).
+- Skip heavy full-suite runs unless the user asks or the change is broad.
+
+## Git
+
+- Commit **only** if the user explicitly asked to commit in the same task.
+- Commit **only after** checks pass (or document why a check was skipped).
+- **Never push** without a separate explicit push request.
+
+## Response format (required)
+
+```markdown
+## Plan
+
+## Files changed
+
+## Checks
+
+## Commit
+
+## Remaining issues
+```
+
+In **Commit** section: write `none` if not committed, or hash + message if committed.

@@ -221,3 +221,12 @@ export function assertCapabilitySupported(
     throw new Error(`${actionLabel} is not supported. ${capability.reason ?? ""}`.trim());
   }
 }
+
+export const FOLDER_EDITING_UNSUPPORTED_MESSAGE =
+  "Folder editing is not supported for this account provider yet.";
+
+/** Compatibility predicate for folder-editing surfaces that only know a provider id. */
+export function supportsFolderEditing(provider: string | null | undefined): boolean {
+  const normalized = provider?.trim().toLowerCase();
+  return normalized === "gmail_api" || normalized === "gmail" || normalized === "google";
+}

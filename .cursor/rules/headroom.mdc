@@ -1,0 +1,34 @@
+﻿---
+description: "[superseded] Старый HEADROOM — см. 10-headroom.mdc и skills/headroom"
+alwaysApply: false
+---
+
+# HEADROOM (legacy)
+
+> Superseded by `.cursor/rules/10-headroom.mdc` and `.cursor/skills/headroom/SKILL.md`.
+> Активируйте режим словом **HEADROOM** в сообщении пользователя.
+
+# HEADROOM
+
+## Контекст
+
+- Экономить контекст: не читать весь проект без причины.
+- Сначала `.ai/PROJECT_CONTEXT.md`, затем только релевантные файлы.
+- Не вставлять большие логи в чат — краткое резюме.
+- При больших задачах обновлять `.ai/CURRENT_STATE.md`.
+
+## Безопасность
+
+- Не читать, не логировать, не коммитить: `.env*`, production config, API keys, passwords, tokens, private keys.
+- Не трогать server-only runtime без явной команды.
+- Перед destructive actions (delete, reset, migration, deploy, seed) — спросить подтверждение.
+
+## Правки
+
+- Перед правками — краткий план.
+- Маленькие инкрементальные изменения.
+- При ошибке команды — остановиться и диагностировать.
+
+## Отчёт
+
+Завершать задачу отчётом: что изменилось / что не трогалось / проверки / риски / следующий шаг.

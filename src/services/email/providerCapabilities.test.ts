@@ -4,6 +4,7 @@ import {
   GMAIL_CAPABILITIES,
   IMAP_CAPABILITIES,
   getCapabilitiesForAccountProvider,
+  supportsFolderEditing,
 } from "./providerCapabilities";
 
 describe("providerCapabilities", () => {
@@ -55,4 +56,18 @@ describe("providerCapabilities", () => {
     expect(getCapabilitiesForAccountProvider("exchange").provider).toBe("exchange");
     expect(getCapabilitiesForAccountProvider("exchange").folders.list.supported).toBe(false);
   });
+
+  it.each(["gmail_api", "gmail", "google", " GOOGLE "])(
+    "allows folder editing for Gmail/Google provider %s",
+    (provider) => {
+      expect(supportsFolderEditing(provider)).toBe(true);
+    },
+  );
+
+  it.each(["imap", "yandex", "manual", "caldav", "", undefined, null])(
+    "blocks folder editing for unsupported or unknown provider %s",
+    (provider) => {
+      expect(supportsFolderEditing(provider)).toBe(false);
+    },
+  );
 });

@@ -4,6 +4,7 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { AddAccount } from "./components/accounts/AddAccount";
 import { Composer } from "./components/composer/Composer";
 import { UndoSendToast } from "./components/composer/UndoSendToast";
+import { SendFeedbackToast } from "./components/composer/SendFeedbackToast";
 import { CommandPalette } from "./components/search/CommandPalette";
 import { ShortcutsHelp } from "./components/search/ShortcutsHelp";
 import { useUIStore } from "./stores/uiStore";
@@ -791,6 +792,7 @@ export default function App() {
         <Composer />
       </ErrorBoundary>
       <UndoSendToast />
+      <SendFeedbackToast />
       <UpdateToast />
       <ErrorBoundary name="CommandPalette">
         <CommandPalette
