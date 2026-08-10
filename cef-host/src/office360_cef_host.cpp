@@ -117,20 +117,47 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
   }
   bool OnRequestMediaAccessPermission(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, const CefString& origin, uint32_t permissions, CefRefPtr<CefMediaAccessCallback> callback) override {
     if (!domTrusted(origin.ToString())) { callback->Cancel(); return true; }
-    const uint64_t id = ++permission_id_; permissions_[id] = callback;
+    const uint32_t supported = CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE | CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE;
+    const uint32_t allowed = permissions & supported;
+    if (allowed != permissions || allowed == 0) { callback->Cancel(); return true; }
+    const uint64_t id = ++permission_id_; media_permissions_[id] = {callback, allowed};
     emit("permission-request", "{\"id\":" + std::to_string(id) + ",\"origin\":\"" + escapeJson(origin.ToString()) + "\",\"permissions\":" + std::to_string(permissions) + "}");
     return true;
   }
+  bool OnShowPermissionPrompt(CefRefPtr<CefBrowser>, uint64_t prompt_id, const CefString& origin, uint32_t permissions, CefRefPtr<CefPermissionPromptCallback> callback) override {
+    const uint32_t media = CEF_PERMISSION_TYPE_CAMERA_STREAM | CEF_PERMISSION_TYPE_MIC_STREAM;
+    if (!domTrusted(origin.ToString()) || (permissions & ~media) != 0 || (permissions & media) == 0) {
+      callback->Continue(CEF_PERMISSION_RESULT_DENY); return true;
+    }
+    const uint64_t id = ++permission_id_; prompt_permissions_[id] = {prompt_id, callback};
+    emit("permission-request", "{\"id\":" + std::to_string(id) + ",\"origin\":\"" + escapeJson(origin.ToString()) + "\",\"permissions\":" + std::to_string(permissions) + "}");
+    return true;
+  }
+  void OnDismissPermissionPrompt(CefRefPtr<CefBrowser>, uint64_t prompt_id, cef_permission_request_result_t) override {
+    for (auto it = prompt_permissions_.begin(); it != prompt_permissions_.end(); ++it) {
+      if (it->second.prompt_id == prompt_id) { prompt_permissions_.erase(it); return; }
+    }
+  }
   void permission(uint64_t id, bool allow) {
-    auto it = permissions_.find(id); if (it == permissions_.end()) return;
-    if (allow) it->second->Continue(CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE | CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE);
-    else it->second->Cancel(); permissions_.erase(it);
+    auto media = media_permissions_.find(id);
+    if (media != media_permissions_.end()) {
+      if (allow) media->second.callback->Continue(media->second.permissions); else media->second.callback->Cancel();
+      media_permissions_.erase(media); return;
+    }
+    auto prompt = prompt_permissions_.find(id);
+    if (prompt != prompt_permissions_.end()) {
+      prompt->second.callback->Continue(allow ? CEF_PERMISSION_RESULT_ACCEPT : CEF_PERMISSION_RESULT_DENY);
+      prompt_permissions_.erase(prompt);
+    }
   }
   CefRefPtr<CefBrowser> browser() const { return browser_; }
  private:
   CefRefPtr<CefBrowser> browser_;
   uint64_t permission_id_ = 0;
-  std::map<uint64_t, CefRefPtr<CefMediaAccessCallback>> permissions_;
+  struct MediaPermission { CefRefPtr<CefMediaAccessCallback> callback; uint32_t permissions; };
+  struct PromptPermission { uint64_t prompt_id; CefRefPtr<CefPermissionPromptCallback> callback; };
+  std::map<uint64_t, MediaPermission> media_permissions_;
+  std::map<uint64_t, PromptPermission> prompt_permissions_;
   IMPLEMENT_REFCOUNTING(Client);
 };
 CefRefPtr<Client> g_client;
