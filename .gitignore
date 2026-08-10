@@ -1,9 +1,12 @@
 # Dependencies
 node_modules/
+.deps/
 
 # Build outputs
 dist/
 build/
+cef-host/build/
+src-tauri/cef-runtime/
 test-buildroot/
 .flatpak-builder/
 
