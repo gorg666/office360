@@ -8,6 +8,7 @@
 #include "include/cef_permission_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_request_handler.h"
+#include "include/cef_request_context.h"
 #include "include/cef_task.h"
 #include <windows.h>
 #include <shellapi.h>
@@ -15,7 +16,6 @@
 #include <cctype>
 #include <filesystem>
 #include <functional>
-#include <map>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -39,7 +39,6 @@ BOOL CALLBACK findWebView(HWND hwnd, LPARAM value) {
 class HostApp final : public CefApp {
  public:
   void OnBeforeCommandLineProcessing(const CefString&, CefRefPtr<CefCommandLine> command_line) override {
-    command_line->AppendSwitch("enable-media-stream");
     command_line->AppendSwitch("disable-gpu");
     command_line->AppendSwitch("disable-gpu-compositing");
   }
@@ -90,6 +89,11 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
   CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return this; }
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
     browser_ = browser;
+    auto context = browser_->GetHost()->GetRequestContext();
+    for (const auto* origin : {"https://telemost.yandex.ru", "https://telemost.360.yandex.ru"}) {
+      context->SetContentSetting(origin, origin, CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_MIC, CEF_CONTENT_SETTING_VALUE_ALLOW);
+      context->SetContentSetting(origin, origin, CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA, CEF_CONTENT_SETTING_VALUE_ALLOW);
+    }
     const HWND hwnd = browser_->GetHost()->GetWindowHandle();
     if (g_has_bounds) SetWindowPos(hwnd, HWND_TOP, g_x, g_y, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     ShowWindow(hwnd, g_visible ? SW_SHOW : SW_HIDE);
@@ -121,44 +125,21 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
     const uint32_t supported = CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE | CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE;
     const uint32_t allowed = permissions & supported;
     if (allowed != permissions || allowed == 0) { callback->Cancel(); return true; }
-    const uint64_t id = ++permission_id_; media_permissions_[id] = {callback, allowed};
-    emit("permission-request", "{\"id\":" + std::to_string(id) + ",\"origin\":\"" + escapeJson(origin.ToString()) + "\",\"permissions\":" + std::to_string(permissions) + "}");
+    callback->Continue(allowed);
     return true;
   }
-  bool OnShowPermissionPrompt(CefRefPtr<CefBrowser>, uint64_t prompt_id, const CefString& origin, uint32_t permissions, CefRefPtr<CefPermissionPromptCallback> callback) override {
+  bool OnShowPermissionPrompt(CefRefPtr<CefBrowser>, uint64_t, const CefString& origin, uint32_t permissions, CefRefPtr<CefPermissionPromptCallback> callback) override {
     const uint32_t media = CEF_PERMISSION_TYPE_CAMERA_STREAM | CEF_PERMISSION_TYPE_MIC_STREAM;
     if (!domTrusted(origin.ToString()) || (permissions & ~media) != 0 || (permissions & media) == 0) {
       callback->Continue(CEF_PERMISSION_RESULT_DENY); return true;
     }
-    const uint64_t id = ++permission_id_; prompt_permissions_[id] = {prompt_id, callback};
-    emit("permission-request", "{\"id\":" + std::to_string(id) + ",\"origin\":\"" + escapeJson(origin.ToString()) + "\",\"permissions\":" + std::to_string(permissions) + "}");
+    callback->Continue(CEF_PERMISSION_RESULT_ACCEPT);
     return true;
   }
-  void OnDismissPermissionPrompt(CefRefPtr<CefBrowser>, uint64_t prompt_id, cef_permission_request_result_t) override {
-    for (auto it = prompt_permissions_.begin(); it != prompt_permissions_.end(); ++it) {
-      if (it->second.prompt_id == prompt_id) { prompt_permissions_.erase(it); return; }
-    }
-  }
-  void permission(uint64_t id, bool allow) {
-    auto media = media_permissions_.find(id);
-    if (media != media_permissions_.end()) {
-      if (allow) media->second.callback->Continue(media->second.permissions); else media->second.callback->Cancel();
-      media_permissions_.erase(media); return;
-    }
-    auto prompt = prompt_permissions_.find(id);
-    if (prompt != prompt_permissions_.end()) {
-      prompt->second.callback->Continue(allow ? CEF_PERMISSION_RESULT_ACCEPT : CEF_PERMISSION_RESULT_DENY);
-      prompt_permissions_.erase(prompt);
-    }
-  }
+  void permission(uint64_t, bool) {}
   CefRefPtr<CefBrowser> browser() const { return browser_; }
  private:
   CefRefPtr<CefBrowser> browser_;
-  uint64_t permission_id_ = 0;
-  struct MediaPermission { CefRefPtr<CefMediaAccessCallback> callback; uint32_t permissions; };
-  struct PromptPermission { uint64_t prompt_id; CefRefPtr<CefPermissionPromptCallback> callback; };
-  std::map<uint64_t, MediaPermission> media_permissions_;
-  std::map<uint64_t, PromptPermission> prompt_permissions_;
   IMPLEMENT_REFCOUNTING(Client);
 };
 CefRefPtr<Client> g_client;
