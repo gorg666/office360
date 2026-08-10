@@ -165,17 +165,33 @@ export interface ImapSyncProgress {
 
 export type ImapSyncProgressCallback = (progress: ImapSyncProgress) => void;
 
-async function buildFreshImapConfig(accountId: string): Promise<ImapConfig> {
+async function buildFreshImapConfig(
+  accountId: string,
+  options?: { forceRefresh?: boolean },
+): Promise<ImapConfig> {
   const account = await getAccount(accountId);
   if (!account) {
     throw new Error(`Account ${accountId} not found`);
   }
 
   if (account.auth_method === "oauth2") {
-    return buildImapConfig(account, await ensureFreshToken(account));
+    return buildImapConfig(
+      account,
+      await ensureFreshToken(account, { forceRefresh: options?.forceRefresh }),
+    );
   }
 
   return buildImapConfig(account);
+}
+
+/** Re-resolve IMAP config with a forced OAuth refresh after AUTHENTICATIONFAILED. */
+export async function rebuildImapConfigAfterAuthFailure(
+  accountId: string,
+): Promise<ImapConfig> {
+  console.warn(
+    "[imapSync] OAuth auth failure — forcing token refresh before retry",
+  );
+  return buildFreshImapConfig(accountId, { forceRefresh: true });
 }
 
 /**

@@ -25,6 +25,20 @@ export interface SameDomainContact {
 }
 
 /**
+ * Recent / frequent recipients for empty To-field focus suggestions.
+ */
+export async function getRecentContacts(limit = 5): Promise<DbContact[]> {
+  const db = await getDb();
+  return db.select<DbContact[]>(
+    `SELECT * FROM contacts
+     WHERE last_contacted_at IS NOT NULL OR frequency > 0
+     ORDER BY COALESCE(last_contacted_at, 0) DESC, frequency DESC, display_name ASC
+     LIMIT $1`,
+    [limit],
+  );
+}
+
+/**
  * Search contacts by email or name prefix for autocomplete.
  */
 export async function searchContacts(

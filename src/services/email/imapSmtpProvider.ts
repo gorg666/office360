@@ -139,16 +139,32 @@ export class ImapSmtpProvider implements EmailProvider {
     return this._imapConfig;
   }
 
-  private async getSmtpConfig(): Promise<SmtpConfig> {
+  private async getSmtpConfig(forceRefresh = false): Promise<SmtpConfig> {
     const account = await this.getAccount();
     if (account.auth_method === "oauth2") {
-      const token = await ensureFreshToken(account);
+      const token = await ensureFreshToken(account, {
+        forceRefresh,
+      });
       return buildSmtpConfig(account, token);
     }
     if (!this._smtpConfig) {
       this._smtpConfig = buildSmtpConfig(account);
     }
     return this._smtpConfig;
+  }
+
+  private isOAuthAuthFailure(err: unknown): boolean {
+    const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
+    return (
+      message.includes("authentication") ||
+      message.includes("xoauth") ||
+      message.includes("unauthorized") ||
+      message.includes("invalid_token") ||
+      message.includes("expired_token") ||
+      message.includes("invalid_grant") ||
+      message.includes("535") ||
+      message.includes("534")
+    );
   }
 
   /**
@@ -405,17 +421,39 @@ export class ImapSmtpProvider implements EmailProvider {
   async sendMessage(
     rawBase64Url: string,
     _threadId?: string,
-  ): Promise<{ id: string }> {
-    const smtpConfig = await this.getSmtpConfig();
-    const result = await smtpSendEmail(smtpConfig, rawBase64Url);
-    if (!result.success) {
-      throw new Error(`SMTP send failed: ${result.message}`);
+  ): Promise<{
+    id: string;
+    smtpAccepted?: boolean;
+    appendedToSent?: boolean;
+    localPersisted?: boolean;
+  }> {
+    const sendOnce = async (forceRefresh: boolean) => {
+      const smtpConfig = await this.getSmtpConfig(forceRefresh);
+      const result = await smtpSendEmail(smtpConfig, rawBase64Url);
+      if (!result.success) {
+        throw new Error(`SMTP send failed: ${result.message}`);
+      }
+    };
+
+    try {
+      await sendOnce(false);
+    } catch (err) {
+      const account = await this.getAccount();
+      if (account.auth_method === "oauth2" && this.isOAuthAuthFailure(err)) {
+        console.warn(
+          "[SMTP] auth failure with cached OAuth token — forcing refresh and retry once",
+        );
+        this.clearConfigCache();
+        await sendOnce(true);
+      } else {
+        throw err;
+      }
     }
 
     const messageId = `imap-sent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    // Copy to server Sent first. If this succeeds, delta sync will store the real
-    // `imap-{account}-{folder}-{uid}` row — a local optimistic copy would duplicate it.
+    // Copy to server Sent. Always also keep a local SENT placeholder so UI
+    // shows the message immediately; IMAP sync dedupes via Message-ID header.
     let appendedToSent = false;
     try {
       const imapConfig = await this.getImapConfig();
@@ -430,19 +468,28 @@ export class ImapSmtpProvider implements EmailProvider {
       );
     }
 
-    if (!appendedToSent) {
-      try {
-        await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId);
-      } catch (err) {
-        console.warn("[IMAP] Failed to save sent message to local DB:", err);
-      }
+    let localPersisted = false;
+    try {
+      await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId);
+      localPersisted = true;
+    } catch (err) {
+      console.warn("[IMAP] Failed to save sent message to local DB:", err);
     }
 
-    return { id: messageId };
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("velo-sync-done"));
+    }
+
+    return {
+      id: messageId,
+      smtpAccepted: true,
+      appendedToSent,
+      localPersisted,
+    };
   }
 
   /**
-   * Fallback when IMAP APPEND to Sent fails: keep a local copy with the SENT label.
+   * Persist a local SENT copy for immediate UI (and APPEND fallback).
    */
   private async saveSentMessageLocally(
     rawBase64Url: string,

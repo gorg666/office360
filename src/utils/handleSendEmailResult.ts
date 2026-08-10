@@ -15,8 +15,8 @@ export function notifySendEmailOutcome(result: ActionResult): SendEmailOutcome {
 
   if (outcome === "queued") {
     showSendFeedback({
-      title: "Queued in Outbox",
-      detail: "Message queued for sending. Check Outbox.",
+      title: "В очереди «Исходящие»",
+      detail: "Письмо поставлено в очередь. Проверьте «Исходящие».",
       tone: "info",
     });
     return outcome;
@@ -24,11 +24,11 @@ export function notifySendEmailOutcome(result: ActionResult): SendEmailOutcome {
 
   if (outcome === "failed") {
     showSendFeedback({
-      title: "Send failed",
+      title: "Не удалось отправить",
       detail:
         result.error?.trim() ||
-        "Message could not be sent. Please fix the issue and try again.",
-      footnote: "The draft was kept so you can try again.",
+        "Не удалось отправить письмо. Повторите попытку.",
+      footnote: "Черновик сохранён — можно повторить отправку.",
       tone: "error",
     });
     return outcome;

@@ -359,6 +359,24 @@ export async function executeEmailAction(
     return { success: true, data };
   } catch (err) {
     const classified = classifyError(err);
+    const errText = (err instanceof Error ? err.message : String(err)).toLowerCase();
+    const sendTimedOut =
+      action.type === "sendMessage" &&
+      (errText.includes("timed out") || errText.includes("timeout"));
+
+    // Composer send: do not silently "succeed" as Outbox queue on auth/timeout —
+    // user must see a failure and keep the draft.
+    if (
+      action.type === "sendMessage" &&
+      (classified.type === "auth" || sendTimedOut || !classified.isRetryable)
+    ) {
+      revertOptimisticUpdate(action);
+      console.error(`Email action ${action.type} failed permanently:`, err);
+      return {
+        success: false,
+        error: formatEmailSendOrDraftError(classified.message),
+      };
+    }
 
     if (classified.isRetryable) {
       // Queue for retry

@@ -74,7 +74,7 @@ export function SendFeedbackToast() {
                 isError ? "text-white/90 hover:text-white" : "text-text-secondary hover:text-text-primary"
               }`}
             >
-              Dismiss
+              Закрыть
             </button>
           </div>
         ) : null}

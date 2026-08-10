@@ -14,6 +14,9 @@ use super::types::{SmtpConfig, SmtpSendResult};
 /// Hard cap for SMTP verify — without this, TCP/TLS/auth can hang indefinitely in the UI.
 const SMTP_TEST_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// Hard cap for SMTP send — auth/TLS hangs must surface as errors, not silent UI.
+const SMTP_SEND_TIMEOUT: Duration = Duration::from_secs(45);
+
 /// Decode a base64url-encoded string (Gmail format) to raw bytes.
 fn decode_base64url(input: &str) -> Result<Vec<u8>, String> {
     URL_SAFE_NO_PAD
@@ -158,14 +161,24 @@ pub async fn send_raw_email(
     let envelope = extract_envelope(&raw_bytes)?;
     let transport = build_transport(config)?;
 
-    transport
-        .send_raw(&envelope, &raw_bytes)
-        .await
-        .map(|_response| SmtpSendResult {
-            success: true,
-            message: "Письмо отправлено".to_string(),
-        })
-        .map_err(|e| format!("SMTP send error: {}", e))
+    let outcome = tokio::time::timeout(
+        SMTP_SEND_TIMEOUT,
+        transport.send_raw(&envelope, &raw_bytes),
+    )
+    .await;
+
+    match outcome {
+        Err(_) => Err(format!(
+            "SMTP send timed out after {} seconds. Check server, auth, and network.",
+            SMTP_SEND_TIMEOUT.as_secs()
+        )),
+        Ok(result) => result
+            .map(|_response| SmtpSendResult {
+                success: true,
+                message: "Письмо отправлено".to_string(),
+            })
+            .map_err(|e| format!("SMTP send error: {}", e)),
+    }
 }
 
 /// Test SMTP connectivity by connecting, authenticating, and disconnecting.

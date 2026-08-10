@@ -5,6 +5,7 @@ import { AddAccount } from "./components/accounts/AddAccount";
 import { Composer } from "./components/composer/Composer";
 import { UndoSendToast } from "./components/composer/UndoSendToast";
 import { SendFeedbackToast } from "./components/composer/SendFeedbackToast";
+import { installComposeSendListener } from "./services/composer/composeSendOrchestrator";
 import { CommandPalette } from "./components/search/CommandPalette";
 import { ShortcutsHelp } from "./components/search/ShortcutsHelp";
 import { useUIStore } from "./stores/uiStore";
@@ -254,6 +255,11 @@ export default function App() {
         unlisten();
       }
     };
+  }, []);
+
+  // Cross-window compose send → main-shell undo / SMTP (MAIL-005/006)
+  useEffect(() => {
+    return installComposeSendListener();
   }, []);
 
   // Initialize database, load accounts, start sync

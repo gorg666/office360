@@ -105,6 +105,8 @@ pub fn run() {
             oauth::start_oauth_server,
             oauth::oauth_exchange_token,
             oauth::oauth_refresh_token,
+            oauth::open_oauth_login_window,
+            oauth::close_oauth_login_window,
             set_tray_tooltip,
             close_splashscreen,
             open_devtools,

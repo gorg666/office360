@@ -11,28 +11,54 @@ import { triggerQueueFlush } from "@/services/queue/queueProcessor";
 import { parseOutboxSendPreview } from "@/utils/outboxSendPreview";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { GenericEmptyIllustration } from "@/components/ui/illustrations";
+import { restoreCompose } from "@/services/composer/composeSendOrchestrator";
+import type { ComposeSendRestore } from "@/stores/sendStatusStore";
+import type { ComposerMode } from "@/stores/composerStore";
 
 export type OutboxDisplayStatus = "pending" | "sending" | "failed";
 
 function mapOutboxStatus(op: PendingOperation): OutboxDisplayStatus {
   if (op.status === "executing") return "sending";
   if (op.status === "failed") return "failed";
+  if (op.status === "queued") return "pending";
   return "pending";
 }
 
 function statusLabel(status: OutboxDisplayStatus): string {
   switch (status) {
     case "pending":
-      return "Waiting to send";
+      return "Ожидает отправки";
     case "sending":
-      return "Sending…";
+      return "Отправка…";
     case "failed":
-      return "Send failed";
+      return "Не удалось отправить";
   }
 }
 
 function formatOutboxDate(unixSec: number): string {
   return new Date(unixSec * 1000).toLocaleString();
+}
+
+function parseRestoreFromParams(paramsJson: string): ComposeSendRestore | null {
+  try {
+    const params = JSON.parse(paramsJson) as { restore?: ComposeSendRestore };
+    const restore = params.restore;
+    if (!restore || !Array.isArray(restore.to)) return null;
+    return {
+      mode: (restore.mode as ComposerMode) ?? "new",
+      to: restore.to,
+      cc: restore.cc ?? [],
+      bcc: restore.bcc ?? [],
+      subject: restore.subject ?? "",
+      bodyHtml: restore.bodyHtml ?? "",
+      threadId: restore.threadId ?? null,
+      inReplyToMessageId: restore.inReplyToMessageId ?? null,
+      draftId: restore.draftId ?? null,
+      fromEmail: restore.fromEmail ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function OutboxList() {
@@ -51,7 +77,17 @@ export function OutboxList() {
     setLoading(true);
     try {
       const ops = await getOutboxSendOperations(activeAccountId);
-      setItems(ops);
+      // Dedupe by id (and by resource_id) in case of legacy duplicates
+      const seen = new Set<string>();
+      const deduped: PendingOperation[] = [];
+      for (const op of ops) {
+        const key = op.id || op.resource_id;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (op.resource_id) seen.add(op.resource_id);
+        deduped.push(op);
+      }
+      setItems(deduped);
     } catch (err) {
       console.error("[OutboxList] failed to load:", err);
       setItems([]);
@@ -87,6 +123,20 @@ export function OutboxList() {
     }
   }, [load]);
 
+  const handleOpen = useCallback(
+    async (op: PendingOperation) => {
+      if (!activeAccountId) return;
+      if (op.status === "executing") return;
+      const restore = parseRestoreFromParams(op.params);
+      if (!restore) {
+        console.warn("[OutboxList] no restore payload for", op.id);
+        return;
+      }
+      await restoreCompose(restore, activeAccountId);
+    },
+    [activeAccountId],
+  );
+
   if (!activeAccountId) {
     return (
       <EmptyState
@@ -109,8 +159,8 @@ export function OutboxList() {
     return (
       <EmptyState
         icon={Send}
-        title="No messages are waiting to be sent"
-        subtitle="Offline or temporarily failed messages will appear here"
+        title="Нет писем, ожидающих отправки"
+        subtitle="Очередь и ошибки отправки появятся здесь"
       />
     );
   }
@@ -121,11 +171,9 @@ export function OutboxList() {
         const preview = parseOutboxSendPreview(op.params);
         const displayStatus = mapOutboxStatus(op);
         const canRetry = displayStatus === "failed";
+        const canOpen = displayStatus !== "sending";
         return (
-          <li
-            key={op.id}
-            className="px-4 py-3 hover:bg-bg-hover transition-colors"
-          >
+          <li key={op.id} className="px-4 py-3 hover:bg-bg-hover transition-colors">
             <div className="flex items-start gap-3">
               <div className="mt-0.5 shrink-0 text-accent">
                 {displayStatus === "sending" ? (
@@ -136,7 +184,12 @@ export function OutboxList() {
                   <Send size={16} />
                 )}
               </div>
-              <div className="min-w-0 flex-1">
+              <button
+                type="button"
+                disabled={!canOpen}
+                onClick={() => void handleOpen(op)}
+                className={`min-w-0 flex-1 text-left ${canOpen ? "cursor-pointer" : "cursor-default opacity-80"}`}
+              >
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-medium text-text-primary truncate">
                     {preview.subject}
@@ -161,7 +214,7 @@ export function OutboxList() {
                 </p>
                 {op.error_message && displayStatus === "pending" && (
                   <p className="text-xs text-text-tertiary mt-1 break-words">
-                    Last attempt failed: {op.error_message}
+                    Последняя попытка: {op.error_message}
                   </p>
                 )}
                 {op.error_message && displayStatus === "failed" && (
@@ -169,16 +222,24 @@ export function OutboxList() {
                     {op.error_message}
                   </p>
                 )}
-              </div>
+                {canOpen && (
+                  <p className="text-[0.625rem] text-text-tertiary mt-1">
+                    Нажмите, чтобы открыть
+                  </p>
+                )}
+              </button>
               {canRetry && (
                 <button
                   type="button"
-                  onClick={() => void handleRetry(op.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleRetry(op.id);
+                  }}
                   disabled={retryingId === op.id}
                   className="shrink-0 flex items-center gap-1 text-xs text-accent hover:text-accent/80 disabled:opacity-50 press-scale px-2 py-1 rounded"
                 >
                   <RefreshCw size={14} className={retryingId === op.id ? "animate-spin" : ""} />
-                  Retry
+                  Повторить
                 </button>
               )}
             </div>

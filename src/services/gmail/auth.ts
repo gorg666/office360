@@ -1,10 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const OAUTH_CALLBACK_PORT = 17248;
 const OAUTH_CALLBACK_TIMEOUT_MS = 45_000;
+const OAUTH_LISTENING_TIMEOUT_MS = 15_000;
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -96,7 +98,31 @@ export async function startOAuthFlow(
 
   const authUrl = `${GOOGLE_AUTH_URL}?${params.toString()}`;
 
-  // Start the server (it blocks until redirect arrives) and open browser concurrently
+  let listeningSettled = false;
+  let resolveListening!: () => void;
+  let rejectListening!: (err: Error) => void;
+  const listeningReady = new Promise<void>((resolve, reject) => {
+    resolveListening = resolve;
+    rejectListening = reject;
+  });
+  const listeningTimer = setTimeout(() => {
+    if (listeningSettled) return;
+    listeningSettled = true;
+    rejectListening(
+      new Error(
+        `OAuth callback listener did not start on port ${OAUTH_CALLBACK_PORT} within ${OAUTH_LISTENING_TIMEOUT_MS}ms.`,
+      ),
+    );
+  }, OAUTH_LISTENING_TIMEOUT_MS);
+  const unlistenListening = await listen<{ port: number }>("oauth-listening", (event) => {
+    if (listeningSettled) return;
+    if (event.payload.port !== OAUTH_CALLBACK_PORT) return;
+    listeningSettled = true;
+    clearTimeout(listeningTimer);
+    resolveListening();
+  });
+
+  // Start the server (it blocks until redirect arrives) after the listener event is subscribed.
   const serverPromise = invoke<OAuthServerResult>("start_oauth_server", {
     port: OAUTH_CALLBACK_PORT,
     state: oauthState,
@@ -105,8 +131,13 @@ export async function startOAuthFlow(
     // The race below may time out first; prevent late rejections from bubbling.
   });
 
-  // Small delay to let the server bind before opening the browser
-  await new Promise((r) => setTimeout(r, 100));
+  try {
+    await listeningReady;
+  } finally {
+    clearTimeout(listeningTimer);
+    unlistenListening();
+  }
+
   await openUrl(authUrl);
 
   // Wait for the redirect. Google does not redirect back when it blocks an

@@ -29,8 +29,8 @@ describe("notifySendEmailOutcome", () => {
     const outcome = notifySendEmailOutcome({ success: true, queued: true });
     expect(outcome).toBe("queued");
     expect(showSendFeedback).toHaveBeenCalledWith({
-      title: "Queued in Outbox",
-      detail: "Message queued for sending. Check Outbox.",
+      title: "В очереди «Исходящие»",
+      detail: "Письмо поставлено в очередь. Проверьте «Исходящие».",
       tone: "info",
     });
   });
@@ -42,9 +42,9 @@ describe("notifySendEmailOutcome", () => {
     });
     expect(outcome).toBe("failed");
     expect(showSendFeedback).toHaveBeenCalledWith({
-      title: "Send failed",
+      title: "Не удалось отправить",
       detail: "Invalid recipient",
-      footnote: "The draft was kept so you can try again.",
+      footnote: "Черновик сохранён — можно повторить отправку.",
       tone: "error",
     });
   });

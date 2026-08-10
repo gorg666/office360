@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Composer } from "./components/composer/Composer";
-import { UndoSendToast } from "./components/composer/UndoSendToast";
 import { useAccountStore } from "./stores/accountStore";
 import { useComposerStore } from "./stores/composerStore";
 import { useUIStore } from "./stores/uiStore";
@@ -218,7 +217,6 @@ export default function ComposerWindow() {
         <div className="blob" />
       </div>
       <Composer />
-      <UndoSendToast />
     </div>
   );
 }

@@ -77,3 +77,8 @@ velo-*.tar.gz
 *.flatpak
 *.rpm
 *.src.rpm
+
+# AI tooling — keep secret-free project MCP trackable; ignore local overrides
+.cursor/mcp.local.json
+.mcp.local.json
+**/.env.mcp*

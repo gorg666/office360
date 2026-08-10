@@ -18,11 +18,9 @@ import { FromSelector } from "./FromSelector";
 import { ComposerHeader } from "./ComposerHeader";
 import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
-import { useUIStore } from "@/stores/uiStore";
-import { sendEmail, archiveThread, deleteDraft as deleteDraftAction } from "@/services/emailActions";
+import { deleteDraft as deleteDraftAction } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
 import { buildReplyHeadersForMessageId } from "@/utils/replyHeaders";
-import { upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
 import { insertScheduledEmail } from "@/services/db/scheduledEmails";
 import { getDefaultSignature } from "@/services/db/signatures";
@@ -31,7 +29,7 @@ import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
 import { resolveFromAddress } from "@/utils/resolveFromAddress";
 import { openComposeWindow, isComposeStandaloneWindow, closeStandaloneComposeWindow } from "@/utils/openComposeWindow";
 import { startAutoSave, stopAutoSave } from "@/services/composer/draftAutoSave";
-import { notifySendEmailOutcome } from "@/utils/handleSendEmailResult";
+import { requestComposeSend } from "@/services/composer/composeSendOrchestrator";
 import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates";
 import { readFileAsBase64 } from "@/utils/fileUtils";
 import { interpolateVariables } from "@/utils/templateVariables";
@@ -77,7 +75,6 @@ export function Composer() {
   // Note: bodyHtml intentionally NOT subscribed — TipTap manages its own editor state.
   // Subscribing would cause full re-renders on every keystroke.
   const closeComposer = useComposerStore((s) => s.closeComposer);
-  const openComposer = useComposerStore((s) => s.openComposer);
   const setTo = useComposerStore((s) => s.setTo);
   const setCc = useComposerStore((s) => s.setCc);
   const setBcc = useComposerStore((s) => s.setBcc);
@@ -295,77 +292,40 @@ export function Composer() {
     sendingRef.current = true;
     stopAutoSave();
 
-    const html = getFullHtml();
-    const senderEmail = state.fromEmail ?? activeAccount.email;
-    const replyHeaders = await buildReplyHeadersForMessageId(activeAccountId, state.inReplyToMessageId);
-    const raw = buildRawEmail({
-      from: senderEmail,
-      to: state.to,
-      cc: state.cc.length > 0 ? state.cc : undefined,
-      bcc: state.bcc.length > 0 ? state.bcc : undefined,
-      subject: state.subject,
-      htmlBody: html,
-      inReplyTo: replyHeaders.inReplyTo,
-      references: replyHeaders.references,
-      threadId: state.threadId ?? undefined,
-      attachments: state.attachments.length > 0
-        ? state.attachments.map((a) => ({
-            filename: a.filename,
-            mimeType: a.mimeType,
-            content: a.content,
-          }))
-        : undefined,
-    });
+    try {
+      const html = getFullHtml();
+      const senderEmail = state.fromEmail ?? activeAccount.email;
+      const replyHeaders = await buildReplyHeadersForMessageId(activeAccountId, state.inReplyToMessageId);
+      const raw = buildRawEmail({
+        from: senderEmail,
+        to: state.to,
+        cc: state.cc.length > 0 ? state.cc : undefined,
+        bcc: state.bcc.length > 0 ? state.bcc : undefined,
+        subject: state.subject,
+        htmlBody: html,
+        inReplyTo: replyHeaders.inReplyTo,
+        references: replyHeaders.references,
+        threadId: state.threadId ?? undefined,
+        attachments: state.attachments.length > 0
+          ? state.attachments.map((a) => ({
+              filename: a.filename,
+              mimeType: a.mimeType,
+              content: a.content,
+            }))
+          : undefined,
+      });
 
-    // Get undo send delay
-    const delaySetting = await getSetting("undo_send_delay_seconds");
-    const delay = parseInt(delaySetting ?? "5", 10) * 1000;
-    const currentDraftId = state.draftId;
+      const delaySetting = await getSetting("undo_send_delay_seconds");
+      const delay = parseInt(delaySetting ?? "5", 10) * 1000;
 
-    // Show undo send UI
-    state.setUndoSendVisible(true);
-
-    const timer = setTimeout(async () => {
-      try {
-        const result = await sendEmail(activeAccountId, raw, state.threadId ?? undefined);
-        const outcome = notifySendEmailOutcome(result);
-
-        if (outcome === "failed") {
-          openComposer({
-            mode: state.mode,
-            to: state.to,
-            cc: state.cc,
-            bcc: state.bcc,
-            subject: state.subject,
-            bodyHtml: html,
-            threadId: state.threadId,
-            inReplyToMessageId: state.inReplyToMessageId,
-            draftId: currentDraftId,
-          });
-          startAutoSave(activeAccountId);
-          return;
-        }
-
-        if (currentDraftId) {
-          try { await deleteDraftAction(activeAccountId, currentDraftId); } catch { /* ignore */ }
-        }
-
-        if (outcome === "success" && useUIStore.getState().sendAndArchive && state.threadId) {
-          try { await archiveThread(activeAccountId, state.threadId, []); } catch { /* ignore */ }
-        }
-
-        if (outcome === "success") {
-          for (const addr of [...state.to, ...state.cc, ...state.bcc]) {
-            await upsertContact(addr, null);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to send email:", err);
-        notifySendEmailOutcome({
-          success: false,
-          error: "Message could not be sent. Please fix the issue and try again.",
-        });
-        openComposer({
+      await requestComposeSend({
+        accountId: activeAccountId,
+        rawBase64Url: raw,
+        threadId: state.threadId ?? undefined,
+        draftId: state.draftId,
+        recipientEmails: [...state.to, ...state.cc, ...state.bcc],
+        undoDelayMs: Number.isFinite(delay) ? delay : 5000,
+        restore: {
           mode: state.mode,
           to: state.to,
           cc: state.cc,
@@ -374,18 +334,20 @@ export function Composer() {
           bodyHtml: html,
           threadId: state.threadId,
           inReplyToMessageId: state.inReplyToMessageId,
-          draftId: currentDraftId,
-        });
-        startAutoSave(activeAccountId);
-      } finally {
-        useComposerStore.getState().setUndoSendVisible(false);
-        sendingRef.current = false;
-      }
-    }, delay);
+          draftId: state.draftId,
+          fromEmail: state.fromEmail,
+        },
+      });
 
-    state.setUndoSendTimer(timer);
-    closeComposer();
-  }, [activeAccountId, activeAccount, closeComposer, openComposer, getFullHtml]);
+      closeComposer();
+      await closeStandaloneComposeWindow();
+    } catch (err) {
+      console.error("Failed to queue compose send:", err);
+      startAutoSave(activeAccountId);
+    } finally {
+      sendingRef.current = false;
+    }
+  }, [activeAccountId, activeAccount, closeComposer, getFullHtml]);
 
   const handleSchedule = useCallback(async (scheduledAt: number) => {
     if (!activeAccountId || !activeAccount) return;
@@ -444,6 +406,7 @@ export function Composer() {
 
     setShowSchedule(false);
     closeComposer();
+    await closeStandaloneComposeWindow();
   }, [activeAccountId, activeAccount, closeComposer, getFullHtml]);
 
   const handleDiscard = useCallback(async () => {
@@ -551,15 +514,15 @@ export function Composer() {
           <AddressInput label="Кому" addresses={to} onChange={setTo} />
           {showCcBcc ? (
             <>
-              <AddressInput label="Cc" addresses={cc} onChange={setCc} />
-              <AddressInput label="Bcc" addresses={bcc} onChange={setBcc} />
+              <AddressInput label="Копия" addresses={cc} onChange={setCc} />
+              <AddressInput label="Скрытая" addresses={bcc} onChange={setBcc} />
             </>
           ) : (
             <button
               onClick={() => setShowCcBcc(true)}
               className="text-xs text-accent hover:text-accent-hover ml-10"
             >
-              Cc / Bcc
+              Копия / Скрытая копия
             </button>
           )}
         </div>
