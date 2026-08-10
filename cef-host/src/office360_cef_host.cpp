@@ -73,6 +73,10 @@ bool domTrusted(const std::string& url) {
   std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
   return CefString(&parts.scheme).ToString() == "https" && (host == "telemost.yandex.ru" || host == "telemost.360.yandex.ru");
 }
+bool httpUrl(const std::string& url) {
+  CefURLParts parts{}; if (!CefParseURL(url, parts)) return false;
+  const auto scheme = CefString(&parts.scheme).ToString(); return scheme == "https" || scheme == "http";
+}
 std::string safeUrl(const std::string& url) {
   CefURLParts parts{}; if (!CefParseURL(url, parts)) return {};
   std::string result = CefString(&parts.scheme).ToString() + "://" + CefString(&parts.host).ToString();
@@ -99,9 +103,21 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
     ShowWindow(hwnd, g_visible ? SW_SHOW : SW_HIDE);
     emit("ready", "{\"message\":\"Chromium готов\"}");
   }
+  bool OnBeforePopup(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, int, const CefString& target_url,
+                     const CefString&, CefLifeSpanHandler::WindowOpenDisposition, bool, const CefPopupFeatures&, CefWindowInfo&,
+                     CefRefPtr<CefClient>&, CefBrowserSettings&, CefRefPtr<CefDictionaryValue>&, bool*) override {
+    const auto url = target_url.ToString();
+    if (trusted(url)) browser->GetMainFrame()->LoadURL(url);
+    else if (httpUrl(url)) ShellExecuteW(nullptr, L"open", target_url.ToWString().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    else emit("blocked-navigation", "{\"url\":\"external-protocol\"}");
+    return true;
+  }
   void OnBeforeClose(CefRefPtr<CefBrowser>) override { browser_ = nullptr; emit("closed"); }
-  void OnLoadingStateChange(CefRefPtr<CefBrowser>, bool loading, bool canBack, bool canForward) override {
+  void OnLoadingStateChange(CefRefPtr<CefBrowser> browser, bool loading, bool canBack, bool canForward) override {
     emit("loading", std::string("{\"loading\":") + (loading ? "true" : "false") + ",\"canBack\":" + (canBack ? "true" : "false") + ",\"canForward\":" + (canForward ? "true" : "false") + "}");
+    if (!loading && domTrusted(browser->GetMainFrame()->GetURL())) {
+      browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{if(window.__o360BrowserJoin)return;let attempts=0;window.__o360BrowserJoin=setInterval(()=>{const item=[...document.querySelectorAll('button,a')].find(el=>/продолжить в браузере|continue in browser/i.test((el.innerText||el.textContent||'').trim()));if(item){clearInterval(window.__o360BrowserJoin);item.click()}else if(++attempts>120)clearInterval(window.__o360BrowserJoin)},500)})())JS", browser->GetMainFrame()->GetURL(), 0);
+    }
   }
   void OnLoadError(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, ErrorCode code, const CefString& text, const CefString& url) override {
     emit("error", "{\"message\":\"" + escapeJson(text.ToString()) + "\",\"code\":" + std::to_string(code) + ",\"url\":\"" + escapeJson(url.ToString()) + "\"}");
@@ -117,7 +133,7 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
   bool OnBeforeBrowse(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request, bool, bool) override {
     const auto url = request->GetURL().ToString();
     if (trusted(url) || url == "about:blank") return false;
-    const auto wide = CefString(url).ToWString(); ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    if (httpUrl(url)) { const auto wide = CefString(url).ToWString(); ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL); }
     emit("blocked-navigation", "{\"url\":\"" + escapeJson(safeUrl(url)) + "\"}"); return true;
   }
   bool OnRequestMediaAccessPermission(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, const CefString& origin, uint32_t permissions, CefRefPtr<CefMediaAccessCallback> callback) override {
