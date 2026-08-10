@@ -66,6 +66,11 @@ export function navigateToLabel(
     return;
   }
 
+  if (label === "disk" || label === "telemost" || label === "tracker") {
+    router.navigate({ to: `/${label}` });
+    return;
+  }
+
   if (label === "messengers") {
     useUIStore.getState().setMessengersPanelsOpen(true);
     const pathname = router.state.location.pathname;
@@ -294,6 +299,11 @@ export function navigateBackFromSettings(): void {
     return;
   }
 
+  if (pathname === "/disk" || pathname === "/telemost" || pathname === "/tracker") {
+    router.navigate({ to: pathname });
+    return;
+  }
+
   if (pathname === "/repair") {
     router.navigate({ to: "/repair" });
     return;
@@ -419,6 +429,9 @@ export function getActiveLabel(): string {
     if (match.routeId === "/calendar") {
       return "calendar";
     }
+    if (match.routeId === "/disk") return "disk";
+    if (match.routeId === "/telemost") return "telemost";
+    if (match.routeId === "/tracker") return "tracker";
     if (match.routeId === "/repair" || match.routeId === "/repair/$accountId") {
       return "repair";
     }
