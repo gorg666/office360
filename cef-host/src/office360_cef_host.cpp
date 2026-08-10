@@ -97,7 +97,6 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
     for (const auto* origin : {"https://telemost.yandex.ru", "https://telemost.360.yandex.ru"}) {
       context->SetContentSetting(origin, origin, CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_MIC, CEF_CONTENT_SETTING_VALUE_ALLOW);
       context->SetContentSetting(origin, origin, CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA, CEF_CONTENT_SETTING_VALUE_ALLOW);
-      context->SetContentSetting(origin, origin, CEF_CONTENT_SETTING_TYPE_DISPLAY_CAPTURE, CEF_CONTENT_SETTING_VALUE_ALLOW);
     }
     const HWND hwnd = browser_->GetHost()->GetWindowHandle();
     if (g_has_bounds) SetWindowPos(hwnd, HWND_TOP, g_x, g_y, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
