@@ -25,6 +25,8 @@ o360_cef_event_callback g_callback = nullptr;
 std::mutex g_mutex;
 bool g_initialized = false;
 HWND g_parent = nullptr;
+int g_x = 0, g_y = 0, g_width = 1, g_height = 1;
+bool g_has_bounds = false, g_visible = true;
 
 BOOL CALLBACK findWebView(HWND hwnd, LPARAM value) {
   wchar_t className[128]{}; GetClassNameW(hwnd, className, 128);
@@ -61,7 +63,9 @@ bool trusted(const std::string& url) {
   const std::string scheme = CefString(&parts.scheme).ToString();
   std::string host = CefString(&parts.host).ToString();
   std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
-  return scheme == "https" && (host == "yandex.ru" || host == "telemost.yandex.ru" || (host.size() > 10 && host.substr(host.size() - 10) == ".yandex.ru"));
+  const bool yandex = host == "yandex.ru" || (host.size() > 10 && host.substr(host.size() - 10) == ".yandex.ru");
+  const bool ya = host == "ya.ru" || (host.size() > 6 && host.substr(host.size() - 6) == ".ya.ru");
+  return scheme == "https" && (yandex || ya);
 }
 bool domTrusted(const std::string& url) {
   CefURLParts parts{}; if (!CefParseURL(url, parts)) return false;
@@ -83,7 +87,13 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
   CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return this; }
-  void OnAfterCreated(CefRefPtr<CefBrowser> browser) override { browser_ = browser; emit("ready", "{\"message\":\"Chromium готов\"}"); }
+  void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
+    browser_ = browser;
+    const HWND hwnd = browser_->GetHost()->GetWindowHandle();
+    if (g_has_bounds) SetWindowPos(hwnd, HWND_TOP, g_x, g_y, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    ShowWindow(hwnd, g_visible ? SW_SHOW : SW_HIDE);
+    emit("ready", "{\"message\":\"Chromium готов\"}");
+  }
   void OnBeforeClose(CefRefPtr<CefBrowser>) override { browser_ = nullptr; emit("closed"); }
   void OnLoadingStateChange(CefRefPtr<CefBrowser>, bool loading, bool canBack, bool canForward) override {
     emit("loading", std::string("{\"loading\":") + (loading ? "true" : "false") + ",\"canBack\":" + (canBack ? "true" : "false") + ",\"canForward\":" + (canForward ? "true" : "false") + "}");
@@ -162,12 +172,12 @@ extern "C" int o360_cef_create(const char* url) {
   g_client = new Client(); CefWindowInfo info; RECT rect{}; GetClientRect(g_parent, &rect); info.SetAsChild(g_parent, CefRect(0, 0, rect.right, rect.bottom));
   CefBrowserSettings settings; return CefBrowserHost::CreateBrowser(info, g_client, url, settings, nullptr, nullptr) ? 1 : 0;
 }
-extern "C" void o360_cef_set_bounds(int x,int y,int w,int h){ ui([=]{if(g_client&&g_client->browser())SetWindowPos(g_client->browser()->GetHost()->GetWindowHandle(),HWND_TOP,x,y,std::max(1,w),std::max(1,h),SWP_NOACTIVATE);}); }
-extern "C" void o360_cef_set_visible(int v){ ui([=]{if(g_client&&g_client->browser())ShowWindow(g_client->browser()->GetHost()->GetWindowHandle(),v?SW_SHOW:SW_HIDE);}); }
+extern "C" void o360_cef_set_bounds(int x,int y,int w,int h){g_x=x;g_y=y;g_width=std::max(1,w);g_height=std::max(1,h);g_has_bounds=true;ui([]{if(g_client&&g_client->browser())SetWindowPos(g_client->browser()->GetHost()->GetWindowHandle(),HWND_TOP,g_x,g_y,g_width,g_height,SWP_NOACTIVATE|SWP_SHOWWINDOW);});}
+extern "C" void o360_cef_set_visible(int v){g_visible=v!=0;ui([]{if(g_client&&g_client->browser())ShowWindow(g_client->browser()->GetHost()->GetWindowHandle(),g_visible?SW_SHOW:SW_HIDE);});}
 extern "C" void o360_cef_navigate(const char* url){std::string s=url?url:"";ui([s]{if(g_client&&g_client->browser()&&trusted(s))g_client->browser()->GetMainFrame()->LoadURL(s);});}
 extern "C" void o360_cef_back(){ui([]{if(g_client&&g_client->browser())g_client->browser()->GoBack();});}
 extern "C" void o360_cef_forward(){ui([]{if(g_client&&g_client->browser())g_client->browser()->GoForward();});}
 extern "C" void o360_cef_reload(){ui([]{if(g_client&&g_client->browser())g_client->browser()->Reload();});}
 extern "C" int o360_cef_dom_command(const char* id,const char* command){if(!g_client||!g_client->browser()||!domTrusted(g_client->browser()->GetMainFrame()->GetURL()))return 0;std::string script=domScript(id?id:"",command?command:"{}");ui([script]{if(g_client&&g_client->browser()&&domTrusted(g_client->browser()->GetMainFrame()->GetURL()))g_client->browser()->GetMainFrame()->ExecuteJavaScript(script,g_client->browser()->GetMainFrame()->GetURL(),0);});return 1;}
 extern "C" void o360_cef_permission_response(uint64_t id,int allow){ui([=]{if(g_client)g_client->permission(id,allow!=0);});}
-extern "C" void o360_cef_shutdown(){std::lock_guard<std::mutex> lock(g_mutex);if(!g_initialized)return;if(g_client&&g_client->browser())g_client->browser()->GetHost()->CloseBrowser(true);g_client=nullptr;CefShutdown();g_initialized=false;g_parent=nullptr;g_callback=nullptr;}
+extern "C" void o360_cef_shutdown(){std::lock_guard<std::mutex> lock(g_mutex);if(!g_initialized)return;if(g_client&&g_client->browser())g_client->browser()->GetHost()->CloseBrowser(true);g_client=nullptr;CefShutdown();g_initialized=false;g_parent=nullptr;g_has_bounds=false;g_callback=nullptr;}
