@@ -39,6 +39,7 @@ BOOL CALLBACK findWebView(HWND hwnd, LPARAM value) {
 class HostApp final : public CefApp {
  public:
   void OnBeforeCommandLineProcessing(const CefString&, CefRefPtr<CefCommandLine> command_line) override {
+    command_line->AppendSwitch("enable-media-stream");
     command_line->AppendSwitch("disable-gpu");
     command_line->AppendSwitch("disable-gpu-compositing");
   }
