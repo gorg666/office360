@@ -3,7 +3,7 @@ import { MessageSquarePlus, Plus, RefreshCw, Search } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { useAccountStore } from "@/stores/accountStore";
-import { getYandexContext, getStoredYandexOrgId, listYandexOrganizations, setStoredYandexOrgId } from "@/services/yandex/accountApi";
+import { getYandexContext, getStoredYandexOrgId, listYandexOrganizations, reauthorizeYandexAccount, setStoredYandexOrgId } from "@/services/yandex/accountApi";
 import { addTrackerComment, createTrackerIssue, executeTrackerTransition, getTrackerIssue, listTrackerAttachments, listTrackerComments, listTrackerPriorities, listTrackerQueues, listTrackerStatuses, listTrackerTransitions, searchTrackerIssues, updateTrackerIssue, uploadTrackerAttachment, type TrackerAttachment, type TrackerComment, type TrackerIssue, type TrackerQueue, type TrackerRef, type TrackerTransition } from "@/services/yandex/tracker";
 import { ServicePageShell } from "./ServicePageShell";
 
@@ -22,6 +22,7 @@ export function TrackerPage() {
   const [statuses, setStatuses] = useState<TrackerRef[]>([]); const [priorities, setPriorities] = useState<TrackerRef[]>([]);
   const [status, setStatus] = useState(""); const [priority, setPriority] = useState(""); const [assignee, setAssignee] = useState("");
   const [attachments, setAttachments] = useState<TrackerAttachment[]>([]);
+  const [reauthorizing, setReauthorizing] = useState(false);
 
   const initialize = useCallback(async () => {
     if (!accountId) return;
@@ -43,6 +44,14 @@ export function TrackerPage() {
     finally { setLoading(false); }
   }, [accountId, queue, status, priority, assignee]);
   useEffect(() => { void initialize(); }, [initialize]);
+
+  const reconnect = async () => {
+    if (!accountId) return;
+    setReauthorizing(true); setError(null);
+    try { await reauthorizeYandexAccount(accountId); await initialize(); }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    finally { setReauthorizing(false); }
+  };
 
   const saveOrg = async () => {
     if (!accountId || !orgId.trim()) return;
@@ -72,7 +81,7 @@ export function TrackerPage() {
   const shownIssues = issues.filter((issue) => !query || `${issue.key} ${issue.summary}`.toLowerCase().includes(query.toLowerCase()));
 
   return <ServicePageShell title="Яндекс Трекер" description="Задачи организации" actions={<button className="btn-primary px-3 py-2 flex gap-2" onClick={createIssue}><Plus size={16}/>Создать задачу</button>}>
-    {error && <div className="mb-4 rounded-md bg-danger/10 text-danger p-3 text-sm">{error}</div>}
+    {error && <div className="mb-4 rounded-md bg-danger/10 text-danger p-3 text-sm flex items-center justify-between gap-3"><span>{error}</span><button className="btn-secondary shrink-0 px-3 py-1.5" disabled={reauthorizing} onClick={reconnect}>{reauthorizing ? "Авторизация…" : "Выдать доступ"}</button></div>}
     {!orgId && <div className="max-w-lg border border-border-primary rounded-lg p-5"><h2 className="font-medium mb-2">Организация Трекера</h2><p className="text-sm text-text-tertiary mb-3">Автоматически определить организацию не удалось. Укажите X-Org-ID.</p><div className="flex gap-2"><input className="flex-1 bg-bg-secondary border border-border-primary rounded-md px-3 py-2" value={orgId} onChange={(e) => setOrgId(e.target.value)}/><button className="btn-primary px-4" onClick={saveOrg}>Сохранить</button></div></div>}
     {orgId && <div className="h-full min-h-[500px] grid grid-cols-[minmax(320px,0.9fr)_minmax(420px,1.4fr)] gap-4">
       <section className="border border-border-primary rounded-lg overflow-hidden flex flex-col">

@@ -5,6 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { ChevronRight, Download, File, Folder, FolderPlus, Link, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { createDiskFolder, deleteDiskResource, getDiskDownloadUrl, getDiskQuota, getDiskResource, listDiskResources, moveDiskResource, publishDiskResource, searchDisk, unpublishDiskResource, uploadDiskFile, type DiskResource } from "@/services/yandex/disk";
+import { reauthorizeYandexAccount } from "@/services/yandex/accountApi";
 import { ServicePageShell } from "./ServicePageShell";
 
 function joinPath(parent: string, name: string) { return `${parent.replace(/\/$/, "")}/${name}`; }
@@ -27,6 +28,7 @@ export function DiskPage() {
   const [total, setTotal] = useState(0);
   const [sort, setSort] = useState("name");
   const [quota, setQuota] = useState<{ used: number; total: number } | null>(null);
+  const [reauthorizing, setReauthorizing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -39,6 +41,14 @@ export function DiskPage() {
     finally { setLoading(false); }
   }, [accountId, path, query, offset, sort]);
   useEffect(() => { void load(); }, [load]);
+
+  const reconnect = async () => {
+    if (!accountId) return;
+    setReauthorizing(true); setError(null);
+    try { await reauthorizeYandexAccount(accountId); await load(); }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    finally { setReauthorizing(false); }
+  };
 
   const crumbs = useMemo(() => {
     const parts = path.replace(/^disk:\/?/, "").split("/").filter(Boolean);
@@ -89,7 +99,7 @@ export function DiskPage() {
         <button className="p-2" title="Обновить" onClick={load}><RefreshCw size={17} className={loading ? "animate-spin" : ""}/></button>
       </div>
       {total > 100 && <div className="mt-3 flex justify-end items-center gap-3 text-sm"><button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Назад</button><span>{offset + 1}–{Math.min(total, offset + items.length)} из {total}</span><button disabled={offset + items.length >= total} onClick={() => setOffset(offset + 100)}>Далее</button></div>}
-      {error && <div className="mb-4 rounded-md bg-danger/10 text-danger p-3 text-sm">{error}</div>}
+      {error && <div className="mb-4 rounded-md bg-danger/10 text-danger p-3 text-sm flex items-center justify-between gap-3"><span>{error}</span><button className="btn-secondary shrink-0 px-3 py-1.5" disabled={reauthorizing} onClick={reconnect}>{reauthorizing ? "Авторизация…" : "Выдать доступ"}</button></div>}
       <div className="border border-border-primary rounded-lg overflow-hidden">
         {items.map((item) => <div key={item.path} className="group flex items-center gap-3 px-4 py-3 border-b last:border-0 border-border-primary hover:bg-bg-hover">
           <button className="flex items-center gap-3 min-w-0 flex-1 text-left" onDoubleClick={() => item.type === "dir" && setPath(item.path)}><span className="text-accent">{item.type === "dir" ? <Folder size={21}/> : <File size={21}/>}</span><span className="truncate">{item.name}</span></button>

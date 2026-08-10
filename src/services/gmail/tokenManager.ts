@@ -95,6 +95,12 @@ export async function reauthorizeAccount(
   const account = await getAccount(accountId);
   if (!account) throw new Error(`Account ${accountId} not found`);
 
+  if (account.oauth_provider === "yandex") {
+    const { reauthorizeYandexAccount } = await import("../yandex/accountApi");
+    await reauthorizeYandexAccount(accountId);
+    return;
+  }
+
   const clientId = await getClientId();
   const clientSecret = await getClientSecret();
 

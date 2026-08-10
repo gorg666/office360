@@ -1,6 +1,10 @@
-import { getAccount, getAllAccounts, type DbAccount } from "@/services/db/accounts";
+import { getAccount, getAllAccounts, updateAccountAllTokens, type DbAccount } from "@/services/db/accounts";
 import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
 import { getSetting, setSetting } from "@/services/db/settings";
+import { getOAuthProvider } from "@/services/oauth/providers";
+import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
+import { normalizeEmail } from "@/utils/emailUtils";
+import { getCurrentUnixTimestamp } from "@/utils/timestamp";
 
 export class YandexApiError extends Error {
   constructor(public status: number, message: string, public code?: string) {
@@ -72,6 +76,36 @@ export async function getStoredYandexScopes(accountId: string): Promise<Set<stri
 export async function checkYandexScopes(accountId: string, required: string[]): Promise<{ known: boolean; missing: string[] }> {
   const scopes = await getStoredYandexScopes(accountId);
   return { known: scopes.size > 0, missing: required.filter((scope) => !scopes.has(scope)) };
+}
+
+export async function reauthorizeYandexAccount(accountId: string): Promise<void> {
+  const account = await resolveYandexAccount(accountId);
+  const provider = getOAuthProvider("yandex");
+  if (!provider) throw new Error("Конфигурация Yandex OAuth не найдена.");
+
+  const clientId = account.oauth_client_id || provider.publicClientId;
+  if (!clientId) throw new Error("Для аккаунта не настроен Yandex OAuth Client ID.");
+
+  const { tokens, userInfo } = await startProviderOAuthFlow(
+    provider,
+    clientId,
+    account.oauth_client_secret ?? undefined,
+    { loginHint: account.email },
+  );
+  if (normalizeEmail(userInfo.email) !== normalizeEmail(account.email)) {
+    throw new Error(`Выполнен вход как ${userInfo.email}, ожидался аккаунт ${account.email}.`);
+  }
+
+  const refreshToken = tokens.refresh_token ?? account.refresh_token;
+  if (!refreshToken) throw new Error("Яндекс не вернул refresh token. Отзовите доступ приложения и подключите аккаунт заново.");
+
+  await updateAccountAllTokens(
+    account.id,
+    tokens.access_token,
+    refreshToken,
+    getCurrentUnixTimestamp() + tokens.expires_in,
+  );
+  await setSetting(`yandex_oauth_scopes:${account.id}`, tokens.scope ?? "");
 }
 
 export interface YandexOrganization { id: number | string; name?: string; }
