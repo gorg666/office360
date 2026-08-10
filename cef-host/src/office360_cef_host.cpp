@@ -26,8 +26,20 @@ std::mutex g_mutex;
 bool g_initialized = false;
 HWND g_parent = nullptr;
 
+BOOL CALLBACK findWebView(HWND hwnd, LPARAM value) {
+  wchar_t className[128]{}; GetClassNameW(hwnd, className, 128);
+  if (wcscmp(className, L"WRY_WEBVIEW") == 0) {
+    *reinterpret_cast<HWND*>(value) = hwnd; return FALSE;
+  }
+  return TRUE;
+}
+
 class HostApp final : public CefApp {
  public:
+  void OnBeforeCommandLineProcessing(const CefString&, CefRefPtr<CefCommandLine> command_line) override {
+    command_line->AppendSwitch("disable-gpu");
+    command_line->AppendSwitch("disable-gpu-compositing");
+  }
   IMPLEMENT_REFCOUNTING(HostApp);
 };
 
@@ -140,7 +152,10 @@ extern "C" int o360_cef_initialize(void* parent, const wchar_t* profile, const w
   CefString(&settings.resources_dir_path) = runtime.wstring(); CefString(&settings.locales_dir_path) = (runtime / L"locales").wstring();
   settings.log_severity = LOGSEVERITY_WARNING; CefString(&settings.log_file) = (std::filesystem::path(profile) / L"cef.log").wstring();
   g_initialized = CefInitialize(args, settings, new HostApp(), nullptr); if (!g_initialized) return 0;
-  g_parent = static_cast<HWND>(parent); emit("initialized"); return 1;
+  g_parent = static_cast<HWND>(parent);
+  HWND webview = nullptr; EnumChildWindows(g_parent, findWebView, reinterpret_cast<LPARAM>(&webview));
+  if (webview) g_parent = webview;
+  emit("initialized"); return 1;
 }
 extern "C" int o360_cef_create(const char* url) {
   if (!g_initialized || !g_parent) return 0;
