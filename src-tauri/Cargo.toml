@@ -1,6 +1,6 @@
 [package]
 name = "office360"
-version = "0.4.21" # x-release-please-version
+version = "0.5.0" # x-release-please-version
 description = "Office360 desktop mail client"
 authors = ["Avihay"]
 license = "LicenseRef-Proprietary"
