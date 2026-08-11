@@ -8,6 +8,7 @@ export interface CalendarInfo {
 }
 
 export interface CalendarEventData {
+  instanceId?: string;
   remoteEventId: string;
   uid: string | null;
   etag: string | null;

@@ -101,6 +101,21 @@ export async function deleteEventsForCalendar(calendarId: string): Promise<void>
   await db.execute("DELETE FROM calendar_events WHERE calendar_id = $1", [calendarId]);
 }
 
+export async function deleteCalendarEventsInRange(
+  accountId: string,
+  calendarId: string,
+  startTime: number,
+  endTime: number,
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `DELETE FROM calendar_events
+     WHERE account_id = $1 AND calendar_id = $2
+       AND start_time < $4 AND end_time > $3`,
+    [accountId, calendarId, startTime, endTime],
+  );
+}
+
 export async function getEventByRemoteId(
   calendarId: string,
   remoteEventId: string,

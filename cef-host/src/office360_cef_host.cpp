@@ -132,6 +132,19 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
         const compact=()=>{const w=innerWidth,h=innerHeight;for(const el of document.querySelectorAll('header,footer,body *')){if(!(el instanceof HTMLElement)||el.classList.contains('o360-compact-hidden'))continue;const r=el.getBoundingClientRect();if(!r.width||!r.height)continue;const controls=el.querySelectorAll('a,button').length;const rail=r.left<12&&r.width>=36&&r.width<=110&&r.height>h*.55&&controls>=5;const top=r.top<8&&r.height<=110&&r.width>w*.65&&controls>=1;const bottom=r.bottom>h-8&&r.height<=100&&r.width>w*.55&&controls>=1;if(rail||top||bottom)el.classList.add('o360-compact-hidden')}};
         compact();new MutationObserver(compact).observe(document.body,{childList:true,subtree:true});addEventListener('resize',compact);
       })())JS", browser->GetMainFrame()->GetURL(), 0);
+      browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{
+        if(!/^\/j\/\d+/.test(location.pathname)||window.__o360MeetingFit)return;
+        window.__o360MeetingFit=true;
+        const fit=()=>{
+          const available=Math.max(480,innerHeight);
+          const designHeight=1120;
+          const factor=Math.min(1,Math.max(.65,available/designHeight));
+          document.documentElement.style.zoom=String(factor);
+          document.documentElement.style.width=`${100/factor}%`;
+          document.documentElement.style.height=`${100/factor}%`;
+        };
+        fit();addEventListener('resize',fit);
+      })())JS", browser->GetMainFrame()->GetURL(), 0);
     }
   }
   void OnLoadError(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, ErrorCode code, const CefString& text, const CefString& url) override {

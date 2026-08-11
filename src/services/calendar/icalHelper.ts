@@ -1,4 +1,5 @@
 import type { CalendarEventData, CreateEventInput, UpdateEventInput } from "./types";
+import { rrulestr } from "rrule";
 
 export interface ParsedICalAttendee {
   email: string;
@@ -167,6 +168,58 @@ export function parseVEvent(icalData: string, href?: string): CalendarEventData 
   };
 }
 
+export function parseVEventsInRange(
+  icalData: string,
+  href: string | undefined,
+  rangeStart: Date,
+  rangeEnd: Date,
+): CalendarEventData[] {
+  const blocks = extractVEventBlocks(icalData);
+  if (blocks.length === 0) return [];
+
+  const parsed = blocks.map((block) => ({
+    block,
+    event: parseVEvent(wrapVEvent(block), href),
+    recurrenceId: getDateProperty(block, "RECURRENCE-ID"),
+  }));
+  const master = parsed.find((item) => item.recurrenceId === null) ?? parsed[0]!;
+  const rule = getProperty(master.block, "RRULE");
+  if (!rule) return parsed.map((item) => item.event);
+
+  const duration = Math.max(0, master.event.endTime - master.event.startTime);
+  const exclusions = new Set(getDateProperties(master.block, "EXDATE"));
+  const overrides = new Map(
+    parsed
+      .filter((item) => item.recurrenceId !== null)
+      .map((item) => [item.recurrenceId!, item.event] as const),
+  );
+  const recurrence = rrulestr(rule, { dtstart: new Date(master.event.startTime * 1000) });
+  const dates = recurrence.between(
+    new Date(rangeStart.getTime() - duration * 1000),
+    rangeEnd,
+    true,
+  );
+
+  return dates.flatMap((date) => {
+    const occurrenceTime = Math.floor(date.getTime() / 1000);
+    if (exclusions.has(occurrenceTime)) return [];
+    const override = overrides.get(occurrenceTime);
+    if (override?.status === "cancelled") return [];
+    const event = override ?? {
+      ...master.event,
+      startTime: occurrenceTime,
+      endTime: occurrenceTime + duration,
+    };
+    return [{
+      ...event,
+      instanceId: `${href ?? master.event.uid ?? "event"}::${occurrenceTime}`,
+      remoteEventId: href ?? master.event.remoteEventId,
+      etag: master.event.etag,
+      icalData,
+    }];
+  });
+}
+
 /**
  * Parse iTIP/iMIP invitation metadata while preserving the existing event shape.
  */
@@ -237,6 +290,31 @@ export function parseICalendarInvite(icalData: string, href?: string): ParsedCal
 function unfoldLines(icalData: string): string[] {
   const raw = icalData.replace(/\r\n[ \t]/g, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   return raw.split("\n").filter((l) => l.length > 0);
+}
+
+function extractVEventBlocks(icalData: string): string[] {
+  return icalData.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/gi) ?? [];
+}
+
+function wrapVEvent(block: string): string {
+  return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${block}\r\nEND:VCALENDAR`;
+}
+
+function getProperty(block: string, property: string): string | null {
+  const line = unfoldLines(block).map(parseContentLine).find((item) => item?.name === property);
+  return line?.value ?? null;
+}
+
+function getDateProperty(block: string, property: string): number | null {
+  const line = unfoldLines(block).map(parseContentLine).find((item) => item?.name === property);
+  if (!line) return null;
+  return parseICalDateTime(line.value, line.params.VALUE === "DATE");
+}
+
+function getDateProperties(block: string, property: string): number[] {
+  return unfoldLines(block).map(parseContentLine).filter((item) => item?.name === property).flatMap((item) =>
+    item!.value.split(",").map((value) => parseICalDateTime(value, item!.params.VALUE === "DATE")),
+  );
 }
 
 function parseContentLine(line: string): ICalContentLine | null {

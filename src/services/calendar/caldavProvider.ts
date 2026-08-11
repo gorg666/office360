@@ -9,7 +9,7 @@ import type {
   CreateEventInput,
   UpdateEventInput,
 } from "./types";
-import { generateVEvent, parseVEvent } from "./icalHelper";
+import { generateVEvent, parseVEvent, parseVEventsInRange } from "./icalHelper";
 import { getAccount } from "@/services/db/accounts";
 import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
 import { isYandexOAuthCalendarAccount, YANDEX_CALDAV_URL } from "./yandex";
@@ -85,13 +85,13 @@ export class CalDAVProvider implements CalendarProvider {
       },
     });
 
-    return objects
-      .filter((obj) => obj.data)
-      .map((obj) => {
-        const event = parseVEvent(obj.data!, obj.url);
-        event.etag = obj.etag ?? null;
-        return event;
-      });
+    return objects.flatMap((obj) => {
+      if (!obj.data) return [];
+      return parseVEventsInRange(obj.data, obj.url, new Date(timeMin), new Date(timeMax)).map((event) => ({
+        ...event,
+        etag: obj.etag ?? null,
+      }));
+    });
   }
 
   async createEvent(calendarRemoteId: string, event: CreateEventInput): Promise<CalendarEventData> {

@@ -1,4 +1,4 @@
-import { generateVEvent, parseICalendarInvite, parseVEvent } from "./icalHelper";
+import { generateVEvent, parseICalendarInvite, parseVEvent, parseVEventsInRange } from "./icalHelper";
 import type { CreateEventInput } from "./types";
 
 beforeEach(() => {
@@ -532,6 +532,63 @@ describe("parseICalendarInvite", () => {
     expect(result.recurrenceIdTime).toBeGreaterThan(0);
     expect(result.isCancelled).toBe(true);
     expect(result.event.status).toBe("cancelled");
+  });
+});
+
+describe("parseVEventsInRange", () => {
+  it("expands a weekly CalDAV series inside the requested range", () => {
+    const ical = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "BEGIN:VEVENT",
+      "UID:weekly-office360",
+      "DTSTART:20260729T150000Z",
+      "DTEND:20260729T153000Z",
+      "RRULE:FREQ=WEEKLY;COUNT=6",
+      "SUMMARY:ОФИС360",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const events = parseVEventsInRange(
+      ical,
+      "https://caldav.yandex.ru/events/weekly.ics",
+      new Date("2026-08-01T00:00:00Z"),
+      new Date("2026-09-01T00:00:00Z"),
+    );
+
+    expect(events.map((event) => new Date(event.startTime * 1000).toISOString())).toEqual([
+      "2026-08-05T15:00:00.000Z",
+      "2026-08-12T15:00:00.000Z",
+      "2026-08-19T15:00:00.000Z",
+      "2026-08-26T15:00:00.000Z",
+    ]);
+    expect(new Set(events.map((event) => event.instanceId)).size).toBe(4);
+    expect(events.every((event) => event.remoteEventId.endsWith("weekly.ics"))).toBe(true);
+  });
+
+  it("honors excluded dates in a recurring CalDAV event", () => {
+    const ical = [
+      "BEGIN:VCALENDAR",
+      "BEGIN:VEVENT",
+      "UID:weekly-with-exdate",
+      "DTSTART:20260805T150000Z",
+      "DTEND:20260805T153000Z",
+      "RRULE:FREQ=WEEKLY;COUNT=3",
+      "EXDATE:20260812T150000Z",
+      "SUMMARY:ОФИС360",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const events = parseVEventsInRange(
+      ical,
+      "/calendar/weekly.ics",
+      new Date("2026-08-01T00:00:00Z"),
+      new Date("2026-09-01T00:00:00Z"),
+    );
+
+    expect(events.map((event) => new Date(event.startTime * 1000).getUTCDate())).toEqual([5, 19]);
   });
 });
 

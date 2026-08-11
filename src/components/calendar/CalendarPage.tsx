@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAccountStore } from "@/stores/accountStore";
-import { getCalendarEventsInRangeMulti, upsertCalendarEvent, type DbCalendarEvent } from "@/services/db/calendarEvents";
+import { deleteCalendarEventsInRange, getCalendarEventsInRangeMulti, upsertCalendarEvent, type DbCalendarEvent } from "@/services/db/calendarEvents";
 import { getVisibleCalendars, getCalendarsForAccount, upsertCalendar, type DbCalendar } from "@/services/db/calendars";
 import { getCalendarProvider, hasCalendarSupport } from "@/services/calendar/providerFactory";
 import type { CalendarEventData, CreateEventInput } from "@/services/calendar/types";
@@ -125,6 +125,8 @@ export function CalendarPage() {
           start.toISOString(),
           end.toISOString(),
         );
+
+        await deleteCalendarEventsInRange(activeAccountId, cal.id, startTs, endTs);
 
         for (const event of apiEvents) {
           await upsertCalendarEventFromProvider(activeAccountId, cal.id, event);
@@ -422,7 +424,7 @@ async function upsertCalendarEventFromProvider(
 ): Promise<void> {
   await upsertCalendarEvent({
     accountId,
-    googleEventId: event.remoteEventId,
+    googleEventId: event.instanceId ?? event.remoteEventId,
     summary: event.summary,
     description: event.description,
     location: event.location,
