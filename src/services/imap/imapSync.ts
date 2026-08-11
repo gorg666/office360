@@ -31,14 +31,13 @@ import {
 } from "../db/messages";
 import {
   upsertThread,
-  setThreadLabels,
   addThreadLabels,
   deleteThread,
   deleteThreadsWithoutMessages,
 } from "../db/threads";
 import { upsertAttachment } from "../db/attachments";
 import { getAccount, updateAccountSyncState } from "../db/accounts";
-import { withTransaction } from "../db/connection";
+import { getDb, withTransaction } from "../db/connection";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import {
   upsertFolderSyncState,
@@ -409,7 +408,7 @@ async function storeThreadsAndMessages(
         });
 
         const labelArray = [...allLabelIds];
-        await setThreadLabels(accountId, group.threadId, labelArray);
+        await addThreadLabels(accountId, group.threadId, labelArray);
 
         // Store messages sequentially to avoid concurrent DB writes
         for (const parsed of messages) {
@@ -465,6 +464,44 @@ async function storeThreadsAndMessages(
   }
 
   return storedMessages;
+}
+
+/** Rebuild physical folder membership from the messages actually stored locally. */
+export async function reconcileThreadFolderLabels(accountId: string): Promise<void> {
+  const db = await getDb();
+  await withTransaction(async () => {
+    await db.execute(
+      `DELETE FROM thread_labels
+       WHERE account_id = $1
+         AND label_id IN (
+           SELECT id FROM labels
+           WHERE account_id = $1 AND imap_folder_path IS NOT NULL
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM messages m
+           JOIN labels l
+             ON l.account_id = m.account_id
+            AND l.imap_folder_path = m.imap_folder
+           WHERE m.account_id = $1
+             AND m.thread_id = thread_labels.thread_id
+             AND l.id = thread_labels.label_id
+         )`,
+      [accountId],
+    );
+    await db.execute(
+      `INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id)
+       SELECT DISTINCT m.account_id, m.thread_id, l.id
+       FROM messages m
+       JOIN labels l
+         ON l.account_id = m.account_id
+        AND l.imap_folder_path = m.imap_folder
+       WHERE m.account_id = $1
+         AND m.thread_id IS NOT NULL
+         AND m.imap_folder IS NOT NULL`,
+      [accountId],
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1046,7 +1083,7 @@ export async function imapInitialSync(
           hasAttachments,
         });
 
-        await setThreadLabels(accountId, group.threadId, [...allLabelIds]);
+        await addThreadLabels(accountId, group.threadId, [...allLabelIds]);
 
         // Batch-update thread IDs for all messages in this thread
         const messageIds = messages.map((m) => m.id);
@@ -1102,6 +1139,8 @@ export async function imapInitialSync(
     console.log(`[imapSync] Removed ${ghostThreads} threads with no messages`);
     notifyPartialSyncAvailable();
   }
+
+  await reconcileThreadFolderLabels(accountId);
 
   onProgress?.({
     phase: "done",
@@ -1379,6 +1418,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
       console.log(`[imapSync] Delta: removed ${ghostOnly} threads with no messages`);
       notifyPartialSyncAvailable();
     }
+    await reconcileThreadFolderLabels(accountId);
     return { messages: [] };
   }
 
@@ -1433,6 +1473,8 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     console.log(`[imapSync] Delta: removed ${ghostAfterDelta} threads with no messages`);
     notifyPartialSyncAvailable();
   }
+
+  await reconcileThreadFolderLabels(accountId);
 
   return { messages: storedMessages };
 }

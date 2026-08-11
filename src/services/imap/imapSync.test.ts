@@ -60,6 +60,7 @@ vi.mock("../db/accounts", () => ({
 }));
 vi.mock("../db/connection", () => ({
   withTransaction: vi.fn(async (fn: () => Promise<void>) => fn()),
+  getDb: vi.fn(() => ({ execute: vi.fn() })),
 }));
 vi.mock("../db/folderSyncState", () => ({
   upsertFolderSyncState: vi.fn(),
@@ -77,6 +78,7 @@ import {
   imapMessageToParsedMessage,
   isConnectionError,
   reconcileImapCheckpoint,
+  reconcileThreadFolderLabels,
 } from "./imapSync";
 import {
   createMockImapMessage,
@@ -88,6 +90,7 @@ import {
 import { imapListFolders, imapSearchFolder, imapFetchMessages } from "./tauriCommands";
 import { getAccount } from "../db/accounts";
 import { withTransaction } from "../db/connection";
+import { getDb } from "../db/connection";
 import { upsertMessage, updateMessageThreadIds } from "../db/messages";
 import { upsertThread, addThreadLabels, deleteThread } from "../db/threads";
 import { upsertAttachment } from "../db/attachments";
@@ -108,6 +111,20 @@ describe("IMAP UID checkpoint safety", () => {
 
   it("rewinds a stored cursor when the local folder is empty", () => {
     expect(reconcileImapCheckpoint(2351, 0)).toBe(1851);
+  });
+});
+
+describe("reconcileThreadFolderLabels", () => {
+  it("removes stale physical labels and restores labels from stored folders", async () => {
+    const execute = vi.fn();
+    vi.mocked(getDb).mockResolvedValueOnce({ execute } as never);
+
+    await reconcileThreadFolderLabels("account-1");
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute.mock.calls[0]?.[0]).toContain("DELETE FROM thread_labels");
+    expect(execute.mock.calls[1]?.[0]).toContain("INSERT OR IGNORE INTO thread_labels");
+    expect(execute.mock.calls[1]?.[1]).toEqual(["account-1"]);
   });
 });
 
@@ -604,8 +621,8 @@ describe("imapInitialSync", () => {
 
     await imapInitialSync("acc-1");
 
-    // withTransaction should be called: once for Phase 2 chunk + once for Phase 4 batch
-    expect(mockWithTransaction).toHaveBeenCalledTimes(2);
+    // Phase 2 chunk, Phase 4 batch, then physical-folder label reconciliation.
+    expect(mockWithTransaction).toHaveBeenCalledTimes(3);
   });
 
   it("continues to next chunk on fetch error", async () => {
