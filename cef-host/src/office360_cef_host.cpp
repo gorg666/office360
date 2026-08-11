@@ -116,6 +116,10 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
   void OnBeforeClose(CefRefPtr<CefBrowser>) override { browser_ = nullptr; emit("closed"); }
   void OnLoadingStateChange(CefRefPtr<CefBrowser> browser, bool loading, bool canBack, bool canForward) override {
     emit("loading", std::string("{\"loading\":") + (loading ? "true" : "false") + ",\"canBack\":" + (canBack ? "true" : "false") + ",\"canForward\":" + (canForward ? "true" : "false") + "}");
+    const auto currentUrl = browser->GetMainFrame()->GetURL();
+    if (!loading && safeUrl(currentUrl.ToString()) == "https://oauth.yandex.ru/verification_code") {
+      browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{if(window.__o360OAuthCodeProbe)return;let attempts=0;window.__o360OAuthCodeProbe=setInterval(()=>{const values=[...document.querySelectorAll('input,code,pre,[data-testid*=code]')].flatMap(el=>[el.value||'',el.innerText||el.textContent||'']);const text=[...values,document.body?.innerText||''].join('\n');const code=(text.match(/\b\d{7}\b/)||[])[0];if(code){clearInterval(window.__o360OAuthCodeProbe);console.log('__O360_OAUTH__'+JSON.stringify({code}))}else if(++attempts>80)clearInterval(window.__o360OAuthCodeProbe)},250)})())JS", currentUrl, 0);
+    }
     if (!loading && domTrusted(browser->GetMainFrame()->GetURL())) {
       browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{if(window.__o360BrowserJoin)return;let attempts=0;window.__o360BrowserJoin=setInterval(()=>{const item=[...document.querySelectorAll('button,a')].find(el=>/продолжить в браузере|continue in browser/i.test((el.innerText||el.textContent||'').trim()));if(item){clearInterval(window.__o360BrowserJoin);item.click()}else if(++attempts>120)clearInterval(window.__o360BrowserJoin)},500)})())JS", browser->GetMainFrame()->GetURL(), 0);
     }
@@ -127,8 +131,9 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
     if (frame->IsMain()) emit("navigation", "{\"url\":\"" + escapeJson(safeUrl(url.ToString())) + "\"}");
   }
   bool OnConsoleMessage(CefRefPtr<CefBrowser>, cef_log_severity_t, const CefString& message, const CefString&, int) override {
-    const std::string value = message.ToString(), prefix = "__O360_DOM__";
-    if (value.rfind(prefix, 0) == 0) { emit("dom-result", value.substr(prefix.size())); return true; }
+    const std::string value = message.ToString(), domPrefix = "__O360_DOM__", oauthPrefix = "__O360_OAUTH__";
+    if (value.rfind(domPrefix, 0) == 0) { emit("dom-result", value.substr(domPrefix.size())); return true; }
+    if (value.rfind(oauthPrefix, 0) == 0) { emit("oauth-code", value.substr(oauthPrefix.size())); return true; }
     return false;
   }
   bool OnBeforeBrowse(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request, bool, bool) override {

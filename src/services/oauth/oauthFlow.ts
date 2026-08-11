@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { cefCreate, cefInitialize, cefSetBounds, cefSetVisible } from "@/services/cef";
 import type { OAuthProviderConfig } from "./providers";
@@ -86,7 +87,7 @@ export async function startProviderOAuthFlow(
   provider: OAuthProviderConfig,
   clientId: string,
   clientSecret?: string,
-  options?: { loginHint?: string; scopes?: string[] },
+  options?: { loginHint?: string; scopes?: string[]; redirectUri?: string },
 ): Promise<{ tokens: TokenResponse; userInfo: ProviderUserInfo }> {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
@@ -95,7 +96,8 @@ export async function startProviderOAuthFlow(
   crypto.getRandomValues(stateArray);
   const oauthState = base64UrlEncode(stateArray);
 
-  const redirectUri = `http://localhost:${OAUTH_CALLBACK_PORT}`;
+  const redirectUri = options?.redirectUri ?? `http://localhost:${OAUTH_CALLBACK_PORT}`;
+  const usesCefScreenCode = provider.id === "yandex" && redirectUri === "https://oauth.yandex.ru/verification_code";
   const scopeValue = provider.scopes.join(" ");
 
   const params: Record<string, string> = {
@@ -127,17 +129,26 @@ export async function startProviderOAuthFlow(
 
   const authUrl = `${provider.authUrl}?${new URLSearchParams(params).toString()}`;
 
-  const serverPromise = invoke<OAuthServerResult>("start_oauth_server", {
-    port: OAUTH_CALLBACK_PORT,
-    state: oauthState,
-  });
+  let stopCodeListener: (() => void) | null = null;
+  let resolveScreenCode: ((result: OAuthServerResult) => void) | null = null;
+  const resultPromise = usesCefScreenCode
+    ? new Promise<OAuthServerResult>((resolve) => { resolveScreenCode = resolve; })
+    : invoke<OAuthServerResult>("start_oauth_server", { port: OAUTH_CALLBACK_PORT, state: oauthState });
+  if (usesCefScreenCode) {
+    stopCodeListener = await listen<{ type: string; payload: Record<string, unknown> }>("cef-event", (event) => {
+      if (event.payload.type !== "oauth-code") return;
+      const code = event.payload.payload.code;
+      if (typeof code === "string" && code) resolveScreenCode?.({ code, state: oauthState });
+    });
+  }
 
   await new Promise((r) => setTimeout(r, 100));
   const closeAuthorization = await openAuthorization(provider, authUrl);
   let result: OAuthServerResult;
   try {
-    result = await serverPromise;
+    result = await resultPromise;
   } finally {
+    stopCodeListener?.();
     await closeAuthorization();
   }
 

@@ -64,6 +64,7 @@ export async function authorizeYandexServices(accountId: string, clientId: strin
   const { tokens, userInfo } = await startProviderOAuthFlow(provider, normalizedClientId, undefined, {
     loginHint: account.email,
     scopes: YANDEX_SERVICE_SCOPES,
+    redirectUri: "https://oauth.yandex.ru/verification_code",
   });
   if (userInfo.email && normalizeEmail(userInfo.email) !== normalizeEmail(account.email)) {
     throw new Error(`Выполнен вход как ${userInfo.email}, ожидался аккаунт ${account.email}.`);
