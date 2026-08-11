@@ -108,6 +108,7 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .invoke_handler(tauri::generate_handler![
             oauth::start_oauth_server,
+            oauth::stop_oauth_server,
             oauth::oauth_exchange_token,
             oauth::oauth_refresh_token,
             oauth::open_oauth_login_window,

@@ -168,7 +168,7 @@ export function EmailRenderer({
     body {
       margin: 0;
       padding: 16px;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
       font-size: 14px;
       line-height: 1.6;
       color: ${plainTextDark ? "#e5e7eb" : "#1f2937"};

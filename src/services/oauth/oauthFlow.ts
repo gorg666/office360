@@ -6,7 +6,29 @@ import type { OAuthProviderConfig } from "./providers";
 import { normalizeYandexUserInfo } from "./yandexProfile";
 import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
 
-const OAUTH_CALLBACK_PORT = 17248;
+/** Shared desktop loopback port for Yandex (Mail + Disk/Tracker) and Gmail-style flows. */
+export const OAUTH_CALLBACK_PORT = 17248;
+export const YANDEX_DESKTOP_REDIRECT_URI = `http://localhost:${OAUTH_CALLBACK_PORT}`;
+export const YANDEX_VERIFICATION_CODE_REDIRECT_URI = "https://oauth.yandex.ru/verification_code";
+
+export function isYandexVerificationCodeRedirect(redirectUri: string): boolean {
+  return (
+    redirectUri === YANDEX_VERIFICATION_CODE_REDIRECT_URI
+    || redirectUri === "https://oauth.yandex.com/verification_code"
+  );
+}
+
+/** Map stable Rust OAuth bind errors to user-facing Russian copy (AUTH-005). */
+export function formatOAuthCallbackBindError(message: string): string {
+  const trimmed = message.trim();
+  if (
+    /^oauth_callback_port_in_use:\d+$/i.test(trimmed)
+    || /Failed to bind OAuth callback on port/i.test(trimmed)
+  ) {
+    return "Не удалось запустить авторизацию Яндекса: порт 17248 уже занят. Закройте другое окно авторизации Office360 и попробуйте снова.";
+  }
+  return message;
+}
 
 interface OAuthServerResult {
   code?: string;
@@ -107,8 +129,9 @@ export async function startProviderOAuthFlow(
   crypto.getRandomValues(stateArray);
   const oauthState = base64UrlEncode(stateArray);
 
-  const redirectUri = options?.redirectUri ?? `http://localhost:${OAUTH_CALLBACK_PORT}`;
-  const usesCefScreenCode = provider.id === "yandex" && redirectUri === "https://oauth.yandex.ru/verification_code";
+  // Prefer native localhost callback (same as Mail). verification_code is OOB/CEF scrape — not production UX.
+  const redirectUri = options?.redirectUri ?? (provider.id === "yandex" ? YANDEX_DESKTOP_REDIRECT_URI : `http://localhost:${OAUTH_CALLBACK_PORT}`);
+  const usesCefScreenCode = provider.id === "yandex" && isYandexVerificationCodeRedirect(redirectUri);
   const scopeValue = provider.scopes.join(" ");
 
   const params: Record<string, string> = {
@@ -146,7 +169,15 @@ export async function startProviderOAuthFlow(
   const initialAppLocation = window.location.href;
   const callbackPromise = usesCefScreenCode
     ? new Promise<OAuthServerResult>((resolve) => { resolveScreenCode = resolve; })
-    : invoke<OAuthServerResult>("start_oauth_server", { port: OAUTH_CALLBACK_PORT, state: oauthState });
+    : invoke<OAuthServerResult>("start_oauth_server", { port: OAUTH_CALLBACK_PORT, state: oauthState })
+      .catch((err: unknown) => {
+        const raw = err instanceof Error ? err.message : String(err ?? "");
+        throw new Error(formatOAuthCallbackBindError(raw));
+      });
+  // If the UI cancels via Promise.race, the Rust listener is stopped in finally; silence orphan rejects.
+  if (!usesCefScreenCode) {
+    void callbackPromise.catch(() => {});
+  }
   let rejectWindowClosed: ((reason: Error) => void) | null = null;
   const windowClosedPromise = new Promise<OAuthServerResult>((_, reject) => { rejectWindowClosed = reject; });
   if (provider.id === "yandex" && !usesCefScreenCode) {
@@ -157,29 +188,53 @@ export async function startProviderOAuthFlow(
   const resultPromise = stopWindowListener
     ? Promise.race([callbackPromise, windowClosedPromise])
     : callbackPromise;
+  const cancelCefScreenCode = (error: string, error_description: string) => {
+    resolveScreenCode?.({ state: oauthState, error, error_description });
+  };
+
   if (usesCefScreenCode) {
-    stopCodeListener = await listen<{ type: string; payload: Record<string, unknown> }>("cef-event", (event) => {
-      if (event.payload.type === "oauth-code") {
-        const code = event.payload.payload.code;
-        if (typeof code === "string" && code) resolveScreenCode?.({ code, state: oauthState });
+    stopCodeListener = await listen<{ type: string; payload: Record<string, unknown> | string }>("cef-event", (event) => {
+      const { type, payload } = event.payload;
+      if (type === "closed") {
+        cancelCefScreenCode("access_denied", "Окно авторизации Яндекс ID закрыто до завершения подключения.");
+        return;
       }
-      if (event.payload.type === "oauth-error") {
+      const payloadObject = typeof payload === "string"
+        ? (() => { try { return JSON.parse(payload) as Record<string, unknown>; } catch { return {}; } })()
+        : (payload ?? {});
+      if (type === "oauth-code") {
+        const code = typeof payloadObject.code === "string"
+          ? payloadObject.code
+          : (typeof payloadObject === "object" && payloadObject && "code" in payloadObject ? String((payloadObject as { code?: unknown }).code ?? "") : "");
+        if (code) resolveScreenCode?.({ code, state: oauthState });
+      }
+      if (type === "oauth-error") {
         resolveScreenCode?.({
           state: oauthState,
-          error: String(event.payload.payload.error || "authorization_failed"),
-          error_description: String(event.payload.payload.description || "Авторизация Яндекса завершилась ошибкой."),
+          error: String(payloadObject.error || "authorization_failed"),
+          error_description: String(payloadObject.description || "Авторизация Яндекса завершилась ошибкой."),
         });
       }
     });
   }
 
+  const onEscapeCancel = usesCefScreenCode
+    ? (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelCefScreenCode("access_denied", "Авторизация отменена.");
+      }
+    }
+    : null;
+  if (onEscapeCancel) window.addEventListener("keydown", onEscapeCancel);
+
   const routeWatcher = usesCefScreenCode ? window.setInterval(() => {
     if (window.location.href !== initialAppLocation) {
-      resolveScreenCode?.({ state: oauthState, error: "access_denied", error_description: "Авторизация отменена при переходе на другую вкладку." });
+      cancelCefScreenCode("access_denied", "Авторизация отменена при переходе на другую вкладку.");
     }
   }, 250) : null;
   const authorizationTimeout = usesCefScreenCode ? window.setTimeout(() => {
-    resolveScreenCode?.({ state: oauthState, error: "timeout", error_description: "Время ожидания авторизации истекло." });
+    cancelCefScreenCode("timeout", "Время ожидания авторизации истекло.");
   }, 180_000) : null;
 
   await new Promise((r) => setTimeout(r, 100));
@@ -190,8 +245,12 @@ export async function startProviderOAuthFlow(
   } finally {
     if (routeWatcher !== null) window.clearInterval(routeWatcher);
     if (authorizationTimeout !== null) window.clearTimeout(authorizationTimeout);
+    if (onEscapeCancel) window.removeEventListener("keydown", onEscapeCancel);
     stopCodeListener?.();
     stopWindowListener?.();
+    if (!usesCefScreenCode) {
+      await invoke("stop_oauth_server").catch(() => {});
+    }
     await closeAuthorization();
   }
 

@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { CSSTransition } from "react-transition-group";
+import { X } from "lucide-react";
 
 interface ModalProps {
   isOpen: boolean;
@@ -51,9 +52,10 @@ export function Modal({
               <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
               <button
                 onClick={onClose}
-                className="text-text-tertiary hover:text-text-primary text-lg leading-none"
+                className="text-text-tertiary hover:text-text-primary p-0.5"
+                aria-label="Close"
               >
-                ×
+                <X size={16} />
               </button>
             </div>
           )}

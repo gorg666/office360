@@ -208,11 +208,18 @@ Mode: observe + evidence only (no code fixes)
 - **Notes:** Mark N/A if feature not implemented
 
 ### E5 — Disk
-- **Status:** NOT TESTED (out of scope / do not demo)
-- **Expected:** N/A
-- **Actual:** —
-- **Evidence:** —
-- **Notes:** Explicitly excluded from demo
+- **Status:** **FAIL / BLOCKED (AUTH-004)** — not PASS
+- **Expected:** «Выдать доступ» → Yandex consent → window closes → Disk loads (no verification code UX)
+- **Actual:** verification_code / trapped OAuth view (pre-fix); code now prefers `http://localhost:17248` like Mail — **needs Yandex Console redirect + retest**
+- **Evidence:** Screenshot AUTH-004; Graphify + `authorizeYandexServices` hardcoded OOB redirect
+- **Notes:** Do not mark Disk/Tracker E2E auth PASS until AUTH-004 closed
+
+### E5b — Tracker
+- **Status:** **FAIL / BLOCKED (AUTH-004)** — same service OAuth path as Disk
+- **Expected:** Same as Disk Target UX
+- **Actual:** Same blocker
+- **Evidence:** Shared `authorizeYandexServices`
+- **Notes:** —
 
 ---
 
@@ -451,3 +458,125 @@ See `docs/qa/SECURITY_TRIAGE_2026-08-11.md`.
 Details: `docs/qa/LOCALIZATION_AUDIT_2026-08-11.md`
 
 Do **not** start Calendar/Messenger/A3 from this pass.
+
+---
+
+## FINAL MAIL RUNTIME QA — 2026-08-11 (~18:15–18:30 ICT)
+
+| Field | Value |
+|---|---|
+| branch | `GORGDEV2` |
+| HEAD | `f95b3cf` |
+| runtime | `npm run tauri dev` + WebView2 CDP (`9222`) |
+| account | Yandex OAuth connected (username redacted) |
+| code changes | **none** (observe-only) |
+| commit/push | **not done** |
+
+### Checklist
+
+| # | Area | Status | Notes |
+|---|---|---|---|
+| 1 | Outbox / Send | **PARTIAL** | Self-test `QA-FINAL-*` delivered; appears in **Отправленные** without restart; **Исходящие** empty after send. Intermediate «ровно 1 в Outbox» + final toast timing **not observed** (send too fast / toast gone). |
+| 2 | Attachments | **PARTIAL / FAIL lean** | Attachments library lists JPG/PNG (emoji 🖼, not raster thumbs). Click→enlarged preview / download / broken fallback **not confirmed** in this pass. |
+| 3 | Windows notifications | **BLOCKED** | App stayed foreground during agent CDP; OS toast sender/icon/deep-link **not observed**. |
+| 4 | Read / Unread | **PARTIAL** | Unread visually distinct (`Unread email…` aria + accent row). ПКМ «Отметить непрочитанным» **PASS**. Auto mark-read on open **not reliably confirmed** (aria stayed Unread; reading pane subject sometimes missing). Unread badge moves (e.g. 465→462). |
+| 5 | Mail folders | **PARTIAL** | All system folders present (RU). Custom IMAP under «Папки» present. **FAIL:** `Исходящие` appears **twice** (system + custom). Expand/collapse toggles **not found** (`aria-expanded` empty). |
+| 6 | Context menu | **PARTIAL** | Inbox / Sent / custom folder ПКМ **PASS** (RU actions). Outbox empty → no message ПКМ (**N/A**). Menu contains English **Mute**. |
+| 7 | Search | **PARTIAL** | Placeholder **«Поиск в почте»** PASS; no `from:`/`to:`/`has:attachment` in ordinary UI. Functional filter for `QA-FINAL` **not confirmed** via CDP (controlled input). |
+| 8 | Localization runtime | **FAIL (residuals)** | English system strings: `Unread email from…`, `email from…`, `N unread emails`, menu **Mute**, `(No subject)`, Attachments relative times `7h ago` / `11h ago` / `1mo ago`. User content/filenames excluded. |
+| 9 | Foreground sync latency | **PARTIAL** | Self-send visible in **Вся почта** within ~1–2 min of checks; **not** in Primary «Входящие — Основные». Clean Yandex→Inbox stopwatch **not** obtained → **MAIL-SYNC not opened**. Model still: FG 10s / BG 120s / focus sync / no IDLE. |
+| 10 | Docs | **DONE** | This section + BUG_BACKLOG + `.ai/CURRENT_STATE.md` |
+
+### MAIL VERDICT
+
+**PARTIAL** — send/Sent path works; several prior fixes still incomplete at runtime; localization residuals confirmed; notifications blocked.
+
+### NEXT
+
+Do **not** start Calendar until blockers below are closed or explicitly waived. Fix track: I18N-001, MAIL-018 (dup Исходящие), read-on-open, attachment preview retest, NOTIF-001 manual.
+
+---
+
+## MAIL-020 — Duplicate send toast (2026-08-11 evening)
+
+| Field | Value |
+|---|---|
+| branch | `GORGDEV2` |
+| severity | P1 |
+| status | **FIX APPLIED / AWAITING MANUAL VERIFY** |
+| commit/push | **not done** |
+
+| Check | Result |
+|---|---|
+| Root cause identified | PASS — dual producers: UndoSendToast + showSendFeedback |
+| Legacy path disabled | PASS — UndoSendToast unmounted; stub null |
+| Canonical single toast | PASS — SendFeedbackToast store+event |
+| Unit regression | PASS — composeSendOrchestrator + SendFeedbackToast tests |
+| Manual send retest | **REQUIRED** |
+
+Do **not** start Calendar from this fix.
+
+---
+
+## TRACKER-001 — Rate-limit / duplicate initialize (2026-08-11 evening)
+
+| Field | Value |
+|---|---|
+| branch | `GORGDEV2` |
+| severity | P1 |
+| status | **FIX APPLIED / AWAITING MANUAL VERIFY** |
+| commit/push | **not done** |
+
+| Check | Result |
+|---|---|
+| Root cause | PASS — filter→full init + StrictMode double + no cooldown |
+| Init once / filter→search only | PASS (unit) |
+| Session metadata cache + in-flight dedupe | PASS (unit) |
+| 429 Retry-After + cooldown block | PASS (unit) |
+| Manual cold-open request count (~5) | **REQUIRED** after server cooldown |
+
+Org `8493916`: assumed stored; validity **unknown** until `/v3/myself` = 200.
+
+---
+
+## TRACKER FUNCTIONAL QA (2026-08-11 ~21:40 ICT)
+
+| Field | Value |
+|---|---|
+| branch | `GORGDEV2` |
+| mode | RUNTIME PASS observe-only — **no code fixes**, no commit/push |
+| org | **manual `8493916`** (confirmed valid for **read**; do not change) |
+| runtime | `npm run tauri dev` + CDP `9222` |
+| account | `korotkov.g@office-360.ru` (no tokens logged) |
+| Graphify | NOT NEEDED (bugs filed from runtime; no code change) |
+
+### Verdict matrix
+
+| Area | Result | Notes |
+|---|---|---|
+| Issue list | **PASS** | Queue `TRACKER` («Главное рабочее пространство»): 8 issues; key/status/summary/priority/assignee visible; open vs closed by status text; scroll (`scrollHeight` > `clientHeight`) |
+| Filters | **FAIL** | Local text search **PASS**. Status/priority selects change value but list stays mixed (8 rows). Empty option labels (28 status / 7 priority). Assignee text filter did not narrow list in CDP probe. Second queue absent (only TRACKER + «Мои задачи») |
+| Issue open | **PASS** (partial fields) | Opened TRACKER-8 (open), TRACKER-7 (closed), TRACKER-4 (closed + unassigned). Description + priority button + comments/attachments sections. **Missing in UI:** author, assignee, created/updated, deadline |
+| Edit | **BLOCKED** | Writes → HTTP **403** `tracker_forbidden` (earlier session probe: update/create/comment/upload) |
+| Create | **BLOCKED** | Same 403; create UX is title-only `prompt` (description/assignee/priority not in dialog) |
+| Comments | **BLOCKED** | Write 403; read section present (empty on sampled issues) |
+| Attachments | **PARTIAL / BLOCKED write** | Read: TRACKER-7 shows `image.png` ×2 as plain text. **No download/open control**. Upload blocked 403. FormData path not exercised |
+| Rate-limit | **PASS** (client) | Aggressive CDP earlier hit 429 → RU cooldown message + refresh disabled; after wait list recoverable. Clean functional pass ended with `banner=null`. Filter churn did not show metadata storm in this pass (resource timing limited for plugin-http) |
+| Localization/UI | **FAIL** (labels) | Shell RU OK («Яндекс Трекер», filters, comments/attachments). **P1:** blank status/priority option texts. Detail metadata gaps. Attachments not actionable |
+
+### Auto org
+
+- Manual org **`8493916`** confirmed valid for Tracker **read** (myself/queues/issues).
+- **Do not change org** in this pass.
+- Auto-detection UX → separate follow-up against this real org.
+
+### Bugs filed
+
+- TRACKER-002 (P0) write 403  
+- TRACKER-003 (P1) empty filter labels  
+- TRACKER-004 (P1) status/priority filters ineffective  
+- TRACKER-005 (P2) missing detail metadata  
+- TRACKER-006 (P2) attachments no download/open  
+- TRACKER-007 (P2) create = title-only prompt  
+
+**Overall VERDICT: PARTIAL** — read/list/open usable; filters/labels/detail UX fail; all writes blocked by 403.

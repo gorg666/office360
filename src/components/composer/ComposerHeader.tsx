@@ -125,10 +125,11 @@ export function ComposerHeader({
             <button
               type="button"
               onClick={onCloseEmbedded}
-              className="p-1 text-lg leading-none text-text-tertiary hover:text-text-primary"
+              className="p-1 text-text-tertiary hover:text-text-primary"
               title="Закрыть"
+              aria-label="Закрыть"
             >
-              ×
+              <X size={14} />
             </button>
           </>
         )}

@@ -33,6 +33,7 @@ import {
   ChevronUp,
   ChevronDown,
   RotateCcw,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { SettingsAboutPanel } from "./SettingsAboutPanel";
@@ -459,6 +460,13 @@ export function SettingsPage() {
     setRemovingAccount(true);
     setRemoveAccountError(null);
     try {
+      try {
+        const { clearYandexServiceAuth } = await import("@/services/yandex/accountApi");
+        await clearYandexServiceAuth(accountToRemove.id);
+      } catch (clearErr) {
+        // Non-Yandex accounts or already-cleared service tokens are fine to ignore.
+        console.warn("Yandex Disk/Tracker token cleanup skipped:", clearErr);
+      }
       await deleteAccount(accountToRemove.id);
       removeClient(accountToRemove.id);
       removeAccountFromStore(accountToRemove.id);
@@ -2126,10 +2134,11 @@ function ShortcutsTab() {
                     {!isDefault && (
                       <button
                         onClick={() => resetKey(item.id)}
-                        className="text-xs text-text-tertiary hover:text-text-primary"
+                        className="text-text-tertiary hover:text-text-primary p-0.5"
                         title={`Reset to ${defaults[item.id]}`}
+                        aria-label={`Reset to ${defaults[item.id]}`}
                       >
-                        ×
+                        <X size={12} />
                       </button>
                     )}
                   </div>

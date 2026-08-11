@@ -3,7 +3,6 @@ import { Outlet } from "@tanstack/react-router";
 import { Sidebar } from "./components/layout/Sidebar";
 import { AddAccount } from "./components/accounts/AddAccount";
 import { Composer } from "./components/composer/Composer";
-import { UndoSendToast } from "./components/composer/UndoSendToast";
 import { SendFeedbackToast } from "./components/composer/SendFeedbackToast";
 import { installComposeSendListener } from "./services/composer/composeSendOrchestrator";
 import { CommandPalette } from "./components/search/CommandPalette";
@@ -824,7 +823,6 @@ export default function App() {
       <ErrorBoundary name="Composer">
         <Composer />
       </ErrorBoundary>
-      <UndoSendToast />
       <SendFeedbackToast />
       <UpdateToast />
       <ErrorBoundary name="CommandPalette">

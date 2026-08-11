@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { X } from "lucide-react";
 import {
   searchContacts,
   getRecentContacts,
@@ -129,9 +130,10 @@ export function AddressInput({
             {addr}
             <button
               onClick={() => onChange(addresses.filter((a) => a !== addr))}
-              className="hover:text-danger text-[0.625rem] leading-none"
+              className="hover:text-danger leading-none p-0.5"
+              aria-label="Remove"
             >
-              ×
+              <X size={10} />
             </button>
           </span>
         ))}

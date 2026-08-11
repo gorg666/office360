@@ -1,12 +1,45 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::oneshot;
 use tokio::time::{timeout_at, Instant};
 
 const YANDEX_OAUTH_WINDOW_LABEL: &str = "yandex-oauth";
+
+fn oauth_cancel_slot() -> &'static Mutex<Option<oneshot::Sender<()>>> {
+    static SLOT: OnceLock<Mutex<Option<oneshot::Sender<()>>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+/// Abort any in-flight `start_oauth_server` accept loop so port 17248 can be rebound.
+fn signal_oauth_server_cancel() {
+    if let Ok(mut slot) = oauth_cancel_slot().lock() {
+        if let Some(tx) = slot.take() {
+            let _ = tx.send(());
+            log::info!("OAuth callback server cancel signaled");
+        }
+    }
+}
+
+fn take_oauth_cancel_receiver() -> oneshot::Receiver<()> {
+    // Replace any previous session (single active OAuth flow / free the fixed port).
+    signal_oauth_server_cancel();
+    let (tx, rx) = oneshot::channel();
+    if let Ok(mut slot) = oauth_cancel_slot().lock() {
+        *slot = Some(tx);
+    }
+    rx
+}
+
+fn clear_oauth_cancel_slot() {
+    if let Ok(mut slot) = oauth_cancel_slot().lock() {
+        slot.take();
+    }
+}
 
 fn is_allowed_yandex_oauth_navigation(url: &Url) -> bool {
     let scheme = url.scheme();
@@ -111,6 +144,7 @@ pub async fn open_oauth_login_window(app: AppHandle, url: String) -> Result<(), 
     let app_for_close = app.clone();
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::Destroyed = event {
+            signal_oauth_server_cancel();
             let _ = app_for_close.emit("oauth-window-closed", ());
             log::info!("OAuth WebView destroyed (label={YANDEX_OAUTH_WINDOW_LABEL})");
         }
@@ -124,6 +158,7 @@ pub async fn open_oauth_login_window(app: AppHandle, url: String) -> Result<(), 
 /// Prefer destroy so a blank localhost page cannot linger after callback.
 #[tauri::command]
 pub async fn close_oauth_login_window(app: AppHandle) -> Result<(), String> {
+    signal_oauth_server_cancel();
     if let Some(window) = app.get_webview_window(YANDEX_OAUTH_WINDOW_LABEL) {
         let _ = window.hide();
         match window.destroy() {
@@ -141,6 +176,15 @@ pub async fn close_oauth_login_window(app: AppHandle) -> Result<(), String> {
             }
         }
     }
+    Ok(())
+}
+
+/// Stops the localhost OAuth callback listener (if any) without waiting for redirect.
+#[tauri::command]
+pub async fn stop_oauth_server() -> Result<(), String> {
+    signal_oauth_server_cancel();
+    // Allow the accept loop to observe cancel and drop TcpListeners before a rebind.
+    tokio::time::sleep(Duration::from_millis(75)).await;
     Ok(())
 }
 
@@ -162,12 +206,17 @@ struct OAuthListeningPayload {
 /// Binds the requested localhost port for OAuth callback (IPv4 + IPv6 loopback).
 /// Emits `oauth-listening` once ready so the frontend can open the browser only after bind.
 /// Keeps accepting until a valid OAuth redirect is received (ignores junk/preconnect sockets).
+/// Cancel via `stop_oauth_server` / OAuth window destroy so the fixed port is released immediately.
 #[tauri::command]
 pub async fn start_oauth_server(
     app: AppHandle,
     port: u16,
     state: String,
 ) -> Result<OAuthResult, String> {
+    let mut cancel_rx = take_oauth_cancel_receiver();
+    // Let a just-cancelled previous accept loop drop its sockets before rebind.
+    tokio::time::sleep(Duration::from_millis(75)).await;
+
     // Bind exactly the requested port. Silent fallback to port+N breaks fixed redirect_uri
     // registrations (Yandex requires http://localhost:17248).
     let ipv4 = match TcpListener::bind(format!("127.0.0.1:{}", port)).await {
@@ -186,9 +235,9 @@ pub async fn start_oauth_server(
     };
 
     if ipv4.is_none() && ipv6.is_none() {
-        return Err(format!(
-            "Failed to bind OAuth callback on port {port} (127.0.0.1 and [::1]). Another process may be using the port — close leftover Office360 OAuth sessions and retry."
-        ));
+        clear_oauth_cancel_slot();
+        // Stable machine code for frontend i18n; details stay in logs.
+        return Err(format!("oauth_callback_port_in_use:{port}"));
     }
 
     if ipv4.is_none() {
@@ -220,17 +269,30 @@ pub async fn start_oauth_server(
     );
 
     let deadline = Instant::now() + Duration::from_secs(300);
-
-    loop {
+    let result = loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            return Err("OAuth timed out — please try again".to_string());
+            break Err("OAuth timed out — please try again".to_string());
         }
 
-        let mut stream = timeout_at(deadline, accept_oauth_connection(&ipv4, &ipv6))
-            .await
-            .map_err(|_| "OAuth timed out — please try again".to_string())?
-            .map_err(|e| format!("Failed to accept: {}", e))?;
+        let mut stream = tokio::select! {
+            _ = &mut cancel_rx => {
+                log::info!("OAuth callback server stopped (cancel)");
+                break Ok(OAuthResult {
+                    code: None,
+                    state: state.clone(),
+                    error: Some("access_denied".to_string()),
+                    error_description: Some("Авторизация отменена.".to_string()),
+                });
+            }
+            accepted = timeout_at(deadline, accept_oauth_connection(&ipv4, &ipv6)) => {
+                match accepted {
+                    Ok(Ok(stream)) => stream,
+                    Ok(Err(e)) => break Err(format!("Failed to accept: {}", e)),
+                    Err(_) => break Err("OAuth timed out — please try again".to_string()),
+                }
+            }
+        };
 
         // Cap per-connection read so a silent TCP connect cannot wedge the flow forever.
         let request = match timeout_at(Instant::now() + Duration::from_secs(10), read_http_request(&mut stream))
@@ -282,7 +344,7 @@ pub async fn start_oauth_server(
                 &error_html("Не удалось подтвердить состояние авторизации. Закройте вкладку и попробуйте снова из Office360."),
             )
             .await;
-            return Err("OAuth state mismatch — possible CSRF attack".to_string());
+            break Err("OAuth state mismatch — possible CSRF attack".to_string());
         }
 
         if let Some(error) = callback.error.as_ref() {
@@ -306,7 +368,7 @@ pub async fn start_oauth_server(
             );
             let _ = write_browser_response(&mut stream, &html).await;
             log::info!("OAuth callback received provider error (state validation PASS)");
-            return Ok(OAuthResult {
+            break Ok(OAuthResult {
                 code: None,
                 state: callback.state,
                 error: Some(error.clone()),
@@ -340,13 +402,16 @@ pub async fn start_oauth_server(
         let _ = write_browser_response(&mut stream, html).await;
         log::info!("OAuth callback received (state validation PASS)");
 
-        return Ok(OAuthResult {
+        break Ok(OAuthResult {
             code: Some(code),
             state: callback.state,
             error: None,
             error_description: None,
         });
-    }
+    };
+
+    clear_oauth_cancel_slot();
+    result
 }
 
 async fn accept_oauth_connection(

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const scheduleMocks = vi.hoisted(() => ({
   sendEmail: vi.fn(),
-  notifySendEmailOutcome: vi.fn(),
+  resolveSendEmailOutcome: vi.fn(),
   showSendFeedback: vi.fn(),
   upsertContact: vi.fn(),
   enqueueQueuedComposeSend: vi.fn(),
@@ -21,7 +21,7 @@ vi.mock("@/services/emailActions", () => ({
 }));
 
 vi.mock("@/utils/handleSendEmailResult", () => ({
-  notifySendEmailOutcome: scheduleMocks.notifySendEmailOutcome,
+  resolveSendEmailOutcome: scheduleMocks.resolveSendEmailOutcome,
 }));
 
 vi.mock("@/utils/sendFeedbackToast", () => ({
@@ -89,7 +89,7 @@ describe("composeSendOrchestrator", () => {
     scheduleMocks.enqueueQueuedComposeSend.mockImplementation(
       async (_accountId: string, requestId: string) => requestId,
     );
-    scheduleMocks.notifySendEmailOutcome.mockReturnValue("success");
+    scheduleMocks.resolveSendEmailOutcome.mockReturnValue("success");
     scheduleMocks.sendEmail.mockResolvedValue({
       success: true,
       data: {
@@ -166,8 +166,36 @@ describe("composeSendOrchestrator", () => {
     expect(useSendStatusStore.getState().active).toBeNull();
   });
 
+  it("MAIL-020: one send never emits duplicate Отправка письма… CustomEvent", async () => {
+    await scheduleComposeSend({
+      requestId: "req-mail-020",
+      accountId: "acc-1",
+      rawBase64Url: "raw",
+      restore,
+      recipientEmails: ["a@example.com"],
+      undoDelayMs: 1000,
+    });
+
+    expect(useSendStatusStore.getState().undoVisible).toBe(true);
+    expect(useSendStatusStore.getState().active?.phase).toBe("queued");
+
+    const titlesBeforeSend = scheduleMocks.showSendFeedback.mock.calls.map(
+      (c) => c[0].title as string,
+    );
+    expect(titlesBeforeSend.filter((t) => t === "Отправка письма…")).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    const titles = scheduleMocks.showSendFeedback.mock.calls.map(
+      (c) => c[0].title as string,
+    );
+    expect(titles.filter((t) => t === "Отправка письма…")).toHaveLength(0);
+    expect(titles.filter((t) => t === "Письмо отправлено")).toHaveLength(1);
+    expect(titles).not.toContain("Письмо отправлено. Обновляем «Отправленные»…");
+  });
+
   it("failed send restores draft", async () => {
-    scheduleMocks.notifySendEmailOutcome.mockReturnValue("failed");
+    scheduleMocks.resolveSendEmailOutcome.mockReturnValue("failed");
     scheduleMocks.sendEmail.mockResolvedValue({
       success: false,
       error: "SMTP fail",
@@ -187,6 +215,9 @@ describe("composeSendOrchestrator", () => {
       "req-3",
       "failed",
       "SMTP fail",
+    );
+    expect(scheduleMocks.showSendFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Не удалось отправить", tone: "error" }),
     );
   });
 
@@ -234,8 +265,9 @@ describe("composeSendOrchestrator", () => {
 
     const deleteOrder = scheduleMocks.deleteOperation.mock.invocationCallOrder[0];
     const feedbackCalls = scheduleMocks.showSendFeedback.mock.calls.map((c) => c[0].title);
-    expect(feedbackCalls).toContain("Письмо отправлено. Обновляем «Отправленные»…");
-    expect(feedbackCalls[feedbackCalls.length - 1]).toBe("Письмо отправлено");
+    // Reconciling is store-phase only; terminal CustomEvent is a single success toast.
+    expect(feedbackCalls).not.toContain("Письмо отправлено. Обновляем «Отправленные»…");
+    expect(feedbackCalls.filter((t) => t === "Письмо отправлено")).toHaveLength(1);
     expect(deleteOrder).toBeDefined();
   });
 });

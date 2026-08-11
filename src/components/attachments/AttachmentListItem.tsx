@@ -1,5 +1,6 @@
 import { Download, Eye, ExternalLink } from "lucide-react";
-import { formatFileSize, getFileIcon, canPreview } from "@/utils/fileTypeHelpers";
+import { formatFileSize, canPreview } from "@/utils/fileTypeHelpers";
+import { FileTypeIcon } from "@/components/ui/FileTypeIcon";
 import type { AttachmentWithContext } from "@/services/db/attachments";
 
 interface AttachmentListItemProps {
@@ -25,7 +26,9 @@ export function AttachmentListItem({ attachment, onPreview, onDownload, onJumpTo
   return (
     <div className="group flex items-center gap-3 px-3 py-2 hover:bg-bg-hover rounded-md transition-colors">
       {/* Icon */}
-      <span className="text-lg shrink-0 w-7 text-center">{getFileIcon(attachment.mime_type, attachment.filename)}</span>
+      <span className="shrink-0 w-7 flex items-center justify-center text-text-tertiary">
+        <FileTypeIcon mimeType={attachment.mime_type} filename={attachment.filename} size={18} />
+      </span>
 
       {/* Filename */}
       <span className="text-sm text-text-primary truncate min-w-0 flex-1" title={attachment.filename ?? undefined}>

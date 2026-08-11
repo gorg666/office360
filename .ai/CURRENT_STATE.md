@@ -4,7 +4,7 @@
 
 ## Last updated
 
-2026-08-11 (~08:20) — Full RU localization static pass; runtime NOT verified
+2026-08-11 (~22:00 ICT) — GORGDEV2_PROTECTED_BASELINE freeze (pre-Efim HYBRID)
 
 ## Project
 
@@ -13,26 +13,22 @@ Remote GitHub: `gorg666/office360`
 
 ## Active focus
 
-- Office 360 **Russian localization** (system UI via `src/i18n.ts` + TranslationLayer)
-- Mail + notifications defects (MAIL-016/017, NOTIF-001) still **AWAITING MANUAL VERIFY**
-- **Do not** mark localization or mail PASS without runtime/manual retest
-- **Do not** implement IMAP IDLE / change polling until separate decision
-- Do **not** advance QA to Calendar / Messenger / A3 as primary track (calendar strings covered in i18n dict only)
+- Branch: **`GORGDEV2`**
+- Checkpoint: **GORGDEV2_PROTECTED_BASELINE** (SHA after freeze commit)
+- Efim HYBRID integration: **approved but NOT started** — wait for post-freeze go-ahead
+- Protected: OAuth 17248/PKCE, service client `9a7396…`, Tracker tauriFetch/429/org hybrid/read-only UX, mail send toast, Lucide icons
+- Sidebar mail unread badge: still pending (post-baseline)
 
 ## Recently done
 
-- MAIL-011…017 + UI-002/003 + NOTIF-001 (prior)
-- Localization: merge keys → dict **835**; `check:i18n` **0** missing; `pluralRu`; `toUserFacingError`; dates `ru-RU`; notification RU; audit `docs/qa/LOCALIZATION_AUDIT_2026-08-11.md`
-- Graphify queried (i18n subgraph); graphify-out **not** updated
-
-## Open questions / blockers
-
-- Runtime Latin DOM / Tauri walk for localization (required for PASS)
-- Manual retest TEST A–D (Outbox ПКМ, Failed Outbox, attachment preview, Windows toast)
-- Unrelated dirty tree (`.claude`, bak, mcp, graphify-out) — exclude from commits
+- AUTH-005 OAuth listener cancel/release
+- Tracker org hybrid + 429 + read-only UX (TRACKER-002)
+- Disk/Tracker managed auth wiring
+- Mail SendFeedbackToast cleanup, FileTypeIcon / emoji cleanup
+- QA docs backlog updates
+- Full gates green before freeze (i18n / vitest / tsc / cargo / build)
 
 ## Next step
 
-- Runtime localization QA (Mail→Settings + native notifications) then update AFTER metrics
-- Manual retest Mail + NOTIF
-- No commit/push unless user asks
+- After push: STOP — no Efim merge until explicit command
+- Then HYBRID selective port from this baseline SHA

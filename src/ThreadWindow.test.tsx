@@ -56,8 +56,8 @@ vi.mock("./components/composer/Composer", () => ({
   Composer: () => <div data-testid="composer" />,
 }));
 
-vi.mock("./components/composer/UndoSendToast", () => ({
-  UndoSendToast: () => <div data-testid="undo-send-toast" />,
+vi.mock("./components/composer/SendFeedbackToast", () => ({
+  SendFeedbackToast: () => <div data-testid="send-feedback-toast" />,
 }));
 
 vi.mock("./components/ui/ContextMenuPortal", () => ({

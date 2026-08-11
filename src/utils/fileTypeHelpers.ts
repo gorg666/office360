@@ -82,13 +82,26 @@ export function isArchive(mimeType: string | null): boolean {
   return mimeType.includes("zip") || mimeType.includes("compressed") || mimeType.includes("archive") || mimeType.includes("tar") || mimeType === "application/gzip" || mimeType === "application/x-gzip";
 }
 
-export function getFileIcon(mimeType: string | null, filename?: string | null): string {
-  if (isImage(mimeType, filename)) return "\u{1F5BC}";
-  if (!mimeType) return "\u{1F4CE}";
-  if (mimeType.startsWith("video/")) return "\u{1F3AC}";
-  if (mimeType.startsWith("audio/")) return "\u{1F3B5}";
-  if (mimeType === "application/pdf") return "\u{1F4C4}";
-  if (mimeType.includes("spreadsheet") || mimeType.includes("excel")) return "\u{1F4CA}";
-  if (mimeType.includes("zip") || mimeType.includes("compressed") || mimeType.includes("archive")) return "\u{1F4E6}";
-  return "\u{1F4CE}";
+/** Stable file-type kind for Lucide UI icons (no emoji glyphs). */
+export type FileIconKind =
+  | "image"
+  | "video"
+  | "audio"
+  | "pdf"
+  | "spreadsheet"
+  | "archive"
+  | "generic";
+
+export function getFileIconKind(
+  mimeType: string | null,
+  filename?: string | null,
+): FileIconKind {
+  if (isImage(mimeType, filename)) return "image";
+  if (!mimeType) return "generic";
+  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType.startsWith("audio/")) return "audio";
+  if (isPdf(mimeType, filename)) return "pdf";
+  if (isSpreadsheet(mimeType, filename)) return "spreadsheet";
+  if (isArchive(mimeType)) return "archive";
+  return "generic";
 }

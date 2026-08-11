@@ -17,7 +17,8 @@ import { openNewCompose } from "@/utils/openComposeWindow";
 import { getThreadById, getThreadLabelIds } from "@/services/db/threads";
 import { navigateToLabel, navigateToThread } from "@/router/navigate";
 import { formatRelativeDate } from "@/utils/date";
-import { formatFileSize, getFileIcon } from "@/utils/fileTypeHelpers";
+import { formatFileSize } from "@/utils/fileTypeHelpers";
+import { FileTypeIcon } from "@/components/ui/FileTypeIcon";
 import { AuthBadge } from "./AuthBadge";
 import { ContactAvatar } from "@/components/ui/ContactAvatar";
 
@@ -387,7 +388,9 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
                   key={`${att.filename}-${att.date}-${i}`}
                   className="flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-bg-hover transition-colors"
                 >
-                  <span className="shrink-0">{getFileIcon(att.mime_type, att.filename)}</span>
+                  <span className="shrink-0 text-text-tertiary">
+                    <FileTypeIcon mimeType={att.mime_type} filename={att.filename} size={14} />
+                  </span>
                   <div className="min-w-0 flex-1">
                     <div className="text-text-secondary truncate">{att.filename}</div>
                     <div className="text-text-tertiary text-[0.625rem]">
