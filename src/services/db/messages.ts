@@ -112,6 +112,20 @@ export interface UncachedImapMessageRef {
   imap_folder: string;
 }
 
+export async function getMaxImapUidForFolder(
+  accountId: string,
+  folder: string,
+): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<Array<{ max_uid: number | null }>>(
+    `SELECT MAX(imap_uid) AS max_uid
+     FROM messages
+     WHERE account_id = $1 AND imap_folder = $2`,
+    [accountId, folder],
+  );
+  return rows[0]?.max_uid ?? 0;
+}
+
 export async function getUncachedImapMessageRefs(
   accountId: string,
   limit = 500,

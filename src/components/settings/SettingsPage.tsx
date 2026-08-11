@@ -463,8 +463,10 @@ export function SettingsPage() {
       removeClient(accountToRemove.id);
       removeAccountFromStore(accountToRemove.id);
       const nextActiveId = useAccountStore.getState().activeAccountId;
-      await setSetting("active_account_id", nextActiveId ?? "");
       setAccountToRemove(null);
+      void setSetting("active_account_id", nextActiveId ?? "").catch((err) => {
+        console.error("Failed to persist active account after removal:", err);
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("Failed to remove account:", err);

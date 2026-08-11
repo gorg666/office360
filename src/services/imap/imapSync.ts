@@ -23,7 +23,12 @@ import {
 } from "./folderMapper";
 import type { ParsedMessage, ParsedAttachment } from "../gmail/messageParser";
 import type { SyncResult } from "../email/types";
-import { getUncachedImapMessageRefs, upsertMessage, updateMessageThreadIds } from "../db/messages";
+import {
+  getMaxImapUidForFolder,
+  getUncachedImapMessageRefs,
+  upsertMessage,
+  updateMessageThreadIds,
+} from "../db/messages";
 import {
   upsertThread,
   setThreadLabels,
@@ -38,6 +43,7 @@ import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import {
   upsertFolderSyncState,
   getAllFolderSyncStates,
+  type FolderSyncState,
 } from "../db/folderSyncState";
 import {
   buildThreads,
@@ -60,6 +66,7 @@ const CHUNK_SIZE = 50;
 const BODY_REPAIR_BATCH_SIZE = 25;
 /** Number of thread groups to process per transaction in Phase 4. */
 const THREAD_BATCH_SIZE = 100;
+const UID_REPAIR_WINDOW = 500;
 
 // ---------------------------------------------------------------------------
 // Circuit breaker for connection storms
@@ -467,14 +474,34 @@ async function storeThreadsAndMessages(
 /**
  * Fetch messages from a folder in batches of BATCH_SIZE.
  */
+export function calculateSafeImapCheckpoint(
+  previousUid: number,
+  requestedUids: number[],
+  fetchedUids: number[],
+): number {
+  const fetched = new Set(fetchedUids);
+  let checkpoint = previousUid;
+  for (const uid of [...new Set(requestedUids)].sort((a, b) => a - b)) {
+    if (uid <= previousUid) continue;
+    if (!fetched.has(uid)) break;
+    checkpoint = uid;
+  }
+  return checkpoint;
+}
+
+export function reconcileImapCheckpoint(savedUid: number, localMaxUid: number): number {
+  if (localMaxUid <= 0 || localMaxUid >= savedUid) return savedUid;
+  return Math.max(localMaxUid, savedUid - UID_REPAIR_WINDOW);
+}
+
 async function fetchMessagesInBatches(
   config: ImapConfig,
   folder: string,
   uids: number[],
+  previousUid = 0,
   onBatch?: (fetched: number, total: number) => void,
 ): Promise<{ messages: ImapMessage[]; lastUid: number; uidvalidity: number }> {
   const allMessages: ImapMessage[] = [];
-  let lastUid = 0;
   let uidvalidity = 0;
 
   for (let i = 0; i < uids.length; i += BATCH_SIZE) {
@@ -484,13 +511,14 @@ async function fetchMessagesInBatches(
     allMessages.push(...result.messages);
     uidvalidity = result.folder_status.uidvalidity;
 
-    for (const msg of result.messages) {
-      if (msg.uid > lastUid) lastUid = msg.uid;
-    }
-
     onBatch?.(Math.min(i + BATCH_SIZE, uids.length), uids.length);
   }
 
+  const lastUid = calculateSafeImapCheckpoint(
+    previousUid,
+    uids,
+    allMessages.map((message) => message.uid),
+  );
   return { messages: allMessages, lastUid, uidvalidity };
 }
 
@@ -1107,6 +1135,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   const allParsed = new Map<string, ParsedMessage>();
   const allThreadable: ThreadableMessage[] = [];
   const allImapMsgs = new Map<string, ImapMessage>();
+  const pendingFolderStates = new Map<string, FolderSyncState>();
 
   // Separate folders into new (no saved state) vs existing (have saved state)
   const newFolders = syncableFolders.filter((f) => !syncStateMap.has(f.raw_path));
@@ -1152,7 +1181,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
         allImapMsgs.set(parsed.id, msg);
       }
 
-      await upsertFolderSyncState({
+      pendingFolderStates.set(folder.raw_path, {
         account_id: accountId,
         folder_path: folder.raw_path,
         uidvalidity: searchResult.folder_status.uidvalidity,
@@ -1173,11 +1202,20 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   // Batch-check existing folders in a single IMAP connection.
   // Falls back to per-folder checks if the batch command fails.
   if (existingFolders.length > 0) {
+    const effectiveCheckpoints = new Map<string, number>();
+    await Promise.all(existingFolders.map(async (folder) => {
+      const savedState = syncStateMap.get(folder.raw_path)!;
+      const localMaxUid = await getMaxImapUidForFolder(accountId, folder.raw_path);
+      effectiveCheckpoints.set(
+        folder.raw_path,
+        reconcileImapCheckpoint(savedState.last_uid, localMaxUid),
+      );
+    }));
     const deltaRequests: DeltaCheckRequest[] = existingFolders.map((folder) => {
       const savedState = syncStateMap.get(folder.raw_path)!;
       return {
         folder: folder.raw_path,
-        last_uid: savedState.last_uid,
+        last_uid: effectiveCheckpoints.get(folder.raw_path) ?? savedState.last_uid,
         uidvalidity: savedState.uidvalidity ?? 0,
       };
     });
@@ -1207,7 +1245,8 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
               uidvalidity_changed: true,
             });
           } else {
-            const newUids = await imapFetchNewUids(config, folder.raw_path, savedState.last_uid);
+            const checkpoint = effectiveCheckpoints.get(folder.raw_path) ?? savedState.last_uid;
+            const newUids = await imapFetchNewUids(config, folder.raw_path, checkpoint);
             deltaResultMap.set(folder.raw_path, {
               folder: folder.raw_path,
               uidvalidity: currentStatus.uidvalidity,
@@ -1279,7 +1318,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
             allImapMsgs.set(parsed.id, msg);
           }
 
-          await upsertFolderSyncState({
+          pendingFolderStates.set(folder.raw_path, {
             account_id: accountId,
             folder_path: folder.raw_path,
             uidvalidity: searchResult.folder_status.uidvalidity,
@@ -1297,6 +1336,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
           config,
           folder.raw_path,
           newestUidsFirst(deltaResult.new_uids),
+          effectiveCheckpoints.get(folder.raw_path) ?? savedState.last_uid,
         );
 
         for (const msg of messages) {
@@ -1310,11 +1350,11 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
           allImapMsgs.set(parsed.id, msg);
         }
 
-        await upsertFolderSyncState({
+        pendingFolderStates.set(folder.raw_path, {
           account_id: accountId,
           folder_path: folder.raw_path,
           uidvalidity,
-          last_uid: Math.max(savedState.last_uid, lastUid),
+          last_uid: lastUid,
           modseq: null,
           last_sync_at: Math.floor(Date.now() / 1000),
         });
@@ -1367,6 +1407,10 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     allImapMsgs,
     labelsByRfcId,
   );
+
+  for (const state of pendingFolderStates.values()) {
+    await upsertFolderSyncState(state);
+  }
 
   for (const message of storedMessages) {
     if (message.isRead || !message.labelIds.includes("INBOX")) continue;

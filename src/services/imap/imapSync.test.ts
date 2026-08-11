@@ -39,6 +39,7 @@ vi.mock("./folderMapper", () => ({
   getSyncableFolders: vi.fn((folders: unknown[]) => folders),
 }));
 vi.mock("../db/messages", () => ({
+  getMaxImapUidForFolder: vi.fn(() => 0),
   getUncachedImapMessageRefs: vi.fn(() => []),
   upsertMessage: vi.fn(),
   updateMessageThreadIds: vi.fn(),
@@ -68,7 +69,15 @@ vi.mock("../db/pendingOperations", () => ({
   getPendingOpsForResource: vi.fn(() => []),
 }));
 
-import { imapMessageToParsedMessage, imapInitialSync, formatImapDate, computeSinceDate, isConnectionError } from "./imapSync";
+import {
+  calculateSafeImapCheckpoint,
+  computeSinceDate,
+  formatImapDate,
+  imapInitialSync,
+  imapMessageToParsedMessage,
+  isConnectionError,
+  reconcileImapCheckpoint,
+} from "./imapSync";
 import {
   createMockImapMessage,
   createMockImapAccount,
@@ -83,6 +92,20 @@ import { upsertMessage, updateMessageThreadIds } from "../db/messages";
 import { upsertThread, addThreadLabels, deleteThread } from "../db/threads";
 import { upsertAttachment } from "../db/attachments";
 import { getPendingOpsForResource } from "../db/pendingOperations";
+
+describe("IMAP UID checkpoint safety", () => {
+  it("stops before the first UID omitted by a partial fetch", () => {
+    expect(calculateSafeImapCheckpoint(100, [103, 102, 101], [101, 103])).toBe(101);
+  });
+
+  it("advances across non-contiguous UIDs returned by SEARCH", () => {
+    expect(calculateSafeImapCheckpoint(100, [101, 105, 109], [109, 101, 105])).toBe(109);
+  });
+
+  it("rewinds a stored cursor that is ahead of local messages", () => {
+    expect(reconcileImapCheckpoint(77677, 77661)).toBe(77661);
+  });
+});
 
 describe("imapMessageToParsedMessage", () => {
   it("converts basic IMAP message to ParsedMessage format", () => {

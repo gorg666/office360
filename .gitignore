@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 .deps/
+graphify-out/
 
 # Build outputs
 dist/
