@@ -78,6 +78,15 @@ bool httpUrl(const std::string& url) {
   CefURLParts parts{}; if (!CefParseURL(url, parts)) return false;
   const auto scheme = CefString(&parts.scheme).ToString(); return scheme == "https" || scheme == "http";
 }
+bool oauthCallback(const std::string& url) {
+  CefURLParts parts{}; if (!CefParseURL(url, parts)) return false;
+  std::string host = CefString(&parts.host).ToString();
+  std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+  const auto scheme = CefString(&parts.scheme).ToString();
+  const auto port = CefString(&parts.port).ToString();
+  return scheme == "http" && port == "17248" &&
+    (host == "localhost" || host == "127.0.0.1" || host == "::1");
+}
 std::string safeUrl(const std::string& url) {
   CefURLParts parts{}; if (!CefParseURL(url, parts)) return {};
   std::string result = CefString(&parts.scheme).ToString() + "://" + CefString(&parts.host).ToString();
@@ -131,7 +140,13 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
     emit("error", "{\"message\":\"" + escapeJson(text.ToString()) + "\",\"code\":" + std::to_string(code) + ",\"url\":\"" + escapeJson(url.ToString()) + "\"}");
   }
   void OnAddressChange(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, const CefString& url) override {
-    if (frame->IsMain()) emit("navigation", "{\"url\":\"" + escapeJson(safeUrl(url.ToString())) + "\"}");
+    if (!frame->IsMain()) return;
+    if (oauthCallback(url.ToString())) {
+      g_visible = false;
+      if (browser_) ShowWindow(browser_->GetHost()->GetWindowHandle(), SW_HIDE);
+      emit("oauth-callback", "{}");
+    }
+    emit("navigation", "{\"url\":\"" + escapeJson(safeUrl(url.ToString())) + "\"}");
   }
   bool OnConsoleMessage(CefRefPtr<CefBrowser>, cef_log_severity_t, const CefString& message, const CefString&, int) override {
     const std::string value = message.ToString(), domPrefix = "__O360_DOM__", oauthPrefix = "__O360_OAUTH__", oauthErrorPrefix = "__O360_OAUTH_ERROR__";
@@ -142,6 +157,11 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
   }
   bool OnBeforeBrowse(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest> request, bool, bool) override {
     const auto url = request->GetURL().ToString();
+    if (oauthCallback(url)) {
+      g_visible = false;
+      if (browser_) ShowWindow(browser_->GetHost()->GetWindowHandle(), SW_HIDE);
+      return false;
+    }
     if (trusted(url) || url == "about:blank") return false;
     if (httpUrl(url)) { const auto wide = CefString(url).ToWString(); ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL); }
     emit("blocked-navigation", "{\"url\":\"" + escapeJson(safeUrl(url)) + "\"}"); return true;
