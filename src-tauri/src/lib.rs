@@ -21,6 +21,7 @@ fn emit_to_main(app: &tauri::AppHandle, event: &str) {
 use tauri_plugin_autostart::MacosLauncher;
 
 mod commands;
+mod contact_avatars;
 mod audio;
 mod cef;
 mod imap;
@@ -125,6 +126,8 @@ pub fn run() {
             cef::cef_dom_command,
             cef::cef_permission_response,
             audio::play_notification_sound,
+            notifications::show_native_notification,
+            notifications::ensure_notification_app_identity,
             contact_avatars::save_contact_avatar,
             contact_avatars::delete_contact_avatar,
             commands::imap_test_connection,
