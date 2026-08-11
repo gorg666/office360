@@ -120,7 +120,7 @@ mod platform {
     pub fn create(url: &str, profile_key: &str) -> Result<(), String> { with_runtime(|r| {
         let safe_key: String = profile_key.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
         if safe_key.is_empty() { return Err("CEF profile key is required".into()); }
-        let profile = r.profile_root.join("accounts").join(safe_key);
+        let profile = r.profile_root.join(format!("account-{safe_key}"));
         std::fs::create_dir_all(&profile).map_err(|e| e.to_string())?;
         let url = CString::new(url).map_err(|_| "Invalid URL")?;
         let profile_wide = wide(&profile);
