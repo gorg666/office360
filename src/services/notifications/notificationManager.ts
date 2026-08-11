@@ -12,7 +12,8 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useComposerStore } from "../../stores/composerStore";
 import { navigateToLabel } from "../../router/navigate";
 import { normalizeEmail } from "@/utils/emailUtils";
-import { APP_NAME_EN } from "@/i18n";
+import { APP_NAME_RU, getInitialLocale, translateText } from "@/i18n";
+import { pluralRu } from "@/utils/pluralRu";
 
 let initialized = false;
 let notificationsEnabled = true;
@@ -169,8 +170,8 @@ export async function initNotifications(): Promise<void> {
       {
         id: "email",
         actions: [
-          { id: "reply", title: "Reply" },
-          { id: "archive", title: "Archive" },
+          { id: "reply", title: translateText("Reply", getInitialLocale()) },
+          { id: "archive", title: translateText("Archive", getInitialLocale()) },
         ],
       },
     ]);
@@ -238,10 +239,20 @@ export function queueNewEmailNotification(
         return;
       }
 
+      const locale = getInitialLocale();
+      const noSubject = translateText("(No subject)", locale);
       if (count === 1) {
-        await showOsNotification("Новое письмо", `${from}: ${subject || "(No subject)"}`, "email");
+        await showOsNotification(
+          translateText("New mail", locale),
+          `${from}: ${subject || noSubject}`,
+          "email",
+        );
       } else if (count > 1) {
-        await showOsNotification(APP_NAME_EN, `${count} new emails`, "email");
+        const body =
+          locale === "ru"
+            ? `${count} ${pluralRu(count, "новое письмо", "новых письма", "новых писем")}`
+            : `${count} new emails`;
+        await showOsNotification(APP_NAME_RU, body, "email");
       }
     })();
   }, 2000);
@@ -271,7 +282,12 @@ export function notifyFollowUpDue(
   if (threadId) recentContexts.set(threadId, ctx);
   void (async () => {
     if (await isMainWindowForeground()) return;
-    await showOsNotification("Follow up needed", subject || "(No subject)", "email");
+    const locale = getInitialLocale();
+    await showOsNotification(
+      translateText("Follow up needed", locale),
+      subject || translateText("(No subject)", locale),
+      "email",
+    );
   })();
 }
 
@@ -279,6 +295,11 @@ export function notifySnoozeReturn(subject: string): void {
   if (!notificationsEnabled) return;
   void (async () => {
     if (await isMainWindowForeground()) return;
-    await showOsNotification("Snoozed email returned", subject || "(No subject)", "default");
+    const locale = getInitialLocale();
+    await showOsNotification(
+      translateText("Snoozed email returned", locale),
+      subject || translateText("(No subject)", locale),
+      "default",
+    );
   })();
 }

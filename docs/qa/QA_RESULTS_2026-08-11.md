@@ -434,22 +434,20 @@ See `docs/qa/SECURITY_TRIAGE_2026-08-11.md`.
 | ~07:00 | MAIL-011…015 + UI-002/003 fix applied (Outbox reconcile, context menu, titles, unread, folder tree, sync measure) — **manual retest required**; bugs NOT closed |
 | ~07:45 | Scope polish: folderTree canonical only; Outbox FAILED «Не отправлено»; Sidebar Labels≠IMAP duplex; context capability helper; tests — **AWAITING MANUAL VERIFY**; no PASS; IDLE not implemented |
 | ~08:00 | MAIL-016 Outbox ПКМ; MAIL-017 image thumbs; NOTIF-001 native WinRT+AUMID (no PowerShell path) — **FIX APPLIED / AWAITING MANUAL VERIFY**; no Calendar/Messenger |
+| ~08:15 | Full RU localization pass: i18n dict 835 keys, `check:i18n` = 0 missing, errors/dates/plurals/notifications; audit → `docs/qa/LOCALIZATION_AUDIT_2026-08-11.md`. **Runtime DOM/Tauri Latin scan NOT done → localization NOT PASS** |
 
 ---
 
-## Mail QA notes (2026-08-11 evening — code fixes, not PASS)
+## Localization (2026-08-11)
 
-| ID | Code status | Manual |
-|---|---|---|
-| MAIL-011 | reconcileOutboxPending on startup | Retest stale Outbox |
-| MAIL-012 | context menu source + ThreadMenu | Retest ПКМ folders |
-| UI-002 | placeholder «Поиск в почте» | Retest |
-| UI-003 | system folder titles | Retest |
-| MAIL-013 | unread visual | Retest |
-| MAIL-014 | IMAP folder tree under Inbox | Retest hierarchy |
-| MAIL-015 | 10s/120s polling + focus sync; no IDLE | Measure Yandex→UI latency |
-| MAIL-016 | Outbox ПКМ + capability mapper | TEST A/B |
-| MAIL-017 | AttachmentList image thumbs + cache | TEST C |
-| NOTIF-001 | Native WinRT+AUMID (not PowerShell) | TEST D |
+| Metric | Value |
+|---|---|
+| BEFORE EN UI candidates | ~275–305 |
+| AFTER `check:i18n` missing | **0** |
+| Dict keys | 835 |
+| Runtime Latin scan | **NOT RUN** |
+| Product localization status | **AWAITING MANUAL / RUNTIME VERIFY** (do not PASS) |
+
+Details: `docs/qa/LOCALIZATION_AUDIT_2026-08-11.md`
 
 Do **not** start Calendar/Messenger/A3 from this pass.

@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "check:i18n": "node scripts/i18n-audit.mjs --fail",
     "smoke:desktop": "node scripts/desktop-smoke.mjs",
     "tauri": "tauri",
     "tauri:build:dmg": "tauri build --bundles dmg",

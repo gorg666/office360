@@ -30,7 +30,7 @@ Results: `docs/qa/QA_RESULTS_2026-08-11.md`
 | MAIL-006 | P2 | Mail / UX | Send progress toast rendered in composer instead of main shell | OPEN — fix applied, pending retest |
 | MAIL-007 | P2 | Mail / Composer | Recipient field has no recent-contact suggestions | OPEN — fix applied, pending retest |
 | MAIL-009 | P2 | Mail / Outbox | Outbox item cannot be opened | FIX APPLIED (pending retest) |
-| UI-001 | P2 | Localization / Composer | Cc/Bcc not localized | OPEN — fix applied, pending retest |
+| UI-001 | P2 | Localization / Composer | Cc/Bcc not localized | FIX APPLIED / AWAITING MANUAL VERIFY (i18n pass 2026-08-11) |
 | MAIL-011 | P1 | Mail / Outbox | Stale/orphan message remains in Outbox | FIX APPLIED / AWAITING MANUAL VERIFY |
 | MAIL-012 | P2 | Mail / UX | No right-click context menu on messages | FIX APPLIED / AWAITING MANUAL VERIFY |
 | UI-002 | P2 | Mail / Search | Developer search syntax in placeholder | FIX APPLIED / AWAITING MANUAL VERIFY |
@@ -348,19 +348,39 @@ Area:
 Localization / Composer
 
 Status:
-OPEN — fix applied, pending manual retest
+FIX APPLIED / AWAITING MANUAL VERIFY (full i18n pass 2026-08-11)
 
 Current:
 `Cc / Bcc` (and field labels `Cc` / `Bcc`)
 
 Expected RU:
-`Копия / Скрытая копия` (fields: `Копия`, `Скрытая`)
+`Копия / Скрытая копия` (fields: `Копия`, `Скрытая копия`)
 
 Root cause (code-confirmed):
-Hardcoded English strings in `Composer.tsx`.
+Hardcoded English strings in `Composer.tsx` / missing i18n keys.
 
 Fix applied (pending retest):
-RU labels in composer address row.
+- Keys in `src/i18n.ts` (Cc → Копия, Bcc → Скрытая копия)
+- TranslationLayer + Composer label update
+- See `docs/qa/LOCALIZATION_AUDIT_2026-08-11.md`
+
+---
+
+# WATCH — LOC-001 Full UI Russian localization
+
+Severity:
+P2 (product polish)
+
+Area:
+Localization (all modules)
+
+Status:
+STATIC CLEAN (`check:i18n` = 0) / **RUNTIME NOT VERIFIED** — do not PASS
+
+Notes:
+- Dict ~835 keys; guard `npm run check:i18n`
+- Errors/dates/plurals/notifications wired
+- Remaining risk: dynamic strings, native tray/window, niche `toLocale*` — needs Tauri walk
 
 ---
 
