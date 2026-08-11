@@ -12,8 +12,6 @@ import { getCurrentUnixTimestamp } from "@/utils/timestamp";
 import { APP_NAME_EN, APP_NAME_RU } from "@/i18n";
 import { useUIStore } from "@/stores/uiStore";
 
-const ENABLE_GMAIL_PROVIDER = import.meta.env.VITE_ENABLE_GMAIL_PROVIDER === "true";
-
 interface AddAccountProps {
   onClose: () => void;
   /** New account id in DB (for immediate targeted sync). */
@@ -136,7 +134,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
     );
   }
 
-  if (view === "gmail" && ENABLE_GMAIL_PROVIDER) {
+  if (view === "gmail") {
     return (
       <Modal isOpen={true} onClose={onClose} title="Add Gmail Account" width="w-full max-w-md">
         <div className="p-4">
@@ -245,8 +243,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             </div>
           </button>
 
-          {ENABLE_GMAIL_PROVIDER && (
-            <button
+          <button
               onClick={() => setView("gmail")}
               className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
             >
@@ -278,8 +275,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                   {providerCopy.gmailDescription}
                 </div>
               </div>
-            </button>
-          )}
+          </button>
 
           <button
             onClick={() => setView("imap")}

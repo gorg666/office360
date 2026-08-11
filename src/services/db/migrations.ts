@@ -1188,6 +1188,20 @@ export async function runMigrations(): Promise<void> {
     )
   `));
 
+  // Critical repair must not depend on later migrations: older merged databases
+  // can stop before the OAuth schema migrations while the application remains usable.
+  const accountColumns = await runWithDbRetry(() => db.select<{ name: string }[]>(
+    "PRAGMA table_info(accounts)",
+  ));
+  if (
+    accountColumns.length > 0 &&
+    !accountColumns.some((column) => column.name === "oauth_granted_scopes")
+  ) {
+    await runWithDbRetry(() => db.execute(
+      "ALTER TABLE accounts ADD COLUMN oauth_granted_scopes TEXT",
+    ));
+  }
+
   // Get already-applied versions
   const applied = await runWithDbRetry(() => db.select<{ version: number }[]>(
     "SELECT version FROM _migrations ORDER BY version",
