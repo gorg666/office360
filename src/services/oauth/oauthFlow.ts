@@ -199,7 +199,7 @@ export async function startProviderOAuthFlow(
     provider,
     result.code,
     clientId,
-    redirectUri,
+    usesCefScreenCode ? undefined : redirectUri,
     codeVerifier,
     clientSecret,
   );
@@ -213,7 +213,7 @@ async function exchangeCode(
   provider: OAuthProviderConfig,
   code: string,
   clientId: string,
-  redirectUri: string,
+  redirectUri: string | undefined,
   codeVerifier: string,
   clientSecret?: string,
 ): Promise<TokenResponse> {
@@ -222,7 +222,7 @@ async function exchangeCode(
     tokenUrl: provider.tokenUrl,
     code,
     clientId,
-    redirectUri,
+    redirectUri: redirectUri ?? null,
     codeVerifier: provider.usePkce ? codeVerifier : null,
     clientSecret: clientSecret || null,
     scope: provider.id === "microsoft" ? provider.scopes.join(" ") : null,

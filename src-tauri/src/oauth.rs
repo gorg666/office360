@@ -246,7 +246,7 @@ pub async fn oauth_exchange_token(
     token_url: String,
     code: String,
     client_id: String,
-    redirect_uri: String,
+    redirect_uri: Option<String>,
     code_verifier: Option<String>,
     client_secret: Option<String>,
     scope: Option<String>,
@@ -254,9 +254,11 @@ pub async fn oauth_exchange_token(
     let mut params = vec![
         ("code", code),
         ("client_id", client_id),
-        ("redirect_uri", redirect_uri),
         ("grant_type", "authorization_code".to_string()),
     ];
+    if let Some(redirect) = redirect_uri {
+        params.push(("redirect_uri", redirect));
+    }
     if let Some(verifier) = code_verifier {
         params.push(("code_verifier", verifier));
     }
