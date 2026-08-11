@@ -118,6 +118,16 @@ describe("contacts address book migration", () => {
   });
 });
 
+describe("queue observability migration", () => {
+  it("adds updated_at without a non-constant ALTER TABLE default", () => {
+    const migration = MIGRATIONS.find((item) => item.version === 27);
+
+    expect(migration?.sql).toContain("ADD COLUMN updated_at INTEGER;");
+    expect(migration?.sql).not.toContain("ADD COLUMN updated_at INTEGER DEFAULT");
+    expect(migration?.sql).toContain("COALESCE(updated_at, created_at, unixepoch())");
+  });
+});
+
 describe("calendar invitations migration", () => {
   it("adds invitation table with RSVP metadata and stable identity key", () => {
     const migration = MIGRATIONS.find((item) => item.version === 30);

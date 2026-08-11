@@ -838,7 +838,8 @@ export const MIGRATIONS = [
       ALTER TABLE pending_operations ADD COLUMN blocked_reason TEXT;
       ALTER TABLE pending_operations ADD COLUMN diagnostic_code TEXT;
       ALTER TABLE pending_operations ADD COLUMN user_action TEXT;
-      ALTER TABLE pending_operations ADD COLUMN updated_at INTEGER DEFAULT (unixepoch());
+      ALTER TABLE pending_operations ADD COLUMN updated_at INTEGER;
+      UPDATE pending_operations SET updated_at = COALESCE(updated_at, created_at, unixepoch());
       UPDATE pending_operations
          SET status = 'retry_scheduled',
              updated_at = unixepoch()
