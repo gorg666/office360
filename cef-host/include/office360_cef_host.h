@@ -17,6 +17,7 @@ O360_API void o360_cef_navigate(const char* url_utf8);
 O360_API void o360_cef_back();
 O360_API void o360_cef_forward();
 O360_API void o360_cef_reload();
+O360_API void o360_cef_clear_session(const char* next_url);
 O360_API int o360_cef_dom_command(const char* request_id, const char* command_json);
 O360_API void o360_cef_permission_response(uint64_t prompt_id, int allow);
 O360_API void o360_cef_shutdown();

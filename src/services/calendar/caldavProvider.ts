@@ -24,12 +24,11 @@ export class CalDAVProvider implements CalendarProvider {
   constructor(readonly accountId: string) {}
 
   private async getClient(): Promise<DAVClient> {
-    if (this.client) return this.client;
-
     const account = await getAccount(this.accountId);
     if (!account) throw new Error("Account not found");
 
     const usesYandexOAuth = isYandexOAuthCalendarAccount(account);
+    if (this.client && !usesYandexOAuth) return this.client;
     const serverUrl = account.caldav_url ?? (usesYandexOAuth ? YANDEX_CALDAV_URL : null);
     const username = account.caldav_username ?? account.email;
     const password = account.caldav_password;
@@ -59,7 +58,9 @@ export class CalDAVProvider implements CalendarProvider {
       await client.login();
     }
 
-    this.client = client;
+    // OAuth access tokens expire. A Yandex DAVClient captures the token in its
+    // auth callback, so it must not outlive the token stored on the account.
+    if (!usesYandexOAuth) this.client = client;
     return client;
   }
 

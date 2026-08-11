@@ -207,3 +207,7 @@ UI hiding недостаточно. Service entry points также должны
 # Active Yandex service identity
 
 Yandex Disk and Telemost are bound to the active account identity. If the active account is not a Yandex OAuth account, service entry points and UI reject the operation instead of falling back to another saved Yandex account. Telemost local meeting history is account-scoped, and its native CEF window is hidden while the active identity is being re-evaluated.
+
+Service OAuth credentials are keyed by the normalized Yandex email and store a verified token owner. A token whose owner differs from the selected account is removed and must be authorized again. The Telemost CEF profile keeps its own cookies, but switching the active account clears those cookies and HTTP credentials before opening Yandex Passport with the selected email as the login hint.
+
+If the business Telemost API is unavailable, meeting creation falls back to the embedded Telemost web flow. Personal Yandex ID users can therefore create and join meetings without a Yandex 360 business subscription.

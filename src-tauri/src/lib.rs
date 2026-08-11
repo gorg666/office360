@@ -123,6 +123,7 @@ pub fn run() {
             cef::cef_back,
             cef::cef_forward,
             cef::cef_reload,
+            cef::cef_clear_session,
             cef::cef_dom_command,
             cef::cef_permission_response,
             audio::play_notification_sound,

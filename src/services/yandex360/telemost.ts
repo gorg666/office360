@@ -44,6 +44,7 @@ async function resolveTelemostAccount(preferredAccountId: string | null): Promis
   if (preferredAccountId) {
     const preferred = await getAccount(preferredAccountId);
     if (preferred && isYandexOAuthAccount(preferred)) return preferred;
+    throw new Error("Активный аккаунт не подключён через Яндекс ID.");
   }
 
   const accounts = await getAllAccounts();

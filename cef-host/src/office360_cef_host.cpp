@@ -2,6 +2,7 @@
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
+#include "include/cef_cookie.h"
 #include "include/cef_display_handler.h"
 #include "include/cef_life_span_handler.h"
 #include "include/cef_load_handler.h"
@@ -68,6 +69,21 @@ bool trusted(const std::string& url) {
   const bool oauthCallback = scheme == "http" && (host == "localhost" || host == "127.0.0.1" || host == "::1");
   return (scheme == "https" && (yandex || ya)) || oauthCallback;
 }
+class SessionClearedCallback final : public CefDeleteCookiesCallback {
+ public:
+  SessionClearedCallback(CefRefPtr<CefBrowser> browser, std::string next_url)
+      : browser_(browser), next_url_(std::move(next_url)) {}
+  void OnComplete(int) override {
+    if (!browser_) return;
+    auto context = browser_->GetHost()->GetRequestContext();
+    if (context) context->ClearHttpAuthCredentials(nullptr);
+    if (trusted(next_url_)) browser_->GetMainFrame()->LoadURL(next_url_);
+  }
+ private:
+  CefRefPtr<CefBrowser> browser_;
+  std::string next_url_;
+  IMPLEMENT_REFCOUNTING(SessionClearedCallback);
+};
 bool domTrusted(const std::string& url) {
   CefURLParts parts{}; if (!CefParseURL(url, parts)) return false;
   std::string host = CefString(&parts.host).ToString();
@@ -240,6 +256,7 @@ extern "C" void o360_cef_navigate(const char* url){std::string s=url?url:"";ui([
 extern "C" void o360_cef_back(){ui([]{if(g_client&&g_client->browser())g_client->browser()->GoBack();});}
 extern "C" void o360_cef_forward(){ui([]{if(g_client&&g_client->browser())g_client->browser()->GoForward();});}
 extern "C" void o360_cef_reload(){ui([]{if(g_client&&g_client->browser())g_client->browser()->Reload();});}
+extern "C" void o360_cef_clear_session(const char* next_url){std::string url=next_url?next_url:"";ui([url]{if(!g_client||!g_client->browser())return;auto browser=g_client->browser();auto context=browser->GetHost()->GetRequestContext();if(!context)return;auto cookies=context->GetCookieManager(nullptr);if(!cookies||!cookies->DeleteCookies("","",new SessionClearedCallback(browser,url))){context->ClearHttpAuthCredentials(nullptr);if(trusted(url))browser->GetMainFrame()->LoadURL(url);}});}
 extern "C" int o360_cef_dom_command(const char* id,const char* command){if(!g_client||!g_client->browser()||!domTrusted(g_client->browser()->GetMainFrame()->GetURL()))return 0;std::string script=domScript(id?id:"",command?command:"{}");ui([script]{if(g_client&&g_client->browser()&&domTrusted(g_client->browser()->GetMainFrame()->GetURL()))g_client->browser()->GetMainFrame()->ExecuteJavaScript(script,g_client->browser()->GetMainFrame()->GetURL(),0);});return 1;}
 extern "C" void o360_cef_permission_response(uint64_t id,int allow){ui([=]{if(g_client)g_client->permission(id,allow!=0);});}
 extern "C" void o360_cef_shutdown(){std::lock_guard<std::mutex> lock(g_mutex);if(!g_initialized)return;if(g_client&&g_client->browser())g_client->browser()->GetHost()->CloseBrowser(true);g_client=nullptr;CefShutdown();g_initialized=false;g_parent=nullptr;g_has_bounds=false;g_callback=nullptr;}

@@ -23,7 +23,7 @@ export const YANDEX_SERVICE_SCOPES = [
 
 export const DEFAULT_YANDEX_SERVICE_CLIENT_ID = "69e59ec6dcfe4be3a085006d49678056";
 
-const SERVICE_SETTING_NAMES = ["client_id", "access_token", "refresh_token", "expires_at", "scopes"] as const;
+const SERVICE_SETTING_NAMES = ["client_id", "access_token", "refresh_token", "expires_at", "scopes", "owner_email"] as const;
 type ServiceSettingName = typeof SERVICE_SETTING_NAMES[number];
 
 const serviceKey = (identity: string, name: ServiceSettingName) => `yandex_services_${name}:${identity}`;
@@ -34,14 +34,7 @@ async function migrateYandexServiceSettings(account: DbAccount): Promise<void> {
   if (await getSetting(serviceKey(identity, "refresh_token"))) return;
 
   const settings = await getAllSettings();
-  let sourceIdentity = settings[serviceKey(account.id, "refresh_token")] ? account.id : null;
-  if (!sourceIdentity) {
-    const candidates = Object.keys(settings)
-      .filter((key) => key.startsWith("yandex_services_refresh_token:") && settings[key])
-      .map((key) => key.slice("yandex_services_refresh_token:".length))
-      .filter((value) => !value.startsWith("email:"));
-    if (candidates.length === 1) sourceIdentity = candidates[0] ?? null;
-  }
+  const sourceIdentity = settings[serviceKey(account.id, "refresh_token")] ? account.id : null;
   if (!sourceIdentity) return;
 
   await Promise.all(SERVICE_SETTING_NAMES.map(async (name) => {
@@ -106,6 +99,7 @@ export async function authorizeYandexServices(accountId: string, clientId: strin
     setSecureSetting(serviceKey(identity, "refresh_token"), tokens.refresh_token),
     setSetting(serviceKey(identity, "expires_at"), String(getCurrentUnixTimestamp() + tokens.expires_in)),
     setSetting(serviceKey(identity, "scopes"), tokens.scope ?? YANDEX_SERVICE_SCOPES.join(" ")),
+    setSetting(serviceKey(identity, "owner_email"), normalizeEmail(account.email)),
   ]);
 }
 
@@ -130,6 +124,24 @@ export async function getYandexServiceContext(preferredId?: string | null) {
       setSecureSetting(serviceKey(identity, "refresh_token"), tokens.refresh_token ?? refreshToken),
       setSetting(serviceKey(identity, "expires_at"), String(getCurrentUnixTimestamp() + tokens.expires_in)),
     ]);
+  }
+  let ownerEmail = normalizeEmail(await getSetting(serviceKey(identity, "owner_email")) || "");
+  if (!ownerEmail) {
+    const profileResponse = await tauriFetch("https://login.yandex.ru/info?format=json", {
+      headers: { Authorization: `OAuth ${accessToken}` },
+    });
+    if (!profileResponse.ok) throw await parseApiError(profileResponse as unknown as Response);
+    const profile = await profileResponse.json() as { default_email?: string; login?: string };
+    ownerEmail = normalizeEmail(profile.default_email || (profile.login ? `${profile.login}@yandex.ru` : ""));
+    if (ownerEmail) await setSetting(serviceKey(identity, "owner_email"), ownerEmail);
+  }
+  if (!ownerEmail || ownerEmail !== normalizeEmail(account.email)) {
+    await Promise.all([
+      setSecureSetting(serviceKey(identity, "access_token"), ""),
+      setSecureSetting(serviceKey(identity, "refresh_token"), ""),
+      setSetting(serviceKey(identity, "owner_email"), ""),
+    ]);
+    throw new Error(`OAuth Диска принадлежит ${ownerEmail || "другому аккаунту"}, а выбран ${account.email}. Выдайте доступ заново.`);
   }
   return { account, token: accessToken };
 }

@@ -100,9 +100,10 @@ export function EventDetailModal({ event, calendars, accountId, anchor, onClose,
 
   const openMeeting = useCallback(() => {
     if (!meetingUrl) return;
+    sessionStorage.setItem("office360_telemost_open_event_id", event.id);
     navigateToLabel("telemost");
     window.setTimeout(() => void cefNavigate(meetingUrl), 150);
-  }, [meetingUrl]);
+  }, [event.id, meetingUrl]);
 
   if (editing) {
     return (
