@@ -66,6 +66,7 @@ import type {
 } from "@/stores/uiStore";
 import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { isValidGoogleOAuthClientIdFormat } from "@/utils/googleCredentials";
 import {
   configureNotificationSound,
@@ -198,6 +199,9 @@ export function SettingsPage() {
   const [clearingCache, setClearingCache] = useState(false);
   const [reauthStatus, setReauthStatus] = useState<Record<string, "idle" | "authorizing" | "done" | "error">>({});
   const [resyncStatus, setResyncStatus] = useState<Record<string, "idle" | "syncing" | "done" | "error">>({});
+  const [accountToRemove, setAccountToRemove] = useState<{ id: string; email: string } | null>(null);
+  const [removingAccount, setRemovingAccount] = useState(false);
+  const [removeAccountError, setRemoveAccountError] = useState<string | null>(null);
   const [editingImapAccountId, setEditingImapAccountId] = useState<string | null>(null);
   const [autoArchiveCategories, setAutoArchiveCategories] = useState<Set<string>>(() => new Set());
   const [smartNotifications, setSmartNotifications] = useState(true);
@@ -450,14 +454,25 @@ export function SettingsPage() {
     }
   }, [autostartEnabled]);
 
-  const handleRemoveAccount = useCallback(
-    async (accountId: string) => {
-      removeClient(accountId);
-      await deleteAccount(accountId);
-      removeAccountFromStore(accountId);
-    },
-    [removeAccountFromStore],
-  );
+  const handleRemoveAccount = useCallback(async () => {
+    if (!accountToRemove || removingAccount) return;
+    setRemovingAccount(true);
+    setRemoveAccountError(null);
+    try {
+      await deleteAccount(accountToRemove.id);
+      removeClient(accountToRemove.id);
+      removeAccountFromStore(accountToRemove.id);
+      const nextActiveId = useAccountStore.getState().activeAccountId;
+      await setSetting("active_account_id", nextActiveId ?? "");
+      setAccountToRemove(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("Failed to remove account:", err);
+      setRemoveAccountError(message);
+    } finally {
+      setRemovingAccount(false);
+    }
+  }, [accountToRemove, removeAccountFromStore, removingAccount]);
 
   const handleReauthorizeAccount = useCallback(
     async (accountId: string, email: string) => {
@@ -1214,7 +1229,10 @@ export function SettingsPage() {
                                   {locale === "ru" ? "Исправить" : "Repair"}
                                 </button>
                                 <button
-                                  onClick={() => handleRemoveAccount(account.id)}
+                                  onClick={() => {
+                                    setRemoveAccountError(null);
+                                    setAccountToRemove({ id: account.id, email: account.email });
+                                  }}
                                   className="text-xs text-danger hover:text-danger/80 transition-colors"
                                 >
                                   {locale === "ru" ? "Удалить" : "Remove"}
@@ -1254,7 +1272,10 @@ export function SettingsPage() {
                               </div>
                             </div>
                             <button
-                              onClick={() => handleRemoveAccount(account.id)}
+                              onClick={() => {
+                                setRemoveAccountError(null);
+                                setAccountToRemove({ id: account.id, email: account.email });
+                              }}
                               className="text-xs text-danger hover:text-danger/80 transition-colors"
                             >
                               Remove
@@ -1774,6 +1795,21 @@ export function SettingsPage() {
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        isOpen={accountToRemove !== null}
+        onClose={() => {
+          if (!removingAccount) setAccountToRemove(null);
+        }}
+        onConfirm={() => void handleRemoveAccount()}
+        title={locale === "ru" ? "Удалить аккаунт?" : "Remove account?"}
+        message={removeAccountError ?? (locale === "ru"
+          ? `Локальные письма и настройки ${accountToRemove?.email ?? ""} будут удалены с этого компьютера. На сервере почты данные сохранятся.`
+          : `Local mail and settings for ${accountToRemove?.email ?? ""} will be removed from this computer. Server data will remain intact.`)}
+        confirmLabel={locale === "ru" ? "Удалить" : "Remove"}
+        cancelLabel={locale === "ru" ? "Отмена" : "Cancel"}
+        variant="danger"
+        loading={removingAccount}
+      />
     </div>
   );
 }

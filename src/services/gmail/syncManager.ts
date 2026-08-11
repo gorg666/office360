@@ -4,7 +4,7 @@ import { getAccount, clearAccountHistoryId } from "../db/accounts";
 import { getSetting } from "../db/settings";
 import { getThreadCountForAccount, deleteAllThreadsForAccount } from "../db/threads";
 import { deleteAllMessagesForAccount } from "../db/messages";
-import { imapInitialSync, imapDeltaSync } from "../imap/imapSync";
+import { imapInitialSync, imapDeltaSync, isConnectionError } from "../imap/imapSync";
 import { clearAllFolderSyncStates } from "../db/folderSyncState";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { hasCalendarSupport, getCalendarProvider } from "../calendar/providerFactory";
@@ -244,8 +244,24 @@ async function syncImapAccount(accountId: string): Promise<void> {
     }
   };
 
+  const runWithConnectionRetry = async () => {
+    const retryDelays = [750, 2_000];
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await runSync();
+        return;
+      } catch (err) {
+        if (!isConnectionError(err) || attempt >= retryDelays.length) throw err;
+        console.warn(
+          `[syncManager] IMAP connection failed for ${accountId}; retry ${attempt + 1}/${retryDelays.length}`,
+        );
+        await sleep(retryDelays[attempt]!);
+      }
+    }
+  };
+
   try {
-    await runSync();
+    await runWithConnectionRetry();
   } catch (err) {
     const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
     const looksAuth =
@@ -261,7 +277,7 @@ async function syncImapAccount(accountId: string): Promise<void> {
       "[syncManager] IMAP OAuth auth failure — forcing token refresh and retrying once",
     );
     await refreshOAuth(true);
-    await runSync();
+    await runWithConnectionRetry();
   }
 }
 
