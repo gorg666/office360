@@ -276,8 +276,8 @@ extern "C" int o360_cef_initialize(void* parent, const wchar_t* profile, const w
 extern "C" int o360_cef_create(const char* url, const wchar_t* profile_path) {
   if (!g_initialized || !g_parent || !profile_path || !*profile_path) return 0;
   const std::wstring profile(profile_path);
+  if (g_client && g_client->browser()) ShowWindow(g_client->browser()->GetHost()->GetWindowHandle(), SW_HIDE);
   if (auto existing = g_clients.find(profile); existing != g_clients.end()) {
-    if (g_client && g_client->browser()) ShowWindow(g_client->browser()->GetHost()->GetWindowHandle(), SW_HIDE);
     g_client = existing->second;
     if (g_client->browser()) {
       g_content_visible = displayAllowed(g_client->browser()->GetMainFrame()->GetURL().ToString());

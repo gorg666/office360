@@ -61,6 +61,7 @@ export function TelemostPage() {
   const activeMeetingUrlRef = useRef<string | null>(null);
   const pendingScheduleRef = useRef(false);
   const accountSwitchGenerationRef = useRef(0);
+  const initializedProfilesRef = useRef(new Set<string>());
   const [serviceAccountId, setServiceAccountId] = useState<string | null>(null);
   const [accountChecking, setAccountChecking] = useState(true);
   const [created, setCreated] = useState<StoredConference[]>([]);
@@ -140,7 +141,8 @@ export function TelemostPage() {
       await cefCreate("https://telemost.yandex.ru/", serviceAccountId);
       if (!current || generation !== accountSwitchGenerationRef.current) return;
       const profileReadyKey = `${CEF_PROFILE_READY_KEY}:${serviceAccountId}`;
-      if (localStorage.getItem(profileReadyKey) !== "1") {
+      if (localStorage.getItem(profileReadyKey) !== "1" && !initializedProfilesRef.current.has(serviceAccountId)) {
+        initializedProfilesRef.current.add(serviceAccountId);
         await cefSetVisible(false);
         if (!current || generation !== accountSwitchGenerationRef.current) return;
         const retpath = encodeURIComponent("https://telemost.yandex.ru/");
@@ -153,7 +155,7 @@ export function TelemostPage() {
       if (current) setCefSessionReady(true);
     })().catch((reason) => current && setError(`Не удалось переключить аккаунт Телемоста: ${String(reason)}`));
     return () => { current = false; accountSwitchGenerationRef.current += 1; };
-  }, [activeAccount, serviceAccountId]);
+  }, [activeAccount?.email, serviceAccountId]);
 
   useEffect(() => {
     if (!serviceAccountId) { setCalendarMeetings([]); return; }
