@@ -140,6 +140,18 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
       browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{if(window.__o360OAuthCodeProbe)return;let attempts=0;window.__o360OAuthCodeProbe=setInterval(()=>{const visible=el=>{const style=getComputedStyle(el),rect=el.getBoundingClientRect();return el.type!=='hidden'&&el.getAttribute('aria-hidden')!=='true'&&style.display!=='none'&&style.visibility!=='hidden'&&rect.width>0&&rect.height>0};const elements=[...document.querySelectorAll('[data-testid*=code],code,pre,input')].filter(visible);const values=elements.flatMap(el=>[el.value||'',el.innerText||el.textContent||'']).map(value=>value.trim());let code=values.find(value=>/^[A-Za-z0-9_-]{7,128}$/.test(value));if(!code){const text=document.body?.innerText||'',section=text.split(/Код подтверждения|Confirmation code/i).slice(1).join(' ');code=(section.match(/\b[A-Za-z0-9_-]{7,128}\b/g)||[]).find(value=>/\d/.test(value)&&/[A-Za-z]/.test(value))}if(code){clearInterval(window.__o360OAuthCodeProbe);console.log('__O360_OAUTH__'+JSON.stringify({code}))}else if(++attempts>80)clearInterval(window.__o360OAuthCodeProbe)},250)})())JS", currentUrl, 0);
     }
     if (!loading && domTrusted(browser->GetMainFrame()->GetURL())) {
+      browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{
+        if(location.pathname!=='/'||!new URLSearchParams(location.search).has('browser-auto-create')||window.__o360AutoCreate)return;
+        window.__o360AutoCreate=true;
+        let attempts=0;
+        const timer=setInterval(()=>{
+          const visible=el=>{const s=getComputedStyle(el),r=el.getBoundingClientRect();return s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0};
+          const controls=[...document.querySelectorAll('button,a,[role="button"]')].filter(visible);
+          const create=controls.find(el=>/\u0441\u043e\u0437\u0434\u0430\u0442\u044c\s+(?:\u043d\u043e\u0432\u0443\u044e\s+)?(?:\u0432\u0438\u0434\u0435\u043e)?\u0432\u0441\u0442\u0440\u0435\u0447\u0443|\u043d\u043e\u0432\u0430\u044f\s+\u0432\u0438\u0434\u0435\u043e\u0432\u0441\u0442\u0440\u0435\u0447\u0430|create\s+(?:a\s+)?(?:video\s+)?meeting/i.test((el.innerText||el.textContent||el.getAttribute('aria-label')||'').trim()));
+          if(create){clearInterval(timer);create.click();console.log('__O360_TELEMOST_ACTION__'+JSON.stringify({action:'create',ok:true}))}
+          else if(++attempts>=60){clearInterval(timer);console.log('__O360_TELEMOST_ACTION__'+JSON.stringify({action:'create',ok:false,error:'Create meeting control was not found'}))}
+        },250);
+      })())JS", browser->GetMainFrame()->GetURL(), 0);
       browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{if(window.__o360BrowserJoin)return;let attempts=0;window.__o360BrowserJoin=setInterval(()=>{const item=[...document.querySelectorAll('button,a')].find(el=>/продолжить в браузере|continue in browser/i.test((el.innerText||el.textContent||'').trim()));if(item){clearInterval(window.__o360BrowserJoin);item.click()}else if(++attempts>120)clearInterval(window.__o360BrowserJoin)},500)})())JS", browser->GetMainFrame()->GetURL(), 0);
       browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{
         if(location.pathname!=='/'||window.__o360CompactTelemost)return;
@@ -174,8 +186,9 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
     if (frame->IsMain()) emit("navigation", "{\"url\":\"" + escapeJson(safeUrl(url.ToString())) + "\"}");
   }
   bool OnConsoleMessage(CefRefPtr<CefBrowser>, cef_log_severity_t, const CefString& message, const CefString&, int) override {
-    const std::string value = message.ToString(), domPrefix = "__O360_DOM__", oauthPrefix = "__O360_OAUTH__", oauthErrorPrefix = "__O360_OAUTH_ERROR__";
+    const std::string value = message.ToString(), domPrefix = "__O360_DOM__", oauthPrefix = "__O360_OAUTH__", oauthErrorPrefix = "__O360_OAUTH_ERROR__", telemostActionPrefix = "__O360_TELEMOST_ACTION__";
     if (value.rfind(domPrefix, 0) == 0) { emit("dom-result", value.substr(domPrefix.size())); return true; }
+    if (value.rfind(telemostActionPrefix, 0) == 0) { emit("telemost-action", value.substr(telemostActionPrefix.size())); return true; }
     if (value.rfind(oauthErrorPrefix, 0) == 0) { emit("oauth-error", value.substr(oauthErrorPrefix.size())); return true; }
     if (value.rfind(oauthPrefix, 0) == 0) { emit("oauth-code", value.substr(oauthPrefix.size())); return true; }
     return false;

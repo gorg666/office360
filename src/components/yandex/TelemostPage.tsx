@@ -176,6 +176,9 @@ export function TelemostPage() {
           setVisited((items) => mergeMeetings([entry, ...items]).slice(0, 100));
         }
       }
+      if (type === "telemost-action" && payload.action === "create" && payload.ok === false) {
+        setError("Не удалось найти кнопку создания встречи на странице Телемоста. Обновите страницу и повторите попытку.");
+      }
       if (type === "error" && typeof payload.message === "string" && payload.message !== "ERR_ABORTED") setError(payload.message);
       if (type === "permission-request" && typeof payload.id === "number" && typeof payload.origin === "string") {
         const allow = window.confirm(`Разрешить камеру и микрофон для ${payload.origin}?`);
@@ -253,12 +256,13 @@ export function TelemostPage() {
 
   const schedule = () => navigateToLabel("calendar");
 
-  const createInWebTelemost = () => {
+  const createInWebTelemost = async () => {
     const url = "https://telemost.yandex.ru/?browser-auto-create=1";
     setSelectedCalendarEventId(null);
     setSelectedUrl(url);
     setError(null);
-    void cefNavigate(url);
+    await cefSetVisible(false);
+    await cefNavigate(url);
   };
 
   const create = async () => {
@@ -277,7 +281,7 @@ export function TelemostPage() {
       openMeeting({ id: conference.id, title, joinUrl: conference.joinUrl, source: "created", startTime: stored.scheduledAt ?? stored.createdAt });
     } catch {
       // Personal Yandex IDs create meetings through the embedded web client.
-      createInWebTelemost();
+      await createInWebTelemost();
     }
   };
 
