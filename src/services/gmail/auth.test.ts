@@ -9,6 +9,13 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => mockInvoke(...args),
 }));
 
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async (_event: string, handler: (event: { payload: { port: number } }) => void) => {
+    handler({ payload: { port: 17248 } });
+    return () => {};
+  }),
+}));
+
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: (...args: unknown[]) => mockOpenUrl(...args),
 }));

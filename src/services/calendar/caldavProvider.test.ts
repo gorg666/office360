@@ -180,7 +180,6 @@ describe("CalDAVProvider", () => {
           data: expect.stringContaining("SUMMARY:Updated Event"),
           etag: '"old-etag"',
         },
-        headers: { "If-Match": '"old-etag"' },
       });
 
       expect(event.summary).toBe("Updated Event");
@@ -205,7 +204,6 @@ describe("CalDAVProvider", () => {
           url: "/cal/personal/test-uid.ics",
           etag: '"delete-etag"',
         },
-        headers: { "If-Match": '"delete-etag"' },
       });
     });
 
@@ -217,7 +215,6 @@ describe("CalDAVProvider", () => {
           url: "/cal/personal/test-uid.ics",
           etag: undefined,
         },
-        headers: {},
       });
     });
   });

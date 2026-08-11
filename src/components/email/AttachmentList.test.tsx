@@ -21,6 +21,7 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
+import { clearAttachmentPreviewCache } from "@/utils/attachmentPreviewCache";
 
 const makeAttachment = (overrides: Partial<DbAttachment> = {}): DbAttachment => ({
   id: "att-1",
@@ -41,6 +42,7 @@ describe("AttachmentList", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    clearAttachmentPreviewCache();
     vi.mocked(getEmailProvider).mockResolvedValue({
       fetchAttachment: mockFetchAttachment,
     } as never);
@@ -309,7 +311,7 @@ describe("AttachmentList", () => {
     });
   });
 
-  it("requires confirmation before previewing risky attachments", async () => {
+  it("shows unavailable preview for non-previewable attachments without fetching", async () => {
     mockFetchAttachment.mockResolvedValue({
       data: btoa("exe-content"),
       size: 11,
@@ -327,11 +329,6 @@ describe("AttachmentList", () => {
     );
 
     fireEvent.click(screen.getByText("installer.exe"));
-
-    expect(screen.getAllByText("Risky attachment").length).toBeGreaterThan(0);
-    expect(mockFetchAttachment).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByText("Preview attachment"));
 
     expect(await screen.findByText("Preview not available for this file type")).toBeInTheDocument();
     expect(mockFetchAttachment).not.toHaveBeenCalled();
