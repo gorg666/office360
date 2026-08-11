@@ -125,6 +125,13 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
     }
     if (!loading && domTrusted(browser->GetMainFrame()->GetURL())) {
       browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{if(window.__o360BrowserJoin)return;let attempts=0;window.__o360BrowserJoin=setInterval(()=>{const item=[...document.querySelectorAll('button,a')].find(el=>/продолжить в браузере|continue in browser/i.test((el.innerText||el.textContent||'').trim()));if(item){clearInterval(window.__o360BrowserJoin);item.click()}else if(++attempts>120)clearInterval(window.__o360BrowserJoin)},500)})())JS", browser->GetMainFrame()->GetURL(), 0);
+      browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{
+        if(location.pathname!=='/'||window.__o360CompactTelemost)return;
+        window.__o360CompactTelemost=true;
+        const style=document.createElement('style');style.textContent='.o360-compact-hidden{display:none!important}';document.documentElement.appendChild(style);
+        const compact=()=>{const w=innerWidth,h=innerHeight;for(const el of document.querySelectorAll('header,footer,body *')){if(!(el instanceof HTMLElement)||el.classList.contains('o360-compact-hidden'))continue;const r=el.getBoundingClientRect();if(!r.width||!r.height)continue;const controls=el.querySelectorAll('a,button').length;const rail=r.left<12&&r.width>=36&&r.width<=110&&r.height>h*.55&&controls>=5;const top=r.top<8&&r.height<=110&&r.width>w*.65&&controls>=1;const bottom=r.bottom>h-8&&r.height<=100&&r.width>w*.55&&controls>=1;if(rail||top||bottom)el.classList.add('o360-compact-hidden')}};
+        compact();new MutationObserver(compact).observe(document.body,{childList:true,subtree:true});addEventListener('resize',compact);
+      })())JS", browser->GetMainFrame()->GetURL(), 0);
     }
   }
   void OnLoadError(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, ErrorCode code, const CefString& text, const CefString& url) override {
