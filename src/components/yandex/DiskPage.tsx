@@ -5,7 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { ChevronRight, Download, File, Folder, FolderPlus, Link, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { createDiskFolder, deleteDiskResource, getDiskDownloadUrl, getDiskQuota, getDiskResource, listDiskResources, moveDiskResource, publishDiskResource, searchDisk, unpublishDiskResource, uploadDiskFile, type DiskResource } from "@/services/yandex/disk";
-import { authorizeYandexServices, getYandexServiceClientId } from "@/services/yandex/accountApi";
+import { authorizeYandexServices } from "@/services/yandex/accountApi";
 import { getAccount } from "@/services/db/accounts";
 import { ServicePageShell } from "./ServicePageShell";
 
@@ -81,10 +81,7 @@ export function DiskPage() {
     if (!accountId) return;
     setReauthorizing(true); setError(null);
     try {
-      const storedClientId = await getYandexServiceClientId(accountId);
-      const clientId = window.prompt("Client ID отдельного API OAuth-приложения Яндекса", storedClientId ?? "");
-      if (!clientId?.trim()) return;
-      await authorizeYandexServices(accountId, clientId);
+      await authorizeYandexServices(accountId);
       await load();
     }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }

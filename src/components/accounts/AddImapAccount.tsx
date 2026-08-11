@@ -27,14 +27,9 @@ import {
   type SecurityType,
 } from "@/services/imap/autoDiscovery";
 import { getOAuthProvider } from "@/services/oauth/providers";
-import { getYandexOAuthConfigDiagnostics } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
 import { computeTokenExpiresAtSeconds } from "@/services/oauth/tokenExpiry";
-import {
-  resolveYandexClientSecret,
-  saveYandexClientSecret,
-} from "@/services/oauth/yandexOAuthCredentials";
-import { getSetting } from "@/services/db/settings";
+import { authorizeYandexSuite } from "@/services/oauth/yandexUnifiedAuth";
 
 interface AddImapAccountProps {
   onClose: () => void;
@@ -262,6 +257,7 @@ export function AddImapAccount({
   const [discoveryApplied, setDiscoveryApplied] = useState(!!oauthPreset);
   const [oauthConnecting, setOauthConnecting] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
+  const [oauthProgress, setOauthProgress] = useState<string | null>(null);
   const [detectedAuthMethods, setDetectedAuthMethods] = useState<AuthMode[]>(
     oauthPreset ? ["oauth2", "password"] : ["password"],
   );
@@ -382,7 +378,7 @@ export function AddImapAccount({
     [currentStep, goNext, canGoNext],
   );
 
-  async function saveAccount(accountForm: FormState): Promise<void> {
+  async function saveAccount(accountForm: FormState, connectYandexSuite = false): Promise<void> {
     setSaving(true);
     setSaveError(null);
     try {
@@ -459,6 +455,22 @@ export function AddImapAccount({
         addAccount(storeAccount);
       }
 
+      if (connectYandexSuite) {
+        await authorizeYandexSuite(accountId, {
+          grants: ["work", "communications"],
+          continueOnError: true,
+          onProgress: ({ label, state }) => {
+            setOauthProgress(
+              state === "authorizing"
+                ? `Подключаем раздел «${label}»…`
+                : state === "connected"
+                  ? `Раздел «${label}» подключён`
+                  : `Раздел «${label}» можно подключить позже в настройках`,
+            );
+          },
+        });
+      }
+
       onSuccess(accountId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -492,38 +504,18 @@ export function AddImapAccount({
 
     setOauthConnecting(true);
     setOauthError(null);
+    setOauthProgress(providerId === "yandex" ? "Подключаем раздел «Основное»…" : null);
     setYandexMailScopeBlocked(false);
     setSaveError(null);
 
     try {
-      if (providerId === "yandex") {
-        const yandexDiagnostics = getYandexOAuthConfigDiagnostics();
-        const dbClientId = await getSetting("yandex_oauth_client_id");
-        console.info("[oauth][yandex] DB client_id (settings:yandex_oauth_client_id):", dbClientId ?? "<empty>");
-        console.info("[oauth][yandex] env client_id:", yandexDiagnostics.envClientId ?? "<empty>");
-        console.info("[oauth][yandex] fallback client_id:", yandexDiagnostics.fallbackClientId);
-        console.info("[oauth][yandex] provider.publicClientId:", provider.publicClientId ?? "<empty>");
-        console.info("[oauth][yandex] selected client_id:", clientId);
-      }
-
       let oauthClientSecret =
         provider.publicClientId && providerId !== "yandex"
           ? undefined
           : form.oauthClientSecret.trim() || undefined;
 
       if (providerId === "yandex") {
-        const typedSecret = form.oauthClientSecret.trim();
-        if (typedSecret) {
-          await saveYandexClientSecret(typedSecret);
-        }
-        oauthClientSecret = await resolveYandexClientSecret(typedSecret || null);
-        console.info("[oauth][yandex] client_secret present for flow:", Boolean(oauthClientSecret));
-        if (!oauthClientSecret) {
-          setOauthError(
-            "Укажите Client Secret (пароль) OAuth-приложения Яндекс ID. Без него access token нельзя обновить, и почта перестанет работать.",
-          );
-          return;
-        }
+        oauthClientSecret = undefined;
       }
 
       const { tokens, userInfo } = await startProviderOAuthFlow(
@@ -535,11 +527,7 @@ export function AddImapAccount({
       const grantedScopes = parseScopeSet(tokens.scope);
 
       if (providerId === "yandex") {
-        console.info("[oauth] Yandex granted scopes:", [...grantedScopes].join(" "));
         if (usesManagedOAuthFlow && !hasYandexMailScopes(grantedScopes)) {
-          console.warn(
-            "[oauth][yandex] mail scopes are not granted; account will not be saved",
-          );
           setForm((prev) => ({
             ...prev,
             email: userInfo.email || prev.email,
@@ -581,13 +569,13 @@ export function AddImapAccount({
 
       setForm(nextForm);
       if (usesManagedOAuthFlow) {
-        await saveAccount(nextForm);
+        setOauthProgress("Раздел «Основное» подключён");
+        await saveAccount(nextForm, providerId === "yandex");
       } else {
         setCurrentStep("imap");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn("[oauth] connect failed:", message);
       if (providerId === "yandex" && /invalid_scope/i.test(message)) {
         setOauthError(
           "Не удалось войти через Яндекс ID: приложению не выданы необходимые права доступа. Проверьте настройки OAuth-приложения.",
@@ -603,6 +591,7 @@ export function AddImapAccount({
       }
     } finally {
       setOauthConnecting(false);
+      setOauthProgress(null);
     }
   };
 
@@ -947,28 +936,6 @@ export function AddImapAccount({
           </>
         )}
 
-        {providerId === "yandex" && usesManagedPublicClient && (
-          <div>
-            <label htmlFor="yandex-oauth-client-secret" className={labelClass}>
-              Client Secret (пароль приложения Яндекс ID)
-            </label>
-            <input
-              id="yandex-oauth-client-secret"
-              type="password"
-              value={form.oauthClientSecret}
-              onChange={(e) => updateForm("oauthClientSecret", e.target.value)}
-              placeholder="Обязателен для обновления токена"
-              className={inputClass}
-              disabled={hasOAuthTokens}
-              autoComplete="off"
-            />
-            <p className="mt-1 text-xs text-text-tertiary">
-              Берётся из кабинета OAuth-приложения Яндекс ID. Хранится в защищённом
-              хранилище приложения (не в исходниках и не в VITE_*).
-            </p>
-          </div>
-        )}
-
         {hasOAuthTokens ? (
           <div className="flex items-center gap-2 p-3 rounded-lg bg-success/10 border border-success/20">
             <CheckCircle2 className="w-4 h-4 text-success flex-shrink-0" />
@@ -996,6 +963,12 @@ export function AddImapAccount({
           </button>
         )}
 
+        {oauthProgress && (
+          <div className="rounded-lg border border-accent/20 bg-accent/10 p-3 text-sm text-accent">
+            {oauthProgress}
+          </div>
+        )}
+
         {yandexMailScopeBlocked && usesManagedOAuthFlow
           ? renderYandexMailScopeError()
           : oauthError && (
@@ -1013,7 +986,7 @@ export function AddImapAccount({
         <p className="text-xs text-text-tertiary">
           {usesManagedPublicClient
             ? providerId === "yandex"
-              ? "После нажатия кнопки откроется окно Яндекс ID внутри Office360. Выберите аккаунт и разрешите доступ — аккаунт и календарь добавятся автоматически."
+              ? "Office360 последовательно подключит Основное, Работу и Коммуникации в одной сессии Яндекс ID. Права администратора подключаются отдельно в настройках Яндекс 360."
               : "Введите email и подтвердите вход в браузере. После успешной авторизации аккаунт и календарь будут добавлены автоматически."
             : <>Чтобы получить Client ID, зарегистрируйте приложение в {providerName}.{" "}</>}
           {providerId === "microsoft" && (

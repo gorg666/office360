@@ -1,5 +1,5 @@
 import { getAccount, getAllAccounts, type DbAccount } from "@/services/db/accounts";
-import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
+import { getYandexGrantAccessToken } from "@/services/oauth/yandexUnifiedAuth";
 
 const TELEMOST_CREATE_URL = "https://cloud-api.yandex.net/v1/telemost-api/conferences";
 
@@ -90,7 +90,7 @@ function mapConference(body: TelemostCreateResponse): TelemostConference {
 
 async function telemostRequest(accountId: string | null, url: string, init: RequestInit): Promise<TelemostCreateResponse> {
   const account = await resolveTelemostAccount(accountId);
-  const token = await ensureFreshToken(account);
+  const token = await getYandexGrantAccessToken(account.id, "communications");
   if (!token) throw new Error("Яндекс OAuth token не найден. Переавторизуйте аккаунт.");
   const response = await fetch(url, { ...init, headers: { Authorization: `OAuth ${token}`, "Content-Type": "application/json", ...init.headers } });
   const body = await response.json().catch(() => ({})) as TelemostCreateResponse;
@@ -100,7 +100,7 @@ async function telemostRequest(accountId: string | null, url: string, init: Requ
 
 export async function createTelemostConference(options: TelemostConferenceOptions): Promise<TelemostConference> {
   const account = await resolveTelemostAccount(options.accountId);
-  const token = await ensureFreshToken(account);
+  const token = await getYandexGrantAccessToken(account.id, "communications");
   if (!token) {
     throw new Error("Яндекс OAuth token не найден. Переавторизуйте аккаунт.");
   }

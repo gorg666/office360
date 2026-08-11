@@ -499,6 +499,95 @@ pub struct TokenExchangeResult {
     pub id_token: Option<String>,
 }
 
+fn yandex_secret_env_name(client_id: &str) -> Option<&'static str> {
+    match client_id {
+        "cdab208ec00f4cbc9c7a453ae6455983" => Some("OFFICE360_YANDEX_CORE_CLIENT_SECRET"),
+        "796ed39c28944ad4bbe5c6bfc63b9294" => Some("OFFICE360_YANDEX_WORK_CLIENT_SECRET"),
+        "0262bbe47f6a41dba9012f63234ffb6a" => Some("OFFICE360_YANDEX_COMMUNICATIONS_CLIENT_SECRET"),
+        "d51c329b72624ff1b3146166b49fda34" => Some("OFFICE360_YANDEX_ADMIN_CLIENT_SECRET"),
+        _ => None,
+    }
+}
+
+fn embedded_yandex_mvp_secret(client_id: &str) -> Option<&'static str> {
+    let secret = match client_id {
+        "cdab208ec00f4cbc9c7a453ae6455983" => {
+            option_env!("OFFICE360_YANDEX_MVP_CORE_CLIENT_SECRET")
+        }
+        "796ed39c28944ad4bbe5c6bfc63b9294" => {
+            option_env!("OFFICE360_YANDEX_MVP_WORK_CLIENT_SECRET")
+        }
+        "0262bbe47f6a41dba9012f63234ffb6a" => {
+            option_env!("OFFICE360_YANDEX_MVP_COMMUNICATIONS_CLIENT_SECRET")
+        }
+        "d51c329b72624ff1b3146166b49fda34" => {
+            option_env!("OFFICE360_YANDEX_MVP_ADMIN_CLIENT_SECRET")
+        }
+        _ => None,
+    };
+    secret.filter(|value| !value.trim().is_empty())
+}
+
+fn resolve_oauth_client_secret(
+    client_id: &str,
+    provided: Option<String>,
+) -> Result<Option<String>, String> {
+    if let Some(secret) = provided.filter(|value| !value.trim().is_empty()) {
+        return Ok(Some(secret));
+    }
+
+    let Some(env_name) = yandex_secret_env_name(client_id) else {
+        return Ok(None);
+    };
+
+    let secret = std::env::var(env_name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| embedded_yandex_mvp_secret(client_id).map(str::to_string));
+    secret
+        .map(Some)
+        .ok_or_else(|| format!("Yandex OAuth runtime secret is not configured: {env_name}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{embedded_yandex_mvp_secret, yandex_secret_env_name};
+
+    #[test]
+    fn maps_yandex_clients_to_private_runtime_secrets() {
+        assert_eq!(
+            yandex_secret_env_name("cdab208ec00f4cbc9c7a453ae6455983"),
+            Some("OFFICE360_YANDEX_CORE_CLIENT_SECRET")
+        );
+        assert_eq!(
+            yandex_secret_env_name("796ed39c28944ad4bbe5c6bfc63b9294"),
+            Some("OFFICE360_YANDEX_WORK_CLIENT_SECRET")
+        );
+        assert_eq!(
+            yandex_secret_env_name("0262bbe47f6a41dba9012f63234ffb6a"),
+            Some("OFFICE360_YANDEX_COMMUNICATIONS_CLIENT_SECRET")
+        );
+        assert_eq!(
+            yandex_secret_env_name("d51c329b72624ff1b3146166b49fda34"),
+            Some("OFFICE360_YANDEX_ADMIN_CLIENT_SECRET")
+        );
+        assert_eq!(yandex_secret_env_name("another-oauth-client"), None);
+        let embedded = [
+            embedded_yandex_mvp_secret("cdab208ec00f4cbc9c7a453ae6455983"),
+            embedded_yandex_mvp_secret("796ed39c28944ad4bbe5c6bfc63b9294"),
+            embedded_yandex_mvp_secret("0262bbe47f6a41dba9012f63234ffb6a"),
+            embedded_yandex_mvp_secret("d51c329b72624ff1b3146166b49fda34"),
+        ];
+        if std::env::var_os("OFFICE360_EXPECT_MVP_SECRETS").is_some()
+            || embedded.iter().any(Option::is_some)
+        {
+            assert!(embedded.iter().all(Option::is_some));
+        }
+        assert_eq!(embedded_yandex_mvp_secret("another-oauth-client"), None);
+    }
+}
+
 /// Exchange an OAuth authorization code for tokens via Rust HTTP client (avoids CORS).
 #[tauri::command]
 pub async fn oauth_exchange_token(
@@ -510,6 +599,7 @@ pub async fn oauth_exchange_token(
     client_secret: Option<String>,
     scope: Option<String>,
 ) -> Result<TokenExchangeResult, String> {
+    let client_secret = resolve_oauth_client_secret(&client_id, client_secret)?;
     let mut params = vec![
         ("code", code),
         ("client_id", client_id),
@@ -561,6 +651,7 @@ pub async fn oauth_refresh_token(
     client_secret: Option<String>,
     scope: Option<String>,
 ) -> Result<TokenExchangeResult, String> {
+    let client_secret = resolve_oauth_client_secret(&client_id, client_secret)?;
     let mut params = vec![
         ("refresh_token", refresh_token),
         ("client_id", client_id),

@@ -1,5 +1,5 @@
 import { getAllAccounts } from "@/services/db/accounts";
-import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
+import { getYandexGrantAccessToken } from "@/services/oauth/yandexUnifiedAuth";
 import { loadMessengerCredentials } from "./credentials";
 
 export interface YandexMessengerSession {
@@ -15,8 +15,8 @@ export function yandexMessengerSourceKey(session: YandexMessengerSession): strin
 }
 
 /**
- * Токен для Bot API: сначала ручной токен из настроек мессенджера, иначе OAuth-токен
- * аккаунта Яндекс Почты (тот же, что для IMAP), с автообновлением по refresh_token.
+ * Токен Мессенджера берётся из grant «Коммуникации» активного Яндекс ID.
+ * Ручной bot token остаётся резервом для аккаунтов без пользовательского grant.
  */
 export async function resolveYandexMessengerSession(
   activeAccountId: string | null,
@@ -39,7 +39,13 @@ export async function resolveYandexMessengerSession(
     return manual?.token?.trim() ? { token: manual.token.trim(), manual: true } : null;
   }
 
-  const token = (await ensureFreshToken(picked)).trim();
+  let token = "";
+  try {
+    token = (await getYandexGrantAccessToken(picked.id, "communications")).trim();
+  } catch {
+    const manual = loadMessengerCredentials("yandex");
+    return manual?.token?.trim() ? { token: manual.token.trim(), manual: true } : null;
+  }
   if (!token) return null;
 
   return {

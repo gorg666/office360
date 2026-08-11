@@ -22,6 +22,8 @@ import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
 import { normalizeEmail } from "@/utils/emailUtils";
 import { navigateBackFromRepair, navigateToLabel, navigateToSettings } from "@/router/navigate";
 import { Button } from "@/components/ui/Button";
+import { reauthorizeYandexAccount } from "@/services/yandex/accountApi";
+import { authorizeYandexSuite } from "@/services/oauth/yandexUnifiedAuth";
 
 type ActionState = "idle" | "running" | "done" | "error";
 
@@ -145,6 +147,12 @@ export function AccountRepairCenter() {
 
       if (account.provider === "gmail_api") {
         await reauthorizeAccount(account.id, account.email);
+      } else if (account.provider === "imap" && account.auth_method === "oauth2" && account.oauth_provider === "yandex") {
+        await reauthorizeYandexAccount(account.id);
+        await authorizeYandexSuite(account.id, {
+          grants: ["work", "communications"],
+          continueOnError: true,
+        });
       } else if (account.provider === "imap" && account.auth_method === "oauth2" && account.oauth_provider) {
         const provider = getOAuthProvider(account.oauth_provider);
         if (!provider) throw new Error(`Unknown OAuth provider: ${account.oauth_provider}`);

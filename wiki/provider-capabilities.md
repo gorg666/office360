@@ -83,11 +83,22 @@ Provider UI must not imply Exchange/Graph/Yandex organization-wide contacts are 
 
 Settings > Яндекс 360 показывает account hub для уже подключенных Yandex ID OAuth аккаунтов. Это ordinary work-account flow, не admin workspace management.
 
+OAuth разделён на четыре независимых grants, привязанных к одному нормализованному e-mail:
+
+- `Основное` — профиль, Почта и Календарь; токен хранится в записи почтового аккаунта.
+- `Работа` — Диск, Трекер и чтение организации.
+- `Коммуникации` — Мессенджер и Телемост.
+- `Администрирование` — Directory/Admin/Security API; подключается отдельным повышением доступа.
+
+При добавлении аккаунта Office360 последовательно открывает `Основное`, `Работа` и `Коммуникации` в одной сессии Яндекс ID. Пользователь не вводит Client ID или Client secret. Каждый дополнительный token set хранится зашифрованно и проверяется на совпадение владельца с активным аккаунтом. Административный grant не запрашивается автоматически у обычных пользователей.
+
+Четыре OAuth-приложения зарегистрированы как Web и требуют Client secret при token exchange/refresh. В MVP текущие секреты временно встроены только в нативную Rust-сборку; переменные `OFFICE360_YANDEX_{CORE|WORK|COMMUNICATIONS|ADMIN}_CLIENT_SECRET` имеют приоритет и позволяют заменить их без изменения пользовательского сценария. Секреты не передаются в Vite, не сохраняются в аккаунте и не вводятся конечным пользователем. Перед production-релизом все четыре значения нужно отозвать, выпустить заново и перенести обмен токенов в серверный OAuth broker, потому что любой секрет внутри desktop-бинарника в принципе извлекаем.
+
 Service readiness:
 
 - Mail requires `mail:imap_full` and `mail:smtp`.
 - Calendar uses the existing Yandex CalDAV path and requires `calendar:all` when the saved OAuth grant exposes scopes.
-- Messenger is shown separately from Telemost and prefers the active connected Yandex ID OAuth account; a configured bot token is only a fallback when no Yandex OAuth account is available.
+- Messenger and Telemost use only the `Коммуникации` grant of the active connected Yandex ID; a configured bot token is only a fallback when that grant is unavailable.
 - Telemost scheduling creates a calendar draft with the meeting URL and attendees; calendar providers receive attendees as invitations when they support event creation.
 - Telemost history enriches calendar-backed meetings with organizer, scheduled date and duration, attendees, and a link back to the calendar event. Actual elapsed duration and a direct meeting-chat identifier are not exposed by the available APIs, so the UI labels calendar duration explicitly and opens Yandex Messenger without fabricating a chat mapping.
 - Embedded Telemost meeting pages are scaled to the available CEF viewport and page scrolling is suppressed so the meeting controls remain inside the Office360 layout.

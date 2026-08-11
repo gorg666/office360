@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveYandexMessengerSession } from "./yandexMessengerSession";
 import { getAllAccounts } from "@/services/db/accounts";
-import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
+import { getYandexGrantAccessToken } from "@/services/oauth/yandexUnifiedAuth";
 import { loadMessengerCredentials } from "./credentials";
 
 vi.mock("@/services/db/accounts", () => ({ getAllAccounts: vi.fn() }));
-vi.mock("@/services/oauth/oauthTokenManager", () => ({ ensureFreshToken: vi.fn() }));
+vi.mock("@/services/oauth/yandexUnifiedAuth", () => ({ getYandexGrantAccessToken: vi.fn() }));
 vi.mock("./credentials", () => ({ loadMessengerCredentials: vi.fn() }));
 
 const yandexAccount = {
@@ -23,7 +23,7 @@ describe("resolveYandexMessengerSession", () => {
   it("prefers OAuth of the active Yandex account over a saved bot token", async () => {
     vi.mocked(getAllAccounts).mockResolvedValue([yandexAccount] as never);
     vi.mocked(loadMessengerCredentials).mockReturnValue({ providerId: "yandex", token: "bot-token", savedAt: 1 });
-    vi.mocked(ensureFreshToken).mockResolvedValue("fresh-oauth-token");
+    vi.mocked(getYandexGrantAccessToken).mockResolvedValue("fresh-oauth-token");
 
     await expect(resolveYandexMessengerSession("active-yandex")).resolves.toEqual({
       token: "fresh-oauth-token",
@@ -32,6 +32,7 @@ describe("resolveYandexMessengerSession", () => {
       accountEmail: "user@yandex.ru",
     });
     expect(loadMessengerCredentials).not.toHaveBeenCalled();
+    expect(getYandexGrantAccessToken).toHaveBeenCalledWith("active-yandex", "communications");
   });
 
   it("uses the saved bot token only when no Yandex OAuth account exists", async () => {

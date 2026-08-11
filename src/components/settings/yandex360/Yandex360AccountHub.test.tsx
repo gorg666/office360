@@ -17,6 +17,17 @@ vi.mock("@/router/navigate", () => ({
   navigateToRepairCenter: vi.fn(),
 }));
 
+vi.mock("@/services/oauth/yandexUnifiedAuth", () => ({
+  authorizeYandexGrant: vi.fn(),
+  authorizeYandexSuite: vi.fn(),
+  getYandexUnifiedAuthStatus: vi.fn(() => Promise.resolve([
+    { id: "core", label: "Основное", connected: true, elevated: false, scopes: [] },
+    { id: "work", label: "Работа", connected: true, elevated: false, scopes: [] },
+    { id: "communications", label: "Коммуникации", connected: false, elevated: false, scopes: [] },
+    { id: "admin", label: "Администрирование", connected: false, elevated: true, scopes: [] },
+  ])),
+}));
+
 describe("Yandex360AccountHub", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -63,6 +74,10 @@ describe("Yandex360AccountHub", () => {
     expect(screen.queryByText(/Телемост/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/future|capability|slice|guardrails/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /исправить/i })).toBeInTheDocument();
+    expect(await screen.findByText("Основное")).toBeInTheDocument();
+    expect(screen.getByText("Работа")).toBeInTheDocument();
+    expect(screen.getByText("Коммуникации")).toBeInTheDocument();
+    expect(screen.getByText("Администрирование")).toBeInTheDocument();
   });
 
   it("surfaces missing scopes with reauth action", async () => {

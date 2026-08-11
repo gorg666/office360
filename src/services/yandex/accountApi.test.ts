@@ -1,73 +1,62 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getYandexServiceClientId, getYandexServiceContext } from "./accountApi";
+import {
+  authorizeYandexServices,
+  DEFAULT_YANDEX_SERVICE_CLIENT_ID,
+  getYandexServiceClientId,
+  getYandexServiceContext,
+  resolveYandexAccount,
+} from "./accountApi";
 import { getAccount, getAllAccounts } from "@/services/db/accounts";
-import { resolveYandexAccount } from "./accountApi";
-import { getAllSettings, getSecureSetting, getSetting, setSecureSetting, setSetting } from "@/services/db/settings";
+import { authorizeYandexGrant, getYandexGrantAccessToken } from "@/services/oauth/yandexUnifiedAuth";
 
 vi.mock("@/services/db/accounts", () => ({
   getAccount: vi.fn(),
   getAllAccounts: vi.fn(),
   updateAccountAllTokens: vi.fn(),
+  updateAccountOAuthClient: vi.fn(),
 }));
-vi.mock("@/services/db/settings", () => ({
-  getAllSettings: vi.fn(),
-  getSecureSetting: vi.fn(),
-  getSetting: vi.fn(),
-  setSecureSetting: vi.fn(),
-  setSetting: vi.fn(),
-}));
+vi.mock("@/services/db/settings", () => ({ getSetting: vi.fn(), setSetting: vi.fn() }));
 vi.mock("@/services/oauth/oauthTokenManager", () => ({ ensureFreshToken: vi.fn() }));
 vi.mock("@/services/oauth/providers", () => ({ getOAuthProvider: vi.fn() }));
-vi.mock("@/services/oauth/oauthFlow", () => ({
-  refreshProviderToken: vi.fn(),
-  startProviderOAuthFlow: vi.fn(),
-}));
-vi.mock("@tauri-apps/plugin-http", () => ({ fetch: vi.fn() }));
+vi.mock("@/services/oauth/oauthFlow", () => ({ startProviderOAuthFlow: vi.fn() }));
+vi.mock("@/services/oauth/yandexUnifiedAuth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/services/oauth/yandexUnifiedAuth")>();
+  return {
+    ...actual,
+    authorizeYandexGrant: vi.fn(),
+    getYandexGrantAccessToken: vi.fn(),
+  };
+});
+
+const yandexAccount = {
+  id: "account-id",
+  email: "user@yandex.ru",
+  oauth_provider: "yandex",
+  auth_method: "oauth2",
+} as const;
 
 describe("Yandex service credentials", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("does not assign another account's legacy service token after account recreation", async () => {
-    vi.mocked(getAccount).mockResolvedValue({
-      id: "new-account-id",
-      email: "TurboBarsuk@Yandex.ru",
-      oauth_provider: "yandex",
-      auth_method: "oauth2",
-    } as never);
-    vi.mocked(getSetting).mockImplementation(async (key) => {
-      if (key === "yandex_services_client_id:email:turbobarsuk@yandex.ru") return "client-id";
-      return null;
-    });
-    vi.mocked(getAllSettings).mockResolvedValue({
-      "yandex_services_client_id:old-account-id": "client-id",
-      "yandex_services_access_token:old-account-id": "encrypted-access",
-      "yandex_services_refresh_token:old-account-id": "encrypted-refresh",
-      "yandex_services_expires_at:old-account-id": "123",
-      "yandex_services_scopes:old-account-id": "cloud_api:disk.read cloud_api:disk.write",
-    });
-
-    await expect(getYandexServiceClientId("new-account-id")).resolves.toBe("client-id");
-    expect(setSetting).not.toHaveBeenCalled();
+  it("uses the bundled Work client without asking the user for Client ID", async () => {
+    vi.mocked(getAccount).mockResolvedValue(yandexAccount as never);
+    await expect(getYandexServiceClientId(yandexAccount.id)).resolves.toBe(DEFAULT_YANDEX_SERVICE_CLIENT_ID);
   });
 
-  it("moves legacy settings only when they belong to the same account id", async () => {
-    vi.mocked(getAccount).mockResolvedValue({
-      id: "same-account-id",
-      email: "TurboBarsuk@Yandex.ru",
-      oauth_provider: "yandex",
-      auth_method: "oauth2",
-    } as never);
-    vi.mocked(getSetting).mockImplementation(async (key) => key.endsWith("client_id:email:turbobarsuk@yandex.ru") ? "client-id" : null);
-    vi.mocked(getAllSettings).mockResolvedValue({
-      "yandex_services_client_id:same-account-id": "client-id",
-      "yandex_services_access_token:same-account-id": "encrypted-access",
-      "yandex_services_refresh_token:same-account-id": "encrypted-refresh",
-      "yandex_services_expires_at:same-account-id": "123",
-      "yandex_services_scopes:same-account-id": "cloud_api:disk.read cloud_api:disk.write",
-    });
+  it("authorizes the Work grant", async () => {
+    await authorizeYandexServices(yandexAccount.id);
+    expect(authorizeYandexGrant).toHaveBeenCalledWith(yandexAccount.id, "work");
+  });
 
-    await expect(getYandexServiceClientId("same-account-id")).resolves.toBe("client-id");
-    expect(setSetting).toHaveBeenCalledWith("yandex_services_refresh_token:email:turbobarsuk@yandex.ru", "encrypted-refresh");
+  it("routes Disk and Tracker through the Work token", async () => {
+    vi.mocked(getAccount).mockResolvedValue(yandexAccount as never);
+    vi.mocked(getYandexGrantAccessToken).mockResolvedValue("work-token");
+
+    await expect(getYandexServiceContext(yandexAccount.id)).resolves.toEqual({
+      account: yandexAccount,
+      token: "work-token",
+    });
+    expect(getYandexGrantAccessToken).toHaveBeenCalledWith(yandexAccount.id, "work");
   });
 
   it("does not fall back to another Yandex identity for a preferred account", async () => {
@@ -82,33 +71,5 @@ describe("Yandex service credentials", () => {
       "Активный аккаунт не подключён через Яндекс ID.",
     );
     expect(getAllAccounts).not.toHaveBeenCalled();
-  });
-
-  it("rejects and clears a service token owned by another Yandex account", async () => {
-    vi.mocked(getAccount).mockResolvedValue({
-      id: "selected-account",
-      email: "info@timingweb.com",
-      oauth_provider: "yandex",
-      auth_method: "oauth2",
-    } as never);
-    vi.mocked(getSetting).mockImplementation(async (key) => {
-      if (key.endsWith("client_id:email:info@timingweb.com")) return "client-id";
-      if (key.endsWith("expires_at:email:info@timingweb.com")) return String(Date.now() + 60_000);
-      if (key.endsWith("owner_email:email:info@timingweb.com")) return "turbobarsuk@yandex.ru";
-      return null;
-    });
-    vi.mocked(getSecureSetting).mockResolvedValue("service-access-token");
-
-    await expect(getYandexServiceContext("selected-account")).rejects.toThrow(
-      "turbobarsuk@yandex.ru",
-    );
-    expect(setSecureSetting).toHaveBeenCalledWith(
-      "yandex_services_access_token:email:info@timingweb.com",
-      "",
-    );
-    expect(setSecureSetting).toHaveBeenCalledWith(
-      "yandex_services_refresh_token:email:info@timingweb.com",
-      "",
-    );
   });
 });

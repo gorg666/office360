@@ -1,5 +1,5 @@
 import type { DbAccount } from "../db/accounts";
-import { updateAccountTokens } from "../db/accounts";
+import { updateAccountAllTokens, updateAccountTokens } from "../db/accounts";
 import { getOAuthProvider } from "./providers";
 import { refreshProviderToken } from "./oauthFlow";
 import { clearAccountDiagnostic, upsertAccountDiagnostic } from "../db/accountDiagnostics";
@@ -40,18 +40,6 @@ export async function ensureFreshToken(
     return account.access_token;
   }
 
-  console.warn("[reconnect-diagnostic]", {
-    ts: new Date().toISOString(),
-    origin: "ensureFreshToken.refresh_start",
-    accountId: account.id,
-    email: account.email,
-    provider: account.oauth_provider,
-    expiresAt,
-    now,
-    reason: "token_expired_or_expiring",
-  });
-  console.trace("[reconnect-diagnostic] trace from ensureFreshToken.refresh_start");
-
   // Token expired or about to expire — refresh it
   const provider = getOAuthProvider(account.oauth_provider);
   if (!provider) {
@@ -90,17 +78,13 @@ export async function ensureFreshToken(
 
   const newExpiresAt = Math.floor(Date.now() / 1000) + tokens.expires_in;
 
-  await updateAccountTokens(account.id, tokens.access_token, newExpiresAt);
+  if (tokens.refresh_token) {
+    await updateAccountAllTokens(account.id, tokens.access_token, tokens.refresh_token, newExpiresAt);
+    account.refresh_token = tokens.refresh_token;
+  } else {
+    await updateAccountTokens(account.id, tokens.access_token, newExpiresAt);
+  }
   await clearAccountDiagnostic(account.id, "oauth", "refresh").catch(() => {});
-
-  console.warn("[reconnect-diagnostic]", {
-    ts: new Date().toISOString(),
-    origin: "ensureFreshToken.refresh_success",
-    accountId: account.id,
-    email: account.email,
-    provider: account.oauth_provider,
-    newExpiresAt,
-  });
 
   // Update the in-memory account object so callers get the fresh token
   account.access_token = tokens.access_token;

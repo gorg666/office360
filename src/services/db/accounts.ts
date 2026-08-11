@@ -198,6 +198,23 @@ export async function updateAccountAllTokens(
   );
 }
 
+export async function updateAccountOAuthClient(
+  id: string,
+  clientId: string,
+  grantedScopes: string | null,
+): Promise<void> {
+  await ensureOAuthAccountSchema();
+  await executeWrite(
+    `UPDATE accounts
+     SET oauth_client_id = $1,
+         oauth_client_secret = NULL,
+         oauth_granted_scopes = COALESCE($2, oauth_granted_scopes),
+         updated_at = unixepoch()
+     WHERE id = $3`,
+    [clientId, grantedScopes, id],
+  );
+}
+
 export async function updateImapAccountPassword(
   id: string,
   password: string,
