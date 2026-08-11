@@ -10,7 +10,7 @@
 extern "C" {
 typedef void(__stdcall* o360_cef_event_callback)(const char* json_utf8);
 O360_API int o360_cef_initialize(void* parent_hwnd, const wchar_t* profile_path, const wchar_t* subprocess_path, o360_cef_event_callback callback);
-O360_API int o360_cef_create(const char* url_utf8);
+O360_API int o360_cef_create(const char* url_utf8, const wchar_t* profile_path);
 O360_API void o360_cef_set_bounds(int x, int y, int width, int height);
 O360_API void o360_cef_set_visible(int visible);
 O360_API void o360_cef_navigate(const char* url_utf8);

@@ -13,7 +13,7 @@ export interface DomSubmission { requestId: string; accepted: boolean; }
 export interface CefEvent { type: string; payload: Record<string, unknown>; }
 
 export const cefInitialize = () => invoke<void>("cef_initialize");
-export const cefCreate = (url: string) => invoke<void>("cef_create_browser", { url });
+export const cefCreate = (url: string, profileKey = "shared") => invoke<void>("cef_create_browser", { url, profileKey });
 export const cefSetBounds = (bounds: CefBounds) => invoke<void>("cef_set_bounds", { bounds });
 export const cefSetVisible = (visible: boolean) => invoke<void>("cef_set_visible", { visible });
 export const cefNavigate = (url: string) => invoke<void>("cef_navigate", { url });

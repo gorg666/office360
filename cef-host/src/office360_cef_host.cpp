@@ -20,6 +20,7 @@
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 namespace {
 o360_cef_event_callback g_callback = nullptr;
@@ -28,6 +29,9 @@ bool g_initialized = false;
 HWND g_parent = nullptr;
 int g_x = 0, g_y = 0, g_width = 1, g_height = 1;
 bool g_has_bounds = false, g_visible = false, g_content_visible = false;
+
+class Client;
+CefRefPtr<Client> g_client;
 
 void applyBrowserWindowState(HWND hwnd) {
   if (!hwnd) return;
@@ -118,6 +122,7 @@ std::string safeUrl(const std::string& url) {
 class Client final : public CefClient, public CefLifeSpanHandler, public CefLoadHandler,
                      public CefDisplayHandler, public CefRequestHandler, public CefPermissionHandler {
  public:
+  explicit Client(std::wstring profile) : profile_(std::move(profile)) {}
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
@@ -131,8 +136,8 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
       context->SetContentSetting(origin, origin, CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA, CEF_CONTENT_SETTING_VALUE_ALLOW);
     }
     const HWND hwnd = browser_->GetHost()->GetWindowHandle();
-    applyBrowserWindowState(hwnd);
-    emit("ready", "{\"message\":\"Chromium готов\"}");
+    if (g_client.get() == this) applyBrowserWindowState(hwnd); else ShowWindow(hwnd, SW_HIDE);
+    if (g_client.get() == this) emit("ready", "{\"message\":\"Chromium готов\"}");
   }
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, int, const CefString& target_url,
                      const CefString&, CefLifeSpanHandler::WindowOpenDisposition, bool, const CefPopupFeatures&, CefWindowInfo&,
@@ -143,7 +148,7 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
     else emit("blocked-navigation", "{\"url\":\"external-protocol\"}");
     return true;
   }
-  void OnBeforeClose(CefRefPtr<CefBrowser>) override { browser_ = nullptr; emit("closed"); }
+  void OnBeforeClose(CefRefPtr<CefBrowser>) override { browser_ = nullptr; if (g_client.get() == this) emit("closed"); }
   void OnLoadingStateChange(CefRefPtr<CefBrowser> browser, bool loading, bool canBack, bool canForward) override {
     emit("loading", std::string("{\"loading\":") + (loading ? "true" : "false") + ",\"canBack\":" + (canBack ? "true" : "false") + ",\"canForward\":" + (canForward ? "true" : "false") + "}");
     const auto currentUrl = browser->GetMainFrame()->GetURL();
@@ -197,7 +202,7 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
     emit("error", "{\"message\":\"" + escapeJson(text.ToString()) + "\",\"code\":" + std::to_string(code) + ",\"url\":\"" + escapeJson(url.ToString()) + "\"}");
   }
   void OnAddressChange(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, const CefString& url) override {
-    if (!frame || !frame->IsMain()) return;
+    if (!frame || !frame->IsMain() || g_client.get() != this) return;
     g_content_visible = displayAllowed(url.ToString());
     applyBrowserWindowState(browser->GetHost()->GetWindowHandle());
     emit("navigation", "{\"url\":\"" + escapeJson(safeUrl(url.ToString())) + "\"}");
@@ -237,10 +242,11 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
   void permission(uint64_t, bool) {}
   CefRefPtr<CefBrowser> browser() const { return browser_; }
  private:
+  std::wstring profile_;
   CefRefPtr<CefBrowser> browser_;
   IMPLEMENT_REFCOUNTING(Client);
 };
-CefRefPtr<Client> g_client;
+std::unordered_map<std::wstring, CefRefPtr<Client>> g_clients;
 
 std::string domScript(const std::string& id, const std::string& command) {
   const std::string idJson = "\"" + escapeJson(id) + "\"";
@@ -267,9 +273,20 @@ extern "C" int o360_cef_initialize(void* parent, const wchar_t* profile, const w
   if (webview) g_parent = webview;
   emit("initialized"); return 1;
 }
-extern "C" int o360_cef_create(const char* url) {
-  if (!g_initialized || !g_parent) return 0;
-  g_client = new Client(); CefWindowInfo info;
+extern "C" int o360_cef_create(const char* url, const wchar_t* profile_path) {
+  if (!g_initialized || !g_parent || !profile_path || !*profile_path) return 0;
+  const std::wstring profile(profile_path);
+  if (auto existing = g_clients.find(profile); existing != g_clients.end()) {
+    if (g_client && g_client->browser()) ShowWindow(g_client->browser()->GetHost()->GetWindowHandle(), SW_HIDE);
+    g_client = existing->second;
+    if (g_client->browser()) {
+      g_content_visible = displayAllowed(g_client->browser()->GetMainFrame()->GetURL().ToString());
+      applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());
+      return 1;
+    }
+  }
+  std::filesystem::create_directories(profile);
+  g_client = new Client(profile); g_clients[profile] = g_client; CefWindowInfo info;
   const int x = g_has_bounds ? g_x : 0;
   const int y = g_has_bounds ? g_y : 0;
   const int width = g_has_bounds ? g_width : 1;
@@ -278,7 +295,11 @@ extern "C" int o360_cef_create(const char* url) {
   info.SetAsChild(g_parent, CefRect(x, y, width, height));
   info.style &= ~WS_VISIBLE;
   info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
-  CefBrowserSettings settings; return CefBrowserHost::CreateBrowser(info, g_client, url, settings, nullptr, nullptr) ? 1 : 0;
+  CefRequestContextSettings context_settings;
+  CefString(&context_settings.cache_path) = profile;
+  context_settings.persist_session_cookies = true;
+  auto context = CefRequestContext::CreateContext(context_settings, nullptr);
+  CefBrowserSettings settings; return CefBrowserHost::CreateBrowser(info, g_client, url, settings, nullptr, context) ? 1 : 0;
 }
 extern "C" void o360_cef_set_bounds(int x,int y,int w,int h){g_x=x;g_y=y;g_width=std::max(1,w);g_height=std::max(1,h);g_has_bounds=true;ui([]{if(g_client&&g_client->browser())applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());});}
 extern "C" void o360_cef_set_visible(int v){g_visible=v!=0;ui([]{if(g_client&&g_client->browser())applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());});}
@@ -288,4 +309,4 @@ extern "C" void o360_cef_forward(){ui([]{if(g_client&&g_client->browser())g_clie
 extern "C" void o360_cef_reload(){ui([]{if(g_client&&g_client->browser())g_client->browser()->Reload();});}
 extern "C" int o360_cef_dom_command(const char* id,const char* command){if(!g_client||!g_client->browser()||!domTrusted(g_client->browser()->GetMainFrame()->GetURL()))return 0;std::string script=domScript(id?id:"",command?command:"{}");ui([script]{if(g_client&&g_client->browser()&&domTrusted(g_client->browser()->GetMainFrame()->GetURL()))g_client->browser()->GetMainFrame()->ExecuteJavaScript(script,g_client->browser()->GetMainFrame()->GetURL(),0);});return 1;}
 extern "C" void o360_cef_permission_response(uint64_t id,int allow){ui([=]{if(g_client)g_client->permission(id,allow!=0);});}
-extern "C" void o360_cef_shutdown(){std::lock_guard<std::mutex> lock(g_mutex);if(!g_initialized)return;if(g_client&&g_client->browser())g_client->browser()->GetHost()->CloseBrowser(true);g_client=nullptr;CefShutdown();g_initialized=false;g_parent=nullptr;g_has_bounds=false;g_visible=false;g_content_visible=false;g_callback=nullptr;}
+extern "C" void o360_cef_shutdown(){std::lock_guard<std::mutex> lock(g_mutex);if(!g_initialized)return;for(auto& entry:g_clients)if(entry.second&&entry.second->browser())entry.second->browser()->GetHost()->CloseBrowser(true);g_clients.clear();g_client=nullptr;CefShutdown();g_initialized=false;g_parent=nullptr;g_has_bounds=false;g_visible=false;g_content_visible=false;g_callback=nullptr;}

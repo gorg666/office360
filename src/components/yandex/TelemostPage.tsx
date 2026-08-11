@@ -12,7 +12,7 @@ import { getAccount } from "@/services/db/accounts";
 
 const CREATED_KEY = "office360_telemost_conferences";
 const VISITED_KEY = "office360_telemost_visited";
-const CEF_ACCOUNT_KEY = "office360_telemost_cef_account";
+const CEF_PROFILE_READY_KEY = "office360_telemost_cef_profile_ready";
 const TELEMost_URL = /https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/\d+/gi;
 
 type MeetingSource = "created" | "invited" | "visited";
@@ -137,10 +137,10 @@ export function TelemostPage() {
     void (async () => {
       await cefInitialize();
       if (!current || generation !== accountSwitchGenerationRef.current) return;
-      await cefCreate("https://telemost.yandex.ru/");
+      await cefCreate("https://telemost.yandex.ru/", serviceAccountId);
       if (!current || generation !== accountSwitchGenerationRef.current) return;
-      const previousAccountId = localStorage.getItem(CEF_ACCOUNT_KEY);
-      if (previousAccountId !== serviceAccountId) {
+      const profileReadyKey = `${CEF_PROFILE_READY_KEY}:${serviceAccountId}`;
+      if (localStorage.getItem(profileReadyKey) !== "1") {
         await cefSetVisible(false);
         if (!current || generation !== accountSwitchGenerationRef.current) return;
         const retpath = encodeURIComponent("https://telemost.yandex.ru/");
@@ -148,7 +148,6 @@ export function TelemostPage() {
         const authUrl = `https://passport.yandex.ru/auth?mode=edit&retpath=${retpath}&login_hint=${loginHint}`;
         await cefNavigate(authUrl);
         if (!current || generation !== accountSwitchGenerationRef.current) return;
-        localStorage.setItem(CEF_ACCOUNT_KEY, serviceAccountId);
         if (current) setSelectedUrl(authUrl);
       }
       if (current) setCefSessionReady(true);
@@ -201,13 +200,14 @@ export function TelemostPage() {
   useEffect(() => {
     if (!serviceAccountId || !cefSessionReady) { void cefSetVisible(false); return; }
     let alive = true;
-    void cefInitialize().then(() => cefCreate(selectedUrl)).catch((reason) => alive && setError(`CEF недоступен: ${String(reason)}`));
+    void cefInitialize().then(() => cefCreate(selectedUrl, serviceAccountId)).catch((reason) => alive && setError(`CEF недоступен: ${String(reason)}`));
     const unlisten = listen<CefEvent>("cef-event", (event) => {
       const { type, payload } = event.payload;
       if (type === "loading" && typeof payload.loading === "boolean") setLoading(payload.loading);
       if (type === "navigation" && typeof payload.url === "string") {
         const meetingUrl = /^https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/[^/?#]+/i.test(payload.url);
         if (meetingUrl) {
+          localStorage.setItem(`${CEF_PROFILE_READY_KEY}:${serviceAccountId}`, "1");
           setSelectedUrl(payload.url);
           rememberActiveMeeting(payload.url);
           const entry: MeetingEntry = { id: meetingId(payload.url), title: `Встреча ${meetingId(payload.url)}`, joinUrl: payload.url, source: "visited", lastOpenedAt: Date.now() };

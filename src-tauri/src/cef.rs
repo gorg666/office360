@@ -28,7 +28,7 @@ mod platform {
 
     type EventCallback = unsafe extern "system" fn(*const c_char);
     type Initialize = unsafe extern "C" fn(*mut c_void, *const u16, *const u16, EventCallback) -> c_int;
-    type Create = unsafe extern "C" fn(*const c_char) -> c_int;
+    type Create = unsafe extern "C" fn(*const c_char, *const u16) -> c_int;
     type SetBounds = unsafe extern "C" fn(c_int, c_int, c_int, c_int);
     type SetVisible = unsafe extern "C" fn(c_int);
     type StringCommand = unsafe extern "C" fn(*const c_char);
@@ -48,7 +48,7 @@ mod platform {
         dom_command: DomCommand,
         permission_response: PermissionResponse,
         shutdown: VoidCommand,
-        browser_created: bool,
+        profile_root: PathBuf,
     }
 
     // The runtime owns the DLL and all copied function pointers.
@@ -108,7 +108,7 @@ mod platform {
         *APP.lock().map_err(|_| "CEF app lock is poisoned")? = Some(app);
         let ok = unsafe { initialize(hwnd.0, profile_wide.as_ptr(), subprocess_wide.as_ptr(), event_callback) };
         if ok == 0 { return Err("CEF initialization failed".into()); }
-        *guard = Some(Runtime { _library: library, create, set_bounds, set_visible, navigate, back, forward, reload, dom_command, permission_response, shutdown, browser_created: false });
+        *guard = Some(Runtime { _library: library, create, set_bounds, set_visible, navigate, back, forward, reload, dom_command, permission_response, shutdown, profile_root: profile });
         Ok(())
     }
 
@@ -117,15 +117,15 @@ mod platform {
         f(guard.as_mut().ok_or("CEF is not initialized")?)
     }
 
-    pub fn create(url: &str) -> Result<(), String> { with_runtime(|r| {
-        if r.browser_created {
-            let value = CString::new(url).map_err(|_| "Invalid URL")?;
-            unsafe { (r.navigate)(value.as_ptr()) };
-            return Ok(());
-        }
+    pub fn create(url: &str, profile_key: &str) -> Result<(), String> { with_runtime(|r| {
+        let safe_key: String = profile_key.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
+        if safe_key.is_empty() { return Err("CEF profile key is required".into()); }
+        let profile = r.profile_root.join("accounts").join(safe_key);
+        std::fs::create_dir_all(&profile).map_err(|e| e.to_string())?;
         let url = CString::new(url).map_err(|_| "Invalid URL")?;
-        if unsafe { (r.create)(url.as_ptr()) } == 0 { return Err("CEF browser creation failed".into()); }
-        r.browser_created = true; Ok(())
+        let profile_wide = wide(&profile);
+        if unsafe { (r.create)(url.as_ptr(), profile_wide.as_ptr()) } == 0 { return Err("CEF browser creation failed".into()); }
+        Ok(())
     }) }
     pub fn bounds(value: CefBounds) -> Result<(), String> { with_runtime(|r| { let s = value.device_scale_factor.max(0.1); unsafe { (r.set_bounds)((value.x*s).round() as i32,(value.y*s).round() as i32,(value.width*s).round() as i32,(value.height*s).round() as i32) }; Ok(()) }) }
     pub fn visible(value: bool) -> Result<(), String> { with_runtime(|r| { unsafe { (r.set_visible)(value as i32) }; Ok(()) }) }
@@ -142,14 +142,14 @@ mod platform {
 mod platform {
     use super::*;
     fn unavailable<T>() -> Result<T,String>{Err("Embedded Telemost is available only on Windows x64".into())}
-    pub fn initialize(_:AppHandle)->Result<(),String>{unavailable()} pub fn create(_: &str)->Result<(),String>{unavailable()}
+    pub fn initialize(_:AppHandle)->Result<(),String>{unavailable()} pub fn create(_: &str,_:&str)->Result<(),String>{unavailable()}
     pub fn bounds(_:CefBounds)->Result<(),String>{unavailable()} pub fn visible(_:bool)->Result<(),String>{unavailable()}
     pub fn navigate(_: &str)->Result<(),String>{unavailable()} pub fn back()->Result<(),String>{unavailable()} pub fn forward()->Result<(),String>{unavailable()} pub fn reload()->Result<(),String>{unavailable()}
     pub fn dom(_: &str,_:&str)->Result<bool,String>{unavailable()} pub fn permission(_:u64,_:bool)->Result<(),String>{unavailable()} pub fn shutdown(){}
 }
 
 #[tauri::command] pub fn cef_initialize(app:AppHandle)->Result<(),String>{platform::initialize(app)}
-#[tauri::command] pub fn cef_create_browser(url:String)->Result<(),String>{platform::create(&url)}
+#[tauri::command] pub fn cef_create_browser(url:String,profile_key:String)->Result<(),String>{platform::create(&url,&profile_key)}
 #[tauri::command] pub fn cef_set_bounds(bounds:CefBounds)->Result<(),String>{platform::bounds(bounds)}
 #[tauri::command] pub fn cef_set_visible(visible:bool)->Result<(),String>{platform::visible(visible)}
 #[tauri::command] pub fn cef_navigate(url:String)->Result<(),String>{platform::navigate(&url)}

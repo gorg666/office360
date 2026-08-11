@@ -57,7 +57,7 @@ async function openAuthorization(
     height: Math.max(520, window.innerHeight - 104),
     deviceScaleFactor: window.devicePixelRatio || 1,
   });
-  await cefCreate(authUrl);
+  await cefCreate(authUrl, "oauth");
   await cefSetVisible(true);
   return async () => { await cefSetVisible(false); };
 }
