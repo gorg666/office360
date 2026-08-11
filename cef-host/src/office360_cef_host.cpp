@@ -117,6 +117,9 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
   void OnLoadingStateChange(CefRefPtr<CefBrowser> browser, bool loading, bool canBack, bool canForward) override {
     emit("loading", std::string("{\"loading\":") + (loading ? "true" : "false") + ",\"canBack\":" + (canBack ? "true" : "false") + ",\"canForward\":" + (canForward ? "true" : "false") + "}");
     const auto currentUrl = browser->GetMainFrame()->GetURL();
+    if (!loading && safeUrl(currentUrl.ToString()).rfind("https://oauth.yandex.ru/", 0) == 0) {
+      browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{setTimeout(()=>{const text=document.body?.innerText||'';const error=(text.match(/\b(invalid_scope|invalid_request|access_denied|unauthorized_client)\b/i)||[])[1];if(error)console.log('__O360_OAUTH_ERROR__'+JSON.stringify({error,description:text.slice(0,500)}))},100)})())JS", currentUrl, 0);
+    }
     if (!loading && safeUrl(currentUrl.ToString()) == "https://oauth.yandex.ru/verification_code") {
       browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{if(window.__o360OAuthCodeProbe)return;let attempts=0;window.__o360OAuthCodeProbe=setInterval(()=>{const values=[...document.querySelectorAll('input,code,pre,[data-testid*=code]')].flatMap(el=>[el.value||'',el.innerText||el.textContent||'']);const text=[...values,document.body?.innerText||''].join('\n');const code=(text.match(/\b\d{7}\b/)||[])[0];if(code){clearInterval(window.__o360OAuthCodeProbe);console.log('__O360_OAUTH__'+JSON.stringify({code}))}else if(++attempts>80)clearInterval(window.__o360OAuthCodeProbe)},250)})())JS", currentUrl, 0);
     }
@@ -131,8 +134,9 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
     if (frame->IsMain()) emit("navigation", "{\"url\":\"" + escapeJson(safeUrl(url.ToString())) + "\"}");
   }
   bool OnConsoleMessage(CefRefPtr<CefBrowser>, cef_log_severity_t, const CefString& message, const CefString&, int) override {
-    const std::string value = message.ToString(), domPrefix = "__O360_DOM__", oauthPrefix = "__O360_OAUTH__";
+    const std::string value = message.ToString(), domPrefix = "__O360_DOM__", oauthPrefix = "__O360_OAUTH__", oauthErrorPrefix = "__O360_OAUTH_ERROR__";
     if (value.rfind(domPrefix, 0) == 0) { emit("dom-result", value.substr(domPrefix.size())); return true; }
+    if (value.rfind(oauthErrorPrefix, 0) == 0) { emit("oauth-error", value.substr(oauthErrorPrefix.size())); return true; }
     if (value.rfind(oauthPrefix, 0) == 0) { emit("oauth-code", value.substr(oauthPrefix.size())); return true; }
     return false;
   }

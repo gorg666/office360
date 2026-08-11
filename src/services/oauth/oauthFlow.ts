@@ -119,7 +119,7 @@ export async function startProviderOAuthFlow(
   }
   if (provider.id === "yandex") {
     params.force_confirm = "yes";
-    if (options?.scopes?.length) params.scope = options.scopes.join(",");
+    if (options?.scopes?.length) params.scope = options.scopes.join(" ");
     if (options?.loginHint) {
       params.login_hint = options.loginHint;
     }
@@ -131,16 +131,34 @@ export async function startProviderOAuthFlow(
 
   let stopCodeListener: (() => void) | null = null;
   let resolveScreenCode: ((result: OAuthServerResult) => void) | null = null;
+  const initialAppLocation = window.location.href;
   const resultPromise = usesCefScreenCode
     ? new Promise<OAuthServerResult>((resolve) => { resolveScreenCode = resolve; })
     : invoke<OAuthServerResult>("start_oauth_server", { port: OAUTH_CALLBACK_PORT, state: oauthState });
   if (usesCefScreenCode) {
     stopCodeListener = await listen<{ type: string; payload: Record<string, unknown> }>("cef-event", (event) => {
-      if (event.payload.type !== "oauth-code") return;
-      const code = event.payload.payload.code;
-      if (typeof code === "string" && code) resolveScreenCode?.({ code, state: oauthState });
+      if (event.payload.type === "oauth-code") {
+        const code = event.payload.payload.code;
+        if (typeof code === "string" && code) resolveScreenCode?.({ code, state: oauthState });
+      }
+      if (event.payload.type === "oauth-error") {
+        resolveScreenCode?.({
+          state: oauthState,
+          error: String(event.payload.payload.error || "authorization_failed"),
+          error_description: String(event.payload.payload.description || "Авторизация Яндекса завершилась ошибкой."),
+        });
+      }
     });
   }
+
+  const routeWatcher = usesCefScreenCode ? window.setInterval(() => {
+    if (window.location.href !== initialAppLocation) {
+      resolveScreenCode?.({ state: oauthState, error: "access_denied", error_description: "Авторизация отменена при переходе на другую вкладку." });
+    }
+  }, 250) : null;
+  const authorizationTimeout = usesCefScreenCode ? window.setTimeout(() => {
+    resolveScreenCode?.({ state: oauthState, error: "timeout", error_description: "Время ожидания авторизации истекло." });
+  }, 180_000) : null;
 
   await new Promise((r) => setTimeout(r, 100));
   const closeAuthorization = await openAuthorization(provider, authUrl);
@@ -148,6 +166,8 @@ export async function startProviderOAuthFlow(
   try {
     result = await resultPromise;
   } finally {
+    if (routeWatcher !== null) window.clearInterval(routeWatcher);
+    if (authorizationTimeout !== null) window.clearTimeout(authorizationTimeout);
     stopCodeListener?.();
     await closeAuthorization();
   }
