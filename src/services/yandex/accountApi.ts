@@ -1,6 +1,6 @@
 import { getAccount, getAllAccounts, updateAccountAllTokens, type DbAccount } from "@/services/db/accounts";
 import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
-import { getSecureSetting, getSetting, setSecureSetting, setSetting } from "@/services/db/settings";
+import { getAllSettings, getSecureSetting, getSetting, setSecureSetting, setSetting } from "@/services/db/settings";
 import { getOAuthProvider } from "@/services/oauth/providers";
 import { refreshProviderToken, startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
 import { normalizeEmail } from "@/utils/emailUtils";
@@ -23,7 +23,32 @@ export const YANDEX_SERVICE_SCOPES = [
 
 export const DEFAULT_YANDEX_SERVICE_CLIENT_ID = "69e59ec6dcfe4be3a085006d49678056";
 
-const serviceKey = (accountId: string, name: string) => `yandex_services_${name}:${accountId}`;
+const SERVICE_SETTING_NAMES = ["client_id", "access_token", "refresh_token", "expires_at", "scopes"] as const;
+type ServiceSettingName = typeof SERVICE_SETTING_NAMES[number];
+
+const serviceKey = (identity: string, name: ServiceSettingName) => `yandex_services_${name}:${identity}`;
+const serviceIdentity = (account: DbAccount) => `email:${normalizeEmail(account.email)}`;
+
+async function migrateYandexServiceSettings(account: DbAccount): Promise<void> {
+  const identity = serviceIdentity(account);
+  if (await getSetting(serviceKey(identity, "refresh_token"))) return;
+
+  const settings = await getAllSettings();
+  let sourceIdentity = settings[serviceKey(account.id, "refresh_token")] ? account.id : null;
+  if (!sourceIdentity) {
+    const candidates = Object.keys(settings)
+      .filter((key) => key.startsWith("yandex_services_refresh_token:") && settings[key])
+      .map((key) => key.slice("yandex_services_refresh_token:".length))
+      .filter((value) => !value.startsWith("email:"));
+    if (candidates.length === 1) sourceIdentity = candidates[0] ?? null;
+  }
+  if (!sourceIdentity) return;
+
+  await Promise.all(SERVICE_SETTING_NAMES.map(async (name) => {
+    const value = settings[serviceKey(sourceIdentity, name)];
+    if (value) await setSetting(serviceKey(identity, name), value);
+  }));
+}
 
 export async function resolveYandexAccount(preferredId?: string | null): Promise<DbAccount> {
   if (preferredId) {
@@ -44,7 +69,9 @@ export async function getYandexContext(preferredId?: string | null) {
 }
 
 export async function getYandexServiceClientId(accountId: string): Promise<string | null> {
-  return (await getSetting(serviceKey(accountId, "client_id"))) || DEFAULT_YANDEX_SERVICE_CLIENT_ID;
+  const account = await resolveYandexAccount(accountId);
+  await migrateYandexServiceSettings(account);
+  return (await getSetting(serviceKey(serviceIdentity(account), "client_id"))) || DEFAULT_YANDEX_SERVICE_CLIENT_ID;
 }
 
 export async function authorizeYandexServices(accountId: string, clientId: string): Promise<void> {
@@ -71,21 +98,24 @@ export async function authorizeYandexServices(accountId: string, clientId: strin
   }
   if (!tokens.refresh_token) throw new Error("Яндекс не вернул refresh token для API-приложения.");
 
+  const identity = serviceIdentity(account);
   await Promise.all([
-    setSetting(serviceKey(account.id, "client_id"), normalizedClientId),
-    setSecureSetting(serviceKey(account.id, "access_token"), tokens.access_token),
-    setSecureSetting(serviceKey(account.id, "refresh_token"), tokens.refresh_token),
-    setSetting(serviceKey(account.id, "expires_at"), String(getCurrentUnixTimestamp() + tokens.expires_in)),
-    setSetting(serviceKey(account.id, "scopes"), tokens.scope ?? YANDEX_SERVICE_SCOPES.join(" ")),
+    setSetting(serviceKey(identity, "client_id"), normalizedClientId),
+    setSecureSetting(serviceKey(identity, "access_token"), tokens.access_token),
+    setSecureSetting(serviceKey(identity, "refresh_token"), tokens.refresh_token),
+    setSetting(serviceKey(identity, "expires_at"), String(getCurrentUnixTimestamp() + tokens.expires_in)),
+    setSetting(serviceKey(identity, "scopes"), tokens.scope ?? YANDEX_SERVICE_SCOPES.join(" ")),
   ]);
 }
 
 export async function getYandexServiceContext(preferredId?: string | null) {
   const account = await resolveYandexAccount(preferredId);
+  await migrateYandexServiceSettings(account);
+  const identity = serviceIdentity(account);
   const clientId = await getYandexServiceClientId(account.id);
-  let accessToken = await getSecureSetting(serviceKey(account.id, "access_token"));
-  const refreshToken = await getSecureSetting(serviceKey(account.id, "refresh_token"));
-  const expiresAt = Number(await getSetting(serviceKey(account.id, "expires_at")) || 0);
+  let accessToken = await getSecureSetting(serviceKey(identity, "access_token"));
+  const refreshToken = await getSecureSetting(serviceKey(identity, "refresh_token"));
+  const expiresAt = Number(await getSetting(serviceKey(identity, "expires_at")) || 0);
   if (!clientId || !accessToken || !refreshToken) {
     throw new Error("Подключите API OAuth-приложение для Диска и Трекера.");
   }
@@ -95,9 +125,9 @@ export async function getYandexServiceContext(preferredId?: string | null) {
     const tokens = await refreshProviderToken(provider, refreshToken, clientId);
     accessToken = tokens.access_token;
     await Promise.all([
-      setSecureSetting(serviceKey(account.id, "access_token"), accessToken),
-      setSecureSetting(serviceKey(account.id, "refresh_token"), tokens.refresh_token ?? refreshToken),
-      setSetting(serviceKey(account.id, "expires_at"), String(getCurrentUnixTimestamp() + tokens.expires_in)),
+      setSecureSetting(serviceKey(identity, "access_token"), accessToken),
+      setSecureSetting(serviceKey(identity, "refresh_token"), tokens.refresh_token ?? refreshToken),
+      setSetting(serviceKey(identity, "expires_at"), String(getCurrentUnixTimestamp() + tokens.expires_in)),
     ]);
   }
   return { account, token: accessToken };
