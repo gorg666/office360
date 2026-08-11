@@ -152,7 +152,12 @@ export interface EmailProvider {
   sendMessage(
     rawBase64Url: string,
     threadId?: string,
-  ): Promise<{ id: string }>;
+  ): Promise<{
+    id: string;
+    smtpAccepted?: boolean;
+    appendedToSent?: boolean;
+    localPersisted?: boolean;
+  }>;
   createDraft(
     rawBase64Url: string,
     threadId?: string,

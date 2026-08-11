@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { cefCreate, cefInitialize, cefSetBounds, cefSetVisible } from "@/services/cef";
 import type { OAuthProviderConfig } from "./providers";
-import { getYandexOAuthConfigDiagnostics } from "./providers";
 import { normalizeYandexUserInfo } from "./yandexProfile";
 import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
 
@@ -27,6 +28,38 @@ export interface ProviderUserInfo {
   email: string;
   name: string;
   picture?: string;
+}
+
+async function openAuthorization(
+  provider: OAuthProviderConfig,
+  authUrl: string,
+  usesCefScreenCode: boolean,
+): Promise<() => Promise<void>> {
+  if (provider.id !== "yandex") {
+    await openUrl(authUrl);
+    return async () => {};
+  }
+
+  if (!usesCefScreenCode) {
+    await invoke("open_oauth_login_window", { url: authUrl });
+    return async () => {
+      await invoke("close_oauth_login_window").catch(() => {});
+    };
+  }
+
+  await cefInitialize();
+  const margin = 32;
+  const sidebar = 240;
+  await cefSetBounds({
+    x: sidebar + margin,
+    y: 72,
+    width: Math.max(640, window.innerWidth - sidebar - margin * 2),
+    height: Math.max(520, window.innerHeight - 104),
+    deviceScaleFactor: window.devicePixelRatio || 1,
+  });
+  await cefCreate(authUrl, "oauth");
+  await cefSetVisible(true);
+  return async () => { await cefSetVisible(false); };
 }
 
 function generateCodeVerifier(): string {
@@ -65,7 +98,7 @@ export async function startProviderOAuthFlow(
   provider: OAuthProviderConfig,
   clientId: string,
   clientSecret?: string,
-  options?: { loginHint?: string },
+  options?: { loginHint?: string; scopes?: string[]; redirectUri?: string },
 ): Promise<{ tokens: TokenResponse; userInfo: ProviderUserInfo }> {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
@@ -74,7 +107,8 @@ export async function startProviderOAuthFlow(
   crypto.getRandomValues(stateArray);
   const oauthState = base64UrlEncode(stateArray);
 
-  const redirectUri = `http://localhost:${OAUTH_CALLBACK_PORT}`;
+  const redirectUri = options?.redirectUri ?? `http://localhost:${OAUTH_CALLBACK_PORT}`;
+  const usesCefScreenCode = provider.id === "yandex" && redirectUri === "https://oauth.yandex.ru/verification_code";
   const scopeValue = provider.scopes.join(" ");
 
   const params: Record<string, string> = {
@@ -96,38 +130,70 @@ export async function startProviderOAuthFlow(
   }
   if (provider.id === "yandex") {
     params.force_confirm = "yes";
+    if (options?.scopes?.length) params.scope = options.scopes.join(" ");
     if (options?.loginHint) {
       params.login_hint = options.loginHint;
     }
-    const yandexDiagnostics = getYandexOAuthConfigDiagnostics();
-    console.info("[oauth][yandex] client_id (effective):", clientId);
-    console.info("[oauth][yandex] client_id source:", yandexDiagnostics.clientIdSource);
-    console.info("[oauth][yandex] env client_id:", yandexDiagnostics.envClientId ?? "<empty>");
-    console.info("[oauth][yandex] fallback client_id:", yandexDiagnostics.fallbackClientId);
-    console.info("[oauth] Yandex OAuth scopes:", provider.scopes);
-    console.info("[oauth] Yandex OAuth scope string:", "omitted");
-    console.info("[oauth] Yandex redirect URI:", redirectUri);
   } else {
     params.scope = scopeValue;
   }
 
   const authUrl = `${provider.authUrl}?${new URLSearchParams(params).toString()}`;
-  if (provider.id === "yandex") {
-    const sentScope = new URL(authUrl).searchParams.get("scope");
-    console.info("[oauth] Yandex authorize URL scope query:", sentScope ?? "omitted");
-    console.info("[oauth][yandex] scope: omitted");
-    console.info("[oauth][yandex] authorize URL:", authUrl);
+
+  let stopCodeListener: (() => void) | null = null;
+  let stopWindowListener: (() => void) | null = null;
+  let resolveScreenCode: ((result: OAuthServerResult) => void) | null = null;
+  const initialAppLocation = window.location.href;
+  const callbackPromise = usesCefScreenCode
+    ? new Promise<OAuthServerResult>((resolve) => { resolveScreenCode = resolve; })
+    : invoke<OAuthServerResult>("start_oauth_server", { port: OAUTH_CALLBACK_PORT, state: oauthState });
+  let rejectWindowClosed: ((reason: Error) => void) | null = null;
+  const windowClosedPromise = new Promise<OAuthServerResult>((_, reject) => { rejectWindowClosed = reject; });
+  if (provider.id === "yandex" && !usesCefScreenCode) {
+    stopWindowListener = await listen("oauth-window-closed", () => {
+      rejectWindowClosed?.(new Error("Окно авторизации Яндекс ID закрыто до завершения подключения."));
+    });
+  }
+  const resultPromise = stopWindowListener
+    ? Promise.race([callbackPromise, windowClosedPromise])
+    : callbackPromise;
+  if (usesCefScreenCode) {
+    stopCodeListener = await listen<{ type: string; payload: Record<string, unknown> }>("cef-event", (event) => {
+      if (event.payload.type === "oauth-code") {
+        const code = event.payload.payload.code;
+        if (typeof code === "string" && code) resolveScreenCode?.({ code, state: oauthState });
+      }
+      if (event.payload.type === "oauth-error") {
+        resolveScreenCode?.({
+          state: oauthState,
+          error: String(event.payload.payload.error || "authorization_failed"),
+          error_description: String(event.payload.payload.description || "Авторизация Яндекса завершилась ошибкой."),
+        });
+      }
+    });
   }
 
-  const serverPromise = invoke<OAuthServerResult>("start_oauth_server", {
-    port: OAUTH_CALLBACK_PORT,
-    state: oauthState,
-  });
+  const routeWatcher = usesCefScreenCode ? window.setInterval(() => {
+    if (window.location.href !== initialAppLocation) {
+      resolveScreenCode?.({ state: oauthState, error: "access_denied", error_description: "Авторизация отменена при переходе на другую вкладку." });
+    }
+  }, 250) : null;
+  const authorizationTimeout = usesCefScreenCode ? window.setTimeout(() => {
+    resolveScreenCode?.({ state: oauthState, error: "timeout", error_description: "Время ожидания авторизации истекло." });
+  }, 180_000) : null;
 
   await new Promise((r) => setTimeout(r, 100));
-  await openUrl(authUrl);
-
-  const result = await serverPromise;
+  const closeAuthorization = await openAuthorization(provider, authUrl, usesCefScreenCode);
+  let result: OAuthServerResult;
+  try {
+    result = await resultPromise;
+  } finally {
+    if (routeWatcher !== null) window.clearInterval(routeWatcher);
+    if (authorizationTimeout !== null) window.clearTimeout(authorizationTimeout);
+    stopCodeListener?.();
+    stopWindowListener?.();
+    await closeAuthorization();
+  }
 
   if (result.state !== oauthState) {
     throw new Error("OAuth state mismatch — possible CSRF attack. Please try again.");
@@ -156,13 +222,10 @@ export async function startProviderOAuthFlow(
     provider,
     result.code,
     clientId,
-    redirectUri,
+    usesCefScreenCode ? undefined : redirectUri,
     codeVerifier,
     clientSecret,
   );
-  if (provider.id === "yandex") {
-    console.info("[oauth][yandex] token response scope:", tokens.scope ?? "<empty>");
-  }
 
   const userInfo = await fetchUserInfo(provider, tokens);
 
@@ -173,7 +236,7 @@ async function exchangeCode(
   provider: OAuthProviderConfig,
   code: string,
   clientId: string,
-  redirectUri: string,
+  redirectUri: string | undefined,
   codeVerifier: string,
   clientSecret?: string,
 ): Promise<TokenResponse> {
@@ -182,7 +245,7 @@ async function exchangeCode(
     tokenUrl: provider.tokenUrl,
     code,
     clientId,
-    redirectUri,
+    redirectUri: redirectUri ?? null,
     codeVerifier: provider.usePkce ? codeVerifier : null,
     clientSecret: clientSecret || null,
     scope: provider.id === "microsoft" ? provider.scopes.join(" ") : null,

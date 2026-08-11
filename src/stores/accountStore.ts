@@ -67,6 +67,9 @@ export const useAccountStore = create<AccountState>((set) => ({
         state.activeAccountId === id
           ? (accounts[0]?.id ?? null)
           : state.activeAccountId;
+      if (activeAccountId !== state.activeAccountId) {
+        setSetting("active_account_id", activeAccountId ?? "").catch(() => {});
+      }
       return {
         accounts: accounts.map((account) => ({
           ...account,

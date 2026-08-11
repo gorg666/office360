@@ -14,6 +14,7 @@ import {
   upsertCalendarEvent,
   getCalendarEventsInRange,
   getCalendarEventsInRangeMulti,
+  deleteCalendarEventsInRange,
   deleteEventsForCalendar,
   getEventByRemoteId,
   deleteEventByRemoteId,
@@ -245,6 +246,17 @@ describe("calendarEvents service", () => {
       const [sql, params] = mockDb.execute.mock.calls[0] as [string, unknown[]];
       expect(sql).toBe("DELETE FROM calendar_events WHERE calendar_id = $1");
       expect(params).toEqual(["cal-1"]);
+    });
+  });
+
+  describe("deleteCalendarEventsInRange", () => {
+    it("removes only cached instances overlapping the refreshed range", async () => {
+      await deleteCalendarEventsInRange("acc-1", "cal-1", 500, 2500);
+
+      const [sql, params] = mockDb.execute.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain("account_id = $1 AND calendar_id = $2");
+      expect(sql).toContain("start_time < $4 AND end_time > $3");
+      expect(params).toEqual(["acc-1", "cal-1", 500, 2500]);
     });
   });
 

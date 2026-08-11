@@ -21,11 +21,6 @@ export function yandexMessengerSourceKey(session: YandexMessengerSession): strin
 export async function resolveYandexMessengerSession(
   activeAccountId: string | null,
 ): Promise<YandexMessengerSession | null> {
-  const manual = loadMessengerCredentials("yandex");
-  if (manual?.token?.trim()) {
-    return { token: manual.token.trim(), manual: true };
-  }
-
   const accounts = await getAllAccounts();
   const yandexOAuth = accounts.filter(
     (a) =>
@@ -39,7 +34,10 @@ export async function resolveYandexMessengerSession(
     (activeAccountId ? yandexOAuth.find((a) => a.id === activeAccountId) : undefined) ??
     yandexOAuth[0];
 
-  if (!picked) return null;
+  if (!picked) {
+    const manual = loadMessengerCredentials("yandex");
+    return manual?.token?.trim() ? { token: manual.token.trim(), manual: true } : null;
+  }
 
   const token = (await ensureFreshToken(picked)).trim();
   if (!token) return null;

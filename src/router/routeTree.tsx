@@ -18,6 +18,9 @@ const AttachmentLibrary = lazy(() => import("@/components/attachments/Attachment
 const AccountRepairCenter = lazy(() => import("@/components/repair/AccountRepairCenter").then((m) => ({ default: m.AccountRepairCenter })));
 const QueueInspector = lazy(() => import("@/components/queue/QueueInspector").then((m) => ({ default: m.QueueInspector })));
 const ContactsPage = lazy(() => import("@/components/contacts/ContactsPage").then((m) => ({ default: m.ContactsPage })));
+const DiskPage = lazy(() => import("@/components/yandex/DiskPage").then((m) => ({ default: m.DiskPage })));
+const TelemostPage = lazy(() => import("@/components/yandex/TelemostPage").then((m) => ({ default: m.TelemostPage })));
+const TrackerPage = lazy(() => import("@/components/yandex/TrackerPage").then((m) => ({ default: m.TrackerPage })));
 
 // ---------- Search param validation ----------
 const VALID_CATEGORIES = ["Primary", "Updates", "Promotions", "Social", "Newsletters"] as const;
@@ -117,6 +120,17 @@ function ContactsPageWrapper() {
     <ErrorBoundary name="ContactsPage">
       <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading contacts...</div>}>
         <ContactsPage />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
+function YandexServiceWrapper({ service }: { service: "disk" | "telemost" | "tracker" }) {
+  const Page = service === "disk" ? DiskPage : service === "telemost" ? TelemostPage : TrackerPage;
+  return (
+    <ErrorBoundary name={`${service}Page`}>
+      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading...</div>}>
+        <Page />
       </Suspense>
     </ErrorBoundary>
   );
@@ -259,6 +273,24 @@ export const messengersRoute = createRoute({
   },
 });
 
+export const diskRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "disk",
+  component: () => <YandexServiceWrapper service="disk" />,
+});
+
+export const telemostRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "telemost",
+  component: () => <YandexServiceWrapper service="telemost" />,
+});
+
+export const trackerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "tracker",
+  component: () => <YandexServiceWrapper service="tracker" />,
+});
+
 // ---------- /help (redirect to /help/getting-started) ----------
 const helpIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -291,6 +323,9 @@ export const routeTree = rootRoute.addChildren([
   queueRoute,
   contactsRoute,
   messengersRoute,
+  diskRoute,
+  telemostRoute,
+  trackerRoute,
   helpIndexRoute,
   helpTopicRoute,
 ]);

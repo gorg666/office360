@@ -243,6 +243,11 @@ export function navigateToLabel(
     return;
   }
 
+  if (label === "disk" || label === "telemost" || label === "tracker") {
+    router.navigate({ to: `/${label}` as "/disk" | "/telemost" | "/tracker" });
+    return;
+  }
+
   if (label === "contacts") {
     router.navigate({ to: "/contacts" });
     return;

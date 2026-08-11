@@ -6,7 +6,7 @@ import { useUIStore } from "@/stores/uiStore";
 interface MonthViewProps {
   currentDate: Date;
   events: DbCalendarEvent[];
-  onEventClick: (event: DbCalendarEvent) => void;
+  onEventClick: (event: DbCalendarEvent, anchor: { x: number; y: number }) => void;
 }
 
 const DAY_NAMES = {
@@ -79,7 +79,7 @@ export function MonthView({ currentDate, events, onEventClick }: MonthViewProps)
                     key={event.id}
                     event={event}
                     compact
-                    onClick={() => onEventClick(event)}
+                    onClick={(mouseEvent) => onEventClick(event, { x: mouseEvent.clientX, y: mouseEvent.clientY })}
                   />
                 ))}
                 {dayEvents.length > 3 && (

@@ -1,11 +1,24 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { searchRecipientSuggestions, type RecipientSuggestion } from "@/services/db/contacts";
+import {
+  searchContacts,
+  getRecentContacts,
+  type DbContact,
+} from "@/services/db/contacts";
 
 interface AddressInputProps {
   label: string;
   addresses: string[];
   onChange: (addresses: string[]) => void;
   placeholder?: string;
+}
+
+function contactInitials(contact: DbContact): string {
+  const source = (contact.display_name ?? contact.email).trim();
+  const parts = source.split(/[\s@._-]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
+  }
+  return (source[0] ?? "?").toUpperCase();
 }
 
 export function AddressInput({
@@ -15,7 +28,7 @@ export function AddressInput({
   placeholder = "Добавьте получателей...",
 }: AddressInputProps) {
   const [inputValue, setInputValue] = useState("");
-  const [suggestions, setSuggestions] = useState<RecipientSuggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<DbContact[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -29,14 +42,26 @@ export function AddressInput({
     };
   }, []);
 
+  const showRecentSuggestions = useCallback(async () => {
+    const results = await getRecentContacts(5);
+    const filtered = results.filter((c) => !addresses.includes(c.email));
+    setSuggestions(filtered);
+    setShowSuggestions(filtered.length > 0);
+    setSelectedIdx(-1);
+  }, [addresses]);
+
   const handleInputChange = useCallback(
     (value: string) => {
       setInputValue(value);
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      if (value.trim().length === 0) {
+        void showRecentSuggestions();
+        return;
+      }
       if (value.length >= 2) {
         searchTimerRef.current = setTimeout(async () => {
-          const results = await searchRecipientSuggestions(value, 8);
-          setSuggestions(results);
+          const results = await searchContacts(value, 5);
+          setSuggestions(results.filter((c) => !addresses.includes(c.email)));
           setShowSuggestions(results.length > 0);
           setSelectedIdx(-1);
         }, 200);
@@ -45,7 +70,7 @@ export function AddressInput({
         setShowSuggestions(false);
       }
     },
-    [],
+    [addresses, showRecentSuggestions],
   );
 
   const addAddress = useCallback(
@@ -73,7 +98,7 @@ export function AddressInput({
     if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
       e.preventDefault();
       if (showSuggestions && selectedIdx >= 0) {
-        addAddress(suggestions[selectedIdx]!.address);
+        addAddress(suggestions[selectedIdx]!.email);
       } else if (inputValue.trim()) {
         addAddress(inputValue);
       }
@@ -92,7 +117,7 @@ export function AddressInput({
 
   return (
     <div className="flex items-start gap-2">
-      <span className="text-xs text-text-tertiary pt-1.5 w-8 shrink-0">
+      <span className="text-xs text-text-tertiary pt-1.5 w-14 shrink-0">
         {label}
       </span>
       <div className="flex-1 flex flex-wrap items-center gap-1 min-h-[32px] relative">
@@ -116,37 +141,51 @@ export function AddressInput({
           value={inputValue}
           onChange={(e) => handleInputChange(e.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={() => {
+            if (!inputValue.trim()) {
+              void showRecentSuggestions();
+            }
+          }}
           onBlur={() => {
-            // Delay to allow click on suggestion
             if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
             blurTimerRef.current = setTimeout(() => setShowSuggestions(false), 150);
             if (inputValue.trim()) addAddress(inputValue);
           }}
           placeholder={addresses.length === 0 ? placeholder : ""}
           aria-label={label}
+          autoComplete="off"
           className="flex-1 min-w-[120px] bg-transparent text-sm text-text-primary outline-none placeholder:text-text-tertiary"
         />
 
-        {/* Autocomplete dropdown */}
         {showSuggestions && (
-          <div className="absolute top-full left-0 mt-1 w-full bg-bg-primary border border-border-primary rounded-md shadow-lg z-50 py-1">
+          <div
+            role="listbox"
+            className="absolute top-full left-0 mt-1 w-full bg-bg-primary border border-border-primary rounded-md shadow-lg z-50 py-1"
+          >
             {suggestions.map((contact, i) => (
               <button
-                key={`${contact.kind}:${contact.id}:${contact.address}`}
+                key={contact.id}
+                role="option"
+                aria-selected={i === selectedIdx}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => addAddress(contact.address)}
-                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover ${
+                onClick={() => addAddress(contact.email)}
+                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover flex items-center gap-2 ${
                   i === selectedIdx ? "bg-bg-hover" : ""
                 }`}
               >
-                <div className="text-text-primary">
-                  {contact.label}
-                </div>
-                {(contact.detail || contact.address) && (
-                  <div className="text-xs text-text-tertiary">
-                    {contact.kind === "list" ? `List - ${contact.detail}` : contact.address}
-                  </div>
-                )}
+                <span className="w-7 h-7 rounded-full bg-accent-light text-accent text-[0.65rem] font-medium flex items-center justify-center shrink-0">
+                  {contactInitials(contact)}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-text-primary truncate">
+                    {contact.display_name ?? contact.email}
+                  </span>
+                  {contact.display_name ? (
+                    <span className="block text-xs text-text-tertiary truncate">
+                      {contact.email}
+                    </span>
+                  ) : null}
+                </span>
               </button>
             ))}
           </div>

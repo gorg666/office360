@@ -6,6 +6,7 @@ import {
   onAction,
 } from "@tauri-apps/plugin-notification";
 import { invoke } from "@tauri-apps/api/core";
+import { platform } from "@tauri-apps/plugin-os";
 import { getSetting } from "../db/settings";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useComposerStore } from "../../stores/composerStore";
@@ -18,6 +19,7 @@ let notificationsEnabled = true;
 let lastSoundAt = 0;
 let notificationSoundVolume = 0.8;
 let notificationSoundPath = "";
+let isWindowsHost: boolean | null = null;
 
 interface NotificationContext {
   threadId?: string;
@@ -81,6 +83,51 @@ async function showAndFocusMainWindow(): Promise<void> {
   }
 }
 
+async function isMainWindowForeground(): Promise<boolean> {
+  try {
+    const mainWindow = await WebviewWindow.getByLabel("main");
+    if (!mainWindow) return false;
+    const focused = await mainWindow.isFocused();
+    const visible =
+      typeof document === "undefined" ? true : document.visibilityState === "visible";
+    return focused && visible;
+  } catch {
+    return false;
+  }
+}
+
+async function detectWindowsHost(): Promise<boolean> {
+  if (isWindowsHost != null) return isWindowsHost;
+  try {
+    isWindowsHost = (await platform()) === "windows";
+  } catch {
+    isWindowsHost = false;
+  }
+  return isWindowsHost;
+}
+
+/**
+ * Show OS toast as Office360 (Windows: native WinRT + AUMID registry).
+ * Avoids tauri-plugin-notification PowerShell attribution under target/debug|release.
+ */
+async function showOsNotification(title: string, body: string, actionTypeId: string): Promise<void> {
+  const onWindows = await detectWindowsHost();
+  if (onWindows) {
+    try {
+      await invoke("show_native_notification", { title, body });
+      return;
+    } catch (err) {
+      console.warn("Native Office360 notification failed, falling back to plugin:", err);
+    }
+  }
+
+  sendNotification({
+    title,
+    body,
+    actionTypeId,
+  });
+}
+
 /**
  * Initialize notification permissions and action types.
  */
@@ -94,6 +141,14 @@ export async function initNotifications(): Promise<void> {
 
   if (!notificationsEnabled) return;
 
+  if (await detectWindowsHost()) {
+    try {
+      await invoke("ensure_notification_app_identity");
+    } catch (err) {
+      console.warn("Failed to ensure Windows notification identity:", err);
+    }
+  }
+
   let granted = await isPermissionGranted();
   if (!granted) {
     const permission = await requestPermission();
@@ -105,7 +160,6 @@ export async function initNotifications(): Promise<void> {
     return;
   }
 
-  // Register action types and handlers (not available on all platforms)
   try {
     await registerActionTypes([
       {
@@ -152,10 +206,6 @@ export async function initNotifications(): Promise<void> {
   }
 }
 
-/**
- * Show a notification for new emails.
- * Batches notifications to avoid spam during sync.
- */
 let pendingCount = 0;
 let notifyTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -170,38 +220,33 @@ export function queueNewEmailNotification(
 
   pendingCount++;
 
-  // Store context for action handling
   const ctx = { threadId, accountId, fromAddress, subject };
   lastNotificationContext = ctx;
   if (threadId) recentContexts.set(threadId, ctx);
 
-  // Debounce: wait 2s before showing, to batch during sync
   if (notifyTimer) clearTimeout(notifyTimer);
   notifyTimer = setTimeout(() => {
-    playNewEmailSound();
-
-    if (pendingCount === 1) {
-      sendNotification({
-        title: from,
-        body: subject || "(No subject)",
-        actionTypeId: "email",
-      });
-    } else if (pendingCount > 1) {
-      sendNotification({
-        title: APP_NAME_EN,
-        body: `${pendingCount} new emails`,
-        actionTypeId: "email",
-      });
-    }
+    const count = pendingCount;
     pendingCount = 0;
     notifyTimer = null;
+
+    void (async () => {
+      playNewEmailSound();
+
+      // Foreground: sound only — avoid duplicate Windows toast.
+      if (await isMainWindowForeground()) {
+        return;
+      }
+
+      if (count === 1) {
+        await showOsNotification("Новое письмо", `${from}: ${subject || "(No subject)"}`, "email");
+      } else if (count > 1) {
+        await showOsNotification(APP_NAME_EN, `${count} new emails`, "email");
+      }
+    })();
   }, 2000);
 }
 
-/**
- * Determine if a new email should trigger a notification based on smart notification settings.
- * Pure function — no I/O, all config is passed in from the sync cycle.
- */
 export function shouldNotifyForMessage(
   smartEnabled: boolean,
   allowedCategories: Set<string>,
@@ -209,15 +254,12 @@ export function shouldNotifyForMessage(
   threadCategory: string | null,
   fromAddress?: string,
 ): boolean {
-  if (!smartEnabled) return true; // Smart notifications off → notify everything
-  if (fromAddress && vipSenders.has(normalizeEmail(fromAddress))) return true; // VIP always notifies
-  const category = threadCategory ?? "Primary"; // uncategorized defaults to Primary
+  if (!smartEnabled) return true;
+  if (fromAddress && vipSenders.has(normalizeEmail(fromAddress))) return true;
+  const category = threadCategory ?? "Primary";
   return allowedCategories.has(category);
 }
 
-/**
- * Show a notification for a follow-up reminder that fired.
- */
 export function notifyFollowUpDue(
   subject: string,
   threadId?: string,
@@ -227,21 +269,16 @@ export function notifyFollowUpDue(
   const ctx = { threadId, accountId, subject };
   lastNotificationContext = ctx;
   if (threadId) recentContexts.set(threadId, ctx);
-  sendNotification({
-    title: "Follow up needed",
-    body: subject || "(No subject)",
-    actionTypeId: "email",
-  });
+  void (async () => {
+    if (await isMainWindowForeground()) return;
+    await showOsNotification("Follow up needed", subject || "(No subject)", "email");
+  })();
 }
 
-/**
- * Show a notification for a snoozed email returning.
- */
 export function notifySnoozeReturn(subject: string): void {
   if (!notificationsEnabled) return;
-  sendNotification({
-    title: "Snoozed email returned",
-    body: subject || "(No subject)",
-    actionTypeId: "default",
-  });
+  void (async () => {
+    if (await isMainWindowForeground()) return;
+    await showOsNotification("Snoozed email returned", subject || "(No subject)", "default");
+  })();
 }

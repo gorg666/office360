@@ -3,11 +3,17 @@ import { Trash2, Pencil, ChevronUp, ChevronDown, X } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { LabelForm } from "@/components/labels/LabelForm";
-import { getCapabilitiesForAccountProvider, getUnsupportedReason } from "@/services/email/providerCapabilities";
+import {
+  FOLDER_EDITING_UNSUPPORTED_MESSAGE,
+  supportsFolderEditing,
+} from "@/services/email/providerCapabilities";
 
 export function LabelEditor() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
-  const accounts = useAccountStore((s) => s.accounts);
+  const activeAccount = useAccountStore((s) =>
+    s.accounts.find((account) => account.id === s.activeAccountId),
+  );
+  const canEditFolders = supportsFolderEditing(activeAccount?.provider);
   const { labels, loadLabels, deleteLabel, reorderLabels } = useLabelStore();
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -27,24 +33,15 @@ export function LabelEditor() {
     setError(null);
   }, []);
 
-  const activeAccount = accounts.find((account) => account.id === activeAccountId);
-  const capabilities = getCapabilitiesForAccountProvider(activeAccount?.provider);
-  const canCreateLabel = capabilities.labels.create.supported;
-  const canRenameLabel = capabilities.labels.rename.supported;
-  const canDeleteLabel = capabilities.labels.delete.supported;
-  const createDisabledReason = getUnsupportedReason(capabilities.labels.create) ?? undefined;
-  const renameDisabledReason = getUnsupportedReason(capabilities.labels.rename) ?? undefined;
-  const deleteDisabledReason = getUnsupportedReason(capabilities.labels.delete) ?? undefined;
-
   const handleEdit = useCallback((label: Label) => {
-    if (!canRenameLabel) return;
+    if (!canEditFolders) return;
     setEditingId(label.id);
     setShowForm(true);
     setError(null);
-  }, [canRenameLabel]);
+  }, [canEditFolders]);
 
   const handleDelete = useCallback(async (label: Label) => {
-    if (!activeAccountId || !canDeleteLabel) return;
+    if (!activeAccountId || !canEditFolders) return;
     setError(null);
     try {
       await deleteLabel(activeAccountId, label.id);
@@ -52,7 +49,11 @@ export function LabelEditor() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete label");
     }
-  }, [activeAccountId, canDeleteLabel, deleteLabel, editingId, resetForm]);
+  }, [activeAccountId, canEditFolders, deleteLabel, editingId, resetForm]);
+
+  useEffect(() => {
+    if (!canEditFolders) resetForm();
+  }, [canEditFolders, resetForm]);
 
   const handleMoveUp = useCallback(async (index: number) => {
     if (!activeAccountId || index === 0) return;
@@ -85,6 +86,12 @@ export function LabelEditor() {
             <X size={12} />
           </button>
         </div>
+      )}
+
+      {!canEditFolders && (
+        <p className="text-xs text-text-tertiary">
+          {FOLDER_EDITING_UNSUPPORTED_MESSAGE}
+        </p>
       )}
 
       {labels.length === 0 && !showForm && (
@@ -124,22 +131,24 @@ export function LabelEditor() {
               >
                 <ChevronDown size={13} />
               </button>
-              <button
-                onClick={() => handleEdit(label)}
-                disabled={!canRenameLabel}
-                className="p-1 text-text-tertiary hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed"
-                title={canRenameLabel ? "Edit" : renameDisabledReason}
-              >
-                <Pencil size={13} />
-              </button>
-              <button
-                onClick={() => handleDelete(label)}
-                disabled={!canDeleteLabel}
-                className="p-1 text-text-tertiary hover:text-danger disabled:opacity-40 disabled:cursor-not-allowed"
-                title={canDeleteLabel ? "Delete" : deleteDisabledReason}
-              >
-                <Trash2 size={13} />
-              </button>
+              {canEditFolders && (
+                <>
+                  <button
+                    onClick={() => handleEdit(label)}
+                    className="p-1 text-text-tertiary hover:text-text-primary"
+                    title="Edit"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(label)}
+                    className="p-1 text-text-tertiary hover:text-danger"
+                    title="Delete"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </>
+              )}
             </div>
           </div>
           {/* Inline edit form under the label being edited */}
@@ -163,15 +172,10 @@ export function LabelEditor() {
         />
       ) : !showForm && (
         <button
-          onClick={() => {
-            if (!canCreateLabel) return;
-            setShowForm(true);
-            setEditingId(null);
-            setError(null);
-          }}
-          disabled={!canCreateLabel}
+          onClick={() => { setShowForm(true); setEditingId(null); setError(null); }}
+          disabled={!canEditFolders}
+          title={!canEditFolders ? FOLDER_EDITING_UNSUPPORTED_MESSAGE : undefined}
           className="text-xs text-accent hover:text-accent-hover disabled:text-text-tertiary disabled:cursor-not-allowed"
-          title={canCreateLabel ? "Add label" : createDisabledReason}
         >
           + Add label
         </button>

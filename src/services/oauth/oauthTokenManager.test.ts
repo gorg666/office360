@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../db/accounts", () => ({
   updateAccountTokens: vi.fn(),
+  updateAccountAllTokens: vi.fn(),
 }));
 
 vi.mock("./providers", () => ({
@@ -18,9 +19,10 @@ vi.mock("../db/accountDiagnostics", () => ({
 }));
 
 import { ensureFreshToken } from "./oauthTokenManager";
-import { updateAccountTokens } from "../db/accounts";
+import { updateAccountTokens, updateAccountAllTokens } from "../db/accounts";
 import { getOAuthProvider } from "./providers";
 import { refreshProviderToken } from "./oauthFlow";
+import { resolveYandexClientSecret } from "./yandexOAuthCredentials";
 import { createMockDbAccount } from "@/test/mocks";
 
 const oauthOverrides = {
@@ -88,6 +90,76 @@ describe("ensureFreshToken", () => {
       "acc-1",
       "new-token",
       expect.any(Number),
+    );
+  });
+
+  it("persists rotated refresh_token when provider returns one", async () => {
+    const account = createMockDbAccount({
+      ...oauthOverrides,
+      token_expires_at: Math.floor(Date.now() / 1000) - 60,
+    });
+
+    const mockProvider = { id: "microsoft", name: "Microsoft" };
+    vi.mocked(getOAuthProvider).mockReturnValue(mockProvider as ReturnType<typeof getOAuthProvider>);
+    vi.mocked(refreshProviderToken).mockResolvedValue({
+      access_token: "new-token",
+      refresh_token: "rotated-refresh",
+      expires_in: 3600,
+      token_type: "Bearer",
+    });
+
+    await ensureFreshToken(account);
+
+    expect(updateAccountAllTokens).toHaveBeenCalledWith(
+      "acc-1",
+      "new-token",
+      "rotated-refresh",
+      expect.any(Number),
+    );
+  });
+
+  it("forceRefresh refreshes even when expiry is far ahead", async () => {
+    const account = createMockDbAccount(oauthOverrides);
+    const mockProvider = { id: "microsoft", name: "Microsoft" };
+    vi.mocked(getOAuthProvider).mockReturnValue(mockProvider as ReturnType<typeof getOAuthProvider>);
+    vi.mocked(refreshProviderToken).mockResolvedValue({
+      access_token: "forced-token",
+      expires_in: 3600,
+      token_type: "Bearer",
+    });
+
+    const token = await ensureFreshToken(account, { forceRefresh: true });
+    expect(token).toBe("forced-token");
+    expect(refreshProviderToken).toHaveBeenCalled();
+  });
+
+  it("resolves Yandex client secret before refresh", async () => {
+    const account = createMockDbAccount({
+      ...oauthOverrides,
+      email: "user@yandex.ru",
+      oauth_provider: "yandex",
+      oauth_client_id: "yandex-client-id",
+      oauth_client_secret: null,
+      token_expires_at: Math.floor(Date.now() / 1000) - 60,
+    });
+
+    const mockProvider = { id: "yandex", name: "Yandex" };
+    vi.mocked(getOAuthProvider).mockReturnValue(mockProvider as ReturnType<typeof getOAuthProvider>);
+    vi.mocked(resolveYandexClientSecret).mockResolvedValue("resolved-secret");
+    vi.mocked(refreshProviderToken).mockResolvedValue({
+      access_token: "yandex-token",
+      expires_in: 3600,
+      token_type: "Bearer",
+    });
+
+    const token = await ensureFreshToken(account);
+    expect(token).toBe("yandex-token");
+    expect(resolveYandexClientSecret).toHaveBeenCalled();
+    expect(refreshProviderToken).toHaveBeenCalledWith(
+      mockProvider,
+      "refresh-token",
+      "yandex-client-id",
+      "resolved-secret",
     );
   });
 

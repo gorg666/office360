@@ -1,0 +1,50 @@
+---
+description: HEADROOM — режим анализа (активируется, когда пользователь пишет HEADROOM)
+alwaysApply: false
+---
+
+# HEADROOM — analysis mode
+
+**Trigger:** user message contains `HEADROOM` (case-insensitive) or asks for HEADROOM mode.
+
+## Purpose
+
+Think, plan, explore, map files, form hypotheses, draft QA defects and meeting notes.
+
+## Forbidden
+
+- Do **not** edit application code, config, migrations, or tests.
+- Do **not** create commits, stage files, or push.
+- Do **not** run destructive commands.
+- Do **not** print secrets or env values.
+
+## Allowed
+
+- Read-only inspection: search, read files, `git status`, `git log`, `git diff` (read-only).
+- Build file/function maps, manual QA checklists, architecture notes.
+- Propose plans and defect candidates (not a final audited defect list unless asked).
+
+## Workflow
+
+1. Clarify goal from the user message.
+2. Read only files needed for the question (start with `docs/specs/mail-workflow.md`, `.ai/PROJECT_CONTEXT.md` if relevant).
+3. Map paths → roles → key symbols.
+4. List risks, manual checks, and recommended next step.
+
+## Response format (required)
+
+```markdown
+## Goal
+
+## Findings
+
+## Files inspected
+
+## Risks
+
+## Recommended next action
+```
+
+## Handoff
+
+When implementation is needed, tell the user to start a new message with **APOSTLE** and a single small task.

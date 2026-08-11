@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AddAccount } from "./AddAccount";
 import { useUIStore } from "@/stores/uiStore";
@@ -22,6 +22,14 @@ function renderAddAccount() {
 }
 
 describe("AddAccount", () => {
+  it("always offers Google OAuth as a separate provider", () => {
+    renderAddAccount();
+
+    fireEvent.click(screen.getByText("Google (Gmail)"));
+
+    expect(screen.getByRole("button", { name: "Sign in with Google" })).toBeInTheDocument();
+  });
+
   it("labels Microsoft-compatible setup as IMAP/SMTP rather than native Exchange", () => {
     renderAddAccount();
 

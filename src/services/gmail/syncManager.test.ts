@@ -25,6 +25,7 @@ vi.mock("../db/messages", () => ({
 vi.mock("../imap/imapSync", () => ({
   imapInitialSync: vi.fn(),
   imapDeltaSync: vi.fn(),
+  isConnectionError: vi.fn((err: unknown) => /tcp|connection|timed out/i.test(String(err))),
 }));
 vi.mock("../db/folderSyncState", () => ({
   clearAllFolderSyncStates: vi.fn(),
@@ -66,6 +67,7 @@ import { initialSync, deltaSync } from "./sync";
 import { deleteAllThreadsForAccount } from "../db/threads";
 import { deleteAllMessagesForAccount } from "../db/messages";
 import { clearAllFolderSyncStates } from "../db/folderSyncState";
+import { imapInitialSync } from "../imap/imapSync";
 
 const mockGetAccount = vi.mocked(getAccount);
 const mockGetGmailClient = vi.mocked(getGmailClient);
@@ -75,6 +77,7 @@ const mockClearAccountHistoryId = vi.mocked(clearAccountHistoryId);
 const mockDeleteAllThreadsForAccount = vi.mocked(deleteAllThreadsForAccount);
 const mockDeleteAllMessagesForAccount = vi.mocked(deleteAllMessagesForAccount);
 const mockClearAllFolderSyncStates = vi.mocked(clearAllFolderSyncStates);
+const mockImapInitialSync = vi.mocked(imapInitialSync);
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -102,6 +105,15 @@ function makeGmailAccount(id: string, historyId: string | null = null) {
     auth_method: null,
     imap_password: null,
     imap_username: null,
+  };
+}
+
+function makeImapAccount(id: string) {
+  return {
+    ...makeGmailAccount(id),
+    email: `${id}@yandex.ru`,
+    provider: "imap" as const,
+    auth_method: "password",
   };
 }
 
@@ -140,6 +152,21 @@ describe("syncManager", () => {
 
       expect(mockDeltaSync).toHaveBeenCalledTimes(1);
       expect(mockInitialSync).not.toHaveBeenCalled();
+    });
+
+    it("retries a transient IMAP connection failure", async () => {
+      vi.useFakeTimers();
+      mockGetAccount.mockResolvedValue(makeImapAccount("yandex"));
+      mockImapInitialSync
+        .mockRejectedValueOnce(new Error("TCP connect failed"))
+        .mockResolvedValueOnce({ messages: [] });
+
+      const sync = syncAccount("yandex");
+      await vi.advanceTimersByTimeAsync(750);
+      await sync;
+
+      expect(mockImapInitialSync).toHaveBeenCalledTimes(2);
+      vi.useRealTimers();
     });
 
     it("queues a second account while sync is in progress", async () => {

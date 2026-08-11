@@ -27,10 +27,21 @@ const NETWORK_PATTERNS = [
 
 const AUTH_PATTERNS = [
   "authentication failed",
+  "authenticationfailed",
   "login failed",
   "invalid credentials",
   "login denied",
   "authenticate failed",
+  "xoauth2",
+  "xoauth",
+  "invalid_grant",
+  "expired_token",
+  "invalid_token",
+  "invalid_client",
+  "wrong client secret",
+  "unauthorized",
+  "сессия яндекс",
+  "подключите аккаунт",
 ];
 
 export function classifyError(error: unknown): ClassifiedError {
@@ -119,6 +130,17 @@ export function formatEmailSendOrDraftError(rawError: string): string {
   const trimmed = rawError.trim();
   const lower = trimmed.toLowerCase();
 
+  if (classifyError(trimmed).type === "auth") {
+    if (
+      /yandex|яндекс|oauth|token|xoauth|invalid_client|client secret|invalid_grant|expired_token/i.test(
+        trimmed,
+      )
+    ) {
+      return "Сессия Яндекс ID истекла. Подключите аккаунт повторно.";
+    }
+    return "Сессия авторизации истекла. Подключите аккаунт повторно.";
+  }
+
   if (lower.includes("no recipients found in email")) {
     return "Укажите получателя";
   }
@@ -138,22 +160,6 @@ export function formatEmailSendOrDraftError(rawError: string): string {
     return "Ошибка кодирования письма";
   }
 
-  const smtpSendFailed = /^smtp\s+send\s+failed:\s*(.+)$/i.exec(trimmed);
-  if (smtpSendFailed?.[1]) {
-    return `Ошибка отправки. ${formatSyncError(smtpSendFailed[1].trim())}`;
-  }
-
-  if (lower.includes("imap ok, but smtp failed")) {
-    const inner = trimmed.replace(/^imap ok, but smtp failed:\s*/i, "").trim();
-    return `Ошибка SMTP при сохранении на сервере. ${formatSyncError(inner)}`;
-  }
-
-  const smtpSendErrIdx = lower.indexOf("smtp send error:");
-  if (smtpSendErrIdx !== -1) {
-    const inner = trimmed.slice(smtpSendErrIdx + "smtp send error:".length).trim();
-    return `Ошибка отправки SMTP. ${formatSyncError(inner)}`;
-  }
-
   if (lower.includes("subject required") || lower.includes("missing subject")) {
     return "Укажите тему";
   }
@@ -161,5 +167,9 @@ export function formatEmailSendOrDraftError(rawError: string): string {
     return "Укажите получателя";
   }
 
-  return formatSyncError(trimmed);
+  if (lower.includes("timed out") || lower.includes("timeout")) {
+    return "Не удалось отправить письмо. Повторите попытку.";
+  }
+
+  return "Не удалось отправить письмо. Повторите попытку.";
 }

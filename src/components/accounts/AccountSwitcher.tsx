@@ -4,7 +4,7 @@ import { ChevronDown, ChevronUp, Check, Plus, UserPlus, Calendar, Copy, Settings
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { ContactAvatar } from "@/components/ui/ContactAvatar";
 import { getUnreadInboxCountsByAccount } from "@/services/db/threads";
-import { listAccountSyncHealth, syncHealthStatusLabel, type AccountSyncHealthStatus } from "@/services/syncHealth";
+import { listAccountSyncHealth, syncHealthStatusLabel, syncProgressLabel, type AccountSyncHealth } from "@/services/syncHealth";
 import { navigateToLabel } from "@/router/navigate";
 
 interface AccountSwitcherProps {
@@ -21,7 +21,7 @@ export function AccountSwitcher({
   const { accounts, activeAccountId, setActiveAccount } = useAccountStore();
   const [open, setOpen] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
-  const [healthStatuses, setHealthStatuses] = useState<Record<string, AccountSyncHealthStatus>>({});
+  const [healthByAccount, setHealthByAccount] = useState<Record<string, AccountSyncHealth>>({});
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
@@ -97,7 +97,7 @@ export function AccountSwitcher({
               && nextKeys.every((key) => current[key] === counts[key]);
             return unchanged ? current : counts;
           });
-          setHealthStatuses(Object.fromEntries(health.map((item) => [item.accountId, item.status])));
+          setHealthByAccount(Object.fromEntries(health.map((item) => [item.accountId, item])));
         }
       } catch (err) {
         console.error("Failed to load account state:", err);
@@ -218,7 +218,8 @@ export function AccountSwitcher({
           {accounts.map((account) => {
             const isActive = account.id === activeAccountId;
             const unreadCount = unreadCounts[account.id] ?? 0;
-            const healthStatus = healthStatuses[account.id];
+            const health = healthByAccount[account.id];
+            const healthStatus = health?.status;
             return (
               <button
                 key={account.id}
@@ -245,7 +246,9 @@ export function AccountSwitcher({
                   </div>
                   {healthStatus && healthStatus !== "healthy" && (
                     <div className="mt-0.5 text-[0.625rem] text-text-tertiary">
-                      {syncHealthStatusLabel(healthStatus)}
+                      {healthStatus === "syncing"
+                        ? syncProgressLabel(health?.progress) ?? syncHealthStatusLabel(healthStatus)
+                        : syncHealthStatusLabel(healthStatus)}
                     </div>
                   )}
                 </div>

@@ -39,6 +39,7 @@ vi.mock("./folderMapper", () => ({
   getSyncableFolders: vi.fn((folders: unknown[]) => folders),
 }));
 vi.mock("../db/messages", () => ({
+  getMaxImapUidForFolder: vi.fn(() => 0),
   getUncachedImapMessageRefs: vi.fn(() => []),
   upsertMessage: vi.fn(),
   updateMessageThreadIds: vi.fn(),
@@ -59,6 +60,7 @@ vi.mock("../db/accounts", () => ({
 }));
 vi.mock("../db/connection", () => ({
   withTransaction: vi.fn(async (fn: () => Promise<void>) => fn()),
+  getDb: vi.fn(() => ({ execute: vi.fn() })),
 }));
 vi.mock("../db/folderSyncState", () => ({
   upsertFolderSyncState: vi.fn(),
@@ -68,7 +70,16 @@ vi.mock("../db/pendingOperations", () => ({
   getPendingOpsForResource: vi.fn(() => []),
 }));
 
-import { imapMessageToParsedMessage, imapInitialSync, formatImapDate, computeSinceDate, isConnectionError } from "./imapSync";
+import {
+  calculateSafeImapCheckpoint,
+  computeSinceDate,
+  formatImapDate,
+  imapInitialSync,
+  imapMessageToParsedMessage,
+  isConnectionError,
+  reconcileImapCheckpoint,
+  reconcileThreadFolderLabels,
+} from "./imapSync";
 import {
   createMockImapMessage,
   createMockImapAccount,
@@ -79,10 +90,43 @@ import {
 import { imapListFolders, imapSearchFolder, imapFetchMessages } from "./tauriCommands";
 import { getAccount } from "../db/accounts";
 import { withTransaction } from "../db/connection";
+import { getDb } from "../db/connection";
 import { upsertMessage, updateMessageThreadIds } from "../db/messages";
 import { upsertThread, addThreadLabels, deleteThread } from "../db/threads";
 import { upsertAttachment } from "../db/attachments";
 import { getPendingOpsForResource } from "../db/pendingOperations";
+
+describe("IMAP UID checkpoint safety", () => {
+  it("stops before the first UID omitted by a partial fetch", () => {
+    expect(calculateSafeImapCheckpoint(100, [103, 102, 101], [101, 103])).toBe(101);
+  });
+
+  it("advances across non-contiguous UIDs returned by SEARCH", () => {
+    expect(calculateSafeImapCheckpoint(100, [101, 105, 109], [109, 101, 105])).toBe(109);
+  });
+
+  it("rewinds a stored cursor that is ahead of local messages", () => {
+    expect(reconcileImapCheckpoint(77677, 77661)).toBe(77661);
+  });
+
+  it("rewinds a stored cursor when the local folder is empty", () => {
+    expect(reconcileImapCheckpoint(2351, 0)).toBe(1851);
+  });
+});
+
+describe("reconcileThreadFolderLabels", () => {
+  it("removes stale physical labels and restores labels from stored folders", async () => {
+    const execute = vi.fn();
+    vi.mocked(getDb).mockResolvedValueOnce({ execute } as never);
+
+    await reconcileThreadFolderLabels("account-1");
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute.mock.calls[0]?.[0]).toContain("DELETE FROM thread_labels");
+    expect(execute.mock.calls[1]?.[0]).toContain("INSERT OR IGNORE INTO thread_labels");
+    expect(execute.mock.calls[1]?.[1]).toEqual(["account-1"]);
+  });
+});
 
 describe("imapMessageToParsedMessage", () => {
   it("converts basic IMAP message to ParsedMessage format", () => {
@@ -571,14 +615,14 @@ describe("imapInitialSync", () => {
     expect(mockImapFetchMessages.mock.calls[0]?.[2]).toEqual([12, 11, 10]);
   });
 
-  it("wraps chunk DB writes in a transaction", async () => {
+  it("does not nest queued chunk writes inside a transaction", async () => {
     const msg = createMockImapMessage({ uid: 1, message_id: "<m1@test>", date: Math.floor(Date.now() / 1000) });
     setupFolderWithMessages("INBOX", [msg]);
 
     await imapInitialSync("acc-1");
 
-    // withTransaction should be called: once for Phase 2 chunk + once for Phase 4 batch
-    expect(mockWithTransaction).toHaveBeenCalledTimes(2);
+    // Only direct physical-folder reconciliation owns an outer transaction.
+    expect(mockWithTransaction).toHaveBeenCalledTimes(1);
   });
 
   it("continues to next chunk on fetch error", async () => {

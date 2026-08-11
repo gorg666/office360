@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, screen, act } from "@testing-library/react";
+import { render, fireEvent } from "@testing-library/react";
 import { AddressInput } from "./AddressInput";
 
 // Mock the contacts search
 const mockSearchContacts = vi.fn().mockResolvedValue([]);
 vi.mock("@/services/db/contacts", () => ({
-  searchRecipientSuggestions: (...args: unknown[]) => mockSearchContacts(...args),
+  searchContacts: (...args: unknown[]) => mockSearchContacts(...args),
 }));
 
 describe("AddressInput debounce behavior", () => {
@@ -41,10 +41,8 @@ describe("AddressInput debounce behavior", () => {
     fireEvent.change(input, { target: { value: "jo" } });
 
     // Advance past 200ms debounce
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(250);
-    });
-    expect(mockSearchContacts).toHaveBeenCalledWith("jo", 8);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(mockSearchContacts).toHaveBeenCalledWith("jo", 5);
   });
 
   it("should not search when input is too short", async () => {
@@ -56,9 +54,7 @@ describe("AddressInput debounce behavior", () => {
     const input = getByRole("textbox", { name: "To" });
     fireEvent.change(input, { target: { value: "j" } });
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(250);
-    });
+    await vi.advanceTimersByTimeAsync(250);
     expect(mockSearchContacts).not.toHaveBeenCalled();
   });
 
@@ -72,48 +68,17 @@ describe("AddressInput debounce behavior", () => {
 
     // Simulate rapid typing — each keystroke resets the debounce
     fireEvent.change(input, { target: { value: "jo" } });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
+    await vi.advanceTimersByTimeAsync(100);
     fireEvent.change(input, { target: { value: "joh" } });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
+    await vi.advanceTimersByTimeAsync(100);
     fireEvent.change(input, { target: { value: "john" } });
 
     // At this point 200ms haven't passed since the last change
     expect(mockSearchContacts).not.toHaveBeenCalled();
 
     // Now advance past debounce from last keystroke
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(250);
-    });
+    await vi.advanceTimersByTimeAsync(250);
     expect(mockSearchContacts).toHaveBeenCalledTimes(1);
-    expect(mockSearchContacts).toHaveBeenCalledWith("john", 8);
-  });
-
-  it("adds the matched identity email from autocomplete", async () => {
-    mockSearchContacts.mockResolvedValueOnce([
-      {
-        id: "c-1",
-        kind: "contact",
-        label: "Alice Example",
-        address: "alias@example.com",
-        detail: null,
-      },
-    ]);
-    const onChange = vi.fn();
-    const { getByRole } = render(
-      <AddressInput label="To" addresses={[]} onChange={onChange} />,
-    );
-
-    const input = getByRole("textbox", { name: "To" });
-    fireEvent.change(input, { target: { value: "alias" } });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(250);
-    });
-    fireEvent.click(screen.getByText("Alice Example"));
-
-    expect(onChange).toHaveBeenCalledWith(["alias@example.com"]);
+    expect(mockSearchContacts).toHaveBeenCalledWith("john", 5);
   });
 });

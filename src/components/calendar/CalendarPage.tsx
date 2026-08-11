@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAccountStore } from "@/stores/accountStore";
-import { getCalendarEventsInRangeMulti, upsertCalendarEvent, type DbCalendarEvent } from "@/services/db/calendarEvents";
+import { deleteCalendarEventsInRange, getCalendarEventsInRangeMulti, upsertCalendarEvent, type DbCalendarEvent } from "@/services/db/calendarEvents";
 import { getVisibleCalendars, getCalendarsForAccount, upsertCalendar, type DbCalendar } from "@/services/db/calendars";
 import { getCalendarProvider, hasCalendarSupport } from "@/services/calendar/providerFactory";
 import type { CalendarEventData, CreateEventInput } from "@/services/calendar/types";
@@ -8,7 +8,7 @@ import { CalendarToolbar, type CalendarView } from "./CalendarToolbar";
 import { MonthView } from "./MonthView";
 import { WeekView } from "./WeekView";
 import { DayView } from "./DayView";
-import { EventCreateModal } from "./EventCreateModal";
+import { EventCreateModal, type EventCreateInput } from "./EventCreateModal";
 import { EventDetailModal } from "./EventDetailModal";
 import { CalendarList } from "./CalendarList";
 import { CalendarReauthBanner } from "./CalendarReauthBanner";
@@ -23,7 +23,9 @@ export function CalendarPage() {
   const [calendars, setCalendars] = useState<DbCalendar[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [createInitialValues, setCreateInitialValues] = useState<Partial<EventCreateInput> | undefined>();
   const [selectedEvent, setSelectedEvent] = useState<DbCalendarEvent | null>(null);
+  const [eventAnchor, setEventAnchor] = useState<{ x: number; y: number } | null>(null);
   const [needsReauth, setNeedsReauth] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [showCalendarList, setShowCalendarList] = useState(false);
@@ -126,6 +128,8 @@ export function CalendarPage() {
           end.toISOString(),
         );
 
+        await deleteCalendarEventsInRange(activeAccountId, cal.id, startTs, endTs);
+
         for (const event of apiEvents) {
           await upsertCalendarEventFromProvider(activeAccountId, cal.id, event);
         }
@@ -200,14 +204,7 @@ export function CalendarPage() {
     setCurrentDate(new Date());
   }, []);
 
-  const handleCreateEvent = useCallback(async (eventData: {
-    summary: string;
-    description: string;
-    location: string;
-    startTime: string;
-    endTime: string;
-    calendarId?: string;
-  }) => {
+  const handleCreateEvent = useCallback(async (eventData: EventCreateInput) => {
     if (!activeAccountId) return;
     try {
       const provider = await getCalendarProvider(activeAccountId);
@@ -262,6 +259,7 @@ export function CalendarPage() {
         location: eventData.location || undefined,
         startTime: eventData.startTime,
         endTime: eventData.endTime,
+        attendees: eventData.attendees.map((email) => ({ email })),
       };
 
       const created = await provider.createEvent(calendarRemoteId, input);
@@ -270,6 +268,7 @@ export function CalendarPage() {
       await upsertCalendarEventFromProvider(activeAccountId, calendarDbId ?? null, created);
 
       setShowCreate(false);
+      setCreateInitialValues(undefined);
       loadEvents();
     } catch (err) {
       console.error("Failed to create event:", err);
@@ -277,14 +276,38 @@ export function CalendarPage() {
     }
   }, [activeAccountId, calendars, loadEvents]);
 
-  const handleEventClick = useCallback((event: DbCalendarEvent) => {
+  const handleEventClick = useCallback((event: DbCalendarEvent, anchor: { x: number; y: number }) => {
     setSelectedEvent(event);
+    setEventAnchor(anchor);
   }, []);
 
   const handleEventUpdated = useCallback(() => {
     setSelectedEvent(null);
     loadEvents();
   }, [loadEvents]);
+
+  useEffect(() => {
+    const rawDraft = sessionStorage.getItem("office360_calendar_create_draft");
+    if (!rawDraft) return;
+    sessionStorage.removeItem("office360_calendar_create_draft");
+    try {
+      setCreateInitialValues(JSON.parse(rawDraft) as Partial<EventCreateInput>);
+      setShowCreate(true);
+    } catch {
+      setCreateInitialValues(undefined);
+    }
+  }, []);
+
+  useEffect(() => {
+    const requestedId = sessionStorage.getItem("office360_calendar_open_event_id");
+    if (!requestedId || events.length === 0) return;
+    const requestedEvent = events.find((event) => event.id === requestedId);
+    if (!requestedEvent) return;
+    sessionStorage.removeItem("office360_calendar_open_event_id");
+    setCurrentDate(new Date(requestedEvent.start_time * 1000));
+    setSelectedEvent(requestedEvent);
+    setEventAnchor({ x: Math.round(window.innerWidth * 0.55), y: Math.round(window.innerHeight * 0.45) });
+  }, [events]);
 
   if (!activeAccountId) {
     return (
@@ -314,7 +337,7 @@ export function CalendarPage() {
         onNext={handleNext}
         onToday={handleToday}
         onViewChange={setView}
-        onCreateEvent={() => setShowCreate(true)}
+        onCreateEvent={() => { setCreateInitialValues(undefined); setShowCreate(true); }}
         onToggleCalendarList={() => setShowCalendarList((v) => !v)}
         showCalendarListButton={calendars.length > 1}
       />
@@ -397,7 +420,8 @@ export function CalendarPage() {
       {showCreate && (
         <EventCreateModal
           calendars={calendars}
-          onClose={() => setShowCreate(false)}
+          initialValues={createInitialValues}
+          onClose={() => { setShowCreate(false); setCreateInitialValues(undefined); }}
           onCreate={handleCreateEvent}
         />
       )}
@@ -407,6 +431,7 @@ export function CalendarPage() {
           event={selectedEvent}
           calendars={calendars}
           accountId={activeAccountId}
+          anchor={eventAnchor}
           onClose={() => setSelectedEvent(null)}
           onUpdated={handleEventUpdated}
         />
@@ -422,7 +447,7 @@ async function upsertCalendarEventFromProvider(
 ): Promise<void> {
   await upsertCalendarEvent({
     accountId,
-    googleEventId: event.remoteEventId,
+    googleEventId: event.instanceId ?? event.remoteEventId,
     summary: event.summary,
     description: event.description,
     location: event.location,

@@ -1,5 +1,7 @@
 # Office360 Wiki
 
+- [Яндекс-сервисы и встроенный CEF](yandex-services-and-cef.md)
+
 Эта wiki - living project memory для Office360.
 
 Обновляй её, когда изменение затрагивает system behavior, architecture, provider rules, user-visible workflows, deployment или smoke checks.

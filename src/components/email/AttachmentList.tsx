@@ -5,10 +5,20 @@ import { getAttachmentsForMessage, type DbAttachment } from "@/services/db/attac
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { Modal } from "@/components/ui/Modal";
 import { Download, Eye } from "lucide-react";
-import { formatFileSize, isImage, isPdf, isText, canPreview, getFileIcon } from "@/utils/fileTypeHelpers";
+import {
+  formatFileSize,
+  isImage,
+  isPdf,
+  isSafeRasterImagePreview,
+  isText,
+  canPreview,
+  getFileIcon,
+} from "@/utils/fileTypeHelpers";
 import { base64UrlToUint8Array, uint8ArrayToBase64DataUrl } from "@/utils/base64url";
-import { SecurityWarningBanner } from "./SecurityWarningBanner";
-import { createUnsafeAttachmentWarning, isRiskyAttachment } from "@/services/security/securityWarnings";
+import {
+  attachmentPreviewCacheKey,
+  getOrCreateAttachmentPreviewLoad,
+} from "@/utils/attachmentPreviewCache";
 
 /** Dedup attachments by filename+size (content-based) */
 function dedup(attachments: DbAttachment[]): DbAttachment[] {
@@ -30,35 +40,14 @@ interface AttachmentListProps {
 
 export function AttachmentList({ accountId, messageId, attachments, referencedCids }: AttachmentListProps) {
   const [preview, setPreview] = useState<DbAttachment | null>(null);
-  const [riskPrompt, setRiskPrompt] = useState<DbAttachment | null>(null);
-  const [confirmedRiskIds, setConfirmedRiskIds] = useState<Set<string>>(() => new Set());
 
-  // Filter out CID images rendered in the email body and true inline parts, then dedup
   const fileAttachments = dedup(attachments.filter((a) => {
-    // Skip attachments whose CID is referenced in the email body (already rendered inline)
     if (a.content_id && getContentIdKeys(a.content_id).some((key) => referencedCids?.has(key))) return false;
-    // True inline: marked inline with no filename
     if (a.is_inline && !a.filename) return false;
     return true;
   }));
 
   if (fileAttachments.length === 0) return null;
-
-  const handleAttachmentClick = (attachment: DbAttachment) => {
-    if (isRiskyAttachment(attachment.filename, attachment.mime_type) && !confirmedRiskIds.has(attachment.id)) {
-      setRiskPrompt(attachment);
-      return;
-    }
-    setPreview(attachment);
-  };
-
-  const handleConfirmRisk = () => {
-    if (!riskPrompt) return;
-    const attachment = riskPrompt;
-    setConfirmedRiskIds((current) => new Set(current).add(attachment.id));
-    setRiskPrompt(null);
-    setPreview(attachment);
-  };
 
   return (
     <>
@@ -67,23 +56,51 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
           {fileAttachments.length} attachment{fileAttachments.length !== 1 ? "s" : ""}
         </div>
         <div className="flex flex-wrap gap-2">
-          {fileAttachments.map((att) => (
-            <button
-              key={att.id}
-              onClick={() => handleAttachmentClick(att)}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border border-border-primary hover:bg-bg-hover transition-colors"
-            >
-              <span className="text-text-tertiary">{getFileIcon(att.mime_type, att.filename)}</span>
-              <span className="text-text-secondary truncate max-w-[200px]">
-                {att.filename ?? "Unnamed"}
-              </span>
-              {att.size != null && (
-                <span className="text-text-tertiary whitespace-nowrap">
-                  {formatFileSize(att.size)}
-                </span>
-              )}
-            </button>
-          ))}
+          {fileAttachments.map((att) => {
+            const showThumb = isSafeRasterImagePreview(att.mime_type, att.filename);
+            return (
+              <div
+                key={att.id}
+                className="flex items-stretch gap-0 rounded-md border border-border-primary overflow-hidden hover:bg-bg-hover transition-colors"
+              >
+                <button
+                  type="button"
+                  onClick={() => setPreview(att)}
+                  className="flex items-center gap-2 px-2 py-1.5 text-xs min-w-0 text-left"
+                >
+                  {showThumb ? (
+                    <AttachmentImageThumb
+                      accountId={accountId}
+                      messageId={messageId}
+                      attachment={att}
+                    />
+                  ) : (
+                    <span className="text-text-tertiary shrink-0">
+                      {getFileIcon(att.mime_type, att.filename)}
+                    </span>
+                  )}
+                  <span className="min-w-0">
+                    <span className="block text-text-secondary truncate max-w-[160px]">
+                      {att.filename ?? "Unnamed"}
+                    </span>
+                    {att.size != null && (
+                      <span className="block text-text-tertiary whitespace-nowrap">
+                        {formatFileSize(att.size)}
+                      </span>
+                    )}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  title="Download"
+                  className="px-2 border-l border-border-primary text-text-tertiary hover:text-text-primary"
+                  onClick={() => setPreview(att)}
+                >
+                  <Download size={13} />
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -92,22 +109,90 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
           attachment={preview}
           accountId={accountId}
           messageId={messageId}
-          riskConfirmed={confirmedRiskIds.has(preview.id)}
           onClose={() => setPreview(null)}
         />
       )}
-
-      {riskPrompt && (
-        <RiskyAttachmentDialog
-          attachment={riskPrompt}
-          accountId={accountId}
-          messageId={messageId}
-          actionLabel="Preview attachment"
-          onCancel={() => setRiskPrompt(null)}
-          onConfirm={handleConfirmRisk}
-        />
-      )}
     </>
+  );
+}
+
+function AttachmentImageThumb({
+  accountId,
+  messageId,
+  attachment,
+}: {
+  accountId: string;
+  messageId: string;
+  attachment: DbAttachment;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!attachment.gmail_attachment_id) {
+      setLoading(false);
+      setFailed(true);
+      return;
+    }
+
+    const key = attachmentPreviewCacheKey(accountId, messageId, attachment.id);
+    setLoading(true);
+    setFailed(false);
+
+    void getOrCreateAttachmentPreviewLoad(key, async () => {
+      const provider = await getEmailProvider(accountId);
+      const response = await provider.fetchAttachment(
+        messageId,
+        attachment.gmail_attachment_id!,
+      );
+      const raw = String(response.data ?? "").replace(/\s/g, "");
+      if (!raw) throw new Error("Empty attachment payload");
+      const bytes = base64UrlToUint8Array(raw);
+      if (bytes.byteLength > 4 * 1024 * 1024) {
+        throw new Error("Attachment too large for inline thumbnail");
+      }
+      return uint8ArrayToBase64DataUrl(getEffectiveImageMimeType(attachment), bytes);
+    })
+      .then((dataUrl) => {
+        if (!cancelled) {
+          setUrl(dataUrl);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFailed(true);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, messageId, attachment]);
+
+  if (loading) {
+    return <span className="w-10 h-10 rounded bg-bg-tertiary animate-pulse shrink-0" aria-hidden />;
+  }
+
+  if (failed || !url) {
+    return (
+      <span className="w-10 h-10 rounded bg-bg-tertiary flex items-center justify-center text-text-tertiary shrink-0">
+        {getFileIcon(attachment.mime_type, attachment.filename)}
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={url}
+      alt=""
+      className="w-10 h-10 rounded object-cover shrink-0 bg-bg-tertiary"
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
   );
 }
 
@@ -115,21 +200,17 @@ export function AttachmentPreview({
   attachment,
   accountId,
   messageId,
-  riskConfirmed = false,
   onClose,
 }: {
   attachment: DbAttachment;
   accountId: string;
   messageId: string;
-  riskConfirmed?: boolean;
   onClose: () => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [downloadRiskPrompt, setDownloadRiskPrompt] = useState(false);
-  const [downloadRiskConfirmed, setDownloadRiskConfirmed] = useState(riskConfirmed);
   const bytesRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
   const isPreviewable = canPreview(attachment.mime_type, attachment.filename);
@@ -152,6 +233,16 @@ export function AttachmentPreview({
 
     setLoading(true);
     try {
+      if (isSafeRasterImagePreview(attachment.mime_type, attachment.filename)) {
+        const key = attachmentPreviewCacheKey(accountId, messageId, attachment.id);
+        const dataUrl = await getOrCreateAttachmentPreviewLoad(key, async () => {
+          const bytes = await fetchData();
+          return uint8ArrayToBase64DataUrl(getEffectiveImageMimeType(attachment), bytes);
+        });
+        setPreviewUrl(dataUrl);
+        return;
+      }
+
       const bytes = await fetchData();
       const effectiveMime = isPdf(attachment.mime_type, attachment.filename)
         ? "application/pdf"
@@ -159,7 +250,6 @@ export function AttachmentPreview({
           ? getEffectiveImageMimeType(attachment)
           : (attachment.mime_type ?? "application/octet-stream");
 
-      // data: URLs work reliably for raster images in the WebView; blob: can be blocked by CSP.
       if (isImage(attachment.mime_type, attachment.filename)) {
         setPreviewUrl(uint8ArrayToBase64DataUrl(effectiveMime, bytes));
         return;
@@ -177,16 +267,15 @@ export function AttachmentPreview({
     } finally {
       setLoading(false);
     }
-  }, [attachment, isPreviewable, previewUrl, fetchData]);
+  }, [attachment, isPreviewable, previewUrl, fetchData, accountId, messageId]);
 
-  // Trigger preview load for previewable types
   useEffect(() => {
     if (isPreviewable && !previewUrl && !loading && !error) {
       handlePreviewLoad();
     }
   }, [isPreviewable, previewUrl, loading, error, handlePreviewLoad]);
 
-  const saveAttachment = async () => {
+  const handleDownload = async () => {
     if (!attachment.gmail_attachment_id || saving) return;
 
     setSaving(true);
@@ -208,14 +297,6 @@ export function AttachmentPreview({
     } finally {
       setSaving(false);
     }
-  };
-
-  const handleDownload = async () => {
-    if (isRiskyAttachment(attachment.filename, attachment.mime_type) && !downloadRiskConfirmed) {
-      setDownloadRiskPrompt(true);
-      return;
-    }
-    await saveAttachment();
   };
 
   const handleClose = () => {
@@ -264,14 +345,9 @@ export function AttachmentPreview({
       panelClassName="max-w-[90vw] max-h-[85vh] flex flex-col"
       renderHeader={header}
     >
-      {/* Allow native right-click in preview (save image, copy, etc.) */}
       <div className="flex-1 overflow-auto min-h-[200px] flex items-center justify-center p-4" data-native-context-menu>
-        {loading && (
-          <p className="text-sm text-text-tertiary">Loading preview...</p>
-        )}
-        {error && (
-          <p className="text-sm text-text-tertiary">{error}</p>
-        )}
+        {loading && <p className="text-sm text-text-tertiary">Loading preview...</p>}
+        {error && <p className="text-sm text-text-tertiary">{error}</p>}
         {!loading && !error && previewUrl && isImage(attachment.mime_type, attachment.filename) && (
           <img
             src={previewUrl}
@@ -297,73 +373,39 @@ export function AttachmentPreview({
           </div>
         )}
       </div>
-      {downloadRiskPrompt && (
-        <RiskyAttachmentDialog
-          attachment={attachment}
-          accountId={accountId}
-          messageId={messageId}
-          actionLabel="Download attachment"
-          onCancel={() => setDownloadRiskPrompt(false)}
-          onConfirm={() => {
-            setDownloadRiskConfirmed(true);
-            setDownloadRiskPrompt(false);
-            void saveAttachment();
-          }}
-        />
-      )}
     </Modal>
   );
 }
 
-function RiskyAttachmentDialog({
-  attachment,
-  accountId,
-  messageId,
-  actionLabel,
-  onCancel,
-  onConfirm,
-}: {
-  attachment: DbAttachment;
-  accountId: string;
-  messageId: string;
-  actionLabel: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const warning = createUnsafeAttachmentWarning({
-    accountId,
-    messageId,
-    filename: attachment.filename,
-    mimeType: attachment.mime_type,
-  });
+export { getAttachmentsForMessage };
 
-  return (
-    <Modal
-      isOpen={true}
-      onClose={onCancel}
-      title="Risky attachment"
-      width="w-full max-w-md mx-4"
-      zIndex="z-[210]"
-    >
-      <div className="space-y-3 p-4">
-        <SecurityWarningBanner warning={warning} />
-        <div className="flex justify-end gap-2 border-t border-border-primary pt-3">
-          <button
-            onClick={onCancel}
-            className="rounded-md border border-border-primary bg-bg-tertiary px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="rounded-md bg-danger px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-danger/90"
-          >
-            {actionLabel}
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
+function normalizeContentId(value: string | null | undefined): string | null {
+  if (!value) return null;
+  let normalized = value.trim().replace(/^cid:/i, "").replace(/[<>]/g, "");
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch {
+    // Keep original when it is not URL encoded.
+  }
+  return normalized.toLowerCase();
+}
+
+function getContentIdKeys(value: string | null | undefined): string[] {
+  const normalized = normalizeContentId(value);
+  if (!normalized) return [];
+  const withoutDomain = normalized.split("@")[0] ?? normalized;
+  return [...new Set([normalized, withoutDomain])];
+}
+
+function getEffectiveImageMimeType(attachment: DbAttachment): string {
+  if (attachment.mime_type?.startsWith("image/")) return attachment.mime_type;
+  const filename = attachment.filename?.toLowerCase() ?? "";
+  if (filename.endsWith(".png")) return "image/png";
+  if (filename.endsWith(".gif")) return "image/gif";
+  if (filename.endsWith(".webp")) return "image/webp";
+  if (filename.endsWith(".svg")) return "image/svg+xml";
+  if (filename.endsWith(".bmp")) return "image/bmp";
+  return "image/jpeg";
 }
 
 function TextPreview({ url }: { url: string }) {
@@ -400,35 +442,4 @@ function TextPreview({ url }: { url: string }) {
       {text ?? "Loading..."}
     </pre>
   );
-}
-
-export { getAttachmentsForMessage };
-
-function normalizeContentId(value: string | null | undefined): string | null {
-  if (!value) return null;
-  let normalized = value.trim().replace(/^cid:/i, "").replace(/[<>]/g, "");
-  try {
-    normalized = decodeURIComponent(normalized);
-  } catch {
-    // Keep original when it is not URL encoded.
-  }
-  return normalized.toLowerCase();
-}
-
-function getContentIdKeys(value: string | null | undefined): string[] {
-  const normalized = normalizeContentId(value);
-  if (!normalized) return [];
-  const withoutDomain = normalized.split("@")[0] ?? normalized;
-  return [...new Set([normalized, withoutDomain])];
-}
-
-function getEffectiveImageMimeType(attachment: DbAttachment): string {
-  if (attachment.mime_type?.startsWith("image/")) return attachment.mime_type;
-  const filename = attachment.filename?.toLowerCase() ?? "";
-  if (filename.endsWith(".png")) return "image/png";
-  if (filename.endsWith(".gif")) return "image/gif";
-  if (filename.endsWith(".webp")) return "image/webp";
-  if (filename.endsWith(".svg")) return "image/svg+xml";
-  if (filename.endsWith(".bmp")) return "image/bmp";
-  return "image/jpeg";
 }

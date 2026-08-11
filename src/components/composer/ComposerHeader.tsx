@@ -1,4 +1,5 @@
-import { Maximize2, Minimize2, ExternalLink } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Maximize2, Minimize2, ExternalLink, Minus, Square, Copy, X } from "lucide-react";
 import { isComposeStandaloneWindow } from "@/utils/openComposeWindow";
 
 interface ComposerHeaderProps {
@@ -7,6 +8,7 @@ interface ComposerHeaderProps {
   onToggleViewMode: () => void;
   onPopOut: () => void;
   onCloseEmbedded: () => void;
+  onCloseStandalone: () => void;
 }
 
 export function ComposerHeader({
@@ -15,8 +17,48 @@ export function ComposerHeader({
   onToggleViewMode,
   onPopOut,
   onCloseEmbedded,
+  onCloseStandalone,
 }: ComposerHeaderProps) {
   const isStandalone = isComposeStandaloneWindow();
+  const [windowMaximized, setWindowMaximized] = useState(false);
+
+  useEffect(() => {
+    if (!isStandalone) return;
+
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const appWindow = getCurrentWindow();
+        if (cancelled) return;
+        setWindowMaximized(await appWindow.isMaximized());
+        unlisten = await appWindow.onResized(() => {
+          appWindow.isMaximized().then(setWindowMaximized);
+        });
+      } catch {
+        // Browser preview — no Tauri window API
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [isStandalone]);
+
+  const handleMinimizeWindow = useCallback(() => {
+    void import("@tauri-apps/api/window")
+      .then(({ getCurrentWindow }) => getCurrentWindow().minimize())
+      .catch(() => {});
+  }, []);
+
+  const handleToggleMaximizeWindow = useCallback(() => {
+    void import("@tauri-apps/api/window")
+      .then(({ getCurrentWindow }) => getCurrentWindow().toggleMaximize())
+      .catch(() => {});
+  }, []);
 
   return (
     <div
@@ -24,11 +66,45 @@ export function ComposerHeader({
         isStandalone ? "rounded-none" : "rounded-t-lg"
       }`}
     >
+      {isStandalone ? (
+        <div
+          data-tauri-drag-region
+          className="absolute inset-0 z-0"
+          aria-hidden="true"
+        />
+      ) : null}
       <span className="relative z-10 text-sm font-medium text-text-primary pointer-events-none">
         {modeLabel}
       </span>
       <div className="relative z-10 flex items-center gap-1">
-        {!isStandalone ? (
+        {isStandalone ? (
+          <>
+            <button
+              type="button"
+              onClick={handleMinimizeWindow}
+              className="flex items-center justify-center rounded p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+              title="Свернуть"
+            >
+              <Minus size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={handleToggleMaximizeWindow}
+              className="flex items-center justify-center rounded p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+              title={windowMaximized ? "Восстановить" : "Развернуть"}
+            >
+              {windowMaximized ? <Copy size={12} /> : <Square size={12} />}
+            </button>
+            <button
+              type="button"
+              onClick={onCloseStandalone}
+              className="flex items-center justify-center rounded p-1.5 text-text-tertiary transition-colors hover:bg-danger hover:text-white"
+              title="Закрыть"
+            >
+              <X size={14} />
+            </button>
+          </>
+        ) : (
           <>
             <button
               type="button"
@@ -55,7 +131,7 @@ export function ComposerHeader({
               ×
             </button>
           </>
-        ) : null}
+        )}
       </div>
     </div>
   );

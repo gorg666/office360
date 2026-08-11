@@ -8,7 +8,6 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
-import { getCapabilitiesForAccountProvider, getUnsupportedReason } from "@/services/email/providerCapabilities";
 import { useActiveLabel, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToLabel } from "@/router/navigate";
 import { openNewCompose } from "@/utils/openComposeWindow";
@@ -29,6 +28,7 @@ import {
   Tag,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   HelpCircle,
   PanelLeftClose,
   PanelLeftOpen,
@@ -43,11 +43,24 @@ import {
   FolderSearch,
   Loader2,
   MessageCircle,
-  ListChecks,
-  AlertTriangle,
+  Folder,
+  HardDrive,
+  Video,
+  ListTodo,
   type LucideIcon,
 } from "lucide-react";
+import {
+  buildFolderTree,
+  flattenFolderTree,
+  partitionUserFolders,
+} from "@/services/imap/folderTree";
+import { getSetting, setSetting } from "@/services/db/settings";
+import { getOutboxSendCount } from "@/services/db/pendingOperations";
 import { useTaskStore } from "@/stores/taskStore";
+import {
+  FOLDER_EDITING_UNSUPPORTED_MESSAGE,
+  supportsFolderEditing,
+} from "@/services/email/providerCapabilities";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -58,7 +71,7 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = 
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "starred", label: "Starred", icon: Star },
   { id: "snoozed", label: "Snoozed", icon: Clock },
-  { id: "outbox", label: "Исходящие", icon: SendHorizontal },
+  { id: "outbox", label: "Outbox", icon: SendHorizontal },
   { id: "sent", label: "Sent", icon: Send },
   { id: "drafts", label: "Drafts", icon: FileEdit },
   { id: "trash", label: "Trash", icon: Trash2 },
@@ -67,8 +80,10 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = 
   { id: "messengers", label: "Мессенджеры", icon: MessageCircle },
   { id: "tasks", label: "Tasks", icon: CheckSquare },
   { id: "calendar", label: "Calendar", icon: Calendar },
-  { id: "contacts", label: "Contacts", icon: Users },
   { id: "attachments", label: "Attachments", icon: Paperclip },
+  { id: "disk", label: "Диск", icon: HardDrive },
+  { id: "telemost", label: "Телемост", icon: Video },
+  { id: "tracker", label: "Трекер", icon: ListTodo },
   { id: "smart-folders", label: "Smart Folders", icon: FolderSearch },
   { id: "labels", label: "Labels", icon: Tag },
 ];
@@ -128,8 +143,11 @@ function DroppableLabelItem({
   onClick,
   onContextMenu,
   onEditClick,
-  canEdit,
-  editDisabledReason,
+  canEditFolders,
+  depth = 0,
+  hasChildren = false,
+  expanded = false,
+  onToggleExpand,
 }: {
   label: Label;
   isActive: boolean;
@@ -137,11 +155,15 @@ function DroppableLabelItem({
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onEditClick: () => void;
-  canEdit: boolean;
-  editDisabledReason?: string;
+  canEditFolders: boolean;
+  depth?: number;
+  hasChildren?: boolean;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: label.id });
   const initial = (label.name[0] ?? "?").toUpperCase();
+  const padLeft = collapsed ? undefined : 12 + depth * 12;
 
   return (
     <button
@@ -149,8 +171,9 @@ function DroppableLabelItem({
       onClick={onClick}
       onContextMenu={onContextMenu}
       title={collapsed ? label.name : undefined}
+      style={padLeft != null ? { paddingLeft: padLeft } : undefined}
       className={`group flex items-center w-full py-2 text-sm transition-colors ${
-        collapsed ? "justify-center px-0" : "gap-3 px-3 text-left"
+        collapsed ? "justify-center px-0" : "gap-2 pr-3 text-left"
       } ${
         isOver
           ? "bg-accent/20 ring-1 ring-accent"
@@ -170,43 +193,58 @@ function DroppableLabelItem({
           {label.colorBg ? (
             initial
           ) : (
-            <Tag size={14} />
+            <Folder size={14} />
           )}
         </span>
       ) : (
         <>
+          {hasChildren ? (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleExpand?.();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggleExpand?.();
+                }
+              }}
+              className="p-0.5 text-sidebar-text/50 hover:text-sidebar-text shrink-0"
+              title={expanded ? "Collapse" : "Expand"}
+            >
+              <ChevronRight
+                size={12}
+                className={`transition-transform ${expanded ? "rotate-90" : ""}`}
+              />
+            </span>
+          ) : (
+            <span className="w-4 shrink-0" />
+          )}
           {label.colorBg ? (
             <span
               className="w-3 h-3 rounded-full shrink-0"
               style={{ backgroundColor: label.colorBg }}
             />
           ) : (
-            <Tag size={14} className="shrink-0" />
+            <Folder size={14} className="shrink-0" />
           )}
           <span className="flex-1 truncate">{label.name}</span>
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (canEdit) onEditClick();
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                e.stopPropagation();
-                if (canEdit) onEditClick();
-              }
-            }}
-            className={`opacity-0 group-hover:opacity-100 p-0.5 transition-opacity ${
-              canEdit
-                ? "text-sidebar-text/40 hover:text-sidebar-text"
-                : "text-sidebar-text/25 cursor-not-allowed"
-            }`}
-            title={canEdit ? "Edit label" : editDisabledReason}
-          >
-            <Pencil size={12} />
-          </span>
+          {canEditFolders && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => { e.stopPropagation(); onEditClick(); }}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onEditClick(); } }}
+              className="opacity-0 group-hover:opacity-100 p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-opacity"
+              title="Edit label"
+            >
+              <Pencil size={12} />
+            </span>
+          )}
         </>
       )}
     </button>
@@ -229,7 +267,9 @@ function getSmartFolderIcon(iconName: string): LucideIcon {
 }
 
 const LABELS_COLLAPSED_COUNT = 3;
-const SERVICE_NAV_IDS = new Set(["messengers", "tasks", "calendar", "contacts", "attachments"]);
+const SERVICE_NAV_IDS = new Set([
+  "messengers", "tasks", "calendar", "attachments", "disk", "telemost", "tracker",
+]);
 
 export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const activeLabel = useActiveLabel();
@@ -245,7 +285,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     void openNewCompose();
   }, []);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
-  const accounts = useAccountStore((s) => s.accounts);
+  const activeAccount = useAccountStore((s) =>
+    s.accounts.find((account) => account.id === s.activeAccountId),
+  );
+  const canEditFolders = supportsFolderEditing(activeAccount?.provider);
   const labels = useLabelStore((s) => s.labels);
   const loadLabels = useLabelStore((s) => s.loadLabels);
   const deleteLabel = useLabelStore((s) => s.deleteLabel);
@@ -255,19 +298,6 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const refreshSmartFolderCounts = useSmartFolderStore((s) => s.refreshUnreadCounts);
   const createSmartFolder = useSmartFolderStore((s) => s.createFolder);
   const SECTION_IDS = new Set(["smart-folders", "labels"]);
-  const activeAccount = useMemo(
-    () => accounts.find((account) => account.id === activeAccountId),
-    [accounts, activeAccountId],
-  );
-  const capabilities = useMemo(
-    () => getCapabilitiesForAccountProvider(activeAccount?.provider),
-    [activeAccount?.provider],
-  );
-  const canCreateLabel = capabilities.labels.create.supported;
-  const canRenameLabel = capabilities.labels.rename.supported;
-  const canShowLabelSection = capabilities.labels.native.supported;
-  const labelCreateDisabledReason = getUnsupportedReason(capabilities.labels.create) ?? undefined;
-  const labelRenameDisabledReason = getUnsupportedReason(capabilities.labels.rename) ?? undefined;
 
   const { visibleNavItems, showSmartFolders, showLabels } = useMemo(() => {
     if (!sidebarNavConfig) {
@@ -295,6 +325,101 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, [sidebarNavConfig]);
 
   const [labelsExpanded, setLabelsExpanded] = useState(false);
+  const [outboxSendCount, setOutboxSendCount] = useState(0);
+  const [folderExpandedKeys, setFolderExpandedKeys] = useState<Set<string>>(() => new Set());
+  const [inboxChildrenExpanded, setInboxChildrenExpanded] = useState(true);
+
+  const { underInboxLabels, otherFolderLabels, tagLabels } = useMemo(() => {
+    const { underInbox, other } = partitionUserFolders(labels);
+    const accountIds = new Set(
+      labels
+        .filter((l) => !!l.imapFolderPath || l.id.startsWith("folder-"))
+        .map((l) => l.id),
+    );
+    const tags = labels.filter((l) => !accountIds.has(l.id));
+    return {
+      underInboxLabels: underInbox,
+      otherFolderLabels: other,
+      tagLabels: tags,
+    };
+  }, [labels]);
+
+  const underInboxFlat = useMemo(() => {
+    const tree = buildFolderTree(underInboxLabels);
+    return flattenFolderTree(tree, folderExpandedKeys);
+  }, [underInboxLabels, folderExpandedKeys]);
+
+  const otherFoldersFlat = useMemo(() => {
+    const tree = buildFolderTree(otherFolderLabels);
+    return flattenFolderTree(tree, folderExpandedKeys);
+  }, [otherFolderLabels, folderExpandedKeys]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const raw = await getSetting("mail.folderTree.expanded");
+        if (cancelled || !raw) return;
+        const parsed = JSON.parse(raw) as { keys?: string[]; inboxChildren?: boolean };
+        if (Array.isArray(parsed.keys)) {
+          setFolderExpandedKeys(new Set(parsed.keys));
+        }
+        if (typeof parsed.inboxChildren === "boolean") {
+          setInboxChildrenExpanded(parsed.inboxChildren);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAccountId]);
+
+  const persistFolderExpanded = useCallback(
+    (keys: Set<string>, inboxChildren: boolean) => {
+      void setSetting(
+        "mail.folderTree.expanded",
+        JSON.stringify({ keys: [...keys], inboxChildren }),
+      );
+    },
+    [],
+  );
+
+  const toggleFolderExpanded = useCallback(
+    (pathKey: string) => {
+      setFolderExpandedKeys((prev) => {
+        const next = new Set(prev);
+        if (next.has(pathKey)) next.delete(pathKey);
+        else next.add(pathKey);
+        persistFolderExpanded(next, inboxChildrenExpanded);
+        return next;
+      });
+    },
+    [inboxChildrenExpanded, persistFolderExpanded],
+  );
+
+  const refreshOutboxCount = useCallback(async () => {
+    if (!activeAccountId) {
+      setOutboxSendCount(0);
+      return;
+    }
+    setOutboxSendCount(await getOutboxSendCount(activeAccountId));
+  }, [activeAccountId]);
+
+  useEffect(() => {
+    void refreshOutboxCount();
+  }, [refreshOutboxCount]);
+
+  useEffect(() => {
+    const handler = () => void refreshOutboxCount();
+    window.addEventListener("velo-outbox-changed", handler);
+    window.addEventListener("online", handler);
+    return () => {
+      window.removeEventListener("velo-outbox-changed", handler);
+      window.removeEventListener("online", handler);
+    };
+  }, [refreshOutboxCount]);
 
   // Inline label editing state
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
@@ -344,14 +469,14 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, [activeAccountId, loadLabels, refreshSmartFolderCounts]);
 
   const handleDeleteLabel = useCallback(async (labelId: string) => {
-    if (!activeAccountId) return;
+    if (!activeAccountId || !canEditFolders) return;
     try {
       await deleteLabel(activeAccountId, labelId);
       if (editingLabelId === labelId) setEditingLabelId(null);
     } catch {
       // Silently fail in sidebar — user can use Settings for detailed errors
     }
-  }, [activeAccountId, deleteLabel, editingLabelId]);
+  }, [activeAccountId, canEditFolders, deleteLabel, editingLabelId]);
 
   const handleFormDone = useCallback(() => {
     setEditingLabelId(null);
@@ -359,10 +484,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, []);
 
   const handleEditLabel = useCallback((labelId: string) => {
-    if (!canRenameLabel) return;
+    if (!canEditFolders) return;
     setShowNewLabelForm(false);
     setEditingLabelId(labelId);
-  }, [canRenameLabel]);
+  }, [canEditFolders]);
 
   const handleLabelContextMenu = useCallback((e: React.MouseEvent, labelId: string) => {
     e.preventDefault();
@@ -374,10 +499,14 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, [openMenu, handleEditLabel, handleDeleteLabel]);
 
   const handleAddLabel = useCallback(() => {
-    if (!canCreateLabel) return;
+    if (!canEditFolders) return;
     setEditingLabelId(null);
     setShowNewLabelForm(true);
-  }, [canCreateLabel]);
+  }, [canEditFolders]);
+
+  useEffect(() => {
+    if (!canEditFolders) handleFormDone();
+  }, [canEditFolders, handleFormDone]);
 
   const [showSmartFolderModal, setShowSmartFolderModal] = useState(false);
 
@@ -389,7 +518,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
 
   return (
     <aside
-      className={`no-select flex shrink-0 flex-col bg-sidebar-bg text-sidebar-text border-r border-border-primary transition-all duration-200 glass-panel ${
+      className={`no-select flex flex-col bg-sidebar-bg text-sidebar-text border-r border-border-primary transition-all duration-200 glass-panel ${
         collapsed ? "w-16" : "w-60"
       }`}
     >
@@ -472,6 +601,11 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         {taskIncompleteCount}
                       </span>
                     )}
+                    {item.id === "outbox" && outboxSendCount > 0 && !collapsed && (
+                      <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+                        {outboxSendCount}
+                      </span>
+                    )}
                     {isInbox && !collapsed && (
                       <span
                         role="button"
@@ -525,9 +659,82 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                   })}
                 </div>
               )}
+              {isInbox && !collapsed && underInboxLabels.length > 0 && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInboxChildrenExpanded((prev) => {
+                        const next = !prev;
+                        persistFolderExpanded(folderExpandedKeys, next);
+                        return next;
+                      });
+                    }}
+                    className="flex items-center gap-1 w-full px-3 py-1 text-[0.6875rem] text-sidebar-text/50 hover:text-sidebar-text"
+                  >
+                    <ChevronRight
+                      size={12}
+                      className={`transition-transform ${inboxChildrenExpanded ? "rotate-90" : ""}`}
+                    />
+                    <span>Папки аккаунта</span>
+                  </button>
+                  {inboxChildrenExpanded &&
+                    underInboxFlat.map((node) => (
+                      <div key={node.label.id}>
+                        <DroppableLabelItem
+                          label={node.label}
+                          isActive={activeLabel === node.label.id}
+                          collapsed={collapsed}
+                          depth={node.depth + 1}
+                          hasChildren={node.children.length > 0}
+                          expanded={folderExpandedKeys.has(node.pathKey)}
+                          onToggleExpand={() => toggleFolderExpanded(node.pathKey)}
+                          onClick={() => navigateToLabel(node.label.id)}
+                          onContextMenu={(e) => handleLabelContextMenu(e, node.label.id)}
+                          onEditClick={() => handleEditLabel(node.label.id)}
+                          canEditFolders={canEditFolders}
+                        />
+                        {editingLabelId === node.label.id && activeAccountId && (
+                          <LabelForm
+                            accountId={activeAccountId}
+                            label={editingLabel}
+                            onDone={handleFormDone}
+                            variant="sidebar"
+                          />
+                        )}
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           );
         })}
+
+        {/* Other account IMAP folders (not Inbox children, not SPECIAL-USE system) */}
+        {!collapsed && otherFoldersFlat.length > 0 && (
+          <div className="pt-2">
+            {!collapsed && (
+            <div className="px-3 pb-1 text-[0.6875rem] text-sidebar-text/50">Folders</div>
+            )}
+            {otherFoldersFlat.map((node) => (
+              <div key={node.label.id}>
+                <DroppableLabelItem
+                  label={node.label}
+                  isActive={activeLabel === node.label.id}
+                  collapsed={collapsed}
+                  depth={node.depth}
+                  hasChildren={node.children.length > 0}
+                  expanded={folderExpandedKeys.has(node.pathKey)}
+                  onToggleExpand={() => toggleFolderExpanded(node.pathKey)}
+                  onClick={() => navigateToLabel(node.label.id)}
+                  onContextMenu={(e) => handleLabelContextMenu(e, node.label.id)}
+                  onEditClick={() => handleEditLabel(node.label.id)}
+                  canEditFolders={canEditFolders}
+                />
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Smart Folders */}
         {showSmartFolders && (smartFolders.length > 0 || !collapsed) && (
@@ -550,15 +757,11 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
               const Icon = getSmartFolderIcon(folder.icon);
               const isActive = activeLabel === `smart-folder:${folder.id}`;
               const count = smartFolderCounts[folder.id] ?? 0;
-              const hasReferenceIssue = folder.status === "missing_reference";
-              const title = hasReferenceIssue
-                ? `${folder.name}: ${folder.statusReason ?? "Saved view needs attention"}`
-                : folder.name;
               return (
                 <button
                   key={folder.id}
                   onClick={() => navigateToLabel(`smart-folder:${folder.id}`)}
-                  title={collapsed || hasReferenceIssue ? title : undefined}
+                  title={collapsed ? folder.name : undefined}
                   className={`flex items-center w-full py-2 text-sm transition-colors press-scale ${
                     collapsed ? "justify-center px-0" : "gap-3 px-3 text-left"
                   } ${
@@ -575,13 +778,6 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                   {!collapsed && (
                     <>
                       <span className="flex-1 truncate">{folder.name}</span>
-                      {hasReferenceIssue && (
-                        <AlertTriangle
-                          size={13}
-                          className="shrink-0 text-warning"
-                          aria-label={folder.statusReason ?? "Smart folder reference missing"}
-                        />
-                      )}
                       {count > 0 && (
                         <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
                           {count}
@@ -595,8 +791,8 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
           </>
         )}
 
-        {/* User labels */}
-        {showLabels && canShowLabelSection && (labels.length > 0 || (!collapsed && canCreateLabel)) && (
+        {/* User labels (Gmail-style tags only — IMAP folders live under Inbox / Folders) */}
+        {showLabels && (tagLabels.length > 0 || showNewLabelForm) && (
           <>
             {!collapsed && (
               <div className="flex items-center justify-between px-3 pt-4 pb-1">
@@ -605,16 +801,16 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 </span>
                 <button
                   onClick={handleAddLabel}
-                  disabled={!canCreateLabel}
-                  className="p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-colors"
-                  title={canCreateLabel ? "Add label" : labelCreateDisabledReason}
+                  disabled={!canEditFolders}
+                  className="p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-sidebar-text/40"
+                  title={canEditFolders ? "Add label" : FOLDER_EDITING_UNSUPPORTED_MESSAGE}
                 >
                   <Plus size={14} />
                 </button>
               </div>
             )}
             {/* Always-visible labels */}
-            {labels.slice(0, LABELS_COLLAPSED_COUNT).map((label) => (
+            {tagLabels.slice(0, LABELS_COLLAPSED_COUNT).map((label) => (
               <div key={label.id}>
                 <DroppableLabelItem
                   label={label}
@@ -623,8 +819,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                   onClick={() => navigateToLabel(label.id)}
                   onContextMenu={(e) => handleLabelContextMenu(e, label.id)}
                   onEditClick={() => handleEditLabel(label.id)}
-                  canEdit={canRenameLabel}
-                  editDisabledReason={labelRenameDisabledReason}
+                  canEditFolders={canEditFolders}
                 />
                 {editingLabelId === label.id && activeAccountId && !collapsed && (
                   <LabelForm
@@ -637,10 +832,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
               </div>
             ))}
             {/* Collapsible labels with accordion animation */}
-            {labels.length > LABELS_COLLAPSED_COUNT && (
+            {tagLabels.length > LABELS_COLLAPSED_COUNT && (
               <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${labelsExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
                 <div className="overflow-hidden">
-                  {labels.slice(LABELS_COLLAPSED_COUNT).map((label) => (
+                  {tagLabels.slice(LABELS_COLLAPSED_COUNT).map((label) => (
                     <div key={label.id}>
                       <DroppableLabelItem
                         label={label}
@@ -649,8 +844,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         onClick={() => navigateToLabel(label.id)}
                         onContextMenu={(e) => handleLabelContextMenu(e, label.id)}
                         onEditClick={() => handleEditLabel(label.id)}
-                        canEdit={canRenameLabel}
-                        editDisabledReason={labelRenameDisabledReason}
+                        canEditFolders={canEditFolders}
                       />
                       {editingLabelId === label.id && activeAccountId && !collapsed && (
                         <LabelForm
@@ -665,7 +859,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 </div>
               </div>
             )}
-            {!collapsed && labels.length > LABELS_COLLAPSED_COUNT && (
+            {!collapsed && tagLabels.length > LABELS_COLLAPSED_COUNT && (
               <button
                 onClick={() => setLabelsExpanded((v) => !v)}
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-sidebar-text/60 hover:text-sidebar-text transition-colors"
@@ -678,7 +872,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 ) : (
                   <>
                     <ChevronDown size={12} />
-                    <span>{labels.length - LABELS_COLLAPSED_COUNT} more</span>
+                    <span>Show {tagLabels.length - LABELS_COLLAPSED_COUNT} more</span>
                   </>
                 )}
               </button>
@@ -772,25 +966,12 @@ function PendingOpsIndicator({ collapsed }: { collapsed: boolean }) {
     <div className="px-3 py-2 border-t border-border-primary">
       {collapsed ? (
         <div className="flex justify-center">
-          <button
-            type="button"
-            onClick={() => navigateToLabel("queue")}
-            className="bg-accent/20 text-accent text-xs font-medium px-1.5 py-0.5 rounded-full hover:bg-accent/30"
-            title="Queue Inspector"
-          >
-            {pendingOpsCount}
-          </button>
+          <span className="bg-accent/20 text-accent text-xs font-medium px-1.5 py-0.5 rounded-full">{pendingOpsCount}</span>
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={() => navigateToLabel("queue")}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-text-secondary hover:bg-sidebar-hover hover:text-sidebar-text"
-        >
-          <ListChecks size={14} className="shrink-0 text-accent" />
-          <span className="min-w-0 flex-1">Очередь операций</span>
-          <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[0.65rem] font-medium text-accent">{pendingOpsCount}</span>
-        </button>
+        <div className="text-xs text-text-secondary">
+          В очереди операций: {pendingOpsCount}
+        </div>
       )}
     </div>
   );

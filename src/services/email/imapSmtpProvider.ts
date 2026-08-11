@@ -35,6 +35,7 @@ import { getDb } from "../db/connection";
 import { getMessagesForThread, upsertMessage } from "../db/messages";
 import { upsertThread, setThreadLabels, getThreadLabelIds, getThreadById } from "../db/threads";
 import { markSmartFoldersMissingReference, rewriteSmartFolderReference } from "../db/smartFolders";
+import { upsertAttachment } from "../db/attachments";
 
 /**
  * Decode base64url (Gmail/RFC 4648 URL-safe, no padding) to a UTF-8 string.
@@ -110,6 +111,51 @@ function extractSnippet(raw: string, maxLen = 200): string {
     .slice(0, maxLen);
 }
 
+interface LocalMimeAttachment {
+  filename: string;
+  mimeType: string;
+  size: number;
+  contentId: string | null;
+  isInline: boolean;
+}
+
+function decodeMimeParameter(value: string): string {
+  const extended = value.match(/^(?:UTF-8'')?(.+)$/i)?.[1] ?? value;
+  try {
+    return decodeURIComponent(extended.replace(/^"|"$/g, ""));
+  } catch {
+    return decodeMimeWords(extended.replace(/^"|"$/g, "")) ?? extended;
+  }
+}
+
+export function extractLocalMimeAttachments(raw: string): LocalMimeAttachment[] {
+  const rootType = parseBasicHeaders(raw).get("content-type") ?? "";
+  const boundary = rootType.match(/boundary="?([^";\r\n]+)"?/i)?.[1];
+  if (!boundary) return [];
+
+  return raw.split(`--${boundary}`).flatMap((part) => {
+    const splitAt = part.indexOf("\r\n\r\n");
+    if (splitAt < 0) return [];
+    const headers = parseBasicHeaders(part.slice(0, splitAt));
+    const disposition = headers.get("content-disposition") ?? "";
+    const contentType = headers.get("content-type") ?? "application/octet-stream";
+    const filenameRaw = disposition.match(/filename\*?=([^;\r\n]+)/i)?.[1]
+      ?? contentType.match(/name\*?=([^;\r\n]+)/i)?.[1];
+    if (!filenameRaw) return [];
+    const encoded = part.slice(splitAt + 4).replace(/\r\n/g, "").trim();
+    const size = /content-transfer-encoding:\s*base64/i.test(part.slice(0, splitAt))
+      ? Math.max(0, Math.floor((encoded.length * 3) / 4) - (encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0))
+      : new TextEncoder().encode(encoded).length;
+    return [{
+      filename: decodeMimeParameter(filenameRaw.trim()),
+      mimeType: contentType.split(";")[0]!.trim(),
+      size,
+      contentId: headers.get("content-id")?.replace(/[<>]/g, "") ?? null,
+      isInline: /^inline\b/i.test(disposition),
+    }];
+  });
+}
+
 const PROTECTED_SPECIAL_USES = new Set([
   "\\Inbox",
   "\\Sent",
@@ -182,16 +228,32 @@ export class ImapSmtpProvider implements EmailProvider {
     return this._imapConfig;
   }
 
-  private async getSmtpConfig(): Promise<SmtpConfig> {
+  private async getSmtpConfig(forceRefresh = false): Promise<SmtpConfig> {
     const account = await this.getAccount();
     if (account.auth_method === "oauth2") {
-      const token = await ensureFreshToken(account);
+      const token = await ensureFreshToken(account, {
+        forceRefresh,
+      });
       return buildSmtpConfig(account, token);
     }
     if (!this._smtpConfig) {
       this._smtpConfig = buildSmtpConfig(account);
     }
     return this._smtpConfig;
+  }
+
+  private isOAuthAuthFailure(err: unknown): boolean {
+    const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
+    return (
+      message.includes("authentication") ||
+      message.includes("xoauth") ||
+      message.includes("unauthorized") ||
+      message.includes("invalid_token") ||
+      message.includes("expired_token") ||
+      message.includes("invalid_grant") ||
+      message.includes("535") ||
+      message.includes("534")
+    );
   }
 
   /**
@@ -494,17 +556,39 @@ export class ImapSmtpProvider implements EmailProvider {
   async sendMessage(
     rawBase64Url: string,
     _threadId?: string,
-  ): Promise<{ id: string }> {
-    const smtpConfig = await this.getSmtpConfig();
-    const result = await smtpSendEmail(smtpConfig, rawBase64Url);
-    if (!result.success) {
-      throw new Error(`SMTP send failed: ${result.message}`);
+  ): Promise<{
+    id: string;
+    smtpAccepted?: boolean;
+    appendedToSent?: boolean;
+    localPersisted?: boolean;
+  }> {
+    const sendOnce = async (forceRefresh: boolean) => {
+      const smtpConfig = await this.getSmtpConfig(forceRefresh);
+      const result = await smtpSendEmail(smtpConfig, rawBase64Url);
+      if (!result.success) {
+        throw new Error(`SMTP send failed: ${result.message}`);
+      }
+    };
+
+    try {
+      await sendOnce(false);
+    } catch (err) {
+      const account = await this.getAccount();
+      if (account.auth_method === "oauth2" && this.isOAuthAuthFailure(err)) {
+        console.warn(
+          "[SMTP] auth failure with cached OAuth token — forcing refresh and retry once",
+        );
+        this.clearConfigCache();
+        await sendOnce(true);
+      } else {
+        throw err;
+      }
     }
 
     const messageId = `imap-sent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    // Copy to server Sent first. If this succeeds, delta sync will store the real
-    // `imap-{account}-{folder}-{uid}` row — a local optimistic copy would duplicate it.
+    // Copy to server Sent. Always also keep a local SENT placeholder so UI
+    // shows the message immediately; IMAP sync dedupes via Message-ID header.
     let appendedToSent = false;
     try {
       const imapConfig = await this.getImapConfig();
@@ -519,19 +603,28 @@ export class ImapSmtpProvider implements EmailProvider {
       );
     }
 
-    if (!appendedToSent) {
-      try {
-        await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId);
-      } catch (err) {
-        console.warn("[IMAP] Failed to save sent message to local DB:", err);
-      }
+    let localPersisted = false;
+    try {
+      await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId);
+      localPersisted = true;
+    } catch (err) {
+      console.warn("[IMAP] Failed to save sent message to local DB:", err);
     }
 
-    return { id: messageId };
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("velo-sync-done"));
+    }
+
+    return {
+      id: messageId,
+      smtpAccepted: true,
+      appendedToSent,
+      localPersisted,
+    };
   }
 
   /**
-   * Fallback when IMAP APPEND to Sent fails: keep a local copy with the SENT label.
+   * Persist a local SENT copy for immediate UI (and APPEND fallback).
    */
   private async saveSentMessageLocally(
     rawBase64Url: string,
@@ -563,7 +656,8 @@ export class ImapSmtpProvider implements EmailProvider {
           ? bodyHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200)
           : "";
     const effectiveSnippet = snippetFromBodies || fallbackSnippet;
-    const hasAttachments = /content-disposition:\s*attachment\b/i.test(raw);
+    const localAttachments = extractLocalMimeAttachments(raw);
+    const hasAttachments = localAttachments.some((attachment) => !attachment.isInline);
 
     // For replies, add the SENT label to the existing thread.
     // For new compositions, create a new thread.
@@ -626,6 +720,20 @@ export class ImapSmtpProvider implements EmailProvider {
       referencesHeader: references,
       inReplyToHeader: inReplyTo,
     });
+
+    for (const [index, attachment] of localAttachments.entries()) {
+      await upsertAttachment({
+        id: `${messageId}_local_${index}`,
+        messageId,
+        accountId: this.accountId,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        gmailAttachmentId: null,
+        contentId: attachment.contentId,
+        isInline: attachment.isInline,
+      });
+    }
 
     if (threadId) {
       const existing = await getThreadById(this.accountId, threadId);

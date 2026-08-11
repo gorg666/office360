@@ -8,8 +8,9 @@ import type {
   CalendarSyncResult,
   CreateEventInput,
   UpdateEventInput,
+  CalendarParticipationStatus,
 } from "./types";
-import { generateVEvent, parseVEvent } from "./icalHelper";
+import { generateVEvent, parseVEvent, parseVEventsInRange, updateAttendeeParticipation, updateVEventFields } from "./icalHelper";
 import { getAccount } from "@/services/db/accounts";
 import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
 import { isYandexOAuthCalendarAccount, YANDEX_CALDAV_URL } from "./yandex";
@@ -23,12 +24,11 @@ export class CalDAVProvider implements CalendarProvider {
   constructor(readonly accountId: string) {}
 
   private async getClient(): Promise<DAVClient> {
-    if (this.client) return this.client;
-
     const account = await getAccount(this.accountId);
     if (!account) throw new Error("Account not found");
 
     const usesYandexOAuth = isYandexOAuthCalendarAccount(account);
+    if (this.client && !usesYandexOAuth) return this.client;
     const serverUrl = account.caldav_url ?? (usesYandexOAuth ? YANDEX_CALDAV_URL : null);
     const username = account.caldav_username ?? account.email;
     const password = account.caldav_password;
@@ -58,7 +58,9 @@ export class CalDAVProvider implements CalendarProvider {
       await client.login();
     }
 
-    this.client = client;
+    // OAuth access tokens expire. A Yandex DAVClient captures the token in its
+    // auth callback, so it must not outlive the token stored on the account.
+    if (!usesYandexOAuth) this.client = client;
     return client;
   }
 
@@ -85,13 +87,13 @@ export class CalDAVProvider implements CalendarProvider {
       },
     });
 
-    return objects
-      .filter((obj) => obj.data)
-      .map((obj) => {
-        const event = parseVEvent(obj.data!, obj.url);
-        event.etag = obj.etag ?? null;
-        return event;
-      });
+    return objects.flatMap((obj) => {
+      if (!obj.data) return [];
+      return parseVEventsInRange(obj.data, obj.url, new Date(timeMin), new Date(timeMax)).map((event) => ({
+        ...event,
+        etag: obj.etag ?? null,
+      }));
+    });
   }
 
   async createEvent(calendarRemoteId: string, event: CreateEventInput): Promise<CalendarEventData> {
@@ -128,21 +130,7 @@ export class CalDAVProvider implements CalendarProvider {
     const existing = objects[0];
     if (!existing?.data) throw new Error("Event not found on server");
 
-    // Parse existing, merge updates, regenerate
-    const parsed = parseVEvent(existing.data, remoteEventId);
-    const merged: CreateEventInput = {
-      summary: event.summary ?? parsed.summary ?? "",
-      description: event.description ?? parsed.description ?? undefined,
-      location: event.location ?? parsed.location ?? undefined,
-      startTime: event.startTime ?? new Date(parsed.startTime * 1000).toISOString(),
-      endTime: event.endTime ?? new Date(parsed.endTime * 1000).toISOString(),
-      isAllDay: event.isAllDay ?? parsed.isAllDay,
-    };
-
-    const icalData = generateVEvent(merged, parsed.uid ?? undefined);
-
-    const headers: Record<string, string> = {};
-    if (etag) headers["If-Match"] = etag;
+    const icalData = updateVEventFields(existing.data, event);
 
     const response = await client.updateCalendarObject({
       calendarObject: {
@@ -150,7 +138,6 @@ export class CalDAVProvider implements CalendarProvider {
         data: icalData,
         etag: etag ?? existing.etag ?? undefined,
       } as DAVObject,
-      headers,
     });
     await assertDavResponseOk(response, "update event");
 
@@ -158,18 +145,36 @@ export class CalDAVProvider implements CalendarProvider {
     return result;
   }
 
+  async respondToEvent(
+    calendarRemoteId: string,
+    remoteEventId: string,
+    attendeeEmail: string,
+    status: CalendarParticipationStatus,
+    etag?: string,
+  ): Promise<void> {
+    const client = await this.getClient();
+    const objects = await client.fetchCalendarObjects({
+      calendar: { url: calendarRemoteId } as DAVCalendar,
+      objectUrls: [remoteEventId],
+    });
+    const existing = objects[0];
+    if (!existing?.data) throw new Error("Событие не найдено на сервере");
+    const data = updateAttendeeParticipation(existing.data, attendeeEmail, status);
+    if (data === existing.data) throw new Error("Текущий аккаунт не найден среди участников");
+    const response = await client.updateCalendarObject({
+      calendarObject: { url: remoteEventId, data, etag: etag ?? existing.etag ?? undefined } as DAVObject,
+    });
+    await assertDavResponseOk(response, "respond to event");
+  }
+
   async deleteEvent(_calendarRemoteId: string, remoteEventId: string, etag?: string): Promise<void> {
     const client = await this.getClient();
-
-    const headers: Record<string, string> = {};
-    if (etag) headers["If-Match"] = etag;
 
     const response = await client.deleteCalendarObject({
       calendarObject: {
         url: remoteEventId,
         etag: etag ?? undefined,
       } as DAVObject,
-      headers,
     });
     await assertDavResponseOk(response, "delete event");
   }

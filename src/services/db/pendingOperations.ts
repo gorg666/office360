@@ -132,6 +132,49 @@ export async function enqueuePendingOperation(
   return id;
 }
 
+/**
+ * Undo-send / in-flight compose: visible in Outbox, not picked by queue processor
+ * (status !== 'pending'). Uses requestId as primary key for idempotency.
+ */
+export async function enqueueQueuedComposeSend(
+  accountId: string,
+  requestId: string,
+  params: Record<string, unknown>,
+): Promise<string> {
+  const db = await getDb();
+  const existing = await db.select<PendingOperation[]>(
+    `SELECT * FROM pending_operations
+     WHERE id = $1 OR (resource_id = $1 AND operation_type = 'sendMessage'
+       AND status IN ('queued', 'pending', 'executing'))
+     LIMIT 1`,
+    [requestId],
+  );
+  if (existing[0]) {
+    return existing[0].id;
+  }
+
+  const farFuture = Math.floor(Date.now() / 1000) + 86400 * 365;
+  await db.execute(
+    `INSERT INTO pending_operations
+      (id, account_id, operation_type, resource_id, params, status, next_retry_at)
+     VALUES ($1, $2, 'sendMessage', $3, $4, 'queued', $5)
+     ON CONFLICT(id) DO NOTHING`,
+    [requestId, accountId, requestId, JSON.stringify(params), farFuture],
+  );
+  return requestId;
+}
+
+export async function getPendingOperationById(
+  id: string,
+): Promise<PendingOperation | null> {
+  const db = await getDb();
+  const rows = await db.select<PendingOperation[]>(
+    `SELECT * FROM pending_operations WHERE id = $1 LIMIT 1`,
+    [id],
+  );
+  return rows[0] ?? null;
+}
+
 export async function getPendingOperations(
   accountId?: string,
   limit = 50,
@@ -320,6 +363,20 @@ export async function getFailedOpsCount(accountId?: string): Promise<number> {
 }
 
 const OUTBOX_SEND_STATUSES = ["pending", "executing", "retry_scheduled", "failed", "blocked"] as const;
+
+export async function getOutboxSendCount(accountId?: string): Promise<number> {
+  const db = await getDb();
+  const placeholders = OUTBOX_SEND_STATUSES.map((_, index) => `$${index + 1}`).join(", ");
+  const accountClause = accountId ? ` AND account_id = $${OUTBOX_SEND_STATUSES.length + 1}` : "";
+  const params: unknown[] = accountId ? [...OUTBOX_SEND_STATUSES, accountId] : [...OUTBOX_SEND_STATUSES];
+  const rows = await db.select<{ count: number }[]>(
+    `SELECT COUNT(*) as count FROM pending_operations
+     WHERE operation_type = 'sendMessage'
+       AND status IN (${placeholders})${accountClause}`,
+    params,
+  );
+  return rows[0]?.count ?? 0;
+}
 
 /** Pending/failed send operations for the Outbox view (sendMessage only). */
 export async function getOutboxSendOperations(

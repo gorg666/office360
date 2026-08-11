@@ -1,4 +1,5 @@
-import type { CalendarEventData, CreateEventInput, UpdateEventInput } from "./types";
+import type { CalendarEventData, CalendarParticipationStatus, CreateEventInput, UpdateEventInput } from "./types";
+import { rrulestr } from "rrule";
 
 export interface ParsedICalAttendee {
   email: string;
@@ -167,6 +168,94 @@ export function parseVEvent(icalData: string, href?: string): CalendarEventData 
   };
 }
 
+export function parseVEventsInRange(
+  icalData: string,
+  href: string | undefined,
+  rangeStart: Date,
+  rangeEnd: Date,
+): CalendarEventData[] {
+  const blocks = extractVEventBlocks(icalData);
+  if (blocks.length === 0) return [];
+
+  const parsed = blocks.map((block) => ({
+    block,
+    event: parseVEvent(wrapVEvent(block), href),
+    recurrenceId: getDateProperty(block, "RECURRENCE-ID"),
+  }));
+  const master = parsed.find((item) => item.recurrenceId === null) ?? parsed[0]!;
+  const rule = getProperty(master.block, "RRULE");
+  if (!rule) return parsed.map((item) => item.event);
+
+  const duration = Math.max(0, master.event.endTime - master.event.startTime);
+  const exclusions = new Set(getDateProperties(master.block, "EXDATE"));
+  const overrides = new Map(
+    parsed
+      .filter((item) => item.recurrenceId !== null)
+      .map((item) => [item.recurrenceId!, item.event] as const),
+  );
+  const recurrence = rrulestr(rule, { dtstart: new Date(master.event.startTime * 1000) });
+  const dates = recurrence.between(
+    new Date(rangeStart.getTime() - duration * 1000),
+    rangeEnd,
+    true,
+  );
+
+  return dates.flatMap((date) => {
+    const occurrenceTime = Math.floor(date.getTime() / 1000);
+    if (exclusions.has(occurrenceTime)) return [];
+    const override = overrides.get(occurrenceTime);
+    if (override?.status === "cancelled") return [];
+    const event = override ?? {
+      ...master.event,
+      startTime: occurrenceTime,
+      endTime: occurrenceTime + duration,
+    };
+    return [{
+      ...event,
+      instanceId: `${href ?? master.event.uid ?? "event"}::${occurrenceTime}`,
+      remoteEventId: href ?? master.event.remoteEventId,
+      etag: master.event.etag,
+      icalData,
+    }];
+  });
+}
+
+export function updateVEventFields(icalData: string, event: UpdateEventInput): string {
+  let changedMaster = false;
+  return icalData.replace(/BEGIN:VEVENT[\s\S]*?END:VEVENT/gi, (block) => {
+    if (changedMaster || /(?:^|\r?\n)RECURRENCE-ID[;:]/i.test(block)) return block;
+    changedMaster = true;
+    let next = block;
+    if (event.summary !== undefined) next = replaceEventProperty(next, "SUMMARY", escapeICalText(event.summary));
+    if (event.description !== undefined) next = replaceEventProperty(next, "DESCRIPTION", escapeICalText(event.description));
+    if (event.location !== undefined) next = replaceEventProperty(next, "LOCATION", escapeICalText(event.location));
+    if (event.startTime !== undefined) {
+      next = replaceEventProperty(next, "DTSTART", formatEventDate(event.startTime, !!event.isAllDay), event.isAllDay ? ";VALUE=DATE" : "");
+    }
+    if (event.endTime !== undefined) {
+      next = replaceEventProperty(next, "DTEND", formatEventDate(event.endTime, !!event.isAllDay), event.isAllDay ? ";VALUE=DATE" : "");
+    }
+    return next;
+  });
+}
+
+export function updateAttendeeParticipation(
+  icalData: string,
+  attendeeEmail: string,
+  status: CalendarParticipationStatus,
+): string {
+  const partstat = status.toUpperCase();
+  let updated = false;
+  return icalData.replace(/(^|\r?\n)(ATTENDEE[^\r\n]*:mailto:([^\r\n]+))/gi, (match, prefix, line, email) => {
+    if (updated || String(email).trim().toLowerCase() !== attendeeEmail.trim().toLowerCase()) return match;
+    updated = true;
+    const colon = String(line).indexOf(":");
+    let params = String(line).slice(0, colon).replace(/;PARTSTAT=[^;:]*/i, "").replace(/;RSVP=[^;:]*/i, "");
+    params += `;PARTSTAT=${partstat};RSVP=FALSE`;
+    return `${prefix}${params}${String(line).slice(colon)}`;
+  });
+}
+
 /**
  * Parse iTIP/iMIP invitation metadata while preserving the existing event shape.
  */
@@ -239,6 +328,31 @@ function unfoldLines(icalData: string): string[] {
   return raw.split("\n").filter((l) => l.length > 0);
 }
 
+function extractVEventBlocks(icalData: string): string[] {
+  return icalData.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/gi) ?? [];
+}
+
+function wrapVEvent(block: string): string {
+  return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${block}\r\nEND:VCALENDAR`;
+}
+
+function getProperty(block: string, property: string): string | null {
+  const line = unfoldLines(block).map(parseContentLine).find((item) => item?.name === property);
+  return line?.value ?? null;
+}
+
+function getDateProperty(block: string, property: string): number | null {
+  const line = unfoldLines(block).map(parseContentLine).find((item) => item?.name === property);
+  if (!line) return null;
+  return parseICalDateTime(line.value, line.params.VALUE === "DATE");
+}
+
+function getDateProperties(block: string, property: string): number[] {
+  return unfoldLines(block).map(parseContentLine).filter((item) => item?.name === property).flatMap((item) =>
+    item!.value.split(",").map((value) => parseICalDateTime(value, item!.params.VALUE === "DATE")),
+  );
+}
+
 function parseContentLine(line: string): ICalContentLine | null {
   const colonIndex = line.indexOf(":");
   if (colonIndex === -1) return null;
@@ -270,6 +384,18 @@ function formatDateOnly(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}${m}${d}`;
+}
+
+function formatEventDate(value: string, allDay: boolean): string {
+  const date = new Date(value);
+  return allDay ? formatDateOnly(date) : formatDateTimeUTC(date);
+}
+
+function replaceEventProperty(block: string, name: string, value: string, params = ""): string {
+  const property = new RegExp(`(^|\\r?\\n)${name}(?:;[^:\\r\\n]*)?:[^\\r\\n]*`, "i");
+  const replacement = `$1${name}${params}:${value}`;
+  if (property.test(block)) return block.replace(property, replacement);
+  return block.replace(/\r?\nEND:VEVENT$/i, `\r\n${name}${params}:${value}\r\nEND:VEVENT`);
 }
 
 function escapeICalText(text: string): string {

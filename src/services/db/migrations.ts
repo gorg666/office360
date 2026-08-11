@@ -838,7 +838,8 @@ export const MIGRATIONS = [
       ALTER TABLE pending_operations ADD COLUMN blocked_reason TEXT;
       ALTER TABLE pending_operations ADD COLUMN diagnostic_code TEXT;
       ALTER TABLE pending_operations ADD COLUMN user_action TEXT;
-      ALTER TABLE pending_operations ADD COLUMN updated_at INTEGER DEFAULT (unixepoch());
+      ALTER TABLE pending_operations ADD COLUMN updated_at INTEGER;
+      UPDATE pending_operations SET updated_at = COALESCE(updated_at, created_at, unixepoch());
       UPDATE pending_operations
          SET status = 'retry_scheduled',
              updated_at = unixepoch()
@@ -1103,6 +1104,11 @@ export const MIGRATIONS = [
     description: "Persist OAuth granted scopes for service readiness",
     sql: `ALTER TABLE accounts ADD COLUMN oauth_granted_scopes TEXT;`,
   },
+  {
+    version: 33,
+    description: "Repair OAuth granted scopes column after branch migration collision",
+    sql: `ALTER TABLE accounts ADD COLUMN oauth_granted_scopes TEXT;`,
+  },
 ];
 
 /**
@@ -1182,6 +1188,20 @@ export async function runMigrations(): Promise<void> {
       applied_at INTEGER DEFAULT (unixepoch())
     )
   `));
+
+  // Critical repair must not depend on later migrations: older merged databases
+  // can stop before the OAuth schema migrations while the application remains usable.
+  const accountColumns = await runWithDbRetry(() => db.select<{ name: string }[]>(
+    "PRAGMA table_info(accounts)",
+  ));
+  if (
+    accountColumns.length > 0 &&
+    !accountColumns.some((column) => column.name === "oauth_granted_scopes")
+  ) {
+    await runWithDbRetry(() => db.execute(
+      "ALTER TABLE accounts ADD COLUMN oauth_granted_scopes TEXT",
+    ));
+  }
 
   // Get already-applied versions
   const applied = await runWithDbRetry(() => db.select<{ version: number }[]>(

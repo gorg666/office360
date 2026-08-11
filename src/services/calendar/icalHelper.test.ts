@@ -1,4 +1,4 @@
-import { generateVEvent, parseICalendarInvite, parseVEvent } from "./icalHelper";
+import { generateVEvent, parseICalendarInvite, parseVEvent, parseVEventsInRange, updateAttendeeParticipation, updateVEventFields } from "./icalHelper";
 import type { CreateEventInput } from "./types";
 
 beforeEach(() => {
@@ -535,6 +535,63 @@ describe("parseICalendarInvite", () => {
   });
 });
 
+describe("parseVEventsInRange", () => {
+  it("expands a weekly CalDAV series inside the requested range", () => {
+    const ical = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "BEGIN:VEVENT",
+      "UID:weekly-office360",
+      "DTSTART:20260729T150000Z",
+      "DTEND:20260729T153000Z",
+      "RRULE:FREQ=WEEKLY;COUNT=6",
+      "SUMMARY:ОФИС360",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const events = parseVEventsInRange(
+      ical,
+      "https://caldav.yandex.ru/events/weekly.ics",
+      new Date("2026-08-01T00:00:00Z"),
+      new Date("2026-09-01T00:00:00Z"),
+    );
+
+    expect(events.map((event) => new Date(event.startTime * 1000).toISOString())).toEqual([
+      "2026-08-05T15:00:00.000Z",
+      "2026-08-12T15:00:00.000Z",
+      "2026-08-19T15:00:00.000Z",
+      "2026-08-26T15:00:00.000Z",
+    ]);
+    expect(new Set(events.map((event) => event.instanceId)).size).toBe(4);
+    expect(events.every((event) => event.remoteEventId.endsWith("weekly.ics"))).toBe(true);
+  });
+
+  it("honors excluded dates in a recurring CalDAV event", () => {
+    const ical = [
+      "BEGIN:VCALENDAR",
+      "BEGIN:VEVENT",
+      "UID:weekly-with-exdate",
+      "DTSTART:20260805T150000Z",
+      "DTEND:20260805T153000Z",
+      "RRULE:FREQ=WEEKLY;COUNT=3",
+      "EXDATE:20260812T150000Z",
+      "SUMMARY:ОФИС360",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const events = parseVEventsInRange(
+      ical,
+      "/calendar/weekly.ics",
+      new Date("2026-08-01T00:00:00Z"),
+      new Date("2026-09-01T00:00:00Z"),
+    );
+
+    expect(events.map((event) => new Date(event.startTime * 1000).getUTCDate())).toEqual([5, 19]);
+  });
+});
+
 describe("round-trip: generateVEvent -> parseVEvent", () => {
   it("preserves basic event data through generate and parse", () => {
     const input: CreateEventInput = {
@@ -608,5 +665,29 @@ describe("round-trip: generateVEvent -> parseVEvent", () => {
     expect(parsed.summary).toBe("Review; Q2, Results\\Final");
     expect(parsed.description).toBe("Line one\nLine two\nLine three");
     expect(parsed.location).toBe("Building A; Room 3, Floor 2");
+  });
+});
+
+describe("CalDAV event mutations", () => {
+  const recurring = [
+    "BEGIN:VCALENDAR", "BEGIN:VEVENT", "UID:series-1",
+    "DTSTART:20260805T150000Z", "DTEND:20260805T153000Z",
+    "RRULE:FREQ=WEEKLY;COUNT=4", "SUMMARY:Old title",
+    "ATTENDEE;CN=Efim;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:efim@example.com",
+    "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
+
+  it("updates visible fields without dropping recurrence and attendees", () => {
+    const updated = updateVEventFields(recurring, { summary: "New title", description: "Details" });
+    expect(updated).toContain("SUMMARY:New title");
+    expect(updated).toContain("DESCRIPTION:Details");
+    expect(updated).toContain("RRULE:FREQ=WEEKLY;COUNT=4");
+    expect(updated).toContain("ATTENDEE;CN=Efim");
+  });
+
+  it("updates the current attendee response without changing the series", () => {
+    const updated = updateAttendeeParticipation(recurring, "EFIM@example.com", "accepted");
+    expect(updated).toContain("ATTENDEE;CN=Efim;PARTSTAT=ACCEPTED;RSVP=FALSE:mailto:efim@example.com");
+    expect(updated).toContain("RRULE:FREQ=WEEKLY;COUNT=4");
   });
 });

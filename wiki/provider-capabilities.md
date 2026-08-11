@@ -87,7 +87,10 @@ Service readiness:
 
 - Mail requires `mail:imap_full` and `mail:smtp`.
 - Calendar uses the existing Yandex CalDAV path and requires `calendar:all` when the saved OAuth grant exposes scopes.
-- Messenger is shown separately from Telemost and can use the connected Yandex ID account or a configured bot token.
+- Messenger is shown separately from Telemost and prefers the active connected Yandex ID OAuth account; a configured bot token is only a fallback when no Yandex OAuth account is available.
+- Telemost scheduling creates a calendar draft with the meeting URL and attendees; calendar providers receive attendees as invitations when they support event creation.
+- Telemost history enriches calendar-backed meetings with organizer, scheduled date and duration, attendees, and a link back to the calendar event. Actual elapsed duration and a direct meeting-chat identifier are not exposed by the available APIs, so the UI labels calendar duration explicitly and opens Yandex Messenger without fabricating a chat mapping.
+- Embedded Telemost meeting pages are scaled to the available CEF viewport and page scrolling is suppressed so the meeting controls remain inside the Office360 layout.
 - Tasks are shown as the Office360 task workspace for the connected work account.
 
 Admin-only employee/domain/audit/shared-mailbox management is a separate administrator scenario. The primary Yandex 360 settings UX must not ask for a raw admin API token or expose raw endpoint execution.
@@ -202,3 +205,10 @@ UI hiding недостаточно. Service entry points также должны
 2. Label CRUD works.
 3. `Apply Label` available.
 4. Label actions capability-gated and tested.
+# Active Yandex service identity
+
+Yandex Disk and Telemost are bound to the active account identity. If the active account is not a Yandex OAuth account, service entry points and UI reject the operation instead of falling back to another saved Yandex account. Telemost local meeting history is account-scoped, and its native CEF window is hidden while the active identity is being re-evaluated.
+
+Service OAuth credentials are keyed by the normalized Yandex email and store a verified token owner. A token whose owner differs from the selected account is removed and must be authorized again. The Telemost CEF profile keeps its own cookies, but switching the active account clears those cookies and HTTP credentials before opening Yandex Passport with the selected email as the login hint.
+
+If the business Telemost API is unavailable, meeting creation falls back to the embedded Telemost web flow. Personal Yandex ID users can therefore create and join meetings without a Yandex 360 business subscription.

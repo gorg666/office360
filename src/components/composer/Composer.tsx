@@ -18,20 +18,18 @@ import { FromSelector } from "./FromSelector";
 import { ComposerHeader } from "./ComposerHeader";
 import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
-import { useUIStore } from "@/stores/uiStore";
-import { useContextMenuStore } from "@/stores/contextMenuStore";
-import { sendEmail, archiveThread, deleteDraft as deleteDraftAction } from "@/services/emailActions";
+import { deleteDraft as deleteDraftAction } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
 import { buildReplyHeadersForMessageId } from "@/utils/replyHeaders";
-import { upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
 import { insertScheduledEmail } from "@/services/db/scheduledEmails";
 import { getDefaultSignature } from "@/services/db/signatures";
 import { getAliasesForAccount, mapDbAlias, type SendAsAlias } from "@/services/db/sendAsAliases";
 import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
 import { resolveFromAddress } from "@/utils/resolveFromAddress";
-import { openComposeWindow, isComposeStandaloneWindow } from "@/utils/openComposeWindow";
+import { openComposeWindow, isComposeStandaloneWindow, closeStandaloneComposeWindow } from "@/utils/openComposeWindow";
 import { startAutoSave, stopAutoSave } from "@/services/composer/draftAutoSave";
+import { requestComposeSend } from "@/services/composer/composeSendOrchestrator";
 import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates";
 import { readFileAsBase64 } from "@/utils/fileUtils";
 import { interpolateVariables } from "@/utils/templateVariables";
@@ -85,7 +83,6 @@ export function Composer() {
   const setFromEmail = useComposerStore((s) => s.setFromEmail);
   const setViewMode = useComposerStore((s) => s.setViewMode);
   const addAttachment = useComposerStore((s) => s.addAttachment);
-  const openContextMenu = useContextMenuStore((s) => s.openMenu);
 
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const accounts = useAccountStore((s) => s.accounts);
@@ -281,20 +278,6 @@ export function Composer() {
     }
   }, [addAttachment]);
 
-  const isStandalone = isComposeStandaloneWindow();
-
-  const closeComposerSurface = useCallback(async () => {
-    closeComposer();
-    if (!isStandalone) return;
-
-    try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      await getCurrentWindow().close();
-    } catch {
-      // Browser dev fallback
-    }
-  }, [closeComposer, isStandalone]);
-
   const getFullHtml = useCallback(() => {
     const editorHtml = editor?.getHTML() ?? "";
     if (!signatureHtml) return editorHtml;
@@ -309,65 +292,62 @@ export function Composer() {
     sendingRef.current = true;
     stopAutoSave();
 
-    const html = getFullHtml();
-    const senderEmail = state.fromEmail ?? activeAccount.email;
-    const replyHeaders = await buildReplyHeadersForMessageId(activeAccountId, state.inReplyToMessageId);
-    const raw = buildRawEmail({
-      from: senderEmail,
-      to: state.to,
-      cc: state.cc.length > 0 ? state.cc : undefined,
-      bcc: state.bcc.length > 0 ? state.bcc : undefined,
-      subject: state.subject,
-      htmlBody: html,
-      inReplyTo: replyHeaders.inReplyTo,
-      references: replyHeaders.references,
-      threadId: state.threadId ?? undefined,
-      attachments: state.attachments.length > 0
-        ? state.attachments.map((a) => ({
-            filename: a.filename,
-            mimeType: a.mimeType,
-            content: a.content,
-          }))
-        : undefined,
-    });
+    try {
+      const html = getFullHtml();
+      const senderEmail = state.fromEmail ?? activeAccount.email;
+      const replyHeaders = await buildReplyHeadersForMessageId(activeAccountId, state.inReplyToMessageId);
+      const raw = buildRawEmail({
+        from: senderEmail,
+        to: state.to,
+        cc: state.cc.length > 0 ? state.cc : undefined,
+        bcc: state.bcc.length > 0 ? state.bcc : undefined,
+        subject: state.subject,
+        htmlBody: html,
+        inReplyTo: replyHeaders.inReplyTo,
+        references: replyHeaders.references,
+        threadId: state.threadId ?? undefined,
+        attachments: state.attachments.length > 0
+          ? state.attachments.map((a) => ({
+              filename: a.filename,
+              mimeType: a.mimeType,
+              content: a.content,
+            }))
+          : undefined,
+      });
 
-    // Get undo send delay
-    const delaySetting = await getSetting("undo_send_delay_seconds");
-    const delay = parseInt(delaySetting ?? "5", 10) * 1000;
-    const currentDraftId = state.draftId;
+      const delaySetting = await getSetting("undo_send_delay_seconds");
+      const delay = parseInt(delaySetting ?? "5", 10) * 1000;
 
-    // Show undo send UI
-    state.setUndoSendVisible(true);
+      await requestComposeSend({
+        accountId: activeAccountId,
+        rawBase64Url: raw,
+        threadId: state.threadId ?? undefined,
+        draftId: state.draftId,
+        recipientEmails: [...state.to, ...state.cc, ...state.bcc],
+        undoDelayMs: Number.isFinite(delay) ? delay : 5000,
+        restore: {
+          mode: state.mode,
+          to: state.to,
+          cc: state.cc,
+          bcc: state.bcc,
+          subject: state.subject,
+          bodyHtml: html,
+          threadId: state.threadId,
+          inReplyToMessageId: state.inReplyToMessageId,
+          draftId: state.draftId,
+          fromEmail: state.fromEmail,
+        },
+      });
 
-    const timer = setTimeout(async () => {
-      try {
-        await sendEmail(activeAccountId, raw, state.threadId ?? undefined);
-
-        // Delete draft if it was saved
-        if (currentDraftId) {
-          try { await deleteDraftAction(activeAccountId, currentDraftId); } catch { /* ignore */ }
-        }
-
-        // Send & archive: remove from inbox if replying to a thread
-        if (useUIStore.getState().sendAndArchive && state.threadId) {
-          try { await archiveThread(activeAccountId, state.threadId, []); } catch { /* ignore */ }
-        }
-
-        // Update contacts frequency
-        for (const addr of [...state.to, ...state.cc, ...state.bcc]) {
-          await upsertContact(addr, null);
-        }
-      } catch (err) {
-        console.error("Failed to send email:", err);
-      } finally {
-        useComposerStore.getState().setUndoSendVisible(false);
-        sendingRef.current = false;
-      }
-    }, delay);
-
-    state.setUndoSendTimer(timer);
-    void closeComposerSurface();
-  }, [activeAccountId, activeAccount, closeComposerSurface, getFullHtml]);
+      closeComposer();
+      await closeStandaloneComposeWindow();
+    } catch (err) {
+      console.error("Failed to queue compose send:", err);
+      startAutoSave(activeAccountId);
+    } finally {
+      sendingRef.current = false;
+    }
+  }, [activeAccountId, activeAccount, closeComposer, getFullHtml]);
 
   const handleSchedule = useCallback(async (scheduledAt: number) => {
     if (!activeAccountId || !activeAccount) return;
@@ -395,8 +375,26 @@ export function Composer() {
       threadId: state.threadId,
       scheduledAt,
       signatureId: null,
-      attachmentPaths: attachmentData,
     });
+
+    // Store attachment data if present
+    if (attachmentData) {
+      // The insertScheduledEmail doesn't have an attachmentPaths param,
+      // so we update it separately via the existing column
+      const { getDb } = await import("@/services/db/connection");
+      const db = await getDb();
+      // Get the most recently inserted scheduled email for this account
+      const rows = await db.select<{ id: string }[]>(
+        "SELECT id FROM scheduled_emails WHERE account_id = $1 ORDER BY created_at DESC LIMIT 1",
+        [activeAccountId],
+      );
+      if (rows[0]) {
+        await db.execute(
+          "UPDATE scheduled_emails SET attachment_paths = $1 WHERE id = $2",
+          [attachmentData, rows[0].id],
+        );
+      }
+    }
 
     stopAutoSave();
     // Delete the draft if exists
@@ -407,8 +405,9 @@ export function Composer() {
     }
 
     setShowSchedule(false);
-    await closeComposerSurface();
-  }, [activeAccountId, activeAccount, closeComposerSurface, getFullHtml]);
+    closeComposer();
+    await closeStandaloneComposeWindow();
+  }, [activeAccountId, activeAccount, closeComposer, getFullHtml]);
 
   const handleDiscard = useCallback(async () => {
     stopAutoSave();
@@ -419,8 +418,9 @@ export function Composer() {
         await deleteDraftAction(activeAccountId, currentDraftId);
       } catch { /* ignore */ }
     }
-    await closeComposerSurface();
-  }, [activeAccountId, closeComposerSurface]);
+    closeComposer();
+    await closeStandaloneComposeWindow();
+  }, [activeAccountId, closeComposer]);
 
   const handlePopOutComposer = useCallback(async () => {
     const state = useComposerStore.getState();
@@ -441,19 +441,17 @@ export function Composer() {
 
     if (result !== "fallback") {
       stopAutoSave();
-      void closeComposerSurface();
+      closeComposer();
     }
-  }, [editor, closeComposerSurface]);
+  }, [editor, closeComposer]);
 
-  const handleEditorContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!editor) return;
-    const target = e.target as HTMLElement;
-    if (!target.closest(".ProseMirror")) return;
+  const isStandalone = isComposeStandaloneWindow();
 
-    e.preventDefault();
-    e.stopPropagation();
-    openContextMenu("composerEditor", { x: e.clientX, y: e.clientY }, { editor });
-  }, [editor, openContextMenu]);
+  const handleCloseStandalone = useCallback(async () => {
+    stopAutoSave();
+    closeComposer();
+    await closeStandaloneComposeWindow();
+  }, [closeComposer]);
 
   const isFullpage = viewMode === "fullpage";
 
@@ -503,6 +501,7 @@ export function Composer() {
           onToggleViewMode={() => setViewMode(isFullpage ? "modal" : "fullpage")}
           onPopOut={handlePopOutComposer}
           onCloseEmbedded={closeComposer}
+          onCloseStandalone={() => void handleCloseStandalone()}
         />
 
         {/* Address fields */}
@@ -515,15 +514,15 @@ export function Composer() {
           <AddressInput label="Кому" addresses={to} onChange={setTo} />
           {showCcBcc ? (
             <>
-              <AddressInput label="Cc" addresses={cc} onChange={setCc} />
-              <AddressInput label="Bcc" addresses={bcc} onChange={setBcc} />
+              <AddressInput label="Копия" addresses={cc} onChange={setCc} />
+              <AddressInput label="Скрытая" addresses={bcc} onChange={setBcc} />
             </>
           ) : (
             <button
               onClick={() => setShowCcBcc(true)}
               className="text-xs text-accent hover:text-accent-hover ml-10"
             >
-              Cc / Bcc
+              Копия / Скрытая копия
             </button>
           )}
         </div>
@@ -561,7 +560,7 @@ export function Composer() {
         )}
 
         {/* Editor */}
-        <div className="flex-1 overflow-y-auto" onContextMenu={handleEditorContextMenu}>
+        <div className="flex-1 overflow-y-auto">
           <EditorContent editor={editor} />
           {signatureHtml && (
             <div

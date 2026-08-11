@@ -21,11 +21,13 @@ fn emit_to_main(app: &tauri::AppHandle, event: &str) {
 use tauri_plugin_autostart::MacosLauncher;
 
 mod commands;
-mod audio;
 mod contact_avatars;
+mod audio;
+mod cef;
 mod imap;
 mod ldap;
 mod messengers;
+mod notifications;
 mod oauth;
 mod smtp;
 
@@ -108,10 +110,24 @@ pub fn run() {
             oauth::start_oauth_server,
             oauth::oauth_exchange_token,
             oauth::oauth_refresh_token,
+            oauth::open_oauth_login_window,
+            oauth::close_oauth_login_window,
             set_tray_tooltip,
             close_splashscreen,
             open_devtools,
+            cef::cef_initialize,
+            cef::cef_create_browser,
+            cef::cef_set_bounds,
+            cef::cef_set_visible,
+            cef::cef_navigate,
+            cef::cef_back,
+            cef::cef_forward,
+            cef::cef_reload,
+            cef::cef_dom_command,
+            cef::cef_permission_response,
             audio::play_notification_sound,
+            notifications::show_native_notification,
+            notifications::ensure_notification_app_identity,
             contact_avatars::save_contact_avatar,
             contact_avatars::delete_contact_avatar,
             commands::imap_test_connection,
@@ -158,6 +174,10 @@ pub fn run() {
             messengers::max_client_disconnect,
         ])
         .setup(|app| {
+            if let Err(err) = notifications::ensure_windows_notification_identity(app.handle()) {
+                log::warn!("Windows notification identity setup: {err}");
+            }
+
             {
                 let level = if cfg!(debug_assertions) {
                     log::LevelFilter::Debug
@@ -223,6 +243,7 @@ pub fn run() {
                             emit_to_main(app, "tray-open-settings");
                         }
                         "quit" => {
+                            cef::shutdown();
                             app.exit(0);
                         }
                         _ => {}
@@ -342,5 +363,6 @@ pub fn run() {
             }
         });
 
+    cef::shutdown();
     log::info!("Tauri application exited normally");
 }

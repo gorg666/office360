@@ -172,13 +172,19 @@ describe("formatEmailSendOrDraftError", () => {
 
   it("unwraps SMTP send failed and maps inner auth text", () => {
     expect(formatEmailSendOrDraftError("SMTP send failed: Authentication failed")).toBe(
-      "Ошибка отправки. Ошибка авторизации — проверьте пароль или пароль приложения",
+      "Сессия авторизации истекла. Подключите аккаунт повторно.",
     );
   });
 
-  it("maps IMAP+SMTP combined error prefix", () => {
+  it("maps Yandex/OAuth auth failures explicitly", () => {
+    expect(formatEmailSendOrDraftError("SMTP send error: XOAUTH2 Authenticationfailed")).toBe(
+      "Сессия Яндекс ID истекла. Подключите аккаунт повторно.",
+    );
+  });
+
+  it("maps generic SMTP failures to retry message", () => {
     expect(
       formatEmailSendOrDraftError("IMAP OK, but SMTP failed: connection refused"),
-    ).toContain("Ошибка SMTP");
+    ).toBe("Не удалось отправить письмо. Повторите попытку.");
   });
 });

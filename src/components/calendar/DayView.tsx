@@ -5,7 +5,7 @@ import { useUIStore } from "@/stores/uiStore";
 interface DayViewProps {
   currentDate: Date;
   events: DbCalendarEvent[];
-  onEventClick: (event: DbCalendarEvent) => void;
+  onEventClick: (event: DbCalendarEvent, anchor: { x: number; y: number }) => void;
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -62,7 +62,7 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
           {allDayEvents.map((e) => (
             <button
               key={e.id}
-              onClick={() => onEventClick(e)}
+              onClick={(mouseEvent) => onEventClick(e, { x: mouseEvent.clientX, y: mouseEvent.clientY })}
               className="w-full text-left text-xs px-2 py-1.5 rounded bg-accent/10 text-accent hover:bg-accent/20 transition-colors"
             >
               {e.summary ?? (locale === "ru" ? "Событие" : "Event")} · {locale === "ru" ? "весь день" : "All day"}
@@ -86,7 +86,7 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
                 {hourEvents.map((e) => (
                   <button
                     key={e.id}
-                    onClick={() => onEventClick(e)}
+                    onClick={(mouseEvent) => onEventClick(e, { x: mouseEvent.clientX, y: mouseEvent.clientY })}
                     className="w-full text-left text-xs px-2 py-1 rounded bg-accent/15 text-accent truncate hover:bg-accent/25 transition-colors mb-0.5"
                   >
                     {e.summary ?? (locale === "ru" ? "Событие" : "Event")}

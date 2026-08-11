@@ -2,6 +2,19 @@ import { executeWrite, getDb, selectFirstBy } from "./connection";
 import { encryptValue, decryptValue, isEncrypted } from "@/utils/crypto";
 import { YANDEX_CALDAV_URL } from "@/services/calendar/yandex";
 
+async function ensureOAuthAccountSchema(): Promise<void> {
+  const db = await getDb();
+  const columns = await db.select<{ name: string }[]>("PRAGMA table_info(accounts)");
+  if (columns.some((column) => column.name === "oauth_granted_scopes")) return;
+
+  try {
+    await executeWrite("ALTER TABLE accounts ADD COLUMN oauth_granted_scopes TEXT");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.includes("duplicate column")) throw err;
+  }
+}
+
 export interface DbAccount {
   id: string;
   email: string;
@@ -318,6 +331,7 @@ export async function insertOAuthImapAccount(account: {
   imapUsername?: string | null;
   acceptInvalidCerts?: boolean;
 }): Promise<void> {
+  await ensureOAuthAccountSchema();
   const encAccessToken = await encryptValue(account.accessToken);
   const encRefreshToken = await encryptValue(account.refreshToken);
   const encClientSecret = account.oauthClientSecret
@@ -377,6 +391,7 @@ export async function updateOAuthImapAccount(account: {
   imapUsername?: string | null;
   acceptInvalidCerts?: boolean;
 }): Promise<void> {
+  await ensureOAuthAccountSchema();
   const encAccessToken = await encryptValue(account.accessToken);
   const encRefreshToken = await encryptValue(account.refreshToken);
   const encClientSecret = account.oauthClientSecret

@@ -4,6 +4,8 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { AddAccount } from "./components/accounts/AddAccount";
 import { Composer } from "./components/composer/Composer";
 import { UndoSendToast } from "./components/composer/UndoSendToast";
+import { SendFeedbackToast } from "./components/composer/SendFeedbackToast";
+import { installComposeSendListener } from "./services/composer/composeSendOrchestrator";
 import { CommandPalette } from "./components/search/CommandPalette";
 import { ShortcutsHelp } from "./components/search/ShortcutsHelp";
 import { useUIStore } from "./stores/uiStore";
@@ -12,7 +14,7 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { openNewCompose } from "@/utils/openComposeWindow";
 import { runMigrations } from "./services/db/migrations";
 import { getAllAccounts } from "./services/db/accounts";
-import { getSetting } from "./services/db/settings";
+import { getSetting, setSetting } from "./services/db/settings";
 import {
   startBackgroundSync,
   stopBackgroundSync,
@@ -88,6 +90,7 @@ import {
 } from "./router/navigate";
 import { applyColorTheme, applyWindowBackground } from "./utils/themeEffects";
 import { AlertTriangle, X } from "lucide-react";
+import { normalizeSidebarNavConfig } from "@/utils/sidebarNavConfig";
 
 const LIGHTS_OUT_UNTIL_KEY = "velo_messenger_lights_out_until";
 const LIGHTS_OUT_CHANGED_EVENT = "velo-messenger-lights-out-changed";
@@ -262,6 +265,11 @@ export default function App() {
     };
   }, []);
 
+  // Cross-window compose send → main-shell undo / SMTP (MAIL-005/006)
+  useEffect(() => {
+    return installComposeSendListener();
+  }, []);
+
   // Initialize database, load accounts, start sync
   useEffect(() => {
     async function init() {
@@ -395,7 +403,13 @@ export default function App() {
         if (savedNavConfig) {
           try {
             const parsed = JSON.parse(savedNavConfig);
-            if (Array.isArray(parsed)) ui.restoreSidebarNavConfig(parsed);
+            if (Array.isArray(parsed)) {
+              const normalized = normalizeSidebarNavConfig(parsed);
+              ui.restoreSidebarNavConfig(normalized);
+              if (JSON.stringify(normalized) !== JSON.stringify(parsed)) {
+                await setSetting("sidebar_nav_config", JSON.stringify(normalized));
+              }
+            }
           } catch { /* ignore malformed JSON */ }
         }
 
@@ -446,6 +460,26 @@ export default function App() {
         startQueueProcessor();
         startPreCacheManager();
 
+        try {
+          const { reconcileOutboxPendingOperations } = await import(
+            "./services/outbox/reconcileOutboxPending"
+          );
+          const reconcileResults = await reconcileOutboxPendingOperations();
+          const changed = reconcileResults.filter(
+            (r) => r.action !== "kept" && r.action !== "skipped",
+          );
+          if (changed.length > 0) {
+            console.info("[OutboxReconcile]", {
+              total: reconcileResults.length,
+              changed: changed.length,
+              actions: changed.map((r) => ({ id: r.opId, action: r.action, reason: r.reason })),
+            });
+            void triggerQueueFlush();
+          }
+        } catch (err) {
+          console.warn("[OutboxReconcile] startup failed:", err);
+        }
+
         // Initialize notifications
         await initNotifications();
 
@@ -494,8 +528,8 @@ export default function App() {
   // Listen for sync status updates
   const backfillDoneRef = useRef(false);
   useEffect(() => {
-    const unsub = onSyncStatus((accountId, status, _progress, error) => {
-      recordSyncHealthStatus(accountId, status);
+    const unsub = onSyncStatus((accountId, status, progress, error) => {
+      recordSyncHealthStatus(accountId, status, progress);
       if (status === "done") {
         window.dispatchEvent(new Event("velo-sync-done"));
         updateBadgeCount();
@@ -791,6 +825,7 @@ export default function App() {
         <Composer />
       </ErrorBoundary>
       <UndoSendToast />
+      <SendFeedbackToast />
       <UpdateToast />
       <ErrorBoundary name="CommandPalette">
         <CommandPalette

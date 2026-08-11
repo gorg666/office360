@@ -137,8 +137,11 @@ export const ThreadCard = memo(function ThreadCard({
             ? "bg-accent/10"
             : isSelected
               ? "bg-bg-selected"
-              : "hover:bg-bg-hover"
+              : !thread.isRead
+                ? "bg-accent/[0.04] hover:bg-bg-hover"
+                : "hover:bg-bg-hover"
       } ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""}`}
+      data-office360-context-menu-source
     >
       <div className="flex items-start gap-3">
         {/* Avatar */}
@@ -160,11 +163,18 @@ export const ThreadCard = memo(function ThreadCard({
         {/* Content */}
         <div className="flex-1 min-w-0">
           {/* First row: sender + date */}
-          <div className="flex items-center justify-between gap-2">
+          <div className="relative flex items-center gap-2">
+            {!thread.isRead && (
+              <span
+                className="absolute -left-2.5 w-1.5 h-1.5 rounded-full bg-accent"
+                aria-hidden
+                title="Unread"
+              />
+            )}
             <span
-              className={`text-sm truncate ${
+              className={`min-w-0 flex-1 text-left text-sm truncate ${
                 thread.isRead
-                  ? "text-text-secondary"
+                  ? "font-normal text-text-secondary"
                   : "font-semibold text-text-primary"
               }`}
             >
@@ -178,7 +188,9 @@ export const ThreadCard = memo(function ThreadCard({
           {/* Subject */}
           <div
             className={`text-sm truncate mt-0.5 ${
-              thread.isRead ? "text-text-secondary" : "text-text-primary"
+              thread.isRead
+                ? "font-normal text-text-secondary"
+                : "font-semibold text-text-primary"
             }`}
           >
             {thread.subject ?? "(No subject)"}

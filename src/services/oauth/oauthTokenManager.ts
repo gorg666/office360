@@ -16,7 +16,10 @@ const REFRESH_BUFFER_MS = 5 * 60 * 1000;
  * Only applies to IMAP accounts with auth_method "oauth2".
  * For Gmail API accounts, token refresh is handled by GmailClient.
  */
-export async function ensureFreshToken(account: DbAccount): Promise<string> {
+export async function ensureFreshToken(
+  account: DbAccount,
+  options: { forceRefresh?: boolean } = {},
+): Promise<string> {
   if (account.auth_method !== "oauth2" || !account.oauth_provider) {
     // Not an OAuth IMAP account — return whatever password/token is stored
     return account.access_token ?? account.imap_password ?? "";
@@ -32,7 +35,7 @@ export async function ensureFreshToken(account: DbAccount): Promise<string> {
   const now = Date.now();
   const expiresAt = (account.token_expires_at ?? 0) * 1000; // DB stores seconds
 
-  if (expiresAt - now > REFRESH_BUFFER_MS) {
+  if (!options.forceRefresh && expiresAt - now > REFRESH_BUFFER_MS) {
     // Token is still valid
     return account.access_token;
   }

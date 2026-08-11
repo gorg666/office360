@@ -6,6 +6,7 @@ import type {
   CalendarSyncResult,
   CreateEventInput,
   UpdateEventInput,
+  CalendarParticipationStatus,
 } from "./types";
 import { getGmailClient } from "@/services/gmail/tokenManager";
 import type { GmailClient } from "@/services/gmail/client";
@@ -149,6 +150,23 @@ export class GoogleCalendarProvider implements CalendarProvider {
     const encodedEventId = encodeURIComponent(remoteEventId);
     const url = `${CALENDAR_API_BASE}/calendars/${encodedCalId}/events/${encodedEventId}`;
     await client.request(url, { method: "DELETE" });
+  }
+
+  async respondToEvent(
+    calendarRemoteId: string,
+    remoteEventId: string,
+    attendeeEmail: string,
+    status: CalendarParticipationStatus,
+  ): Promise<void> {
+    const client = await this.getClient();
+    const base = `${CALENDAR_API_BASE}/calendars/${encodeURIComponent(calendarRemoteId)}/events/${encodeURIComponent(remoteEventId)}`;
+    const current = await client.request<GoogleCalendarEvent>(base);
+    const attendees = (current.attendees ?? []).map((attendee) =>
+      attendee.email.toLowerCase() === attendeeEmail.toLowerCase()
+        ? { ...attendee, responseStatus: status }
+        : attendee,
+    );
+    await client.request(`${base}?sendUpdates=all`, { method: "PATCH", body: JSON.stringify({ attendees }) });
   }
 
   async syncEvents(calendarRemoteId: string, syncToken?: string): Promise<CalendarSyncResult> {
