@@ -1,9 +1,10 @@
+import type { MouseEventHandler } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 
 interface EventCardProps {
   event: DbCalendarEvent;
   compact?: boolean;
-  onClick?: () => void;
+  onClick?: MouseEventHandler<HTMLButtonElement>;
 }
 
 export function EventCard({ event, compact, onClick }: EventCardProps) {

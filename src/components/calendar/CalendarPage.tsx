@@ -24,6 +24,7 @@ export function CalendarPage() {
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<DbCalendarEvent | null>(null);
+  const [eventAnchor, setEventAnchor] = useState<{ x: number; y: number } | null>(null);
   const [needsReauth, setNeedsReauth] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [showCalendarList, setShowCalendarList] = useState(false);
@@ -279,14 +280,26 @@ export function CalendarPage() {
     }
   }, [activeAccountId, calendars, loadEvents]);
 
-  const handleEventClick = useCallback((event: DbCalendarEvent) => {
+  const handleEventClick = useCallback((event: DbCalendarEvent, anchor: { x: number; y: number }) => {
     setSelectedEvent(event);
+    setEventAnchor(anchor);
   }, []);
 
   const handleEventUpdated = useCallback(() => {
     setSelectedEvent(null);
     loadEvents();
   }, [loadEvents]);
+
+  useEffect(() => {
+    const requestedId = sessionStorage.getItem("office360_calendar_open_event_id");
+    if (!requestedId || events.length === 0) return;
+    const requestedEvent = events.find((event) => event.id === requestedId);
+    if (!requestedEvent) return;
+    sessionStorage.removeItem("office360_calendar_open_event_id");
+    setCurrentDate(new Date(requestedEvent.start_time * 1000));
+    setSelectedEvent(requestedEvent);
+    setEventAnchor({ x: Math.round(window.innerWidth * 0.55), y: Math.round(window.innerHeight * 0.45) });
+  }, [events]);
 
   if (!activeAccountId) {
     return (
@@ -409,6 +422,7 @@ export function CalendarPage() {
           event={selectedEvent}
           calendars={calendars}
           accountId={activeAccountId}
+          anchor={eventAnchor}
           onClose={() => setSelectedEvent(null)}
           onUpdated={handleEventUpdated}
         />

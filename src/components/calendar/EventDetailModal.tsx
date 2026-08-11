@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Check, CircleHelp, Clock, Copy, ExternalLink, Mail, MapPin, Pencil, Repeat2, Trash2, User, X } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/ui/Button";
@@ -17,6 +18,7 @@ interface EventDetailModalProps {
   event: DbCalendarEvent;
   calendars: DbCalendar[];
   accountId: string;
+  anchor?: { x: number; y: number } | null;
   onClose: () => void;
   onUpdated: () => void;
 }
@@ -27,7 +29,7 @@ interface Attendee {
   responseStatus?: string;
 }
 
-export function EventDetailModal({ event, calendars, accountId, onClose, onUpdated }: EventDetailModalProps) {
+export function EventDetailModal({ event, calendars, accountId, anchor, onClose, onUpdated }: EventDetailModalProps) {
   const [editing, setEditing] = useState(false);
   const [summary, setSummary] = useState(event.summary ?? "");
   const [description, setDescription] = useState(event.description ?? "");
@@ -126,8 +128,26 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
     );
   }
 
-  return (
-    <Modal isOpen onClose={onClose} title={event.summary ?? "Событие"} width="w-full max-w-2xl" panelClassName="overflow-hidden">
+  const viewportWidth = typeof window === "undefined" ? 1280 : window.innerWidth;
+  const viewportHeight = typeof window === "undefined" ? 800 : window.innerHeight;
+  const panelLeft = Math.max(12, Math.min((anchor?.x ?? viewportWidth / 2) + 14, viewportWidth - 680));
+  const panelTop = Math.max(12, Math.min((anchor?.y ?? viewportHeight / 2) - 90, viewportHeight - 540));
+
+  return createPortal(
+    <div className="fixed inset-0 z-50" onMouseDown={(mouseEvent) => mouseEvent.target === mouseEvent.currentTarget && onClose()}>
+      <section
+        role="dialog"
+        aria-modal="false"
+        aria-label={event.summary ?? "Событие"}
+        className="fixed w-[min(42rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-border-primary bg-bg-primary shadow-2xl"
+        style={{ left: panelLeft, top: panelTop, maxHeight: "calc(100vh - 24px)" }}
+        onMouseDown={(mouseEvent) => mouseEvent.stopPropagation()}
+      >
+        <header className="flex items-center justify-between border-b border-border-primary px-5 py-3">
+          <h2 className="truncate text-base font-semibold text-text-primary">{event.summary ?? "Событие"}</h2>
+          <button type="button" className="rounded p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary" onClick={onClose} aria-label="Закрыть"><X size={17} /></button>
+        </header>
+        <div className="max-h-[calc(100vh-80px)] overflow-y-auto">
       <div className="p-5 space-y-4">
         {event.description && <div className="text-sm leading-5 text-text-secondary"><LinkifiedText text={event.description} /></div>}
 
@@ -162,7 +182,10 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
           </div>
         </div>
       </div>
-    </Modal>
+        </div>
+      </section>
+    </div>,
+    document.body,
   );
 }
 

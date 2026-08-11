@@ -139,9 +139,13 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
           const available=Math.max(480,innerHeight);
           const designHeight=1120;
           const factor=Math.min(1,Math.max(.65,available/designHeight));
+          document.documentElement.style.overflow='hidden';
+          document.body.style.overflow='hidden';
           document.documentElement.style.zoom=String(factor);
-          document.documentElement.style.width=`${100/factor}%`;
-          document.documentElement.style.height=`${100/factor}%`;
+          document.documentElement.style.width='100%';
+          document.documentElement.style.height='100%';
+          document.body.style.width='100%';
+          document.body.style.height='100%';
         };
         fit();addEventListener('resize',fit);
       })())JS", browser->GetMainFrame()->GetURL(), 0);

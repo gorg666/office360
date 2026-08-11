@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, ExternalLink, Filter, Plus, RefreshCw, Search, Video } from "lucide-react";
+import { CalendarDays, Copy, ExternalLink, Filter, Mail, MessageCircle, Plus, RefreshCw, Search, Users, Video } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { useAccountStore } from "@/stores/accountStore";
 import { getCalendarEventsInRange } from "@/services/db/calendarEvents";
 import { createTelemostConference, type TelemostConference } from "@/services/yandex360/telemost";
 import { cefCreate, cefInitialize, cefNavigate, cefPermissionResponse, cefSetBounds, cefSetVisible, type CefEvent } from "@/services/cef";
 import { ServicePageShell } from "./ServicePageShell";
+import { navigateToLabel } from "@/router/navigate";
+import { openNewCompose } from "@/utils/openComposeWindow";
 
 const CREATED_KEY = "office360_telemost_conferences";
 const VISITED_KEY = "office360_telemost_visited";
@@ -19,6 +21,10 @@ interface MeetingEntry {
   source: MeetingSource;
   startTime?: number;
   lastOpenedAt?: number;
+  endTime?: number;
+  organizerEmail?: string;
+  attendees?: Array<{ email: string; displayName?: string; responseStatus?: string }>;
+  calendarEventId?: string;
 }
 
 function readJson<T>(key: string, fallback: T): T {
@@ -55,15 +61,25 @@ export function TelemostPage() {
 
   useEffect(() => {
     if (!accountId) { setCalendarMeetings([]); return; }
-    const now = Date.now();
-    void getCalendarEventsInRange(accountId, now - 730 * 86400000, now + 730 * 86400000)
+    const now = Math.floor(Date.now() / 1000);
+    void getCalendarEventsInRange(accountId, now - 730 * 86400, now + 730 * 86400)
       .then((events) => {
         const result: MeetingEntry[] = [];
         for (const event of events) {
           const text = [event.description, event.location, event.html_link, event.ical_data].filter(Boolean).join(" ");
           for (const match of text.matchAll(TELEMost_URL)) {
             const joinUrl = match[0].replace(/[),.;]+$/, "");
-            result.push({ id: meetingId(joinUrl), title: event.summary || `Встреча ${meetingId(joinUrl)}`, joinUrl, source: "invited", startTime: event.start_time });
+            result.push({
+              id: meetingId(joinUrl),
+              title: event.summary || `Встреча ${meetingId(joinUrl)}`,
+              joinUrl,
+              source: "invited",
+              startTime: event.start_time,
+              endTime: event.end_time,
+              organizerEmail: event.organizer_email ?? undefined,
+              attendees: parseMeetingAttendees(event.attendees_json),
+              calendarEventId: event.id,
+            });
           }
         }
         setCalendarMeetings(mergeMeetings(result));
@@ -126,6 +142,17 @@ export function TelemostPage() {
     void cefNavigate(meeting.joinUrl);
   };
 
+  const openCalendarEvent = (meeting: MeetingEntry) => {
+    if (!meeting.calendarEventId) return;
+    sessionStorage.setItem("office360_calendar_open_event_id", meeting.calendarEventId);
+    navigateToLabel("calendar");
+  };
+
+  const openMessenger = () => {
+    navigateToLabel("messengers");
+    window.dispatchEvent(new CustomEvent("office360:open-yandex-messenger"));
+  };
+
   const create = async () => {
     try {
       setError(null);
@@ -137,14 +164,30 @@ export function TelemostPage() {
 
   return <ServicePageShell title="Яндекс Телемост" description="Встречи и встроенный Chromium Embedded Framework" actions={<button className="btn-primary px-3 py-2 flex gap-2" onClick={create}><Plus size={16}/>Новая встреча</button>}>
     {error && <div className="mb-3 rounded-md bg-danger/10 text-danger p-3 text-sm flex items-center justify-between"><span>{error}</span><button onClick={() => setError(null)}>Закрыть</button></div>}
-    <div className="h-full min-h-[650px] grid grid-cols-[300px_minmax(0,1fr)] gap-3">
+    <div className="h-full min-h-[650px] grid grid-cols-[400px_minmax(0,1fr)] gap-3">
       <aside className="border border-border-primary rounded-lg overflow-hidden flex flex-col bg-bg-primary">
         <div className="p-3 border-b border-border-primary"><div className="font-medium">Встречи</div><div className="mt-2 relative"><Search size={14} className="absolute left-2 top-2.5 text-text-tertiary"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск встреч" className="w-full rounded border border-border-primary bg-bg-secondary py-2 pl-8 pr-2 text-sm"/></div></div>
         <div className="p-2 border-b border-border-primary flex gap-1 overflow-x-auto">
           <Filter size={14} className="m-2 text-text-tertiary shrink-0"/>
           {([['all','Все'],['created','Созданные'],['invited','Приглашения'],['visited','Недавние']] as const).map(([value,label]) => <button key={value} onClick={() => setFilter(value)} className={`rounded px-2 py-1 text-xs whitespace-nowrap ${filter === value ? 'bg-accent text-white' : 'bg-bg-secondary hover:bg-bg-hover'}`}>{label}</button>)}
         </div>
-        <div className="overflow-auto flex-1">{meetings.length === 0 ? <div className="p-4 text-sm text-text-tertiary">Встречи появятся после создания, приглашения в календаре или первого открытия ссылки.</div> : meetings.map((meeting) => <button key={`${meeting.source}:${meeting.joinUrl}`} className={`w-full text-left p-3 border-b border-border-primary hover:bg-bg-hover ${selectedUrl === meeting.joinUrl ? 'bg-accent/10' : ''}`} onClick={() => openMeeting(meeting)}><div className="flex gap-2 items-center"><Video size={15} className="shrink-0"/><span className="truncate font-medium">{meeting.title}</span></div><div className="text-xs text-text-tertiary mt-1">{meeting.source === 'created' ? 'Создана вами' : meeting.source === 'invited' ? 'Из календаря' : 'Вы открывали'}</div>{meeting.startTime && <div className="text-xs text-text-tertiary mt-1">{new Date(meeting.startTime).toLocaleString('ru-RU')}</div>}</button>)}</div>
+        <div className="overflow-auto flex-1">{meetings.length === 0 ? <div className="p-4 text-sm text-text-tertiary">Встречи появятся после создания, приглашения в календаре или первого открытия ссылки.</div> : meetings.map((meeting) => {
+          const contacts = meeting.attendees?.filter((person) => person.email && person.email !== meeting.organizerEmail) ?? [];
+          return <article key={`${meeting.source}:${meeting.joinUrl}`} className={`border-b border-border-primary p-3 ${selectedUrl === meeting.joinUrl ? 'bg-accent/10' : ''}`}>
+            <button className="w-full text-left hover:text-accent" onClick={() => openMeeting(meeting)}>
+              <div className="flex gap-2 items-center"><Video size={15} className="shrink-0"/><span className="truncate font-medium">{meeting.title}</span></div>
+              <div className="mt-1 text-xs text-text-tertiary">{meeting.organizerEmail ? `Организатор: ${meeting.organizerEmail}` : meeting.source === 'created' ? 'Создана вами' : meeting.source === 'visited' ? 'Вы открывали' : 'Организатор не указан'}</div>
+              {meeting.startTime && <div className="mt-1 text-xs text-text-secondary">{formatMeetingTime(meeting)}</div>}
+            </button>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {(meeting.attendees?.length ?? 0) > 0 && <details className="relative"><summary className="list-none cursor-pointer rounded bg-bg-secondary px-2 py-1 text-xs hover:bg-bg-hover inline-flex items-center gap-1"><Users size={13}/>Участники ({meeting.attendees?.length})</summary><div className="mt-1 rounded border border-border-primary bg-bg-primary p-2 text-xs space-y-1">{meeting.attendees?.map((person) => <div key={person.email} className="flex items-center justify-between gap-2"><span className="truncate" title={person.email}>{person.displayName || person.email}</span><button title="Написать письмо" onClick={() => void openNewCompose({ to: [person.email] })}><Mail size={13}/></button></div>)}</div></details>}
+              <button className="rounded bg-bg-secondary px-2 py-1 text-xs hover:bg-bg-hover inline-flex items-center gap-1" title="Открыть Яндекс Мессенджер" onClick={openMessenger}><MessageCircle size={13}/>Чат</button>
+              {meeting.calendarEventId && <button className="rounded bg-bg-secondary px-2 py-1 text-xs hover:bg-bg-hover inline-flex items-center gap-1" onClick={() => openCalendarEvent(meeting)}><CalendarDays size={13}/>Календарь</button>}
+              {meeting.organizerEmail && <button className="rounded bg-bg-secondary px-2 py-1 text-xs hover:bg-bg-hover inline-flex items-center gap-1" onClick={() => void openNewCompose({ to: [meeting.organizerEmail!] })}><Mail size={13}/>Организатору</button>}
+              {contacts.length > 0 && <button className="rounded bg-bg-secondary px-2 py-1 text-xs hover:bg-bg-hover inline-flex items-center gap-1" onClick={() => void openNewCompose({ to: contacts.map((person) => person.email) })}><Mail size={13}/>Участникам</button>}
+            </div>
+          </article>;
+        })}</div>
       </aside>
       <section className="relative border border-border-primary rounded-lg overflow-hidden min-w-0 bg-black">
         <div ref={hostRef} className="absolute inset-0 bg-black"/>
@@ -157,4 +200,16 @@ export function TelemostPage() {
       </section>
     </div>
   </ServicePageShell>;
+}
+
+function parseMeetingAttendees(value: string | null): MeetingEntry["attendees"] {
+  try { return value ? JSON.parse(value) as NonNullable<MeetingEntry["attendees"]> : []; } catch { return []; }
+}
+
+function formatMeetingTime(meeting: MeetingEntry): string {
+  const start = new Date((meeting.startTime ?? 0) * 1000);
+  const formatted = start.toLocaleString("ru-RU", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  if (!meeting.endTime) return formatted;
+  const minutes = Math.max(0, Math.round((meeting.endTime - (meeting.startTime ?? meeting.endTime)) / 60));
+  return `${formatted} · ${meeting.endTime * 1000 < Date.now() ? "по календарю длилась" : "запланировано"} ${minutes} мин`;
 }

@@ -613,6 +613,15 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
   });
   const autoLoadedHistoryRef = useRef(new Set<string>());
   const loadingHistoryRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    const openYandex = () => {
+      setSelectedProviderId("yandex");
+      setMessengersPanelsOpen(true);
+    };
+    window.addEventListener("office360:open-yandex-messenger", openYandex);
+    return () => window.removeEventListener("office360:open-yandex-messenger", openYandex);
+  }, [setMessengersPanelsOpen]);
   const autoConnectedMaxTokenRef = useRef<string | null>(null);
   const yandexMessagesRef = useRef<MessengerMessage[]>([]);
   const yandexConversationsRef = useRef<MessengerConversation[]>([]);
