@@ -27,28 +27,24 @@ std::mutex g_mutex;
 bool g_initialized = false;
 HWND g_parent = nullptr;
 int g_x = 0, g_y = 0, g_width = 1, g_height = 1;
-bool g_has_bounds = false, g_visible = false;
+bool g_has_bounds = false, g_visible = false, g_content_visible = false;
 
 void applyBrowserWindowState(HWND hwnd) {
   if (!hwnd) return;
-  if (!g_parent || !IsWindow(g_parent)) {
+  if (!g_visible || !g_has_bounds || !g_content_visible) {
     ShowWindow(hwnd, SW_HIDE);
     return;
   }
-  if (GetParent(hwnd) != g_parent) SetParent(hwnd, g_parent);
-  const LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-  const LONG_PTR childStyle = (style & ~static_cast<LONG_PTR>(WS_POPUP | WS_CAPTION | WS_THICKFRAME)) |
-                              WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
-  if (style != childStyle) SetWindowLongPtrW(hwnd, GWL_STYLE, childStyle);
-  const LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-  const LONG_PTR childExStyle = exStyle & ~static_cast<LONG_PTR>(WS_EX_APPWINDOW | WS_EX_TOPMOST);
-  if (exStyle != childExStyle) SetWindowLongPtrW(hwnd, GWL_EXSTYLE, childExStyle);
-  if (!g_visible || !g_has_bounds) {
-    ShowWindow(hwnd, SW_HIDE);
-    return;
+  SetWindowPos(hwnd, HWND_TOP, g_x, g_y, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+}
+
+BOOL CALLBACK findWebView(HWND hwnd, LPARAM value) {
+  wchar_t className[128]{}; GetClassNameW(hwnd, className, 128);
+  if (wcscmp(className, L"WRY_WEBVIEW") == 0) {
+    *reinterpret_cast<HWND*>(value) = hwnd;
+    return FALSE;
   }
-  SetWindowPos(hwnd, HWND_TOP, g_x, g_y, g_width, g_height,
-               SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
+  return TRUE;
 }
 
 class HostApp final : public CefApp {
@@ -59,6 +55,16 @@ class HostApp final : public CefApp {
   }
   IMPLEMENT_REFCOUNTING(HostApp);
 };
+
+class FunctionTask final : public CefTask {
+ public:
+  explicit FunctionTask(std::function<void()> fn) : fn_(std::move(fn)) {}
+  void Execute() override { fn_(); }
+ private:
+  std::function<void()> fn_;
+  IMPLEMENT_REFCOUNTING(FunctionTask);
+};
+void ui(std::function<void()> fn) { CefPostTask(TID_UI, new FunctionTask(std::move(fn))); }
 
 std::string escapeJson(const std::string& value) {
   std::string out; out.reserve(value.size() + 16);
@@ -83,21 +89,16 @@ bool trusted(const std::string& url) {
   const bool oauthCallback = scheme == "http" && (host == "localhost" || host == "127.0.0.1" || host == "::1");
   return (scheme == "https" && (yandex || ya)) || oauthCallback;
 }
-class SessionClearedCallback final : public CefDeleteCookiesCallback {
- public:
-  SessionClearedCallback(CefRefPtr<CefBrowser> browser, std::string next_url)
-      : browser_(browser), next_url_(std::move(next_url)) {}
-  void OnComplete(int) override {
-    if (!browser_) return;
-    auto context = browser_->GetHost()->GetRequestContext();
-    if (context) context->ClearHttpAuthCredentials(nullptr);
-    if (trusted(next_url_)) browser_->GetMainFrame()->LoadURL(next_url_);
-  }
- private:
-  CefRefPtr<CefBrowser> browser_;
-  std::string next_url_;
-  IMPLEMENT_REFCOUNTING(SessionClearedCallback);
-};
+bool displayAllowed(const std::string& url) {
+  CefURLParts parts{};
+  if (!CefParseURL(url, parts)) return false;
+  std::string host = CefString(&parts.host).ToString();
+  std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+  const auto path = CefString(&parts.path).ToString();
+  const bool meeting = (host == "telemost.yandex.ru" || host == "telemost.360.yandex.ru") && path.rfind("/j/", 0) == 0;
+  const bool auth = host == "passport.yandex.ru" || host == "passport.yandex.com" || host == "oauth.yandex.ru" || host == "oauth.yandex.com";
+  return meeting || auth;
+}
 bool domTrusted(const std::string& url) {
   CefURLParts parts{}; if (!CefParseURL(url, parts)) return false;
   std::string host = CefString(&parts.host).ToString();
@@ -167,10 +168,10 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
       })())JS", browser->GetMainFrame()->GetURL(), 0);
       browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{if(window.__o360BrowserJoin)return;let attempts=0;window.__o360BrowserJoin=setInterval(()=>{const item=[...document.querySelectorAll('button,a')].find(el=>/продолжить в браузере|continue in browser/i.test((el.innerText||el.textContent||'').trim()));if(item){clearInterval(window.__o360BrowserJoin);item.click()}else if(++attempts>120)clearInterval(window.__o360BrowserJoin)},500)})())JS", browser->GetMainFrame()->GetURL(), 0);
       browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{
-        if(location.pathname!=='/'||window.__o360CompactTelemost)return;
+        if(window.__o360CompactTelemost)return;
         window.__o360CompactTelemost=true;
         const style=document.createElement('style');style.textContent='.o360-compact-hidden{display:none!important}';document.documentElement.appendChild(style);
-        const compact=()=>{const w=innerWidth,h=innerHeight;for(const el of document.querySelectorAll('header,footer,body *')){if(!(el instanceof HTMLElement)||el.classList.contains('o360-compact-hidden'))continue;const r=el.getBoundingClientRect();if(!r.width||!r.height)continue;const controls=el.querySelectorAll('a,button').length;const rail=r.left<12&&r.width>=36&&r.width<=110&&r.height>h*.55&&controls>=5;const top=r.top<8&&r.height<=110&&r.width>w*.65&&controls>=1;const bottom=r.bottom>h-8&&r.height<=100&&r.width>w*.55&&controls>=1;if(rail||top||bottom)el.classList.add('o360-compact-hidden')}};
+        const compact=()=>{const w=innerWidth,h=innerHeight;for(const el of document.querySelectorAll('header,footer,body *')){if(!(el instanceof HTMLElement)||el.classList.contains('o360-compact-hidden'))continue;const r=el.getBoundingClientRect();if(!r.width||!r.height)continue;const text=(el.innerText||'').replace(/\s+/g,' ').trim().toLowerCase();const controls=el.querySelectorAll('a,button').length;const rail=r.left<12&&r.width>=36&&r.width<=110&&r.height>h*.55&&controls>=5;const top=r.top<8&&r.height<=110&&r.width>w*.65&&/тарифы для бизнеса|business plans/.test(text);const bottom=r.bottom>h-8&&r.height<=110&&r.width>w*.55&&/поддержка|частые вопросы|скачать на windows|скачать на телефон|support|frequently asked|download/.test(text);if(rail||top||bottom)el.classList.add('o360-compact-hidden')}};
         compact();new MutationObserver(compact).observe(document.body,{childList:true,subtree:true});addEventListener('resize',compact);
       })())JS", browser->GetMainFrame()->GetURL(), 0);
       browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{
@@ -195,8 +196,11 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
   void OnLoadError(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, ErrorCode code, const CefString& text, const CefString& url) override {
     emit("error", "{\"message\":\"" + escapeJson(text.ToString()) + "\",\"code\":" + std::to_string(code) + ",\"url\":\"" + escapeJson(url.ToString()) + "\"}");
   }
-  void OnAddressChange(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, const CefString& url) override {
-    if (frame->IsMain()) emit("navigation", "{\"url\":\"" + escapeJson(safeUrl(url.ToString())) + "\"}");
+  void OnAddressChange(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, const CefString& url) override {
+    if (!frame || !frame->IsMain()) return;
+    g_content_visible = displayAllowed(url.ToString());
+    applyBrowserWindowState(browser->GetHost()->GetWindowHandle());
+    emit("navigation", "{\"url\":\"" + escapeJson(safeUrl(url.ToString())) + "\"}");
   }
   bool OnConsoleMessage(CefRefPtr<CefBrowser>, cef_log_severity_t, const CefString& message, const CefString&, int) override {
     const std::string value = message.ToString(), domPrefix = "__O360_DOM__", oauthPrefix = "__O360_OAUTH__", oauthErrorPrefix = "__O360_OAUTH_ERROR__", telemostActionPrefix = "__O360_TELEMOST_ACTION__";
@@ -238,15 +242,6 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
 };
 CefRefPtr<Client> g_client;
 
-class FunctionTask final : public CefTask {
- public:
-  explicit FunctionTask(std::function<void()> fn) : fn_(std::move(fn)) {}
-  void Execute() override { fn_(); }
- private:
-  std::function<void()> fn_;
-  IMPLEMENT_REFCOUNTING(FunctionTask);
-};
-void ui(std::function<void()> fn) { CefPostTask(TID_UI, new FunctionTask(std::move(fn))); }
 std::string domScript(const std::string& id, const std::string& command) {
   const std::string idJson = "\"" + escapeJson(id) + "\"";
   const std::string commandJson = command.empty() ? "{}" : command;
@@ -267,6 +262,9 @@ extern "C" int o360_cef_initialize(void* parent, const wchar_t* profile, const w
   g_initialized = CefInitialize(args, settings, new HostApp(), nullptr); if (!g_initialized) return 0;
   g_parent = static_cast<HWND>(parent);
   if (!g_parent || !IsWindow(g_parent)) return 0;
+  HWND webview = nullptr;
+  EnumChildWindows(g_parent, findWebView, reinterpret_cast<LPARAM>(&webview));
+  if (webview) g_parent = webview;
   emit("initialized"); return 1;
 }
 extern "C" int o360_cef_create(const char* url) {
@@ -276,9 +274,10 @@ extern "C" int o360_cef_create(const char* url) {
   const int y = g_has_bounds ? g_y : 0;
   const int width = g_has_bounds ? g_width : 1;
   const int height = g_has_bounds ? g_height : 1;
+  g_content_visible = displayAllowed(url ? url : "");
   info.SetAsChild(g_parent, CefRect(x, y, width, height));
   info.style &= ~WS_VISIBLE;
-  info.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
+  info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
   CefBrowserSettings settings; return CefBrowserHost::CreateBrowser(info, g_client, url, settings, nullptr, nullptr) ? 1 : 0;
 }
 extern "C" void o360_cef_set_bounds(int x,int y,int w,int h){g_x=x;g_y=y;g_width=std::max(1,w);g_height=std::max(1,h);g_has_bounds=true;ui([]{if(g_client&&g_client->browser())applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());});}
@@ -287,7 +286,6 @@ extern "C" void o360_cef_navigate(const char* url){std::string s=url?url:"";ui([
 extern "C" void o360_cef_back(){ui([]{if(g_client&&g_client->browser())g_client->browser()->GoBack();});}
 extern "C" void o360_cef_forward(){ui([]{if(g_client&&g_client->browser())g_client->browser()->GoForward();});}
 extern "C" void o360_cef_reload(){ui([]{if(g_client&&g_client->browser())g_client->browser()->Reload();});}
-extern "C" void o360_cef_clear_session(const char* next_url){std::string url=next_url?next_url:"";ui([url]{if(!g_client||!g_client->browser())return;auto browser=g_client->browser();auto context=browser->GetHost()->GetRequestContext();if(!context)return;auto cookies=context->GetCookieManager(nullptr);if(!cookies||!cookies->DeleteCookies("","",new SessionClearedCallback(browser,url))){context->ClearHttpAuthCredentials(nullptr);if(trusted(url))browser->GetMainFrame()->LoadURL(url);}});}
 extern "C" int o360_cef_dom_command(const char* id,const char* command){if(!g_client||!g_client->browser()||!domTrusted(g_client->browser()->GetMainFrame()->GetURL()))return 0;std::string script=domScript(id?id:"",command?command:"{}");ui([script]{if(g_client&&g_client->browser()&&domTrusted(g_client->browser()->GetMainFrame()->GetURL()))g_client->browser()->GetMainFrame()->ExecuteJavaScript(script,g_client->browser()->GetMainFrame()->GetURL(),0);});return 1;}
 extern "C" void o360_cef_permission_response(uint64_t id,int allow){ui([=]{if(g_client)g_client->permission(id,allow!=0);});}
-extern "C" void o360_cef_shutdown(){std::lock_guard<std::mutex> lock(g_mutex);if(!g_initialized)return;if(g_client&&g_client->browser())g_client->browser()->GetHost()->CloseBrowser(true);g_client=nullptr;CefShutdown();g_initialized=false;g_parent=nullptr;g_has_bounds=false;g_visible=false;g_callback=nullptr;}
+extern "C" void o360_cef_shutdown(){std::lock_guard<std::mutex> lock(g_mutex);if(!g_initialized)return;if(g_client&&g_client->browser())g_client->browser()->GetHost()->CloseBrowser(true);g_client=nullptr;CefShutdown();g_initialized=false;g_parent=nullptr;g_has_bounds=false;g_visible=false;g_content_visible=false;g_callback=nullptr;}

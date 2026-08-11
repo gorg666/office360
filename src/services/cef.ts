@@ -20,6 +20,5 @@ export const cefNavigate = (url: string) => invoke<void>("cef_navigate", { url }
 export const cefBack = () => invoke<void>("cef_back");
 export const cefForward = () => invoke<void>("cef_forward");
 export const cefReload = () => invoke<void>("cef_reload");
-export const cefClearSession = (nextUrl: string) => invoke<void>("cef_clear_session", { nextUrl });
 export const cefDomCommand = (command: DomCommand) => invoke<DomSubmission>("cef_dom_command", { command });
 export const cefPermissionResponse = (id: number, allow: boolean) => invoke<void>("cef_permission_response", { id, allow });

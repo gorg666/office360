@@ -33,7 +33,6 @@ mod platform {
     type SetVisible = unsafe extern "C" fn(c_int);
     type StringCommand = unsafe extern "C" fn(*const c_char);
     type VoidCommand = unsafe extern "C" fn();
-    type ClearSession = unsafe extern "C" fn(*const c_char);
     type DomCommand = unsafe extern "C" fn(*const c_char, *const c_char) -> c_int;
     type PermissionResponse = unsafe extern "C" fn(u64, c_int);
 
@@ -46,7 +45,6 @@ mod platform {
         back: VoidCommand,
         forward: VoidCommand,
         reload: VoidCommand,
-        clear_session: ClearSession,
         dom_command: DomCommand,
         permission_response: PermissionResponse,
         shutdown: VoidCommand,
@@ -102,7 +100,6 @@ mod platform {
         let back = load!(b"o360_cef_back\0", VoidCommand);
         let forward = load!(b"o360_cef_forward\0", VoidCommand);
         let reload = load!(b"o360_cef_reload\0", VoidCommand);
-        let clear_session = load!(b"o360_cef_clear_session\0", ClearSession);
         let dom_command = load!(b"o360_cef_dom_command\0", DomCommand);
         let permission_response = load!(b"o360_cef_permission_response\0", PermissionResponse);
         let shutdown = load!(b"o360_cef_shutdown\0", VoidCommand);
@@ -111,7 +108,7 @@ mod platform {
         *APP.lock().map_err(|_| "CEF app lock is poisoned")? = Some(app);
         let ok = unsafe { initialize(hwnd.0, profile_wide.as_ptr(), subprocess_wide.as_ptr(), event_callback) };
         if ok == 0 { return Err("CEF initialization failed".into()); }
-        *guard = Some(Runtime { _library: library, create, set_bounds, set_visible, navigate, back, forward, reload, clear_session, dom_command, permission_response, shutdown, browser_created: false });
+        *guard = Some(Runtime { _library: library, create, set_bounds, set_visible, navigate, back, forward, reload, dom_command, permission_response, shutdown, browser_created: false });
         Ok(())
     }
 
@@ -136,7 +133,6 @@ mod platform {
     pub fn back() -> Result<(), String> { with_runtime(|r| { unsafe { (r.back)() }; Ok(()) }) }
     pub fn forward() -> Result<(), String> { with_runtime(|r| { unsafe { (r.forward)() }; Ok(()) }) }
     pub fn reload() -> Result<(), String> { with_runtime(|r| { unsafe { (r.reload)() }; Ok(()) }) }
-    pub fn clear_session(next_url: &str) -> Result<(), String> { with_runtime(|r| { let value=CString::new(next_url).map_err(|_| "Invalid URL")?; unsafe { (r.clear_session)(value.as_ptr()) }; Ok(()) }) }
     pub fn dom(request_id: &str, command: &str) -> Result<bool, String> { with_runtime(|r| { let id=CString::new(request_id).map_err(|_| "Invalid request ID")?; let command=CString::new(command).map_err(|_| "Invalid DOM command")?; Ok(unsafe { (r.dom_command)(id.as_ptr(),command.as_ptr()) } != 0) }) }
     pub fn permission(id: u64, allow: bool) -> Result<(), String> { with_runtime(|r| { unsafe { (r.permission_response)(id,allow as i32) }; Ok(()) }) }
     pub fn shutdown() { if let Ok(mut guard)=RUNTIME.lock() { if let Some(runtime)=guard.take() { unsafe { (runtime.shutdown)() }; } } if let Ok(mut app)=APP.lock(){*app=None;} }
@@ -148,7 +144,7 @@ mod platform {
     fn unavailable<T>() -> Result<T,String>{Err("Embedded Telemost is available only on Windows x64".into())}
     pub fn initialize(_:AppHandle)->Result<(),String>{unavailable()} pub fn create(_: &str)->Result<(),String>{unavailable()}
     pub fn bounds(_:CefBounds)->Result<(),String>{unavailable()} pub fn visible(_:bool)->Result<(),String>{unavailable()}
-    pub fn navigate(_: &str)->Result<(),String>{unavailable()} pub fn back()->Result<(),String>{unavailable()} pub fn forward()->Result<(),String>{unavailable()} pub fn reload()->Result<(),String>{unavailable()} pub fn clear_session(_: &str)->Result<(),String>{unavailable()}
+    pub fn navigate(_: &str)->Result<(),String>{unavailable()} pub fn back()->Result<(),String>{unavailable()} pub fn forward()->Result<(),String>{unavailable()} pub fn reload()->Result<(),String>{unavailable()}
     pub fn dom(_: &str,_:&str)->Result<bool,String>{unavailable()} pub fn permission(_:u64,_:bool)->Result<(),String>{unavailable()} pub fn shutdown(){}
 }
 
@@ -160,7 +156,6 @@ mod platform {
 #[tauri::command] pub fn cef_back()->Result<(),String>{platform::back()}
 #[tauri::command] pub fn cef_forward()->Result<(),String>{platform::forward()}
 #[tauri::command] pub fn cef_reload()->Result<(),String>{platform::reload()}
-#[tauri::command] pub fn cef_clear_session(next_url:String)->Result<(),String>{platform::clear_session(&next_url)}
 #[tauri::command] pub fn cef_dom_command(command:serde_json::Value)->Result<DomSubmission,String>{let request_id=uuid::Uuid::new_v4().to_string();let encoded=serde_json::to_string(&command).map_err(|e|e.to_string())?;let accepted=platform::dom(&request_id,&encoded)?;Ok(DomSubmission{request_id,accepted})}
 #[tauri::command] pub fn cef_permission_response(id:u64,allow:bool)->Result<(),String>{platform::permission(id,allow)}
 pub fn shutdown(){platform::shutdown()}

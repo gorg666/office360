@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useAccountStore } from "@/stores/accountStore";
 import { getCalendarEventsInRange } from "@/services/db/calendarEvents";
 import { createTelemostConference, type TelemostConference } from "@/services/yandex360/telemost";
-import { cefClearSession, cefCreate, cefInitialize, cefNavigate, cefPermissionResponse, cefSetBounds, cefSetVisible, type CefEvent } from "@/services/cef";
+import { cefCreate, cefInitialize, cefNavigate, cefPermissionResponse, cefSetBounds, cefSetVisible, type CefEvent } from "@/services/cef";
 import { ServicePageShell } from "./ServicePageShell";
 import { navigateToLabel } from "@/router/navigate";
 import { openNewCompose } from "@/utils/openComposeWindow";
@@ -59,7 +59,8 @@ export function TelemostPage() {
   const activeAccount = useAccountStore((state) => state.accounts.find((item) => item.id === state.activeAccountId) ?? null);
   const hostRef = useRef<HTMLDivElement>(null);
   const activeMeetingUrlRef = useRef<string | null>(null);
-  const meetingRecoveryAtRef = useRef(0);
+  const pendingScheduleRef = useRef(false);
+  const accountSwitchGenerationRef = useRef(0);
   const [serviceAccountId, setServiceAccountId] = useState<string | null>(null);
   const [accountChecking, setAccountChecking] = useState(true);
   const [created, setCreated] = useState<StoredConference[]>([]);
@@ -82,13 +83,30 @@ export function TelemostPage() {
     setActiveMeetingUrl(url);
   }, []);
 
+  const openCalendarDraft = useCallback((meetingUrl: string) => {
+    const start = new Date();
+    start.setMinutes(0, 0, 0);
+    start.setHours(start.getHours() + 1);
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    sessionStorage.setItem("office360_calendar_create_draft", JSON.stringify({
+      summary: "Встреча в Яндекс Телемосте",
+      description: `Ссылка на встречу: ${meetingUrl}`,
+      location: meetingUrl,
+      startTime: toLocalDateTime(start),
+      endTime: toLocalDateTime(end),
+      attendees: [],
+    }));
+    navigateToLabel("calendar");
+  }, []);
+
   useEffect(() => {
     let current = true;
     setAccountChecking(true);
     setServiceAccountId(null);
     setCefSessionReady(false);
+    pendingScheduleRef.current = false;
+    accountSwitchGenerationRef.current += 1;
     rememberActiveMeeting(null);
-    meetingRecoveryAtRef.current = 0;
     setCreated([]); setVisited([]); setCalendarMeetings([]); setSelectedUrl("https://telemost.yandex.ru/"); setError(null);
     void cefSetVisible(false);
     if (!accountId) { setAccountChecking(false); return () => { current = false; }; }
@@ -115,22 +133,27 @@ export function TelemostPage() {
   useEffect(() => {
     if (!serviceAccountId || !activeAccount) return;
     let current = true;
+    const generation = ++accountSwitchGenerationRef.current;
     void (async () => {
       await cefInitialize();
+      if (!current || generation !== accountSwitchGenerationRef.current) return;
       await cefCreate("https://telemost.yandex.ru/");
+      if (!current || generation !== accountSwitchGenerationRef.current) return;
       const previousAccountId = localStorage.getItem(CEF_ACCOUNT_KEY);
       if (previousAccountId !== serviceAccountId) {
         await cefSetVisible(false);
+        if (!current || generation !== accountSwitchGenerationRef.current) return;
         const retpath = encodeURIComponent("https://telemost.yandex.ru/");
         const loginHint = encodeURIComponent(activeAccount.email);
-        const authUrl = `https://passport.yandex.ru/auth?retpath=${retpath}&login_hint=${loginHint}`;
-        await cefClearSession(authUrl);
+        const authUrl = `https://passport.yandex.ru/auth?mode=edit&retpath=${retpath}&login_hint=${loginHint}`;
+        await cefNavigate(authUrl);
+        if (!current || generation !== accountSwitchGenerationRef.current) return;
         localStorage.setItem(CEF_ACCOUNT_KEY, serviceAccountId);
         if (current) setSelectedUrl(authUrl);
       }
       if (current) setCefSessionReady(true);
     })().catch((reason) => current && setError(`Не удалось переключить аккаунт Телемоста: ${String(reason)}`));
-    return () => { current = false; };
+    return () => { current = false; accountSwitchGenerationRef.current += 1; };
   }, [activeAccount, serviceAccountId]);
 
   useEffect(() => {
@@ -189,17 +212,16 @@ export function TelemostPage() {
           rememberActiveMeeting(payload.url);
           const entry: MeetingEntry = { id: meetingId(payload.url), title: `Встреча ${meetingId(payload.url)}`, joinUrl: payload.url, source: "visited", lastOpenedAt: Date.now() };
           setVisited((items) => mergeMeetings([entry, ...items]).slice(0, 100));
-        } else if (!activeMeetingUrlRef.current) {
-          setSelectedUrl(payload.url);
-        } else if (/^https:\/\/telemost(?:\.360)?\.yandex\.ru\/?(?:[?#].*)?$/i.test(payload.url)) {
-          const now = Date.now();
-          if (now - meetingRecoveryAtRef.current > 5_000) {
-            meetingRecoveryAtRef.current = now;
-            void cefNavigate(activeMeetingUrlRef.current);
+          if (pendingScheduleRef.current) {
+            pendingScheduleRef.current = false;
+            openCalendarDraft(payload.url);
           }
+        } else {
+          setSelectedUrl(payload.url);
         }
       }
       if (type === "telemost-action" && payload.action === "create" && payload.ok === false) {
+        pendingScheduleRef.current = false;
         setError("Не удалось найти кнопку создания встречи на странице Телемоста. Обновите страницу и повторите попытку.");
       }
       if (type === "error" && typeof payload.message === "string" && payload.message !== "ERR_ABORTED") setError(payload.message);
@@ -209,7 +231,7 @@ export function TelemostPage() {
       }
     });
     return () => { alive = false; void cefSetVisible(false); void unlisten.then((fn) => fn()); };
-  }, [cefSessionReady, rememberActiveMeeting, serviceAccountId]);
+  }, [cefSessionReady, openCalendarDraft, rememberActiveMeeting, serviceAccountId]);
 
   const syncBounds = useCallback(() => {
     const element = hostRef.current;
@@ -252,7 +274,6 @@ export function TelemostPage() {
     setSelectedCalendarEventId(meeting.calendarEventId ?? null);
     setSelectedUrl(meeting.joinUrl);
     rememberActiveMeeting(meeting.joinUrl);
-    meetingRecoveryAtRef.current = 0;
     setError(null);
     void cefNavigate(meeting.joinUrl);
   };
@@ -281,29 +302,16 @@ export function TelemostPage() {
 
   const schedule = async () => {
     if (!serviceAccountId) return;
+    setError(null);
+    if (activeMeetingUrlRef.current) {
+      openCalendarDraft(activeMeetingUrlRef.current);
+      return;
+    }
+    pendingScheduleRef.current = true;
     try {
-      setError(null);
-      let meetingUrl = activeMeetingUrlRef.current;
-      if (!meetingUrl) {
-        const conference = await createTelemostConference({ accountId: serviceAccountId, waitingRoomLevel: "PUBLIC", cohostEmails: [], autoSummarization: false });
-        const stored: StoredConference = { ...conference, title: "Новая встреча", createdAt: Math.floor(Date.now() / 1000), inviteEmails: [] };
-        setCreated((items) => [stored, ...items.filter((item) => item.id !== conference.id)]);
-        meetingUrl = conference.joinUrl;
-      }
-      const start = new Date();
-      start.setMinutes(0, 0, 0);
-      start.setHours(start.getHours() + 1);
-      const end = new Date(start.getTime() + 60 * 60 * 1000);
-      sessionStorage.setItem("office360_calendar_create_draft", JSON.stringify({
-        summary: "Встреча в Яндекс Телемосте",
-        description: `Ссылка на встречу: ${meetingUrl}`,
-        location: meetingUrl,
-        startTime: toLocalDateTime(start),
-        endTime: toLocalDateTime(end),
-        attendees: [],
-      }));
-      navigateToLabel("calendar");
+      await createInWebTelemost();
     } catch (reason) {
+      pendingScheduleRef.current = false;
       setError(`Не удалось подготовить встречу для календаря: ${reason instanceof Error ? reason.message : String(reason)}`);
     }
   };
