@@ -1,4 +1,4 @@
-import type { CalendarEventData, CreateEventInput, UpdateEventInput } from "./types";
+import type { CalendarEventData, CalendarParticipationStatus, CreateEventInput, UpdateEventInput } from "./types";
 import { rrulestr } from "rrule";
 
 export interface ParsedICalAttendee {
@@ -220,6 +220,42 @@ export function parseVEventsInRange(
   });
 }
 
+export function updateVEventFields(icalData: string, event: UpdateEventInput): string {
+  let changedMaster = false;
+  return icalData.replace(/BEGIN:VEVENT[\s\S]*?END:VEVENT/gi, (block) => {
+    if (changedMaster || /(?:^|\r?\n)RECURRENCE-ID[;:]/i.test(block)) return block;
+    changedMaster = true;
+    let next = block;
+    if (event.summary !== undefined) next = replaceEventProperty(next, "SUMMARY", escapeICalText(event.summary));
+    if (event.description !== undefined) next = replaceEventProperty(next, "DESCRIPTION", escapeICalText(event.description));
+    if (event.location !== undefined) next = replaceEventProperty(next, "LOCATION", escapeICalText(event.location));
+    if (event.startTime !== undefined) {
+      next = replaceEventProperty(next, "DTSTART", formatEventDate(event.startTime, !!event.isAllDay), event.isAllDay ? ";VALUE=DATE" : "");
+    }
+    if (event.endTime !== undefined) {
+      next = replaceEventProperty(next, "DTEND", formatEventDate(event.endTime, !!event.isAllDay), event.isAllDay ? ";VALUE=DATE" : "");
+    }
+    return next;
+  });
+}
+
+export function updateAttendeeParticipation(
+  icalData: string,
+  attendeeEmail: string,
+  status: CalendarParticipationStatus,
+): string {
+  const partstat = status.toUpperCase();
+  let updated = false;
+  return icalData.replace(/(^|\r?\n)(ATTENDEE[^\r\n]*:mailto:([^\r\n]+))/gi, (match, prefix, line, email) => {
+    if (updated || String(email).trim().toLowerCase() !== attendeeEmail.trim().toLowerCase()) return match;
+    updated = true;
+    const colon = String(line).indexOf(":");
+    let params = String(line).slice(0, colon).replace(/;PARTSTAT=[^;:]*/i, "").replace(/;RSVP=[^;:]*/i, "");
+    params += `;PARTSTAT=${partstat};RSVP=FALSE`;
+    return `${prefix}${params}${String(line).slice(colon)}`;
+  });
+}
+
 /**
  * Parse iTIP/iMIP invitation metadata while preserving the existing event shape.
  */
@@ -348,6 +384,18 @@ function formatDateOnly(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}${m}${d}`;
+}
+
+function formatEventDate(value: string, allDay: boolean): string {
+  const date = new Date(value);
+  return allDay ? formatDateOnly(date) : formatDateTimeUTC(date);
+}
+
+function replaceEventProperty(block: string, name: string, value: string, params = ""): string {
+  const property = new RegExp(`(^|\\r?\\n)${name}(?:;[^:\\r\\n]*)?:[^\\r\\n]*`, "i");
+  const replacement = `$1${name}${params}:${value}`;
+  if (property.test(block)) return block.replace(property, replacement);
+  return block.replace(/\r?\nEND:VEVENT$/i, `\r\n${name}${params}:${value}\r\nEND:VEVENT`);
 }
 
 function escapeICalText(text: string): string {

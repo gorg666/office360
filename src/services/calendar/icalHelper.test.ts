@@ -1,4 +1,4 @@
-import { generateVEvent, parseICalendarInvite, parseVEvent, parseVEventsInRange } from "./icalHelper";
+import { generateVEvent, parseICalendarInvite, parseVEvent, parseVEventsInRange, updateAttendeeParticipation, updateVEventFields } from "./icalHelper";
 import type { CreateEventInput } from "./types";
 
 beforeEach(() => {
@@ -665,5 +665,29 @@ describe("round-trip: generateVEvent -> parseVEvent", () => {
     expect(parsed.summary).toBe("Review; Q2, Results\\Final");
     expect(parsed.description).toBe("Line one\nLine two\nLine three");
     expect(parsed.location).toBe("Building A; Room 3, Floor 2");
+  });
+});
+
+describe("CalDAV event mutations", () => {
+  const recurring = [
+    "BEGIN:VCALENDAR", "BEGIN:VEVENT", "UID:series-1",
+    "DTSTART:20260805T150000Z", "DTEND:20260805T153000Z",
+    "RRULE:FREQ=WEEKLY;COUNT=4", "SUMMARY:Old title",
+    "ATTENDEE;CN=Efim;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:efim@example.com",
+    "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
+
+  it("updates visible fields without dropping recurrence and attendees", () => {
+    const updated = updateVEventFields(recurring, { summary: "New title", description: "Details" });
+    expect(updated).toContain("SUMMARY:New title");
+    expect(updated).toContain("DESCRIPTION:Details");
+    expect(updated).toContain("RRULE:FREQ=WEEKLY;COUNT=4");
+    expect(updated).toContain("ATTENDEE;CN=Efim");
+  });
+
+  it("updates the current attendee response without changing the series", () => {
+    const updated = updateAttendeeParticipation(recurring, "EFIM@example.com", "accepted");
+    expect(updated).toContain("ATTENDEE;CN=Efim;PARTSTAT=ACCEPTED;RSVP=FALSE:mailto:efim@example.com");
+    expect(updated).toContain("RRULE:FREQ=WEEKLY;COUNT=4");
   });
 });

@@ -44,6 +44,8 @@ export interface UpdateEventInput {
   isAllDay?: boolean;
 }
 
+export type CalendarParticipationStatus = "accepted" | "tentative" | "declined";
+
 export interface CalendarSyncResult {
   created: CalendarEventData[];
   updated: CalendarEventData[];
@@ -62,6 +64,13 @@ export interface CalendarProvider {
   createEvent(calendarRemoteId: string, event: CreateEventInput): Promise<CalendarEventData>;
   updateEvent(calendarRemoteId: string, remoteEventId: string, event: UpdateEventInput, etag?: string): Promise<CalendarEventData>;
   deleteEvent(calendarRemoteId: string, remoteEventId: string, etag?: string): Promise<void>;
+  respondToEvent?(
+    calendarRemoteId: string,
+    remoteEventId: string,
+    attendeeEmail: string,
+    status: CalendarParticipationStatus,
+    etag?: string,
+  ): Promise<void>;
 
   syncEvents(calendarRemoteId: string, syncToken?: string): Promise<CalendarSyncResult>;
 
