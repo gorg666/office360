@@ -515,7 +515,7 @@ export function Composer() {
           {showCcBcc ? (
             <>
               <AddressInput label="Копия" addresses={cc} onChange={setCc} />
-              <AddressInput label="Скрытая" addresses={bcc} onChange={setBcc} />
+              <AddressInput label="Скрытая копия" addresses={bcc} onChange={setBcc} />
             </>
           ) : (
             <button

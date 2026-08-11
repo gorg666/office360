@@ -45,7 +45,7 @@ function statusLabel(status: OutboxDisplayStatus, op?: PendingOperation): string
 }
 
 function formatOutboxDate(unixSec: number): string {
-  return new Date(unixSec * 1000).toLocaleString();
+  return new Date(unixSec * 1000).toLocaleString("ru-RU");
 }
 
 function parseRestoreFromParams(paramsJson: string): ComposeSendRestore | null {

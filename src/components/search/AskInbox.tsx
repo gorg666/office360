@@ -204,7 +204,7 @@ export function AskInbox() {
                               </div>
                             </div>
                             <span className="shrink-0 pt-0.5 text-[0.6875rem] text-text-tertiary">
-                              {new Date(msg.date).toLocaleDateString()}
+                              {new Date(msg.date).toLocaleDateString("ru-RU")}
                             </span>
                           </div>
                         </button>

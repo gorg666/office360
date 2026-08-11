@@ -53,7 +53,8 @@ export function classifyError(error: unknown): ClassifiedError {
   const statusMatch = lower.match(/\b(4\d{2}|5\d{2})\b/);
   const statusCode = statusMatch ? parseInt(statusMatch[1]!, 10) : null;
 
-  if (statusCode === 401 || statusCode === 403) {
+  if (statusCode === 401 || statusCode === 403 || statusCode === 535) {
+    // 535 = SMTP authentication failed (not a generic HTTP 5xx).
     return { type: "auth", isRetryable: false, message };
   }
 
@@ -116,9 +117,15 @@ export function formatSyncError(rawError: string): string {
     return "Сервер не найден — проверьте имя хоста";
   }
 
-  // Fallback: truncate long technical errors
+  // Fallback: never show raw English protocol dumps in the UI
   if (rawError.length > 100) {
-    return rawError.slice(0, 100) + "\u2026";
+    return "Произошла ошибка. Повторите попытку.";
+  }
+  if (/[A-Za-z]{4,}/.test(rawError) && !/[А-Яа-яЁё]/.test(rawError)) {
+    if (NETWORK_PATTERNS.some((p) => lower.includes(p))) {
+      return "Нет соединения с сервером";
+    }
+    return "Произошла ошибка. Повторите попытку.";
   }
   return rawError;
 }

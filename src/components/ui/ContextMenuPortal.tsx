@@ -59,7 +59,7 @@ import { openThreadPopOut } from "@/utils/openThreadWindow";
 import { supportsFolderEditing } from "@/services/email/providerCapabilities";
 
 function buildQuote(msg: { from_name: string | null; from_address: string | null; date: string | number; body_html: string | null; body_text: string | null }): string {
-  const date = new Date(msg.date).toLocaleString();
+  const date = new Date(msg.date).toLocaleString("ru-RU");
   const from = msg.from_name
     ? `${msg.from_name} &lt;${msg.from_address}&gt;`
     : (msg.from_address ?? "Unknown");
@@ -67,7 +67,7 @@ function buildQuote(msg: { from_name: string | null; from_address: string | null
 }
 
 function buildForwardQuote(msg: { from_name: string | null; from_address: string | null; date: string | number; subject: string | null; to_addresses: string | null; body_html: string | null; body_text: string | null }): string {
-  const date = new Date(msg.date).toLocaleString();
+  const date = new Date(msg.date).toLocaleString("ru-RU");
   return `<br><br>---------- Forwarded message ---------<br>From: ${msg.from_name ?? ""} &lt;${msg.from_address ?? ""}&gt;<br>Date: ${date}<br>Subject: ${msg.subject ?? ""}<br>To: ${msg.to_addresses ?? ""}<br><br>${msg.body_html ?? msg.body_text ?? ""}`;
 }
 
