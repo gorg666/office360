@@ -18,12 +18,6 @@ fn emit_to_main(app: &tauri::AppHandle, event: &str) {
         let _ = window.emit(event, ());
     }
 }
-
-fn is_oauth_callback(url: &tauri::Url) -> bool {
-    matches!(url.host_str(), Some("localhost") | Some("127.0.0.1") | Some("::1"))
-        && url.scheme() == "http"
-        && url.port_or_known_default() == Some(17248)
-}
 use tauri_plugin_autostart::MacosLauncher;
 
 mod commands;
@@ -87,23 +81,6 @@ pub fn run() {
     }
 
     tauri::Builder::default()
-        .plugin(
-            tauri::plugin::Builder::<_, ()>::new("oauth-navigation-guard")
-                .on_navigation(|webview, url| {
-                    if webview.label() != "main" || !is_oauth_callback(url) {
-                        return true;
-                    }
-                    let callback = url.clone();
-                    tauri::async_runtime::spawn(async move {
-                        if let Err(err) = reqwest::get(callback).await {
-                            log::warn!("Failed to forward OAuth callback to local listener: {err}");
-                        }
-                    });
-                    log::info!("Blocked OAuth callback navigation in main webview");
-                    false
-                })
-                .build(),
-        )
         // Single instance MUST be first
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -197,16 +174,6 @@ pub fn run() {
             messengers::max_client_disconnect,
         ])
         .setup(|app| {
-            let startup_app = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                if let Some(splash) = startup_app.get_webview_window("splashscreen") {
-                    let _ = splash.close();
-                    focus_main_window(&startup_app);
-                    log::warn!("Splash screen exceeded startup deadline and was closed");
-                }
-            });
-
             if let Err(err) = notifications::ensure_windows_notification_identity(app.handle()) {
                 log::warn!("Windows notification identity setup: {err}");
             }
