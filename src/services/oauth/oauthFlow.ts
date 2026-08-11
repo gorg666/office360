@@ -36,6 +36,7 @@ async function openAuthorization(provider: OAuthProviderConfig, authUrl: string)
     return async () => {};
   }
 
+  await invoke("close_splashscreen").catch(() => {});
   await cefInitialize();
   const margin = 32;
   const sidebar = 240;

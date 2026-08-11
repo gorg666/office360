@@ -174,6 +174,16 @@ pub fn run() {
             messengers::max_client_disconnect,
         ])
         .setup(|app| {
+            let startup_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                if let Some(splash) = startup_app.get_webview_window("splashscreen") {
+                    let _ = splash.close();
+                    focus_main_window(&startup_app);
+                    log::warn!("Splash screen exceeded startup deadline and was closed");
+                }
+            });
+
             if let Err(err) = notifications::ensure_windows_notification_identity(app.handle()) {
                 log::warn!("Windows notification identity setup: {err}");
             }
