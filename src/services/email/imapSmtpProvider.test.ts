@@ -581,7 +581,7 @@ describe("ImapSmtpProvider", () => {
     const rawEmail = "From: user@example.com\r\nTo: bob@example.com\r\nSubject: Test\r\nDate: Thu, 20 Feb 2025 12:00:00 GMT\r\nMessage-ID: <test123@example.com>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nHello World";
     const rawBase64Url = btoa(rawEmail).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
-    it("sends via SMTP, copies to Sent on server, skips local row (sync adds server UID)", async () => {
+    it("sends via SMTP, copies to Sent on server, and keeps local SENT placeholder", async () => {
       vi.mocked(smtpSendEmail).mockResolvedValue({
         success: true,
         message: "OK",
@@ -598,13 +598,16 @@ describe("ImapSmtpProvider", () => {
         rawBase64Url,
         "(\\Seen)",
       );
-      expect(upsertThread).not.toHaveBeenCalled();
-      expect(setThreadLabels).not.toHaveBeenCalled();
-      expect(upsertMessage).not.toHaveBeenCalled();
+      expect(upsertMessage).toHaveBeenCalled();
       expect(result.id).toMatch(/^imap-sent-/);
+      expect(result).toMatchObject({
+        smtpAccepted: true,
+        appendedToSent: true,
+        localPersisted: true,
+      });
     });
 
-    it("reply: APPEND succeeds — no local duplicate; sync will merge by headers", async () => {
+    it("reply: APPEND succeeds — still writes local SENT placeholder for UI", async () => {
       vi.mocked(smtpSendEmail).mockResolvedValue({
         success: true,
         message: "OK",
@@ -616,10 +619,9 @@ describe("ImapSmtpProvider", () => {
       const result = await provider.sendMessage(rawBase64Url, "existing-thread-1");
 
       expect(imapAppendMessage).toHaveBeenCalled();
-      expect(setThreadLabels).not.toHaveBeenCalled();
-      expect(upsertThread).not.toHaveBeenCalled();
-      expect(upsertMessage).not.toHaveBeenCalled();
+      expect(upsertMessage).toHaveBeenCalled();
       expect(result.id).toMatch(/^imap-sent-/);
+      expect(result.localPersisted).toBe(true);
     });
 
     it("throws if SMTP send fails", async () => {

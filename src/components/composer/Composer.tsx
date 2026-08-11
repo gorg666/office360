@@ -23,15 +23,15 @@ import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { sendEmail, archiveThread, deleteDraft as deleteDraftAction } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
 import { buildReplyHeadersForMessageId } from "@/utils/replyHeaders";
-import { upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
 import { insertScheduledEmail } from "@/services/db/scheduledEmails";
 import { getDefaultSignature } from "@/services/db/signatures";
 import { getAliasesForAccount, mapDbAlias, type SendAsAlias } from "@/services/db/sendAsAliases";
 import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
 import { resolveFromAddress } from "@/utils/resolveFromAddress";
-import { openComposeWindow, isComposeStandaloneWindow } from "@/utils/openComposeWindow";
+import { openComposeWindow, isComposeStandaloneWindow, closeStandaloneComposeWindow } from "@/utils/openComposeWindow";
 import { startAutoSave, stopAutoSave } from "@/services/composer/draftAutoSave";
+import { requestComposeSend } from "@/services/composer/composeSendOrchestrator";
 import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates";
 import { readFileAsBase64 } from "@/utils/fileUtils";
 import { interpolateVariables } from "@/utils/templateVariables";
@@ -309,35 +309,52 @@ export function Composer() {
     sendingRef.current = true;
     stopAutoSave();
 
-    const html = getFullHtml();
-    const senderEmail = state.fromEmail ?? activeAccount.email;
-    const replyHeaders = await buildReplyHeadersForMessageId(activeAccountId, state.inReplyToMessageId);
-    const raw = buildRawEmail({
-      from: senderEmail,
-      to: state.to,
-      cc: state.cc.length > 0 ? state.cc : undefined,
-      bcc: state.bcc.length > 0 ? state.bcc : undefined,
-      subject: state.subject,
-      htmlBody: html,
-      inReplyTo: replyHeaders.inReplyTo,
-      references: replyHeaders.references,
-      threadId: state.threadId ?? undefined,
-      attachments: state.attachments.length > 0
-        ? state.attachments.map((a) => ({
-            filename: a.filename,
-            mimeType: a.mimeType,
-            content: a.content,
-          }))
-        : undefined,
-    });
+    try {
+      const html = getFullHtml();
+      const senderEmail = state.fromEmail ?? activeAccount.email;
+      const replyHeaders = await buildReplyHeadersForMessageId(activeAccountId, state.inReplyToMessageId);
+      const raw = buildRawEmail({
+        from: senderEmail,
+        to: state.to,
+        cc: state.cc.length > 0 ? state.cc : undefined,
+        bcc: state.bcc.length > 0 ? state.bcc : undefined,
+        subject: state.subject,
+        htmlBody: html,
+        inReplyTo: replyHeaders.inReplyTo,
+        references: replyHeaders.references,
+        threadId: state.threadId ?? undefined,
+        attachments: state.attachments.length > 0
+          ? state.attachments.map((a) => ({
+              filename: a.filename,
+              mimeType: a.mimeType,
+              content: a.content,
+            }))
+          : undefined,
+      });
 
-    // Get undo send delay
-    const delaySetting = await getSetting("undo_send_delay_seconds");
-    const delay = parseInt(delaySetting ?? "5", 10) * 1000;
-    const currentDraftId = state.draftId;
+      const delaySetting = await getSetting("undo_send_delay_seconds");
+      const delay = parseInt(delaySetting ?? "5", 10) * 1000;
 
-    // Show undo send UI
-    state.setUndoSendVisible(true);
+      await requestComposeSend({
+        accountId: activeAccountId,
+        rawBase64Url: raw,
+        threadId: state.threadId ?? undefined,
+        draftId: state.draftId,
+        recipientEmails: [...state.to, ...state.cc, ...state.bcc],
+        undoDelayMs: Number.isFinite(delay) ? delay : 5000,
+        restore: {
+          mode: state.mode,
+          to: state.to,
+          cc: state.cc,
+          bcc: state.bcc,
+          subject: state.subject,
+          bodyHtml: html,
+          threadId: state.threadId,
+          inReplyToMessageId: state.inReplyToMessageId,
+          draftId: state.draftId,
+          fromEmail: state.fromEmail,
+        },
+      });
 
     const timer = setTimeout(async () => {
       try {
@@ -515,15 +532,15 @@ export function Composer() {
           <AddressInput label="Кому" addresses={to} onChange={setTo} />
           {showCcBcc ? (
             <>
-              <AddressInput label="Cc" addresses={cc} onChange={setCc} />
-              <AddressInput label="Bcc" addresses={bcc} onChange={setBcc} />
+              <AddressInput label="Копия" addresses={cc} onChange={setCc} />
+              <AddressInput label="Скрытая" addresses={bcc} onChange={setBcc} />
             </>
           ) : (
             <button
               onClick={() => setShowCcBcc(true)}
               className="text-xs text-accent hover:text-accent-hover ml-10"
             >
-              Cc / Bcc
+              Копия / Скрытая копия
             </button>
           )}
         </div>

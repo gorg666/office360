@@ -1,0 +1,16 @@
+---
+description: Graphify-first code navigation for Office360 (token economy)
+alwaysApply: true
+---
+
+# Graphify-first (Office360)
+
+Office360 uses Graphify as the **primary code-navigation index**.
+
+For non-trivial existing-code tasks: query Graphify first → read only the minimal source required → after architecture-significant changes, incrementally refresh the affected graph.
+
+**Full workflow (canonical):** `.agents/skills/office360-project/SKILL.md` § Graphify-first.
+
+Do not duplicate that section elsewhere. Index lives in `graphify-out/` (MCP `user-graphify`).
+
+In `APOSTLE_CHECK` include: `Graphify: READ | UPDATED | NOT NEEDED`.

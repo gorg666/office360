@@ -132,6 +132,49 @@ export async function enqueuePendingOperation(
   return id;
 }
 
+/**
+ * Undo-send / in-flight compose: visible in Outbox, not picked by queue processor
+ * (status !== 'pending'). Uses requestId as primary key for idempotency.
+ */
+export async function enqueueQueuedComposeSend(
+  accountId: string,
+  requestId: string,
+  params: Record<string, unknown>,
+): Promise<string> {
+  const db = await getDb();
+  const existing = await db.select<PendingOperation[]>(
+    `SELECT * FROM pending_operations
+     WHERE id = $1 OR (resource_id = $1 AND operation_type = 'sendMessage'
+       AND status IN ('queued', 'pending', 'executing'))
+     LIMIT 1`,
+    [requestId],
+  );
+  if (existing[0]) {
+    return existing[0].id;
+  }
+
+  const farFuture = Math.floor(Date.now() / 1000) + 86400 * 365;
+  await db.execute(
+    `INSERT INTO pending_operations
+      (id, account_id, operation_type, resource_id, params, status, next_retry_at)
+     VALUES ($1, $2, 'sendMessage', $3, $4, 'queued', $5)
+     ON CONFLICT(id) DO NOTHING`,
+    [requestId, accountId, requestId, JSON.stringify(params), farFuture],
+  );
+  return requestId;
+}
+
+export async function getPendingOperationById(
+  id: string,
+): Promise<PendingOperation | null> {
+  const db = await getDb();
+  const rows = await db.select<PendingOperation[]>(
+    `SELECT * FROM pending_operations WHERE id = $1 LIMIT 1`,
+    [id],
+  );
+  return rows[0] ?? null;
+}
+
 export async function getPendingOperations(
   accountId?: string,
   limit = 50,

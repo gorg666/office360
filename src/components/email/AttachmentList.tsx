@@ -5,7 +5,15 @@ import { getAttachmentsForMessage, type DbAttachment } from "@/services/db/attac
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { Modal } from "@/components/ui/Modal";
 import { Download, Eye } from "lucide-react";
-import { formatFileSize, isImage, isPdf, isText, canPreview, getFileIcon } from "@/utils/fileTypeHelpers";
+import {
+  formatFileSize,
+  isImage,
+  isPdf,
+  isSafeRasterImagePreview,
+  isText,
+  canPreview,
+  getFileIcon,
+} from "@/utils/fileTypeHelpers";
 import { base64UrlToUint8Array, uint8ArrayToBase64DataUrl } from "@/utils/base64url";
 import { SecurityWarningBanner } from "./SecurityWarningBanner";
 import { createUnsafeAttachmentWarning, isRiskyAttachment } from "@/services/security/securityWarnings";
@@ -33,11 +41,8 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
   const [riskPrompt, setRiskPrompt] = useState<DbAttachment | null>(null);
   const [confirmedRiskIds, setConfirmedRiskIds] = useState<Set<string>>(() => new Set());
 
-  // Filter out CID images rendered in the email body and true inline parts, then dedup
   const fileAttachments = dedup(attachments.filter((a) => {
-    // Skip attachments whose CID is referenced in the email body (already rendered inline)
     if (a.content_id && getContentIdKeys(a.content_id).some((key) => referencedCids?.has(key))) return false;
-    // True inline: marked inline with no filename
     if (a.is_inline && !a.filename) return false;
     return true;
   }));
@@ -111,6 +116,86 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
   );
 }
 
+function AttachmentImageThumb({
+  accountId,
+  messageId,
+  attachment,
+}: {
+  accountId: string;
+  messageId: string;
+  attachment: DbAttachment;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!attachment.gmail_attachment_id) {
+      setLoading(false);
+      setFailed(true);
+      return;
+    }
+
+    const key = attachmentPreviewCacheKey(accountId, messageId, attachment.id);
+    setLoading(true);
+    setFailed(false);
+
+    void getOrCreateAttachmentPreviewLoad(key, async () => {
+      const provider = await getEmailProvider(accountId);
+      const response = await provider.fetchAttachment(
+        messageId,
+        attachment.gmail_attachment_id!,
+      );
+      const raw = String(response.data ?? "").replace(/\s/g, "");
+      if (!raw) throw new Error("Empty attachment payload");
+      const bytes = base64UrlToUint8Array(raw);
+      if (bytes.byteLength > 4 * 1024 * 1024) {
+        throw new Error("Attachment too large for inline thumbnail");
+      }
+      return uint8ArrayToBase64DataUrl(getEffectiveImageMimeType(attachment), bytes);
+    })
+      .then((dataUrl) => {
+        if (!cancelled) {
+          setUrl(dataUrl);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFailed(true);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, messageId, attachment]);
+
+  if (loading) {
+    return <span className="w-10 h-10 rounded bg-bg-tertiary animate-pulse shrink-0" aria-hidden />;
+  }
+
+  if (failed || !url) {
+    return (
+      <span className="w-10 h-10 rounded bg-bg-tertiary flex items-center justify-center text-text-tertiary shrink-0">
+        {getFileIcon(attachment.mime_type, attachment.filename)}
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={url}
+      alt=""
+      className="w-10 h-10 rounded object-cover shrink-0 bg-bg-tertiary"
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 export function AttachmentPreview({
   attachment,
   accountId,
@@ -152,6 +237,16 @@ export function AttachmentPreview({
 
     setLoading(true);
     try {
+      if (isSafeRasterImagePreview(attachment.mime_type, attachment.filename)) {
+        const key = attachmentPreviewCacheKey(accountId, messageId, attachment.id);
+        const dataUrl = await getOrCreateAttachmentPreviewLoad(key, async () => {
+          const bytes = await fetchData();
+          return uint8ArrayToBase64DataUrl(getEffectiveImageMimeType(attachment), bytes);
+        });
+        setPreviewUrl(dataUrl);
+        return;
+      }
+
       const bytes = await fetchData();
       const effectiveMime = isPdf(attachment.mime_type, attachment.filename)
         ? "application/pdf"
@@ -159,7 +254,6 @@ export function AttachmentPreview({
           ? getEffectiveImageMimeType(attachment)
           : (attachment.mime_type ?? "application/octet-stream");
 
-      // data: URLs work reliably for raster images in the WebView; blob: can be blocked by CSP.
       if (isImage(attachment.mime_type, attachment.filename)) {
         setPreviewUrl(uint8ArrayToBase64DataUrl(effectiveMime, bytes));
         return;
@@ -177,9 +271,8 @@ export function AttachmentPreview({
     } finally {
       setLoading(false);
     }
-  }, [attachment, isPreviewable, previewUrl, fetchData]);
+  }, [attachment, isPreviewable, previewUrl, fetchData, accountId, messageId]);
 
-  // Trigger preview load for previewable types
   useEffect(() => {
     if (isPreviewable && !previewUrl && !loading && !error) {
       handlePreviewLoad();
@@ -264,14 +357,9 @@ export function AttachmentPreview({
       panelClassName="max-w-[90vw] max-h-[85vh] flex flex-col"
       renderHeader={header}
     >
-      {/* Allow native right-click in preview (save image, copy, etc.) */}
       <div className="flex-1 overflow-auto min-h-[200px] flex items-center justify-center p-4" data-native-context-menu>
-        {loading && (
-          <p className="text-sm text-text-tertiary">Loading preview...</p>
-        )}
-        {error && (
-          <p className="text-sm text-text-tertiary">{error}</p>
-        )}
+        {loading && <p className="text-sm text-text-tertiary">Loading preview...</p>}
+        {error && <p className="text-sm text-text-tertiary">{error}</p>}
         {!loading && !error && previewUrl && isImage(attachment.mime_type, attachment.filename) && (
           <img
             src={previewUrl}
@@ -366,6 +454,37 @@ function RiskyAttachmentDialog({
   );
 }
 
+export { getAttachmentsForMessage };
+
+function normalizeContentId(value: string | null | undefined): string | null {
+  if (!value) return null;
+  let normalized = value.trim().replace(/^cid:/i, "").replace(/[<>]/g, "");
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch {
+    // Keep original when it is not URL encoded.
+  }
+  return normalized.toLowerCase();
+}
+
+function getContentIdKeys(value: string | null | undefined): string[] {
+  const normalized = normalizeContentId(value);
+  if (!normalized) return [];
+  const withoutDomain = normalized.split("@")[0] ?? normalized;
+  return [...new Set([normalized, withoutDomain])];
+}
+
+function getEffectiveImageMimeType(attachment: DbAttachment): string {
+  if (attachment.mime_type?.startsWith("image/")) return attachment.mime_type;
+  const filename = attachment.filename?.toLowerCase() ?? "";
+  if (filename.endsWith(".png")) return "image/png";
+  if (filename.endsWith(".gif")) return "image/gif";
+  if (filename.endsWith(".webp")) return "image/webp";
+  if (filename.endsWith(".svg")) return "image/svg+xml";
+  if (filename.endsWith(".bmp")) return "image/bmp";
+  return "image/jpeg";
+}
+
 function TextPreview({ url }: { url: string }) {
   const [text, setText] = useState<string | null>(null);
 
@@ -400,35 +519,4 @@ function TextPreview({ url }: { url: string }) {
       {text ?? "Loading..."}
     </pre>
   );
-}
-
-export { getAttachmentsForMessage };
-
-function normalizeContentId(value: string | null | undefined): string | null {
-  if (!value) return null;
-  let normalized = value.trim().replace(/^cid:/i, "").replace(/[<>]/g, "");
-  try {
-    normalized = decodeURIComponent(normalized);
-  } catch {
-    // Keep original when it is not URL encoded.
-  }
-  return normalized.toLowerCase();
-}
-
-function getContentIdKeys(value: string | null | undefined): string[] {
-  const normalized = normalizeContentId(value);
-  if (!normalized) return [];
-  const withoutDomain = normalized.split("@")[0] ?? normalized;
-  return [...new Set([normalized, withoutDomain])];
-}
-
-function getEffectiveImageMimeType(attachment: DbAttachment): string {
-  if (attachment.mime_type?.startsWith("image/")) return attachment.mime_type;
-  const filename = attachment.filename?.toLowerCase() ?? "";
-  if (filename.endsWith(".png")) return "image/png";
-  if (filename.endsWith(".gif")) return "image/gif";
-  if (filename.endsWith(".webp")) return "image/webp";
-  if (filename.endsWith(".svg")) return "image/svg+xml";
-  if (filename.endsWith(".bmp")) return "image/bmp";
-  return "image/jpeg";
 }

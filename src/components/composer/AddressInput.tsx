@@ -8,6 +8,15 @@ interface AddressInputProps {
   placeholder?: string;
 }
 
+function contactInitials(contact: DbContact): string {
+  const source = (contact.display_name ?? contact.email).trim();
+  const parts = source.split(/[\s@._-]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
+  }
+  return (source[0] ?? "?").toUpperCase();
+}
+
 export function AddressInput({
   label,
   addresses,
@@ -29,10 +38,22 @@ export function AddressInput({
     };
   }, []);
 
+  const showRecentSuggestions = useCallback(async () => {
+    const results = await getRecentContacts(5);
+    const filtered = results.filter((c) => !addresses.includes(c.email));
+    setSuggestions(filtered);
+    setShowSuggestions(filtered.length > 0);
+    setSelectedIdx(-1);
+  }, [addresses]);
+
   const handleInputChange = useCallback(
     (value: string) => {
       setInputValue(value);
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      if (value.trim().length === 0) {
+        void showRecentSuggestions();
+        return;
+      }
       if (value.length >= 2) {
         searchTimerRef.current = setTimeout(async () => {
           const results = await searchRecipientSuggestions(value, 8);
@@ -45,7 +66,7 @@ export function AddressInput({
         setShowSuggestions(false);
       }
     },
-    [],
+    [addresses, showRecentSuggestions],
   );
 
   const addAddress = useCallback(
@@ -92,7 +113,7 @@ export function AddressInput({
 
   return (
     <div className="flex items-start gap-2">
-      <span className="text-xs text-text-tertiary pt-1.5 w-8 shrink-0">
+      <span className="text-xs text-text-tertiary pt-1.5 w-14 shrink-0">
         {label}
       </span>
       <div className="flex-1 flex flex-wrap items-center gap-1 min-h-[32px] relative">
@@ -116,20 +137,27 @@ export function AddressInput({
           value={inputValue}
           onChange={(e) => handleInputChange(e.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={() => {
+            if (!inputValue.trim()) {
+              void showRecentSuggestions();
+            }
+          }}
           onBlur={() => {
-            // Delay to allow click on suggestion
             if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
             blurTimerRef.current = setTimeout(() => setShowSuggestions(false), 150);
             if (inputValue.trim()) addAddress(inputValue);
           }}
           placeholder={addresses.length === 0 ? placeholder : ""}
           aria-label={label}
+          autoComplete="off"
           className="flex-1 min-w-[120px] bg-transparent text-sm text-text-primary outline-none placeholder:text-text-tertiary"
         />
 
-        {/* Autocomplete dropdown */}
         {showSuggestions && (
-          <div className="absolute top-full left-0 mt-1 w-full bg-bg-primary border border-border-primary rounded-md shadow-lg z-50 py-1">
+          <div
+            role="listbox"
+            className="absolute top-full left-0 mt-1 w-full bg-bg-primary border border-border-primary rounded-md shadow-lg z-50 py-1"
+          >
             {suggestions.map((contact, i) => (
               <button
                 key={`${contact.kind}:${contact.id}:${contact.address}`}

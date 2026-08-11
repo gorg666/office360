@@ -31,11 +31,14 @@ const SYSTEM_LABEL_IDS = new Set([
   "IMPORTANT",
   "SNOOZED",
   "CHAT",
+  "all-mail",
+  "archive",
 ]);
 
 const CATEGORY_PREFIX = "CATEGORY_";
 
-export function isSystemLabel(id: string): boolean {
+export function isSystemLabel(id: string, type?: string): boolean {
+  if (type === "system") return true;
   return SYSTEM_LABEL_IDS.has(id) || id.startsWith(CATEGORY_PREFIX);
 }
 
@@ -72,7 +75,7 @@ export const useLabelStore = create<LabelState>((set, get) => ({
     try {
       const dbLabels = await getLabelsForAccount(accountId);
       const labels: Label[] = dbLabels
-        .filter((l) => !isSystemLabel(l.id))
+        .filter((l) => !isSystemLabel(l.id, l.type))
         .map((l) => ({
           id: l.id,
           accountId: l.account_id,

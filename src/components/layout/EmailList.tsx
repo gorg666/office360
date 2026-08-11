@@ -31,6 +31,7 @@ import { markThreadRead } from "@/services/emailActions";
 import { updateBadgeCount } from "@/services/badgeManager";
 import { openThreadPopOut } from "@/utils/openThreadWindow";
 import { OutboxList } from "@/components/outbox/OutboxList";
+import { getSystemFolderTitle } from "@/utils/mailFolderTitles";
 import {
   InboxClearIllustration,
   NoSearchResultsIllustration,
@@ -135,6 +136,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
 
   const handleThreadContextMenu = useCallback((e: React.MouseEvent, threadId: string) => {
     e.preventDefault();
+    e.stopPropagation();
     openMenu("thread", { x: e.clientX, y: e.clientY }, { threadId });
   }, [openMenu]);
 
@@ -616,19 +618,28 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
       {/* Header */}
       <div className="px-4 py-2 border-b border-border-primary flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-text-primary capitalize flex items-center gap-1.5">
+          <h2 className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
             {isSmartFolder && <FolderSearch size={14} className="text-accent shrink-0" />}
             {isOutbox
-              ? "Исходящие"
+              ? "Messages waiting to be sent"
               : isSmartFolder
                 ? activeSmartFolder?.name ?? "Smart Folder"
                 : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
                   ? `Inbox — ${activeCategory}`
-                  : LABEL_MAP[activeLabel] !== undefined
-                    ? activeLabel
-                    : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
+                  : getSystemFolderTitle(activeLabel)
+                    ?? userLabels.find((l) => l.id === activeLabel)?.name
+                    ?? activeLabel}
           </h2>
-          {!isOutbox && (
+          {isOutbox ? (
+            <>
+              <p className="text-xs text-text-tertiary mt-0.5 max-w-md">
+                Outbox keeps messages that are offline or waiting for retry after a temporary send error.
+              </p>
+              <p className="text-xs text-text-tertiary mt-0.5 max-w-md">
+                After a message is sent, it disappears from Outbox and appears in Sent after sync.
+              </p>
+            </>
+          ) : (
             <span className="text-xs text-text-tertiary">
               {formatConversationCount(filteredThreads.length, locale)}
             </span>

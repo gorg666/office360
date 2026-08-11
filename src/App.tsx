@@ -4,6 +4,8 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { AddAccount } from "./components/accounts/AddAccount";
 import { Composer } from "./components/composer/Composer";
 import { UndoSendToast } from "./components/composer/UndoSendToast";
+import { SendFeedbackToast } from "./components/composer/SendFeedbackToast";
+import { installComposeSendListener } from "./services/composer/composeSendOrchestrator";
 import { CommandPalette } from "./components/search/CommandPalette";
 import { ShortcutsHelp } from "./components/search/ShortcutsHelp";
 import { useUIStore } from "./stores/uiStore";
@@ -263,6 +265,11 @@ export default function App() {
     };
   }, []);
 
+  // Cross-window compose send → main-shell undo / SMTP (MAIL-005/006)
+  useEffect(() => {
+    return installComposeSendListener();
+  }, []);
+
   // Initialize database, load accounts, start sync
   useEffect(() => {
     async function init() {
@@ -452,6 +459,26 @@ export default function App() {
         startBundleChecker();
         startQueueProcessor();
         startPreCacheManager();
+
+        try {
+          const { reconcileOutboxPendingOperations } = await import(
+            "./services/outbox/reconcileOutboxPending"
+          );
+          const reconcileResults = await reconcileOutboxPendingOperations();
+          const changed = reconcileResults.filter(
+            (r) => r.action !== "kept" && r.action !== "skipped",
+          );
+          if (changed.length > 0) {
+            console.info("[OutboxReconcile]", {
+              total: reconcileResults.length,
+              changed: changed.length,
+              actions: changed.map((r) => ({ id: r.opId, action: r.action, reason: r.reason })),
+            });
+            void triggerQueueFlush();
+          }
+        } catch (err) {
+          console.warn("[OutboxReconcile] startup failed:", err);
+        }
 
         // Initialize notifications
         await initNotifications();
@@ -798,6 +825,7 @@ export default function App() {
         <Composer />
       </ErrorBoundary>
       <UndoSendToast />
+      <SendFeedbackToast />
       <UpdateToast />
       <ErrorBoundary name="CommandPalette">
         <CommandPalette

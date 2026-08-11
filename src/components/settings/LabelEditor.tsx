@@ -87,6 +87,12 @@ export function LabelEditor() {
         </div>
       )}
 
+      {!canEditFolders && (
+        <p className="text-xs text-text-tertiary">
+          {FOLDER_EDITING_UNSUPPORTED_MESSAGE}
+        </p>
+      )}
+
       {labels.length === 0 && !showForm && (
         <p className="text-sm text-text-tertiary">No user labels</p>
       )}

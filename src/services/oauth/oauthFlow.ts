@@ -7,6 +7,75 @@ import { normalizeYandexUserInfo } from "./yandexProfile";
 import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
 
 const OAUTH_CALLBACK_PORT = 17248;
+const OAUTH_LISTENING_TIMEOUT_MS = 15_000;
+const OAUTH_CALLBACK_TIMEOUT_MS = 300_000;
+
+interface OAuthListeningInfo {
+  port: number;
+  ipv4: boolean;
+  ipv6: boolean;
+}
+
+export interface StartProviderOAuthOptions {
+  /**
+   * Optional Yandex `login_hint`.
+   * Pass ONLY a confirmed existing account identifier (e.g. re-auth of a saved account).
+   * Do NOT pass a free-typed email from the connect form — Yandex returns
+   * `invalid_request` for nonexistent accounts ("Запрашивается авторизация несуществующим аккаунтом").
+   */
+  loginHint?: string;
+  /** Must be true together with loginHint for the hint to be sent. */
+  confirmedAccount?: boolean;
+}
+
+/**
+ * Register for `oauth-listening` and return a waiter.
+ * Caller must `await` this BEFORE `invoke("start_oauth_server")` so the event cannot be missed.
+ */
+async function createOAuthListeningWaiter(expectedPort: number): Promise<{
+  ready: Promise<OAuthListeningInfo>;
+  cancel: () => void;
+}> {
+  let settled = false;
+  let resolveReady!: (info: OAuthListeningInfo) => void;
+  let rejectReady!: (err: Error) => void;
+  const ready = new Promise<OAuthListeningInfo>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+
+  const timer = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    rejectReady(
+      new Error(
+        `OAuth callback listener did not start on port ${expectedPort} within ${OAUTH_LISTENING_TIMEOUT_MS}ms.`,
+      ),
+    );
+  }, OAUTH_LISTENING_TIMEOUT_MS);
+
+  const unlisten = await listen<OAuthListeningInfo>("oauth-listening", (event) => {
+    if (settled) return;
+    if (event.payload.port !== expectedPort) {
+      console.warn(
+        "[oauth] ignoring listening event for unexpected port",
+        event.payload.port,
+      );
+      return;
+    }
+    settled = true;
+    clearTimeout(timer);
+    resolveReady(event.payload);
+  });
+
+  return {
+    ready,
+    cancel: () => {
+      clearTimeout(timer);
+      unlisten();
+    },
+  };
+}
 
 interface OAuthServerResult {
   code?: string;
@@ -75,13 +144,51 @@ function base64UrlEncode(bytes: Uint8Array): string {
     .replace(/=+$/, "");
 }
 
+function userFacingOAuthError(providerId: string, code?: string): string {
+  if (providerId === "yandex") {
+    switch (code) {
+      case "access_denied":
+        return "Вход через Яндекс ID отменён.";
+      case "invalid_request":
+        return "Не удалось войти через Яндекс ID. Попробуйте снова или выберите другой аккаунт.";
+      case "cancelled":
+        return "Вход через Яндекс ID отменён.";
+      default:
+        return "Не удалось войти через Яндекс ID. Попробуйте снова или выберите другой аккаунт.";
+    }
+  }
+  return "OAuth authorization failed. Please try again.";
+}
+
+async function signalOAuthCancel(oauthState: string): Promise<void> {
+  const qs = new URLSearchParams({
+    error: "access_denied",
+    error_description: "cancelled",
+    state: oauthState,
+  });
+  try {
+    await fetch(`http://127.0.0.1:${OAUTH_CALLBACK_PORT}/?${qs.toString()}`, {
+      method: "GET",
+      cache: "no-store",
+      mode: "no-cors",
+    });
+  } catch {
+    // Best-effort wake-up of the Rust accept loop.
+  }
+}
+
+async function closeYandexOAuthWindow(): Promise<void> {
+  try {
+    await invoke("close_oauth_login_window");
+  } catch (err) {
+    console.warn("[oauth][yandex] failed to close OAuth window:", err);
+  }
+}
+
 /**
  * Start the OAuth2 + PKCE flow for a non-Gmail provider.
- * 1. Start localhost callback server (Rust)
- * 2. Open browser to provider consent screen
- * 3. Capture redirect with auth code
- * 4. Exchange code for tokens
- * 5. Fetch user profile info
+ * Yandex: in-app WebView (`yandex-oauth`) + localhost:17248 callback.
+ * Other providers: system browser via opener (unchanged).
  */
 export async function startProviderOAuthFlow(
   provider: OAuthProviderConfig,
@@ -99,6 +206,7 @@ export async function startProviderOAuthFlow(
   const redirectUri = options?.redirectUri ?? `http://localhost:${OAUTH_CALLBACK_PORT}`;
   const usesCefScreenCode = provider.id === "yandex" && redirectUri === "https://oauth.yandex.ru/verification_code";
   const scopeValue = provider.scopes.join(" ");
+  const useEmbeddedYandex = provider.id === "yandex";
 
   const params: Record<string, string> = {
     client_id: clientId,
@@ -194,6 +302,7 @@ export async function startProviderOAuthFlow(
   if (!result.code) {
     throw new Error("OAuth callback missing authorization code.");
   }
+  listeningWaiter.cancel();
 
   const tokens = await exchangeCode(
     provider,
@@ -204,9 +313,107 @@ export async function startProviderOAuthFlow(
     clientSecret,
   );
 
-  const userInfo = await fetchUserInfo(provider, tokens);
+  let windowClosedUnlisten: (() => void) | undefined;
+  let cancelledByUser = false;
+  let flowFinished = false;
+  const cancelPromise = useEmbeddedYandex
+    ? new Promise<never>((_, reject) => {
+        void listen("oauth-window-closed", () => {
+          if (flowFinished) return;
+          cancelledByUser = true;
+          void signalOAuthCancel(oauthState);
+          reject(new Error(userFacingOAuthError("yandex", "cancelled")));
+        }).then((fn) => {
+          windowClosedUnlisten = fn;
+        });
+      })
+    : null;
 
-  return { tokens, userInfo };
+  try {
+    if (useEmbeddedYandex) {
+      await invoke("open_oauth_login_window", { url: authUrl });
+      console.info("[oauth][yandex] embedded OAuth window opened");
+    } else {
+      await openUrl(authUrl);
+    }
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(
+          new Error(
+            useEmbeddedYandex
+              ? "Время ожидания входа через Яндекс ID истекло. Попробуйте снова."
+              : "OAuth callback timed out. Please try again.",
+          ),
+        );
+      }, OAUTH_CALLBACK_TIMEOUT_MS);
+    });
+
+    const races: Array<Promise<OAuthServerResult>> = [serverPromise, timeoutPromise];
+    if (cancelPromise) races.push(cancelPromise);
+
+    let result: OAuthServerResult;
+    try {
+      result = await Promise.race(races);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+
+    if (result.state !== oauthState) {
+      throw new Error("OAuth state mismatch — possible CSRF attack. Please try again.");
+    }
+    if (result.error) {
+      const description = result.error_description?.trim();
+      console.warn(
+        "[oauth] provider error:",
+        result.error,
+        description ? "(description present)" : "(no description)",
+      );
+      if (result.error === "access_denied" && description === "cancelled") {
+        throw new Error(userFacingOAuthError(provider.id, "cancelled"));
+      }
+      throw new Error(userFacingOAuthError(provider.id, result.error));
+    }
+    if (!result.code) {
+      throw new Error(userFacingOAuthError(provider.id));
+    }
+
+    // Close WebView as soon as we have the authorization code so the user is
+    // not left on a blank localhost page during token exchange / userInfo.
+    if (useEmbeddedYandex) {
+      await closeYandexOAuthWindow();
+    }
+
+    const tokens = await exchangeCode(
+      provider,
+      result.code,
+      clientId,
+      redirectUri,
+      codeVerifier,
+      clientSecret,
+    );
+    if (provider.id === "yandex") {
+      console.info("[oauth][yandex] token response scope:", tokens.scope ?? "<empty>");
+    }
+
+    const userInfo = await fetchUserInfo(provider, tokens);
+    flowFinished = true;
+    return { tokens, userInfo };
+  } catch (err) {
+    flowFinished = true;
+    if (useEmbeddedYandex && !cancelledByUser) {
+      await signalOAuthCancel(oauthState);
+    }
+    throw err;
+  } finally {
+    flowFinished = true;
+    windowClosedUnlisten?.();
+    windowClosedUnlisten = undefined;
+    if (useEmbeddedYandex) {
+      await closeYandexOAuthWindow();
+    }
+  }
 }
 
 async function exchangeCode(

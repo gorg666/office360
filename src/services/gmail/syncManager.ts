@@ -14,9 +14,12 @@ import { clearAccountDiagnostic, upsertAccountDiagnostic } from "../db/accountDi
 import { createConnectionDiagnostic } from "../diagnostics";
 
 /** When the window/tab is visible — pick up new mail quickly while the app is open. */
-const SYNC_INTERVAL_VISIBLE_MS = 10_000;
+export const SYNC_INTERVAL_VISIBLE_MS = 10_000;
 /** When hidden/minimized — back off to limit CPU and network. */
-const SYNC_INTERVAL_HIDDEN_MS = 120_000;
+export const SYNC_INTERVAL_HIDDEN_MS = 120_000;
+
+/** Current sync mechanism: adaptive polling. IMAP IDLE is not implemented in Rust stack. */
+export const MAIL_SYNC_MECHANISM = "adaptive_polling" as const;
 
 interface ReconnectDiagnosticContext {
   accountId?: string;
@@ -89,6 +92,16 @@ function attachVisibilitySyncListener(): void {
     if (!backgroundAccountIds?.length) return;
     if (syncTimer) clearTimeout(syncTimer);
     syncTimer = null;
+    // Foreground regain: sync immediately, then resume adaptive cadence.
+    if (!document.hidden) {
+      const ids = [...backgroundAccountIds];
+      logReconnectDiagnostic("startBackgroundSync.visibilityVisible", {
+        reason: "window_focus_or_visible",
+        extra: { accountIds: ids },
+      });
+      void runPeriodicSync(ids);
+      return;
+    }
     scheduleNextPeriodicSync();
   });
 }
@@ -176,10 +189,10 @@ async function syncImapAccount(accountId: string): Promise<void> {
     throw new Error("Account not found");
   }
 
-  // Refresh OAuth2 token before syncing (if applicable)
-  if (account.auth_method === "oauth2") {
+  const refreshOAuth = async (forceRefresh: boolean) => {
+    if (account.auth_method !== "oauth2") return;
     try {
-      await ensureFreshToken(account);
+      await ensureFreshToken(account, { forceRefresh });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err ?? "Unknown token refresh error");
       logReconnectDiagnostic("syncImapAccount.ensureFreshToken", {
@@ -189,42 +202,66 @@ async function syncImapAccount(accountId: string): Promise<void> {
       });
       throw err;
     }
-  }
+  };
+
+  await refreshOAuth(false);
 
   const syncPeriodStr = await getSetting("sync_period_days");
   const syncDays = parseInt(syncPeriodStr ?? "365", 10) || 365;
 
-  if (account.history_id) {
-    // Delta sync — IMAP uses folder-level UID tracking
-    const result = await imapDeltaSync(accountId, syncDays);
+  const runSync = async () => {
+    if (account.history_id) {
+      // Delta sync — IMAP uses folder-level UID tracking
+      const result = await imapDeltaSync(accountId, syncDays);
 
-    // Recovery: if delta sync found nothing new but the DB has no threads,
-    // the previous initial sync likely failed or stored data incorrectly.
-    // Force a full re-sync to recover.
-    if (result.messages.length === 0) {
-      const threadCount = await getThreadCountForAccount(accountId);
-      if (threadCount === 0) {
-        console.warn(`[syncManager] IMAP delta sync returned 0 new messages and DB has 0 threads for ${accountId} — forcing full re-sync`);
-        await clearAccountHistoryId(accountId);
-        await clearAllFolderSyncStates(accountId);
-        await imapInitialSync(accountId, syncDays, (progress) => {
-          statusCallback?.(accountId, "syncing", {
-            phase: mapImapPhase(progress.phase),
-            current: progress.current,
-            total: progress.total,
+      // Recovery: if delta sync found nothing new but the DB has no threads,
+      // the previous initial sync likely failed or stored data incorrectly.
+      // Force a full re-sync to recover.
+      if (result.messages.length === 0) {
+        const threadCount = await getThreadCountForAccount(accountId);
+        if (threadCount === 0) {
+          console.warn(`[syncManager] IMAP delta sync returned 0 new messages and DB has 0 threads for ${accountId} — forcing full re-sync`);
+          await clearAccountHistoryId(accountId);
+          await clearAllFolderSyncStates(accountId);
+          await imapInitialSync(accountId, syncDays, (progress) => {
+            statusCallback?.(accountId, "syncing", {
+              phase: mapImapPhase(progress.phase),
+              current: progress.current,
+              total: progress.total,
+            });
           });
-        });
+        }
       }
-    }
-  } else {
-    // First time — full initial sync
-    await imapInitialSync(accountId, syncDays, (progress) => {
-      statusCallback?.(accountId, "syncing", {
-        phase: mapImapPhase(progress.phase),
-        current: progress.current,
-        total: progress.total,
+    } else {
+      // First time — full initial sync
+      await imapInitialSync(accountId, syncDays, (progress) => {
+        statusCallback?.(accountId, "syncing", {
+          phase: mapImapPhase(progress.phase),
+          current: progress.current,
+          total: progress.total,
+        });
       });
-    });
+    }
+  };
+
+  try {
+    await runSync();
+  } catch (err) {
+    const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
+    const looksAuth =
+      account.auth_method === "oauth2" &&
+      (message.includes("authentication") ||
+        message.includes("xoauth") ||
+        message.includes("unauthorized") ||
+        message.includes("expired_token") ||
+        message.includes("invalid_token"));
+    if (!looksAuth) throw err;
+
+    console.warn(
+      "[syncManager] IMAP OAuth auth failure — forcing token refresh and retrying once",
+    );
+    await refreshOAuth(true);
+    await runSync();
   }
 }
 

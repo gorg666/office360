@@ -7,6 +7,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useUIStore } from "@/stores/uiStore";
 import { sendEmail, archiveThread } from "@/services/emailActions";
+import { notifySendEmailOutcome } from "@/utils/handleSendEmailResult";
 import { buildRawEmail } from "@/utils/emailBuilder";
 import { buildReplyHeadersForMessageId } from "@/utils/replyHeaders";
 import { upsertContact } from "@/services/db/contacts";
@@ -193,33 +194,41 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
 
       const timer = setTimeout(async () => {
         try {
-          await sendEmail(accountId, raw, thread.id);
+          const result = await sendEmail(accountId, raw, thread.id);
+          const outcome = notifySendEmailOutcome(result);
 
-          // Send & archive: remove from inbox if enabled
-          if (useUIStore.getState().sendAndArchive) {
+          if (outcome === "failed") {
+            return;
+          }
+
+          if (outcome === "success" && useUIStore.getState().sendAndArchive) {
             try { await archiveThread(accountId, thread.id, []); } catch { /* ignore */ }
           }
 
-          // Update contacts frequency
-          for (const addr of [...to, ...cc]) {
-            await upsertContact(addr, null);
+          if (outcome === "success") {
+            for (const addr of [...to, ...cc]) {
+              await upsertContact(addr, null);
+            }
           }
+
+          editor.commands.setContent("");
+          setMode(null);
+          onSent();
         } catch (err) {
           console.error("Failed to send inline reply:", err);
+          notifySendEmailOutcome({
+            success: false,
+            error: "Message could not be sent. Please fix the issue and try again.",
+          });
         } finally {
           setUndoSendVisible(false);
+          setSending(false);
         }
       }, delay);
 
       setUndoSendTimer(timer);
-
-      // Reset state
-      editor.commands.setContent("");
-      setMode(null);
-      onSent();
     } catch (err) {
       console.error("Failed to send:", err);
-    } finally {
       setSending(false);
     }
   }, [activeAccount, editor, sending, getRecipients, getSubject, signatureHtml, lastMessage, thread.id, accountId, mode, onSent]);

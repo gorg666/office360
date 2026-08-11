@@ -3736,12 +3736,14 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-sql",
  "tauri-plugin-updater",
+ "tauri-winrt-notification",
  "tokio",
  "tokio-native-tls",
  "tray-item",
  "utf7-imap",
  "uuid",
  "windows 0.58.0",
+ "windows-registry 0.5.3",
 ]
 
 [[package]]

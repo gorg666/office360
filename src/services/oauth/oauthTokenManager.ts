@@ -1,5 +1,5 @@
 import type { DbAccount } from "../db/accounts";
-import { updateAccountTokens } from "../db/accounts";
+import { updateAccountAllTokens, updateAccountTokens } from "../db/accounts";
 import { getOAuthProvider } from "./providers";
 import { refreshProviderToken } from "./oauthFlow";
 import { clearAccountDiagnostic, upsertAccountDiagnostic } from "../db/accountDiagnostics";
@@ -8,17 +8,33 @@ import { createConnectionDiagnostic } from "../diagnostics";
 /** Buffer before expiry to trigger a refresh (5 minutes) */
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
+export interface EnsureFreshTokenOptions {
+  /** Bypass expiry check and refresh immediately (e.g. after AUTHENTICATIONFAILED). */
+  forceRefresh?: boolean;
+}
+
+function isInvalidClientRefreshError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("invalid_client") ||
+    lower.includes("wrong client secret") ||
+    lower.includes("client secret")
+  );
+}
+
 /**
  * Ensure the account has a fresh OAuth2 access token.
- * If the token is within 5 minutes of expiry, refresh it and update the DB.
+ * If the token is within 5 minutes of expiry (or forceRefresh), refresh and update the DB.
  * Returns the current (or refreshed) access token.
  *
  * Only applies to IMAP accounts with auth_method "oauth2".
  * For Gmail API accounts, token refresh is handled by GmailClient.
  */
-export async function ensureFreshToken(account: DbAccount): Promise<string> {
+export async function ensureFreshToken(
+  account: DbAccount,
+  options?: EnsureFreshTokenOptions,
+): Promise<string> {
   if (account.auth_method !== "oauth2" || !account.oauth_provider) {
-    // Not an OAuth IMAP account — return whatever password/token is stored
     return account.access_token ?? account.imap_password ?? "";
   }
 
@@ -31,9 +47,9 @@ export async function ensureFreshToken(account: DbAccount): Promise<string> {
 
   const now = Date.now();
   const expiresAt = (account.token_expires_at ?? 0) * 1000; // DB stores seconds
+  const forceRefresh = options?.forceRefresh === true;
 
-  if (expiresAt - now > REFRESH_BUFFER_MS) {
-    // Token is still valid
+  if (!forceRefresh && expiresAt - now > REFRESH_BUFFER_MS) {
     return account.access_token;
   }
 
@@ -45,11 +61,12 @@ export async function ensureFreshToken(account: DbAccount): Promise<string> {
     provider: account.oauth_provider,
     expiresAt,
     now,
-    reason: "token_expired_or_expiring",
+    forceRefresh,
+    clientIdFingerprint: fingerprintClientId(account.oauth_client_id),
+    refreshTokenPresent: Boolean(account.refresh_token),
+    reason: forceRefresh ? "force_refresh" : "token_expired_or_expiring",
   });
-  console.trace("[reconnect-diagnostic] trace from ensureFreshToken.refresh_start");
 
-  // Token expired or about to expire — refresh it
   const provider = getOAuthProvider(account.oauth_provider);
   if (!provider) {
     throw new Error(`Unknown OAuth provider: ${account.oauth_provider}`);
@@ -85,7 +102,40 @@ export async function ensureFreshToken(account: DbAccount): Promise<string> {
     throw new Error(`OAuth provider did not return an access token for ${account.email}`);
   }
 
-  const newExpiresAt = Math.floor(Date.now() / 1000) + tokens.expires_in;
+  let tokens;
+  try {
+    tokens = await refreshProviderToken(
+      provider,
+      account.refresh_token,
+      account.oauth_client_id,
+      clientSecret,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn("[oauth] refresh failed:", {
+      provider: account.oauth_provider,
+      clientIdFingerprint: fingerprintClientId(account.oauth_client_id),
+      clientSecretPresent: Boolean(clientSecret),
+      invalidClient: isInvalidClientRefreshError(message),
+    });
+    if (
+      account.oauth_provider === "yandex" &&
+      isInvalidClientRefreshError(message)
+    ) {
+      throw new Error(
+        "Сессия Яндекс ID не обновляется: для этого OAuth-приложения нужен client secret. " +
+          "Добавьте секрет Яндекс OAuth в настройках (безопасное хранилище) и подключите аккаунт снова.",
+      );
+    }
+    if (
+      /invalid_grant|expired|revoked|invalid.*token/i.test(message)
+    ) {
+      throw new Error(
+        "Сессия Яндекс ID истекла. Подключите аккаунт повторно.",
+      );
+    }
+    throw err;
+  }
 
   await updateAccountTokens(account.id, tokens.access_token, newExpiresAt);
   await clearAccountDiagnostic(account.id, "oauth", "refresh").catch(() => {});
@@ -97,11 +147,10 @@ export async function ensureFreshToken(account: DbAccount): Promise<string> {
     email: account.email,
     provider: account.oauth_provider,
     newExpiresAt,
+    refreshTokenRotated: Boolean(newRefresh),
   });
 
-  // Update the in-memory account object so callers get the fresh token
   account.access_token = tokens.access_token;
   account.token_expires_at = newExpiresAt;
-
   return tokens.access_token;
 }

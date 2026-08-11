@@ -26,6 +26,7 @@ mod cef;
 mod imap;
 mod ldap;
 mod messengers;
+mod notifications;
 mod oauth;
 mod smtp;
 
@@ -108,6 +109,8 @@ pub fn run() {
             oauth::start_oauth_server,
             oauth::oauth_exchange_token,
             oauth::oauth_refresh_token,
+            oauth::open_oauth_login_window,
+            oauth::close_oauth_login_window,
             set_tray_tooltip,
             close_splashscreen,
             open_devtools,
@@ -168,6 +171,10 @@ pub fn run() {
             messengers::max_client_disconnect,
         ])
         .setup(|app| {
+            if let Err(err) = notifications::ensure_windows_notification_identity(app.handle()) {
+                log::warn!("Windows notification identity setup: {err}");
+            }
+
             {
                 let level = if cfg!(debug_assertions) {
                     log::LevelFilter::Debug
