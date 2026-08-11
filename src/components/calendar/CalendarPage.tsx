@@ -8,7 +8,7 @@ import { CalendarToolbar, type CalendarView } from "./CalendarToolbar";
 import { MonthView } from "./MonthView";
 import { WeekView } from "./WeekView";
 import { DayView } from "./DayView";
-import { EventCreateModal } from "./EventCreateModal";
+import { EventCreateModal, type EventCreateInput } from "./EventCreateModal";
 import { EventDetailModal } from "./EventDetailModal";
 import { CalendarList } from "./CalendarList";
 import { CalendarReauthBanner } from "./CalendarReauthBanner";
@@ -23,6 +23,7 @@ export function CalendarPage() {
   const [calendars, setCalendars] = useState<DbCalendar[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [createInitialValues, setCreateInitialValues] = useState<Partial<EventCreateInput> | undefined>();
   const [selectedEvent, setSelectedEvent] = useState<DbCalendarEvent | null>(null);
   const [eventAnchor, setEventAnchor] = useState<{ x: number; y: number } | null>(null);
   const [needsReauth, setNeedsReauth] = useState(false);
@@ -203,14 +204,7 @@ export function CalendarPage() {
     setCurrentDate(new Date());
   }, []);
 
-  const handleCreateEvent = useCallback(async (eventData: {
-    summary: string;
-    description: string;
-    location: string;
-    startTime: string;
-    endTime: string;
-    calendarId?: string;
-  }) => {
+  const handleCreateEvent = useCallback(async (eventData: EventCreateInput) => {
     if (!activeAccountId) return;
     try {
       const provider = await getCalendarProvider(activeAccountId);
@@ -265,6 +259,7 @@ export function CalendarPage() {
         location: eventData.location || undefined,
         startTime: eventData.startTime,
         endTime: eventData.endTime,
+        attendees: eventData.attendees.map((email) => ({ email })),
       };
 
       const created = await provider.createEvent(calendarRemoteId, input);
@@ -273,6 +268,7 @@ export function CalendarPage() {
       await upsertCalendarEventFromProvider(activeAccountId, calendarDbId ?? null, created);
 
       setShowCreate(false);
+      setCreateInitialValues(undefined);
       loadEvents();
     } catch (err) {
       console.error("Failed to create event:", err);
@@ -289,6 +285,18 @@ export function CalendarPage() {
     setSelectedEvent(null);
     loadEvents();
   }, [loadEvents]);
+
+  useEffect(() => {
+    const rawDraft = sessionStorage.getItem("office360_calendar_create_draft");
+    if (!rawDraft) return;
+    sessionStorage.removeItem("office360_calendar_create_draft");
+    try {
+      setCreateInitialValues(JSON.parse(rawDraft) as Partial<EventCreateInput>);
+      setShowCreate(true);
+    } catch {
+      setCreateInitialValues(undefined);
+    }
+  }, []);
 
   useEffect(() => {
     const requestedId = sessionStorage.getItem("office360_calendar_open_event_id");
@@ -329,7 +337,7 @@ export function CalendarPage() {
         onNext={handleNext}
         onToday={handleToday}
         onViewChange={setView}
-        onCreateEvent={() => setShowCreate(true)}
+        onCreateEvent={() => { setCreateInitialValues(undefined); setShowCreate(true); }}
         onToggleCalendarList={() => setShowCalendarList((v) => !v)}
         showCalendarListButton={calendars.length > 1}
       />
@@ -412,7 +420,8 @@ export function CalendarPage() {
       {showCreate && (
         <EventCreateModal
           calendars={calendars}
-          onClose={() => setShowCreate(false)}
+          initialValues={createInitialValues}
+          onClose={() => { setShowCreate(false); setCreateInitialValues(undefined); }}
           onCreate={handleCreateEvent}
         />
       )}

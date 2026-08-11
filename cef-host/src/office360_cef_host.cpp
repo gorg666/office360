@@ -31,19 +31,24 @@ bool g_has_bounds = false, g_visible = false;
 
 void applyBrowserWindowState(HWND hwnd) {
   if (!hwnd) return;
+  if (!g_parent || !IsWindow(g_parent)) {
+    ShowWindow(hwnd, SW_HIDE);
+    return;
+  }
+  if (GetParent(hwnd) != g_parent) SetParent(hwnd, g_parent);
+  const LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+  const LONG_PTR childStyle = (style & ~static_cast<LONG_PTR>(WS_POPUP | WS_CAPTION | WS_THICKFRAME)) |
+                              WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+  if (style != childStyle) SetWindowLongPtrW(hwnd, GWL_STYLE, childStyle);
+  const LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+  const LONG_PTR childExStyle = exStyle & ~static_cast<LONG_PTR>(WS_EX_APPWINDOW | WS_EX_TOPMOST);
+  if (exStyle != childExStyle) SetWindowLongPtrW(hwnd, GWL_EXSTYLE, childExStyle);
   if (!g_visible || !g_has_bounds) {
     ShowWindow(hwnd, SW_HIDE);
     return;
   }
-  SetWindowPos(hwnd, HWND_TOP, g_x, g_y, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-}
-
-BOOL CALLBACK findWebView(HWND hwnd, LPARAM value) {
-  wchar_t className[128]{}; GetClassNameW(hwnd, className, 128);
-  if (wcscmp(className, L"WRY_WEBVIEW") == 0) {
-    *reinterpret_cast<HWND*>(value) = hwnd; return FALSE;
-  }
-  return TRUE;
+  SetWindowPos(hwnd, HWND_TOP, g_x, g_y, g_width, g_height,
+               SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
 }
 
 class HostApp final : public CefApp {
@@ -261,14 +266,19 @@ extern "C" int o360_cef_initialize(void* parent, const wchar_t* profile, const w
   settings.log_severity = LOGSEVERITY_WARNING; CefString(&settings.log_file) = (std::filesystem::path(profile) / L"cef.log").wstring();
   g_initialized = CefInitialize(args, settings, new HostApp(), nullptr); if (!g_initialized) return 0;
   g_parent = static_cast<HWND>(parent);
-  HWND webview = nullptr; EnumChildWindows(g_parent, findWebView, reinterpret_cast<LPARAM>(&webview));
-  if (webview) g_parent = webview;
+  if (!g_parent || !IsWindow(g_parent)) return 0;
   emit("initialized"); return 1;
 }
 extern "C" int o360_cef_create(const char* url) {
   if (!g_initialized || !g_parent) return 0;
-  g_client = new Client(); CefWindowInfo info; RECT rect{}; GetClientRect(g_parent, &rect); info.SetAsChild(g_parent, CefRect(0, 0, rect.right, rect.bottom));
-  info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
+  g_client = new Client(); CefWindowInfo info;
+  const int x = g_has_bounds ? g_x : 0;
+  const int y = g_has_bounds ? g_y : 0;
+  const int width = g_has_bounds ? g_width : 1;
+  const int height = g_has_bounds ? g_height : 1;
+  info.SetAsChild(g_parent, CefRect(x, y, width, height));
+  info.style &= ~WS_VISIBLE;
+  info.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
   CefBrowserSettings settings; return CefBrowserHost::CreateBrowser(info, g_client, url, settings, nullptr, nullptr) ? 1 : 0;
 }
 extern "C" void o360_cef_set_bounds(int x,int y,int w,int h){g_x=x;g_y=y;g_width=std::max(1,w);g_height=std::max(1,h);g_has_bounds=true;ui([]{if(g_client&&g_client->browser())applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());});}

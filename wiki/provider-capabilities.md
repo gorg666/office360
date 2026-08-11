@@ -87,7 +87,8 @@ Service readiness:
 
 - Mail requires `mail:imap_full` and `mail:smtp`.
 - Calendar uses the existing Yandex CalDAV path and requires `calendar:all` when the saved OAuth grant exposes scopes.
-- Messenger is shown separately from Telemost and can use the connected Yandex ID account or a configured bot token.
+- Messenger is shown separately from Telemost and prefers the active connected Yandex ID OAuth account; a configured bot token is only a fallback when no Yandex OAuth account is available.
+- Telemost scheduling creates a calendar draft with the meeting URL and attendees; calendar providers receive attendees as invitations when they support event creation.
 - Telemost history enriches calendar-backed meetings with organizer, scheduled date and duration, attendees, and a link back to the calendar event. Actual elapsed duration and a direct meeting-chat identifier are not exposed by the available APIs, so the UI labels calendar duration explicitly and opens Yandex Messenger without fabricating a chat mapping.
 - Embedded Telemost meeting pages are scaled to the available CEF viewport and page scrolling is suppressed so the meeting controls remain inside the Office360 layout.
 - Tasks are shown as the Office360 task workspace for the connected work account.

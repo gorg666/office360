@@ -1617,7 +1617,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                       <a className="text-accent underline" href="https://admin.yandex.ru/bot-platform" target="_blank" rel="noopener noreferrer">
                         Боты в Мессенджере
                       </a>{" "}
-                      и вставьте его ниже — он перекроет OAuth до удаления.
+                      и вставьте его ниже. Для подключённого аккаунта Яндекс всегда используется его OAuth; token служит резервом.
                     </p>
                   ) : null}
                 </div>

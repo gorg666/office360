@@ -132,16 +132,12 @@ export class CalDAVProvider implements CalendarProvider {
 
     const icalData = updateVEventFields(existing.data, event);
 
-    const headers: Record<string, string> = {};
-    if (etag) headers["If-Match"] = etag;
-
     const response = await client.updateCalendarObject({
       calendarObject: {
         url: remoteEventId,
         data: icalData,
         etag: etag ?? existing.etag ?? undefined,
       } as DAVObject,
-      headers,
     });
     await assertDavResponseOk(response, "update event");
 
@@ -167,7 +163,6 @@ export class CalDAVProvider implements CalendarProvider {
     if (data === existing.data) throw new Error("Текущий аккаунт не найден среди участников");
     const response = await client.updateCalendarObject({
       calendarObject: { url: remoteEventId, data, etag: etag ?? existing.etag ?? undefined } as DAVObject,
-      headers: etag ? { "If-Match": etag } : {},
     });
     await assertDavResponseOk(response, "respond to event");
   }
@@ -175,15 +170,11 @@ export class CalDAVProvider implements CalendarProvider {
   async deleteEvent(_calendarRemoteId: string, remoteEventId: string, etag?: string): Promise<void> {
     const client = await this.getClient();
 
-    const headers: Record<string, string> = {};
-    if (etag) headers["If-Match"] = etag;
-
     const response = await client.deleteCalendarObject({
       calendarObject: {
         url: remoteEventId,
         etag: etag ?? undefined,
       } as DAVObject,
-      headers,
     });
     await assertDavResponseOk(response, "delete event");
   }

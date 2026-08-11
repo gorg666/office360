@@ -58,6 +58,8 @@ export function TelemostPage() {
   const accountId = useAccountStore((state) => state.activeAccountId);
   const activeAccount = useAccountStore((state) => state.accounts.find((item) => item.id === state.activeAccountId) ?? null);
   const hostRef = useRef<HTMLDivElement>(null);
+  const activeMeetingUrlRef = useRef<string | null>(null);
+  const meetingRecoveryAtRef = useRef(0);
   const [serviceAccountId, setServiceAccountId] = useState<string | null>(null);
   const [accountChecking, setAccountChecking] = useState(true);
   const [created, setCreated] = useState<StoredConference[]>([]);
@@ -70,13 +72,23 @@ export function TelemostPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [cefSessionReady, setCefSessionReady] = useState(false);
-  const isTelemostHome = /^https:\/\/telemost(?:\.360)?\.yandex\.ru\/?(?:[?#].*)?$/.test(selectedUrl);
+  const [activeMeetingUrl, setActiveMeetingUrl] = useState<string | null>(null);
+  const isTelemostMeeting = /^https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/[^/?#]+/i.test(selectedUrl);
+  const isTelemostAuth = /^https:\/\/(?:passport|oauth)\.yandex\.(?:ru|com)\//i.test(selectedUrl);
+  const showEmbeddedBrowser = isTelemostMeeting || isTelemostAuth || activeMeetingUrl !== null;
+
+  const rememberActiveMeeting = useCallback((url: string | null) => {
+    activeMeetingUrlRef.current = url;
+    setActiveMeetingUrl(url);
+  }, []);
 
   useEffect(() => {
     let current = true;
     setAccountChecking(true);
     setServiceAccountId(null);
     setCefSessionReady(false);
+    rememberActiveMeeting(null);
+    meetingRecoveryAtRef.current = 0;
     setCreated([]); setVisited([]); setCalendarMeetings([]); setSelectedUrl("https://telemost.yandex.ru/"); setError(null);
     void cefSetVisible(false);
     if (!accountId) { setAccountChecking(false); return () => { current = false; }; }
@@ -95,7 +107,7 @@ export function TelemostPage() {
       setAccountChecking(false);
     });
     return () => { current = false; };
-  }, [accountId]);
+  }, [accountId, rememberActiveMeeting]);
 
   useEffect(() => { if (serviceAccountId) localStorage.setItem(`${CREATED_KEY}:${serviceAccountId}`, JSON.stringify(created)); }, [created, serviceAccountId]);
   useEffect(() => { if (serviceAccountId) localStorage.setItem(`${VISITED_KEY}:${serviceAccountId}`, JSON.stringify(visited)); }, [visited, serviceAccountId]);
@@ -157,23 +169,34 @@ export function TelemostPage() {
     if (meeting) {
       setSelectedCalendarEventId(meeting.calendarEventId ?? null);
       setSelectedUrl(meeting.joinUrl);
+      rememberActiveMeeting(meeting.joinUrl);
       setError(null);
       void cefNavigate(meeting.joinUrl);
     }
-  }, [calendarMeetings]);
+  }, [calendarMeetings, rememberActiveMeeting]);
 
   useEffect(() => {
-    if (!serviceAccountId || !cefSessionReady || isTelemostHome) { void cefSetVisible(false); return; }
+    if (!serviceAccountId || !cefSessionReady) { void cefSetVisible(false); return; }
     let alive = true;
     void cefInitialize().then(() => cefCreate(selectedUrl)).catch((reason) => alive && setError(`CEF недоступен: ${String(reason)}`));
     const unlisten = listen<CefEvent>("cef-event", (event) => {
       const { type, payload } = event.payload;
       if (type === "loading" && typeof payload.loading === "boolean") setLoading(payload.loading);
       if (type === "navigation" && typeof payload.url === "string") {
-        setSelectedUrl(payload.url);
-        if (/^https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/\d+/.test(payload.url)) {
+        const meetingUrl = /^https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/[^/?#]+/i.test(payload.url);
+        if (meetingUrl) {
+          setSelectedUrl(payload.url);
+          rememberActiveMeeting(payload.url);
           const entry: MeetingEntry = { id: meetingId(payload.url), title: `Встреча ${meetingId(payload.url)}`, joinUrl: payload.url, source: "visited", lastOpenedAt: Date.now() };
           setVisited((items) => mergeMeetings([entry, ...items]).slice(0, 100));
+        } else if (!activeMeetingUrlRef.current) {
+          setSelectedUrl(payload.url);
+        } else if (/^https:\/\/telemost(?:\.360)?\.yandex\.ru\/?(?:[?#].*)?$/i.test(payload.url)) {
+          const now = Date.now();
+          if (now - meetingRecoveryAtRef.current > 5_000) {
+            meetingRecoveryAtRef.current = now;
+            void cefNavigate(activeMeetingUrlRef.current);
+          }
         }
       }
       if (type === "telemost-action" && payload.action === "create" && payload.ok === false) {
@@ -186,7 +209,7 @@ export function TelemostPage() {
       }
     });
     return () => { alive = false; void cefSetVisible(false); void unlisten.then((fn) => fn()); };
-  }, [cefSessionReady, serviceAccountId]);
+  }, [cefSessionReady, rememberActiveMeeting, serviceAccountId]);
 
   const syncBounds = useCallback(() => {
     const element = hostRef.current;
@@ -196,7 +219,7 @@ export function TelemostPage() {
   }, []);
 
   useEffect(() => {
-    if (!serviceAccountId || !cefSessionReady || isTelemostHome) { void cefSetVisible(false); return; }
+    if (!serviceAccountId || !cefSessionReady || !showEmbeddedBrowser) { void cefSetVisible(false); return; }
     const element = hostRef.current;
     if (!element) return;
     const observer = new ResizeObserver(syncBounds);
@@ -206,7 +229,7 @@ export function TelemostPage() {
     syncBounds();
     void cefSetVisible(true);
     return () => { observer.disconnect(); window.removeEventListener("resize", syncBounds); window.removeEventListener("scroll", syncBounds, true); void cefSetVisible(false); };
-  }, [cefSessionReady, isTelemostHome, serviceAccountId, syncBounds]);
+  }, [cefSessionReady, serviceAccountId, showEmbeddedBrowser, syncBounds]);
 
   const meetings = useMemo(() => {
     const fromCreated: MeetingEntry[] = created.map((item) => ({
@@ -228,6 +251,8 @@ export function TelemostPage() {
   const openMeeting = (meeting: MeetingEntry) => {
     setSelectedCalendarEventId(meeting.calendarEventId ?? null);
     setSelectedUrl(meeting.joinUrl);
+    rememberActiveMeeting(meeting.joinUrl);
+    meetingRecoveryAtRef.current = 0;
     setError(null);
     void cefNavigate(meeting.joinUrl);
   };
@@ -254,11 +279,39 @@ export function TelemostPage() {
     openMeeting({ id: meetingId(url), title: `Встреча ${meetingId(url)}`, joinUrl: url, source: "visited" });
   };
 
-  const schedule = () => navigateToLabel("calendar");
+  const schedule = async () => {
+    if (!serviceAccountId) return;
+    try {
+      setError(null);
+      let meetingUrl = activeMeetingUrlRef.current;
+      if (!meetingUrl) {
+        const conference = await createTelemostConference({ accountId: serviceAccountId, waitingRoomLevel: "PUBLIC", cohostEmails: [], autoSummarization: false });
+        const stored: StoredConference = { ...conference, title: "Новая встреча", createdAt: Math.floor(Date.now() / 1000), inviteEmails: [] };
+        setCreated((items) => [stored, ...items.filter((item) => item.id !== conference.id)]);
+        meetingUrl = conference.joinUrl;
+      }
+      const start = new Date();
+      start.setMinutes(0, 0, 0);
+      start.setHours(start.getHours() + 1);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      sessionStorage.setItem("office360_calendar_create_draft", JSON.stringify({
+        summary: "Встреча в Яндекс Телемосте",
+        description: `Ссылка на встречу: ${meetingUrl}`,
+        location: meetingUrl,
+        startTime: toLocalDateTime(start),
+        endTime: toLocalDateTime(end),
+        attendees: [],
+      }));
+      navigateToLabel("calendar");
+    } catch (reason) {
+      setError(`Не удалось подготовить встречу для календаря: ${reason instanceof Error ? reason.message : String(reason)}`);
+    }
+  };
 
   const createInWebTelemost = async () => {
     const url = "https://telemost.yandex.ru/?browser-auto-create=1";
     setSelectedCalendarEventId(null);
+    rememberActiveMeeting(null);
     setSelectedUrl(url);
     setError(null);
     await cefSetVisible(false);
@@ -316,7 +369,7 @@ export function TelemostPage() {
 
   return <ServicePageShell title="Яндекс Телемост" description="Встречи и встроенный Chromium Embedded Framework" actions={<div className="flex flex-wrap gap-2">
     <button className="btn-secondary px-3 py-2 flex gap-2" onClick={create}><Plus size={16}/>Новая видеовстреча</button>
-    <button className="btn-secondary px-3 py-2 flex gap-2" onClick={schedule}><CalendarDays size={16}/>Запланировать</button>
+    <button className="btn-secondary px-3 py-2 flex gap-2" onClick={() => void schedule()}><CalendarDays size={16}/>Запланировать</button>
     <button className="btn-secondary px-3 py-2 flex gap-2" onClick={connect}><Users size={16}/>Подключиться</button>
     <button className="btn-secondary px-3 py-2 flex gap-2 opacity-60" disabled title="Недоступно на текущем тарифе"><Video size={16}/>Трансляция</button>
   </div>}>
@@ -352,7 +405,7 @@ export function TelemostPage() {
       </aside>
       <section className="relative border border-border-primary rounded-lg overflow-hidden min-w-0 bg-black">
         <div ref={hostRef} className="absolute inset-0 bg-black"/>
-        {isTelemostHome && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Выберите действие в верхней панели</div><div className="mt-2 text-sm text-text-tertiary">Создайте, запланируйте или откройте встречу по ссылке.</div></div></div>}
+        {!showEmbeddedBrowser && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Выберите действие в верхней панели</div><div className="mt-2 text-sm text-text-tertiary">Создайте, запланируйте или откройте встречу по ссылке.</div></div></div>}
         <div className="absolute right-3 top-3 z-10 flex gap-2 pointer-events-auto">
           {loading && <span className="rounded bg-black/70 px-2 py-1 text-xs text-white">Загрузка…</span>}
           <button className="rounded bg-black/70 p-2 text-white hover:bg-black" title="Обновить" onClick={() => cefNavigate(selectedUrl)}><RefreshCw size={15}/></button>
@@ -378,4 +431,9 @@ function formatMeetingTime(meeting: MeetingEntry): string {
   if (!meeting.endTime) return formatted;
   const minutes = Math.max(0, Math.round((meeting.endTime - (meeting.startTime ?? meeting.endTime)) / 60));
   return `${formatted} · ${meeting.endTime * 1000 < Date.now() ? "по календарю длилась" : "запланировано"} ${minutes} мин`;
+}
+
+function toLocalDateTime(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }

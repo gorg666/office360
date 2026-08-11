@@ -6,23 +6,28 @@ import type { DbCalendar } from "@/services/db/calendars";
 
 interface EventCreateModalProps {
   calendars?: DbCalendar[];
+  initialValues?: Partial<EventCreateInput>;
   onClose: () => void;
-  onCreate: (event: {
-    summary: string;
-    description: string;
-    location: string;
-    startTime: string;
-    endTime: string;
-    calendarId?: string;
-  }) => void | Promise<void>;
+  onCreate: (event: EventCreateInput) => void | Promise<void>;
 }
 
-export function EventCreateModal({ calendars, onClose, onCreate }: EventCreateModalProps) {
-  const [summary, setSummary] = useState("");
-  const [description, setDescription] = useState("");
-  const [location, setLocation] = useState("");
-  const [startTime, setStartTime] = useState(getDefaultStart());
-  const [endTime, setEndTime] = useState(getDefaultEnd());
+export interface EventCreateInput {
+  summary: string;
+  description: string;
+  location: string;
+  startTime: string;
+  endTime: string;
+  attendees: string[];
+  calendarId?: string;
+}
+
+export function EventCreateModal({ calendars, initialValues, onClose, onCreate }: EventCreateModalProps) {
+  const [summary, setSummary] = useState(initialValues?.summary ?? "");
+  const [description, setDescription] = useState(initialValues?.description ?? "");
+  const [location, setLocation] = useState(initialValues?.location ?? "");
+  const [startTime, setStartTime] = useState(initialValues?.startTime ?? getDefaultStart());
+  const [endTime, setEndTime] = useState(initialValues?.endTime ?? getDefaultEnd());
+  const [attendees, setAttendees] = useState((initialValues?.attendees ?? []).join(", "));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [calendarId, setCalendarId] = useState<string>(
@@ -53,6 +58,7 @@ export function EventCreateModal({ calendars, onClose, onCreate }: EventCreateMo
         location,
         startTime,
         endTime,
+        attendees: parseAttendees(attendees),
         calendarId: calendarId || undefined,
       });
     } catch (err) {
@@ -60,7 +66,7 @@ export function EventCreateModal({ calendars, onClose, onCreate }: EventCreateMo
     } finally {
       setSubmitting(false);
     }
-  }, [summary, description, location, startTime, endTime, calendarId, onCreate]);
+  }, [summary, description, location, startTime, endTime, attendees, calendarId, onCreate]);
 
   return (
     <Modal isOpen={true} onClose={onClose} title="Create Event" width="w-full max-w-md">
@@ -116,6 +122,14 @@ export function EventCreateModal({ calendars, onClose, onCreate }: EventCreateMo
           placeholder="Add location"
         />
 
+        <TextField
+          label="Participants"
+          type="text"
+          value={attendees}
+          onChange={(e) => setAttendees(e.target.value)}
+          placeholder="name@example.com, colleague@example.com"
+        />
+
         <div>
           <label className="text-xs text-text-secondary block mb-1">Description</label>
           <textarea
@@ -154,6 +168,10 @@ export function EventCreateModal({ calendars, onClose, onCreate }: EventCreateMo
       </form>
     </Modal>
   );
+}
+
+function parseAttendees(value: string): string[] {
+  return [...new Set(value.split(/[;,\s]+/).map((email) => email.trim().toLowerCase()).filter(Boolean))];
 }
 
 function getDefaultStart(): string {
