@@ -27,7 +27,16 @@ std::mutex g_mutex;
 bool g_initialized = false;
 HWND g_parent = nullptr;
 int g_x = 0, g_y = 0, g_width = 1, g_height = 1;
-bool g_has_bounds = false, g_visible = true;
+bool g_has_bounds = false, g_visible = false;
+
+void applyBrowserWindowState(HWND hwnd) {
+  if (!hwnd) return;
+  if (!g_visible || !g_has_bounds) {
+    ShowWindow(hwnd, SW_HIDE);
+    return;
+  }
+  SetWindowPos(hwnd, HWND_TOP, g_x, g_y, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+}
 
 BOOL CALLBACK findWebView(HWND hwnd, LPARAM value) {
   wchar_t className[128]{}; GetClassNameW(hwnd, className, 128);
@@ -116,8 +125,7 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
       context->SetContentSetting(origin, origin, CEF_CONTENT_SETTING_TYPE_MEDIASTREAM_CAMERA, CEF_CONTENT_SETTING_VALUE_ALLOW);
     }
     const HWND hwnd = browser_->GetHost()->GetWindowHandle();
-    if (g_has_bounds) SetWindowPos(hwnd, HWND_TOP, g_x, g_y, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    ShowWindow(hwnd, g_visible ? SW_SHOW : SW_HIDE);
+    applyBrowserWindowState(hwnd);
     emit("ready", "{\"message\":\"Chromium готов\"}");
   }
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, int, const CefString& target_url,
@@ -263,8 +271,8 @@ extern "C" int o360_cef_create(const char* url) {
   info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
   CefBrowserSettings settings; return CefBrowserHost::CreateBrowser(info, g_client, url, settings, nullptr, nullptr) ? 1 : 0;
 }
-extern "C" void o360_cef_set_bounds(int x,int y,int w,int h){g_x=x;g_y=y;g_width=std::max(1,w);g_height=std::max(1,h);g_has_bounds=true;ui([]{if(g_client&&g_client->browser())SetWindowPos(g_client->browser()->GetHost()->GetWindowHandle(),HWND_TOP,g_x,g_y,g_width,g_height,SWP_NOACTIVATE|SWP_SHOWWINDOW);});}
-extern "C" void o360_cef_set_visible(int v){g_visible=v!=0;ui([]{if(g_client&&g_client->browser())ShowWindow(g_client->browser()->GetHost()->GetWindowHandle(),g_visible?SW_SHOW:SW_HIDE);});}
+extern "C" void o360_cef_set_bounds(int x,int y,int w,int h){g_x=x;g_y=y;g_width=std::max(1,w);g_height=std::max(1,h);g_has_bounds=true;ui([]{if(g_client&&g_client->browser())applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());});}
+extern "C" void o360_cef_set_visible(int v){g_visible=v!=0;ui([]{if(g_client&&g_client->browser())applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());});}
 extern "C" void o360_cef_navigate(const char* url){std::string s=url?url:"";ui([s]{if(g_client&&g_client->browser()&&trusted(s))g_client->browser()->GetMainFrame()->LoadURL(s);});}
 extern "C" void o360_cef_back(){ui([]{if(g_client&&g_client->browser())g_client->browser()->GoBack();});}
 extern "C" void o360_cef_forward(){ui([]{if(g_client&&g_client->browser())g_client->browser()->GoForward();});}
@@ -272,4 +280,4 @@ extern "C" void o360_cef_reload(){ui([]{if(g_client&&g_client->browser())g_clien
 extern "C" void o360_cef_clear_session(const char* next_url){std::string url=next_url?next_url:"";ui([url]{if(!g_client||!g_client->browser())return;auto browser=g_client->browser();auto context=browser->GetHost()->GetRequestContext();if(!context)return;auto cookies=context->GetCookieManager(nullptr);if(!cookies||!cookies->DeleteCookies("","",new SessionClearedCallback(browser,url))){context->ClearHttpAuthCredentials(nullptr);if(trusted(url))browser->GetMainFrame()->LoadURL(url);}});}
 extern "C" int o360_cef_dom_command(const char* id,const char* command){if(!g_client||!g_client->browser()||!domTrusted(g_client->browser()->GetMainFrame()->GetURL()))return 0;std::string script=domScript(id?id:"",command?command:"{}");ui([script]{if(g_client&&g_client->browser()&&domTrusted(g_client->browser()->GetMainFrame()->GetURL()))g_client->browser()->GetMainFrame()->ExecuteJavaScript(script,g_client->browser()->GetMainFrame()->GetURL(),0);});return 1;}
 extern "C" void o360_cef_permission_response(uint64_t id,int allow){ui([=]{if(g_client)g_client->permission(id,allow!=0);});}
-extern "C" void o360_cef_shutdown(){std::lock_guard<std::mutex> lock(g_mutex);if(!g_initialized)return;if(g_client&&g_client->browser())g_client->browser()->GetHost()->CloseBrowser(true);g_client=nullptr;CefShutdown();g_initialized=false;g_parent=nullptr;g_has_bounds=false;g_callback=nullptr;}
+extern "C" void o360_cef_shutdown(){std::lock_guard<std::mutex> lock(g_mutex);if(!g_initialized)return;if(g_client&&g_client->browser())g_client->browser()->GetHost()->CloseBrowser(true);g_client=nullptr;CefShutdown();g_initialized=false;g_parent=nullptr;g_has_bounds=false;g_visible=false;g_callback=nullptr;}
