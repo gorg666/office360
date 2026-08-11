@@ -15,8 +15,10 @@ import {
   getFileIcon,
 } from "@/utils/fileTypeHelpers";
 import { base64UrlToUint8Array, uint8ArrayToBase64DataUrl } from "@/utils/base64url";
-import { SecurityWarningBanner } from "./SecurityWarningBanner";
-import { createUnsafeAttachmentWarning, isRiskyAttachment } from "@/services/security/securityWarnings";
+import {
+  attachmentPreviewCacheKey,
+  getOrCreateAttachmentPreviewLoad,
+} from "@/utils/attachmentPreviewCache";
 
 /** Dedup attachments by filename+size (content-based) */
 function dedup(attachments: DbAttachment[]): DbAttachment[] {
@@ -38,8 +40,6 @@ interface AttachmentListProps {
 
 export function AttachmentList({ accountId, messageId, attachments, referencedCids }: AttachmentListProps) {
   const [preview, setPreview] = useState<DbAttachment | null>(null);
-  const [riskPrompt, setRiskPrompt] = useState<DbAttachment | null>(null);
-  const [confirmedRiskIds, setConfirmedRiskIds] = useState<Set<string>>(() => new Set());
 
   const fileAttachments = dedup(attachments.filter((a) => {
     if (a.content_id && getContentIdKeys(a.content_id).some((key) => referencedCids?.has(key))) return false;
@@ -49,22 +49,6 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
 
   if (fileAttachments.length === 0) return null;
 
-  const handleAttachmentClick = (attachment: DbAttachment) => {
-    if (isRiskyAttachment(attachment.filename, attachment.mime_type) && !confirmedRiskIds.has(attachment.id)) {
-      setRiskPrompt(attachment);
-      return;
-    }
-    setPreview(attachment);
-  };
-
-  const handleConfirmRisk = () => {
-    if (!riskPrompt) return;
-    const attachment = riskPrompt;
-    setConfirmedRiskIds((current) => new Set(current).add(attachment.id));
-    setRiskPrompt(null);
-    setPreview(attachment);
-  };
-
   return (
     <>
       <div className="mt-3 pt-3 border-t border-border-secondary">
@@ -72,23 +56,51 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
           {fileAttachments.length} attachment{fileAttachments.length !== 1 ? "s" : ""}
         </div>
         <div className="flex flex-wrap gap-2">
-          {fileAttachments.map((att) => (
-            <button
-              key={att.id}
-              onClick={() => handleAttachmentClick(att)}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border border-border-primary hover:bg-bg-hover transition-colors"
-            >
-              <span className="text-text-tertiary">{getFileIcon(att.mime_type, att.filename)}</span>
-              <span className="text-text-secondary truncate max-w-[200px]">
-                {att.filename ?? "Unnamed"}
-              </span>
-              {att.size != null && (
-                <span className="text-text-tertiary whitespace-nowrap">
-                  {formatFileSize(att.size)}
-                </span>
-              )}
-            </button>
-          ))}
+          {fileAttachments.map((att) => {
+            const showThumb = isSafeRasterImagePreview(att.mime_type, att.filename);
+            return (
+              <div
+                key={att.id}
+                className="flex items-stretch gap-0 rounded-md border border-border-primary overflow-hidden hover:bg-bg-hover transition-colors"
+              >
+                <button
+                  type="button"
+                  onClick={() => setPreview(att)}
+                  className="flex items-center gap-2 px-2 py-1.5 text-xs min-w-0 text-left"
+                >
+                  {showThumb ? (
+                    <AttachmentImageThumb
+                      accountId={accountId}
+                      messageId={messageId}
+                      attachment={att}
+                    />
+                  ) : (
+                    <span className="text-text-tertiary shrink-0">
+                      {getFileIcon(att.mime_type, att.filename)}
+                    </span>
+                  )}
+                  <span className="min-w-0">
+                    <span className="block text-text-secondary truncate max-w-[160px]">
+                      {att.filename ?? "Unnamed"}
+                    </span>
+                    {att.size != null && (
+                      <span className="block text-text-tertiary whitespace-nowrap">
+                        {formatFileSize(att.size)}
+                      </span>
+                    )}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  title="Download"
+                  className="px-2 border-l border-border-primary text-text-tertiary hover:text-text-primary"
+                  onClick={() => setPreview(att)}
+                >
+                  <Download size={13} />
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -97,19 +109,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
           attachment={preview}
           accountId={accountId}
           messageId={messageId}
-          riskConfirmed={confirmedRiskIds.has(preview.id)}
           onClose={() => setPreview(null)}
-        />
-      )}
-
-      {riskPrompt && (
-        <RiskyAttachmentDialog
-          attachment={riskPrompt}
-          accountId={accountId}
-          messageId={messageId}
-          actionLabel="Preview attachment"
-          onCancel={() => setRiskPrompt(null)}
-          onConfirm={handleConfirmRisk}
         />
       )}
     </>
@@ -200,21 +200,17 @@ export function AttachmentPreview({
   attachment,
   accountId,
   messageId,
-  riskConfirmed = false,
   onClose,
 }: {
   attachment: DbAttachment;
   accountId: string;
   messageId: string;
-  riskConfirmed?: boolean;
   onClose: () => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [downloadRiskPrompt, setDownloadRiskPrompt] = useState(false);
-  const [downloadRiskConfirmed, setDownloadRiskConfirmed] = useState(riskConfirmed);
   const bytesRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
   const isPreviewable = canPreview(attachment.mime_type, attachment.filename);
@@ -279,7 +275,7 @@ export function AttachmentPreview({
     }
   }, [isPreviewable, previewUrl, loading, error, handlePreviewLoad]);
 
-  const saveAttachment = async () => {
+  const handleDownload = async () => {
     if (!attachment.gmail_attachment_id || saving) return;
 
     setSaving(true);
@@ -301,14 +297,6 @@ export function AttachmentPreview({
     } finally {
       setSaving(false);
     }
-  };
-
-  const handleDownload = async () => {
-    if (isRiskyAttachment(attachment.filename, attachment.mime_type) && !downloadRiskConfirmed) {
-      setDownloadRiskPrompt(true);
-      return;
-    }
-    await saveAttachment();
   };
 
   const handleClose = () => {
@@ -384,71 +372,6 @@ export function AttachmentPreview({
             <p className="text-xs">{attachment.mime_type ?? "Unknown type"}</p>
           </div>
         )}
-      </div>
-      {downloadRiskPrompt && (
-        <RiskyAttachmentDialog
-          attachment={attachment}
-          accountId={accountId}
-          messageId={messageId}
-          actionLabel="Download attachment"
-          onCancel={() => setDownloadRiskPrompt(false)}
-          onConfirm={() => {
-            setDownloadRiskConfirmed(true);
-            setDownloadRiskPrompt(false);
-            void saveAttachment();
-          }}
-        />
-      )}
-    </Modal>
-  );
-}
-
-function RiskyAttachmentDialog({
-  attachment,
-  accountId,
-  messageId,
-  actionLabel,
-  onCancel,
-  onConfirm,
-}: {
-  attachment: DbAttachment;
-  accountId: string;
-  messageId: string;
-  actionLabel: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const warning = createUnsafeAttachmentWarning({
-    accountId,
-    messageId,
-    filename: attachment.filename,
-    mimeType: attachment.mime_type,
-  });
-
-  return (
-    <Modal
-      isOpen={true}
-      onClose={onCancel}
-      title="Risky attachment"
-      width="w-full max-w-md mx-4"
-      zIndex="z-[210]"
-    >
-      <div className="space-y-3 p-4">
-        <SecurityWarningBanner warning={warning} />
-        <div className="flex justify-end gap-2 border-t border-border-primary pt-3">
-          <button
-            onClick={onCancel}
-            className="rounded-md border border-border-primary bg-bg-tertiary px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-bg-hover"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="rounded-md bg-danger px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-danger/90"
-          >
-            {actionLabel}
-          </button>
-        </div>
       </div>
     </Modal>
   );

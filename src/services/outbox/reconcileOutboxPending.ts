@@ -138,11 +138,13 @@ export async function classifyOutboxOperation(
     return { action: "cleaned_sent", reason: "durable_sent_found" };
   }
 
-  if (op.status === "failed") {
+  const status = op.status as string;
+
+  if (status === "failed") {
     return { action: "kept", reason: "already_failed" };
   }
 
-  if (op.status === "pending") {
+  if (status === "pending") {
     if (!hasPayload) {
       return {
         action: "marked_failed",
@@ -152,7 +154,7 @@ export async function classifyOutboxOperation(
     return { action: "kept", reason: "pending_ready" };
   }
 
-  if (op.status === "queued") {
+  if (status === "queued") {
     if (!hasPayload) {
       return {
         action: "marked_failed",
@@ -164,10 +166,10 @@ export async function classifyOutboxOperation(
   }
 
   if (
-    op.status === "executing" ||
-    op.status === "sending" ||
-    op.status === "smtp_accepted" ||
-    op.status === "sent_reconciling"
+    status === "executing" ||
+    status === "sending" ||
+    status === "smtp_accepted" ||
+    status === "sent_reconciling"
   ) {
     if (hasPayload) {
       return {

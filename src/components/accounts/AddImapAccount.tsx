@@ -29,8 +29,12 @@ import {
 import { getOAuthProvider } from "@/services/oauth/providers";
 import { getYandexOAuthConfigDiagnostics } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
-import { getSetting, setSetting } from "@/services/db/settings";
-import { createConnectionDiagnostic, type ConnectionDiagnostic } from "@/services/diagnostics";
+import { computeTokenExpiresAtSeconds } from "@/services/oauth/tokenExpiry";
+import {
+  resolveYandexClientSecret,
+  saveYandexClientSecret,
+} from "@/services/oauth/yandexOAuthCredentials";
+import { getSetting } from "@/services/db/settings";
 
 interface AddImapAccountProps {
   onClose: () => void;
@@ -121,7 +125,6 @@ const stepIcons: Record<Step, React.ReactNode> = {
 interface TestStatus {
   state: "idle" | "testing" | "success" | "error";
   message?: string;
-  diagnostic?: ConnectionDiagnostic;
 }
 
 const inputClass =
@@ -407,7 +410,6 @@ export function AddImapAccount({
           oauthProvider: accountForm.oauthProvider!,
           oauthClientId: accountForm.oauthClientId.trim(),
           oauthClientSecret: accountForm.oauthClientSecret.trim() || null,
-          oauthGrantedScopes: accountForm.oauthGrantedScopes,
           imapUsername,
           acceptInvalidCerts: accountForm.acceptInvalidCerts,
         };
@@ -454,10 +456,6 @@ export function AddImapAccount({
         setActiveAccount(accountId);
       } else {
         addAccount(storeAccount);
-      }
-
-      if (accountForm.oauthProvider === "yandex" && accountForm.oauthGrantedScopes) {
-        await setSetting(`yandex_oauth_scopes:${accountId}`, accountForm.oauthGrantedScopes);
       }
 
       onSuccess(accountId);
@@ -632,13 +630,8 @@ export function AddImapAccount({
       );
       setImapTest({ state: "success", message: result });
     } catch (err) {
-      const diagnostic = createConnectionDiagnostic(err, {
-        layer: "imap",
-        operation: "test_connection",
-        provider: "imap",
-        authMethod: form.authMode,
-      });
-      setImapTest({ state: "error", message: diagnostic.userMessage, diagnostic });
+      const message = err instanceof Error ? err.message : String(err);
+      setImapTest({ state: "error", message });
     }
   };
 
@@ -681,13 +674,7 @@ export function AddImapAccount({
         const scopes = parseScopeSet(form.oauthGrantedScopes);
         if (!scopes.has("mail:smtp")) {
           const msg = SMTP_SCOPE_MISSING;
-          const diagnostic = createConnectionDiagnostic("missing SMTP scope mail:smtp", {
-            layer: "smtp",
-            operation: "test_connection",
-            provider: "imap",
-            authMethod: form.authMode,
-          });
-          setSmtpTest({ state: "error", message: msg, diagnostic: { ...diagnostic, userMessage: msg } });
+          setSmtpTest({ state: "error", message: msg });
           logSmtpDiag("error", msg);
           return;
         }
@@ -722,13 +709,7 @@ export function AddImapAccount({
           smtpHost,
           smtpPort,
         });
-        const diagnostic = createConnectionDiagnostic(rawMsg, {
-          layer: "smtp",
-          operation: "test_connection",
-          provider: "imap",
-          authMethod: form.authMode,
-        });
-        setSmtpTest({ state: "error", message, diagnostic: { ...diagnostic, userMessage: message } });
+        setSmtpTest({ state: "error", message });
         logSmtpDiag("error", message);
         return;
       }
@@ -745,13 +726,7 @@ export function AddImapAccount({
         smtpHost,
         smtpPort,
       });
-      const diagnostic = createConnectionDiagnostic(raw, {
-        layer: "smtp",
-        operation: "test_connection",
-        provider: "imap",
-        authMethod: form.authMode,
-      });
-      setSmtpTest({ state: "error", message, diagnostic: { ...diagnostic, userMessage: message } });
+      setSmtpTest({ state: "error", message });
       logSmtpDiag("error", message);
     }
   };
@@ -1028,12 +1003,6 @@ export function AddImapAccount({
               </div>
             )}
 
-        {providerId === "microsoft" && (
-          <div className="rounded-lg border border-warning/20 bg-warning/10 p-3 text-xs text-text-secondary">
-            Microsoft sign-in here connects mail through OAuth-protected IMAP/SMTP. Native Exchange/Graph mail, shared mailboxes, Exchange calendar, and Exchange contacts are planned but unavailable in this build.
-          </div>
-        )}
-
         {saveError && usesManagedOAuthFlow && (
           <div className="bg-danger/10 border border-danger/20 rounded-lg p-3 text-sm text-danger">
             {saveError}
@@ -1047,13 +1016,13 @@ export function AddImapAccount({
               : "Введите email и подтвердите вход в браузере. После успешной авторизации аккаунт и календарь будут добавлены автоматически."
             : <>Чтобы получить Client ID, зарегистрируйте приложение в {providerName}.{" "}</>}
           {providerId === "microsoft" && (
-            <>Register at the Azure Portal (App Registrations) with redirect URI <code className="text-accent">http://127.0.0.1:17248</code> and IMAP/SMTP OAuth scopes.</>
+            <>Register at the Azure Portal (App Registrations) with redirect URI <code className="text-accent">http://127.0.0.1:17248</code>.</>
           )}
           {providerId === "yahoo" && (
             <>Register at the Yahoo Developer Network with redirect URI <code className="text-accent">http://127.0.0.1:17248</code>.</>
           )}
           {providerId === "yandex" && !usesManagedPublicClient && (
-            <>Создайте приложение на <code className="text-accent">oauth.yandex.ru</code>, добавьте redirect URI <code className="text-accent">http://localhost:17248</code> и выдайте scopes почты, календаря и Яндекс ID, а для сервисов — <code className="text-accent">cloud_api:disk.read</code>, <code className="text-accent">cloud_api:disk.write</code>, <code className="text-accent">tracker:read</code>, <code className="text-accent">tracker:write</code>, <code className="text-accent">directory:read_organization</code> и <code className="text-accent">telemost-api:conferences.create/read/update</code>.</>
+            <>Создайте приложение на <code className="text-accent">oauth.yandex.ru</code>, добавьте redirect URI <code className="text-accent">http://localhost:17248</code> и выдайте scopes <code className="text-accent">mail:imap_full</code>, <code className="text-accent">mail:smtp</code>, <code className="text-accent">calendar:all</code> (CalDAV), <code className="text-accent">login:email</code>, <code className="text-accent">login:info</code>, <code className="text-accent">login:avatar</code> (аватар — только с <code className="text-accent">default_avatar_id</code> по <a className="text-accent underline" href="https://yandex.com/dev/id/doc/en/user-information" target="_blank" rel="noreferrer">документации Яндекс ID</a>).</>
           )}
         </p>
       </div>

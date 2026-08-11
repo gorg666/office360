@@ -56,8 +56,7 @@ import { triggerSync } from "@/services/gmail/syncManager";
 import { useUIStore } from "@/stores/uiStore";
 import { setThreadCategory, ALL_CATEGORIES } from "@/services/db/threadCategories";
 import { openThreadPopOut } from "@/utils/openThreadWindow";
-import { ComposerEditorContextMenu } from "@/components/composer/ComposerEditorContextMenu";
-import { getCapabilitiesForAccountProvider, getUnsupportedReason } from "@/services/email/providerCapabilities";
+import { supportsFolderEditing } from "@/services/email/providerCapabilities";
 
 function buildQuote(msg: { from_name: string | null; from_address: string | null; date: string | number; body_html: string | null; body_text: string | null }): string {
   const date = new Date(msg.date).toLocaleString();
@@ -116,8 +115,8 @@ export function ContextMenuPortal() {
       {menuType === "message" && (
         <MessageMenu position={position} data={data} onClose={closeMenu} />
       )}
-      {menuType === "composerEditor" && (
-        <ComposerEditorContextMenu position={position} data={data} onClose={closeMenu} />
+      {menuType === "outbox" && (
+        <OutboxMenu position={position} data={data} onClose={closeMenu} />
       )}
       {snoozeTarget && (
         <SnoozeDialog
@@ -147,11 +146,10 @@ function SidebarLabelMenu({
   const onEdit = data["onEdit"] as (() => void) | undefined;
   const onDelete = data["onDelete"] as (() => void) | undefined;
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
-  const accounts = useAccountStore((s) => s.accounts);
-  const account = accounts.find((item) => item.id === activeAccountId);
-  const capabilities = getCapabilitiesForAccountProvider(account?.provider);
-  const renameDisabledReason = getUnsupportedReason(capabilities.labels.rename) ?? undefined;
-  const deleteDisabledReason = getUnsupportedReason(capabilities.labels.delete) ?? undefined;
+  const activeAccount = useAccountStore((s) =>
+    s.accounts.find((account) => account.id === s.activeAccountId),
+  );
+  const canEditFolders = supportsFolderEditing(activeAccount?.provider);
 
   const handleSync = () => {
     if (!activeAccountId) return;
@@ -167,22 +165,95 @@ function SidebarLabelMenu({
       icon: RefreshCw,
       action: handleSync,
     },
-    { id: "sep-sync", label: "", separator: true },
-    {
-      id: "edit-label",
-      label: "Edit label",
-      icon: Pencil,
-      disabled: !capabilities.labels.rename.supported,
-      disabledReason: renameDisabledReason,
-      action: () => onEdit?.(),
-    },
-    {
-      id: "delete-label",
-      label: "Delete label",
+    ...(canEditFolders
+      ? [
+          { id: "sep-sync", label: "", separator: true },
+          {
+            id: "edit-label",
+            label: "Edit label",
+            icon: Pencil,
+            action: () => onEdit?.(),
+          },
+          {
+            id: "delete-label",
+            label: "Delete label",
+            icon: Trash2,
+            danger: true,
+            action: () => onDelete?.(),
+          },
+        ] satisfies ContextMenuItem[]
+      : []),
+  ];
+
+  return <ContextMenu items={items} position={position} onClose={onClose} />;
+}
+
+function OutboxMenu({
+  position,
+  data,
+  onClose,
+}: {
+  position: { x: number; y: number };
+  data: Record<string, unknown>;
+  onClose: () => void;
+}) {
+  const status = String(data["status"] ?? "pending");
+  const phase = mapOutboxContextPhase(status);
+  const onOpen = data["onOpen"] as (() => void) | undefined;
+  const onCancelSend = data["onCancelSend"] as (() => void) | undefined;
+  const onRetry = data["onRetry"] as (() => void) | undefined;
+  const onDelete = data["onDelete"] as (() => void) | undefined;
+  const onOpenStatus = data["onOpenStatus"] as (() => void) | undefined;
+
+  const items: ContextMenuItem[] = [];
+
+  if (isOutboxContextActionEnabled("open", phase)) {
+    items.push({
+      id: "outbox-open",
+      label: OUTBOX_CONTEXT_MENU_LABELS.open,
+      icon: ExternalLink,
+      action: () => onOpen?.(),
+    });
+  }
+  if (isOutboxContextActionEnabled("cancel-send", phase)) {
+    items.push({
+      id: "outbox-cancel",
+      label: OUTBOX_CONTEXT_MENU_LABELS.cancelSend,
+      icon: XCircle,
+      danger: true,
+      action: () => onCancelSend?.(),
+    });
+  }
+  if (isOutboxContextActionEnabled("open-status", phase)) {
+    items.push({
+      id: "outbox-status",
+      label: OUTBOX_CONTEXT_MENU_LABELS.openStatus,
+      icon: Info,
+      action: () => onOpenStatus?.(),
+    });
+  }
+  if (isOutboxContextActionEnabled("open-draft", phase)) {
+    items.push({
+      id: "outbox-draft",
+      label: OUTBOX_CONTEXT_MENU_LABELS.openDraft,
+      icon: FileText,
+      action: () => onOpen?.(),
+    });
+  }
+  if (isOutboxContextActionEnabled("retry", phase)) {
+    items.push({
+      id: "outbox-retry",
+      label: OUTBOX_CONTEXT_MENU_LABELS.retry,
+      icon: RefreshCw,
+      action: () => onRetry?.(),
+    });
+  }
+  if (isOutboxContextActionEnabled("delete", phase)) {
+    items.push({
+      id: "outbox-delete",
+      label: OUTBOX_CONTEXT_MENU_LABELS.delete,
       icon: Trash2,
       danger: true,
-      disabled: !capabilities.labels.delete.supported,
-      disabledReason: deleteDisabledReason,
       action: () => onDelete?.(),
     });
   }
@@ -247,7 +318,6 @@ function ThreadMenu({
   const activeLabel = getActiveLabel();
   const labels = useLabelStore((s) => s.labels);
   const openComposer = useComposerStore((s) => s.openComposer);
-  const accounts = useAccountStore((s) => s.accounts);
   const [quickSteps, setQuickSteps] = useState<DbQuickStep[]>([]);
 
   useEffect(() => {
@@ -285,10 +355,6 @@ function ThreadMenu({
   const isTrashView = activeLabel === "trash";
   const isDraftsView = activeLabel === "drafts";
   const isSpamView = activeLabel === "spam";
-  const account = accounts.find((item) => item.id === activeAccountId);
-  const capabilities = getCapabilitiesForAccountProvider(account?.provider);
-  const canApplyLabels = capabilities.labels.add.supported && capabilities.labels.remove.supported;
-  const moveDisabledReason = getUnsupportedReason(capabilities.messages.move) ?? undefined;
 
   // For single thread: show current state. For multi: be generic
   const isRead = isMulti ? true : thread.isRead;
@@ -463,7 +529,7 @@ function ThreadMenu({
   };
 
   // Build label submenu items
-  const labelItems: ContextMenuItem[] = canApplyLabels ? labels.map((label) => {
+  const labelItems: ContextMenuItem[] = labels.map((label) => {
     // For single thread, show checkmark if label is applied
     const isApplied = !isMulti && thread.labelIds.includes(label.id);
     return {
@@ -472,7 +538,7 @@ function ThreadMenu({
       checked: isApplied,
       action: () => handleToggleLabel(label.id),
     };
-  }) : [];
+  });
 
   const items: ContextMenuItem[] = [
     {
@@ -622,17 +688,6 @@ function ThreadMenu({
           children: labelItems,
         }]
       : []),
-    {
-      id: "move-to-folder",
-      label: "Move to Folder",
-      icon: FolderInput,
-      shortcut: "v",
-      disabled: !capabilities.messages.move.supported,
-      disabledReason: moveDisabledReason,
-      action: () => {
-        window.dispatchEvent(new CustomEvent("velo-move-to-folder", { detail: { threadIds: [...targetIds] } }));
-      },
-    },
     {
       id: "move-to-category",
       label: "Move to Category",

@@ -8,7 +8,6 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
-import { getCapabilitiesForAccountProvider, getUnsupportedReason } from "@/services/email/providerCapabilities";
 import { useActiveLabel, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToLabel } from "@/router/navigate";
 import { openNewCompose } from "@/utils/openComposeWindow";
@@ -42,13 +41,12 @@ import {
   MailOpen,
   Paperclip,
   FolderSearch,
+  Loader2,
+  MessageCircle,
+  Folder,
   HardDrive,
   Video,
   ListTodo,
-  Loader2,
-  MessageCircle,
-  ListChecks,
-  AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -73,8 +71,8 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = 
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "starred", label: "Starred", icon: Star },
   { id: "snoozed", label: "Snoozed", icon: Clock },
+  { id: "outbox", label: "Outbox", icon: SendHorizontal },
   { id: "sent", label: "Sent", icon: Send },
-  { id: "outbox", label: "Исходящие", icon: SendHorizontal },
   { id: "drafts", label: "Drafts", icon: FileEdit },
   { id: "trash", label: "Trash", icon: Trash2 },
   { id: "spam", label: "Spam", icon: Ban },
@@ -82,7 +80,6 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = 
   { id: "messengers", label: "Мессенджеры", icon: MessageCircle },
   { id: "tasks", label: "Tasks", icon: CheckSquare },
   { id: "calendar", label: "Calendar", icon: Calendar },
-  { id: "contacts", label: "Contacts", icon: Users },
   { id: "attachments", label: "Attachments", icon: Paperclip },
   { id: "disk", label: "Диск", icon: HardDrive },
   { id: "telemost", label: "Телемост", icon: Video },
@@ -146,8 +143,11 @@ function DroppableLabelItem({
   onClick,
   onContextMenu,
   onEditClick,
-  canEdit,
-  editDisabledReason,
+  canEditFolders,
+  depth = 0,
+  hasChildren = false,
+  expanded = false,
+  onToggleExpand,
 }: {
   label: Label;
   isActive: boolean;
@@ -155,8 +155,11 @@ function DroppableLabelItem({
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onEditClick: () => void;
-  canEdit: boolean;
-  editDisabledReason?: string;
+  canEditFolders: boolean;
+  depth?: number;
+  hasChildren?: boolean;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: label.id });
   const initial = (label.name[0] ?? "?").toUpperCase();
@@ -230,29 +233,18 @@ function DroppableLabelItem({
             <Folder size={14} className="shrink-0" />
           )}
           <span className="flex-1 truncate">{label.name}</span>
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (canEdit) onEditClick();
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                e.stopPropagation();
-                if (canEdit) onEditClick();
-              }
-            }}
-            className={`opacity-0 group-hover:opacity-100 p-0.5 transition-opacity ${
-              canEdit
-                ? "text-sidebar-text/40 hover:text-sidebar-text"
-                : "text-sidebar-text/25 cursor-not-allowed"
-            }`}
-            title={canEdit ? "Edit label" : editDisabledReason}
-          >
-            <Pencil size={12} />
-          </span>
+          {canEditFolders && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => { e.stopPropagation(); onEditClick(); }}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onEditClick(); } }}
+              className="opacity-0 group-hover:opacity-100 p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-opacity"
+              title="Edit label"
+            >
+              <Pencil size={12} />
+            </span>
+          )}
         </>
       )}
     </button>
@@ -293,7 +285,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     void openNewCompose();
   }, []);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
-  const accounts = useAccountStore((s) => s.accounts);
+  const activeAccount = useAccountStore((s) =>
+    s.accounts.find((account) => account.id === s.activeAccountId),
+  );
+  const canEditFolders = supportsFolderEditing(activeAccount?.provider);
   const labels = useLabelStore((s) => s.labels);
   const loadLabels = useLabelStore((s) => s.loadLabels);
   const deleteLabel = useLabelStore((s) => s.deleteLabel);
@@ -303,19 +298,6 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const refreshSmartFolderCounts = useSmartFolderStore((s) => s.refreshUnreadCounts);
   const createSmartFolder = useSmartFolderStore((s) => s.createFolder);
   const SECTION_IDS = new Set(["smart-folders", "labels"]);
-  const activeAccount = useMemo(
-    () => accounts.find((account) => account.id === activeAccountId),
-    [accounts, activeAccountId],
-  );
-  const capabilities = useMemo(
-    () => getCapabilitiesForAccountProvider(activeAccount?.provider),
-    [activeAccount?.provider],
-  );
-  const canCreateLabel = capabilities.labels.create.supported;
-  const canRenameLabel = capabilities.labels.rename.supported;
-  const canShowLabelSection = capabilities.labels.native.supported;
-  const labelCreateDisabledReason = getUnsupportedReason(capabilities.labels.create) ?? undefined;
-  const labelRenameDisabledReason = getUnsupportedReason(capabilities.labels.rename) ?? undefined;
 
   const { visibleNavItems, showSmartFolders, showLabels } = useMemo(() => {
     if (!sidebarNavConfig) {
@@ -502,10 +484,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, []);
 
   const handleEditLabel = useCallback((labelId: string) => {
-    if (!canRenameLabel) return;
+    if (!canEditFolders) return;
     setShowNewLabelForm(false);
     setEditingLabelId(labelId);
-  }, [canRenameLabel]);
+  }, [canEditFolders]);
 
   const handleLabelContextMenu = useCallback((e: React.MouseEvent, labelId: string) => {
     e.preventDefault();
@@ -517,10 +499,14 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, [openMenu, handleEditLabel, handleDeleteLabel]);
 
   const handleAddLabel = useCallback(() => {
-    if (!canCreateLabel) return;
+    if (!canEditFolders) return;
     setEditingLabelId(null);
     setShowNewLabelForm(true);
-  }, [canCreateLabel]);
+  }, [canEditFolders]);
+
+  useEffect(() => {
+    if (!canEditFolders) handleFormDone();
+  }, [canEditFolders, handleFormDone]);
 
   const [showSmartFolderModal, setShowSmartFolderModal] = useState(false);
 
@@ -532,7 +518,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
 
   return (
     <aside
-      className={`no-select flex shrink-0 flex-col bg-sidebar-bg text-sidebar-text border-r border-border-primary transition-all duration-200 glass-panel ${
+      className={`no-select flex flex-col bg-sidebar-bg text-sidebar-text border-r border-border-primary transition-all duration-200 glass-panel ${
         collapsed ? "w-16" : "w-60"
       }`}
     >
@@ -771,15 +757,11 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
               const Icon = getSmartFolderIcon(folder.icon);
               const isActive = activeLabel === `smart-folder:${folder.id}`;
               const count = smartFolderCounts[folder.id] ?? 0;
-              const hasReferenceIssue = folder.status === "missing_reference";
-              const title = hasReferenceIssue
-                ? `${folder.name}: ${folder.statusReason ?? "Saved view needs attention"}`
-                : folder.name;
               return (
                 <button
                   key={folder.id}
                   onClick={() => navigateToLabel(`smart-folder:${folder.id}`)}
-                  title={collapsed || hasReferenceIssue ? title : undefined}
+                  title={collapsed ? folder.name : undefined}
                   className={`flex items-center w-full py-2 text-sm transition-colors press-scale ${
                     collapsed ? "justify-center px-0" : "gap-3 px-3 text-left"
                   } ${
@@ -796,13 +778,6 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                   {!collapsed && (
                     <>
                       <span className="flex-1 truncate">{folder.name}</span>
-                      {hasReferenceIssue && (
-                        <AlertTriangle
-                          size={13}
-                          className="shrink-0 text-warning"
-                          aria-label={folder.statusReason ?? "Smart folder reference missing"}
-                        />
-                      )}
                       {count > 0 && (
                         <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
                           {count}
@@ -816,8 +791,8 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
           </>
         )}
 
-        {/* User labels */}
-        {showLabels && canShowLabelSection && (labels.length > 0 || (!collapsed && canCreateLabel)) && (
+        {/* User labels (Gmail-style tags only — IMAP folders live under Inbox / Folders) */}
+        {showLabels && (tagLabels.length > 0 || showNewLabelForm) && (
           <>
             {!collapsed && (
               <div className="flex items-center justify-between px-3 pt-4 pb-1">
@@ -826,9 +801,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 </span>
                 <button
                   onClick={handleAddLabel}
-                  disabled={!canCreateLabel}
-                  className="p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-colors"
-                  title={canCreateLabel ? "Add label" : labelCreateDisabledReason}
+                  disabled={!canEditFolders}
+                  className="p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-sidebar-text/40"
+                  title={canEditFolders ? "Add label" : FOLDER_EDITING_UNSUPPORTED_MESSAGE}
                 >
                   <Plus size={14} />
                 </button>
@@ -844,8 +819,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                   onClick={() => navigateToLabel(label.id)}
                   onContextMenu={(e) => handleLabelContextMenu(e, label.id)}
                   onEditClick={() => handleEditLabel(label.id)}
-                  canEdit={canRenameLabel}
-                  editDisabledReason={labelRenameDisabledReason}
+                  canEditFolders={canEditFolders}
                 />
                 {editingLabelId === label.id && activeAccountId && !collapsed && (
                   <LabelForm
@@ -870,8 +844,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         onClick={() => navigateToLabel(label.id)}
                         onContextMenu={(e) => handleLabelContextMenu(e, label.id)}
                         onEditClick={() => handleEditLabel(label.id)}
-                        canEdit={canRenameLabel}
-                        editDisabledReason={labelRenameDisabledReason}
+                        canEditFolders={canEditFolders}
                       />
                       {editingLabelId === label.id && activeAccountId && !collapsed && (
                         <LabelForm
@@ -993,25 +966,12 @@ function PendingOpsIndicator({ collapsed }: { collapsed: boolean }) {
     <div className="px-3 py-2 border-t border-border-primary">
       {collapsed ? (
         <div className="flex justify-center">
-          <button
-            type="button"
-            onClick={() => navigateToLabel("queue")}
-            className="bg-accent/20 text-accent text-xs font-medium px-1.5 py-0.5 rounded-full hover:bg-accent/30"
-            title="Queue Inspector"
-          >
-            {pendingOpsCount}
-          </button>
+          <span className="bg-accent/20 text-accent text-xs font-medium px-1.5 py-0.5 rounded-full">{pendingOpsCount}</span>
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={() => navigateToLabel("queue")}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-text-secondary hover:bg-sidebar-hover hover:text-sidebar-text"
-        >
-          <ListChecks size={14} className="shrink-0 text-accent" />
-          <span className="min-w-0 flex-1">Очередь операций</span>
-          <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[0.65rem] font-medium text-accent">{pendingOpsCount}</span>
-        </button>
+        <div className="text-xs text-text-secondary">
+          В очереди операций: {pendingOpsCount}
+        </div>
       )}
     </div>
   );

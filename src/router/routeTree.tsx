@@ -16,6 +16,8 @@ const CalendarPage = lazy(() => import("@/components/calendar/CalendarPage").the
 const TasksPage = lazy(() => import("@/components/tasks/TasksPage").then((m) => ({ default: m.TasksPage })));
 const AttachmentLibrary = lazy(() => import("@/components/attachments/AttachmentLibrary").then((m) => ({ default: m.AttachmentLibrary })));
 const AccountRepairCenter = lazy(() => import("@/components/repair/AccountRepairCenter").then((m) => ({ default: m.AccountRepairCenter })));
+const QueueInspector = lazy(() => import("@/components/queue/QueueInspector").then((m) => ({ default: m.QueueInspector })));
+const ContactsPage = lazy(() => import("@/components/contacts/ContactsPage").then((m) => ({ default: m.ContactsPage })));
 const DiskPage = lazy(() => import("@/components/yandex/DiskPage").then((m) => ({ default: m.DiskPage })));
 const TelemostPage = lazy(() => import("@/components/yandex/TelemostPage").then((m) => ({ default: m.TelemostPage })));
 const TrackerPage = lazy(() => import("@/components/yandex/TrackerPage").then((m) => ({ default: m.TrackerPage })));
@@ -123,6 +125,17 @@ function ContactsPageWrapper() {
   );
 }
 
+function YandexServiceWrapper({ service }: { service: "disk" | "telemost" | "tracker" }) {
+  const Page = service === "disk" ? DiskPage : service === "telemost" ? TelemostPage : TrackerPage;
+  return (
+    <ErrorBoundary name={`${service}Page`}>
+      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading...</div>}>
+        <Page />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
 // ---------- /mail/$label ----------
 export const mailRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -222,34 +235,6 @@ export const calendarRoute = createRoute({
   component: CalendarPageWrapper,
 });
 
-function ServicePage({ name, children }: { name: string; children: React.ReactNode }) {
-  return (
-    <ErrorBoundary name={name}>
-      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Загрузка...</div>}>
-        {children}
-      </Suspense>
-    </ErrorBoundary>
-  );
-}
-
-export const diskRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "disk",
-  component: () => <ServicePage name="DiskPage"><DiskPage /></ServicePage>,
-});
-
-export const telemostRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "telemost",
-  component: () => <ServicePage name="TelemostPage"><TelemostPage /></ServicePage>,
-});
-
-export const trackerRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "tracker",
-  component: () => <ServicePage name="TrackerPage"><TrackerPage /></ServicePage>,
-});
-
 // ---------- /repair ----------
 export const repairRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -288,6 +273,24 @@ export const messengersRoute = createRoute({
   },
 });
 
+export const diskRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "disk",
+  component: () => <YandexServiceWrapper service="disk" />,
+});
+
+export const telemostRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "telemost",
+  component: () => <YandexServiceWrapper service="telemost" />,
+});
+
+export const trackerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "tracker",
+  component: () => <YandexServiceWrapper service="tracker" />,
+});
+
 // ---------- /help (redirect to /help/getting-started) ----------
 const helpIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -315,14 +318,14 @@ export const routeTree = rootRoute.addChildren([
   attachmentsRoute,
   tasksRoute,
   calendarRoute,
-  diskRoute,
-  telemostRoute,
-  trackerRoute,
   repairRoute,
   repairAccountRoute,
   queueRoute,
   contactsRoute,
   messengersRoute,
+  diskRoute,
+  telemostRoute,
+  trackerRoute,
   helpIndexRoute,
   helpTopicRoute,
 ]);

@@ -1,5 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { searchRecipientSuggestions, type RecipientSuggestion } from "@/services/db/contacts";
+import {
+  searchContacts,
+  getRecentContacts,
+  type DbContact,
+} from "@/services/db/contacts";
 
 interface AddressInputProps {
   label: string;
@@ -24,7 +28,7 @@ export function AddressInput({
   placeholder = "Добавьте получателей...",
 }: AddressInputProps) {
   const [inputValue, setInputValue] = useState("");
-  const [suggestions, setSuggestions] = useState<RecipientSuggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<DbContact[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -56,8 +60,8 @@ export function AddressInput({
       }
       if (value.length >= 2) {
         searchTimerRef.current = setTimeout(async () => {
-          const results = await searchRecipientSuggestions(value, 8);
-          setSuggestions(results);
+          const results = await searchContacts(value, 5);
+          setSuggestions(results.filter((c) => !addresses.includes(c.email)));
           setShowSuggestions(results.length > 0);
           setSelectedIdx(-1);
         }, 200);
@@ -94,7 +98,7 @@ export function AddressInput({
     if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
       e.preventDefault();
       if (showSuggestions && selectedIdx >= 0) {
-        addAddress(suggestions[selectedIdx]!.address);
+        addAddress(suggestions[selectedIdx]!.email);
       } else if (inputValue.trim()) {
         addAddress(inputValue);
       }
@@ -160,21 +164,28 @@ export function AddressInput({
           >
             {suggestions.map((contact, i) => (
               <button
-                key={`${contact.kind}:${contact.id}:${contact.address}`}
+                key={contact.id}
+                role="option"
+                aria-selected={i === selectedIdx}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => addAddress(contact.address)}
-                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover ${
+                onClick={() => addAddress(contact.email)}
+                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover flex items-center gap-2 ${
                   i === selectedIdx ? "bg-bg-hover" : ""
                 }`}
               >
-                <div className="text-text-primary">
-                  {contact.label}
-                </div>
-                {(contact.detail || contact.address) && (
-                  <div className="text-xs text-text-tertiary">
-                    {contact.kind === "list" ? `List - ${contact.detail}` : contact.address}
-                  </div>
-                )}
+                <span className="w-7 h-7 rounded-full bg-accent-light text-accent text-[0.65rem] font-medium flex items-center justify-center shrink-0">
+                  {contactInitials(contact)}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-text-primary truncate">
+                    {contact.display_name ?? contact.email}
+                  </span>
+                  {contact.display_name ? (
+                    <span className="block text-xs text-text-tertiary truncate">
+                      {contact.email}
+                    </span>
+                  ) : null}
+                </span>
               </button>
             ))}
           </div>

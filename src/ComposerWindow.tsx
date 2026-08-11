@@ -11,15 +11,12 @@ import { COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import type { ComposerMode } from "./stores/composerStore";
 import { applyColorTheme, applyWindowBackground } from "./utils/themeEffects";
-import { ComposerEditorContextMenuPortal } from "./components/composer/ComposerEditorContextMenu";
-import { useSuppressBrowserContextMenu } from "./hooks/useSuppressBrowserContextMenu";
 
 export default function ComposerWindow() {
   const { setTheme, setFontScale, setColorTheme } = useUIStore();
   const { setAccounts } = useAccountStore();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  useSuppressBrowserContextMenu();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -72,8 +69,10 @@ export default function ComposerWindow() {
           isActive: a.is_active === 1,
           provider: a.provider,
         }));
-        const savedAccountId = await getSetting("active_account_id");
-        setAccounts(mapped, savedAccountId);
+        setAccounts(mapped);
+
+        // Initialize Gmail clients
+        await initializeClients();
 
         // Parse composer state from URL params
         const mode = (params.get("mode") as ComposerMode) ?? "new";
@@ -115,16 +114,11 @@ export default function ComposerWindow() {
           useComposerStore.getState().setFromEmail(fromEmail);
         }
         useComposerStore.getState().setViewMode("fullpage");
-        setLoading(false);
-
-        initializeClients().catch((err) => {
-          console.warn("Failed to initialize clients in composer window:", err);
-        });
       } catch (err) {
         console.error("Failed to initialize composer window:", err);
         setError("Failed to load composer");
-        setLoading(false);
       }
+      setLoading(false);
     }
 
     init();
@@ -223,8 +217,6 @@ export default function ComposerWindow() {
         <div className="blob" />
       </div>
       <Composer />
-      <UndoSendToast />
-      <ComposerEditorContextMenuPortal />
     </div>
   );
 }

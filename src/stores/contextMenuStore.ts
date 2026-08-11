@@ -6,6 +6,7 @@ export type ContextMenuType =
   | "thread"
   | "message"
   | "composerEditor"
+  | "outbox"
   | null;
 
 interface ContextMenuState {
