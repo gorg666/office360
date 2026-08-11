@@ -30,10 +30,21 @@ export interface ProviderUserInfo {
   picture?: string;
 }
 
-async function openAuthorization(provider: OAuthProviderConfig, authUrl: string): Promise<() => Promise<void>> {
+async function openAuthorization(
+  provider: OAuthProviderConfig,
+  authUrl: string,
+  usesCefScreenCode: boolean,
+): Promise<() => Promise<void>> {
   if (provider.id !== "yandex") {
     await openUrl(authUrl);
     return async () => {};
+  }
+
+  if (!usesCefScreenCode) {
+    await invoke("open_oauth_login_window", { url: authUrl });
+    return async () => {
+      await invoke("close_oauth_login_window").catch(() => {});
+    };
   }
 
   await cefInitialize();
@@ -161,7 +172,7 @@ export async function startProviderOAuthFlow(
   }, 180_000) : null;
 
   await new Promise((r) => setTimeout(r, 100));
-  const closeAuthorization = await openAuthorization(provider, authUrl);
+  const closeAuthorization = await openAuthorization(provider, authUrl, usesCefScreenCode);
   let result: OAuthServerResult;
   try {
     result = await resultPromise;
