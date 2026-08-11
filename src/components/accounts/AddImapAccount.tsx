@@ -30,6 +30,7 @@ import { getOAuthProvider } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
 import { computeTokenExpiresAtSeconds } from "@/services/oauth/tokenExpiry";
 import { authorizeYandexSuite } from "@/services/oauth/yandexUnifiedAuth";
+import { parseOAuthScopes, resolveYandexGrantedScopeValue } from "@/services/oauth/yandexScopes";
 
 interface AddImapAccountProps {
   onClose: () => void;
@@ -151,16 +152,6 @@ function hasYandexMailScopes(scopes: Set<string>): boolean {
 
 function smtpTestTimeoutMessage(seconds: number): string {
   return `SMTP test did not complete within ${seconds} seconds. Check server, port, SSL/TLS, and auth method.`;
-}
-
-function parseScopeSet(scopeValue: string | undefined): Set<string> {
-  if (!scopeValue) return new Set();
-  return new Set(
-    scopeValue
-      .split(/[,\s]+/)
-      .map((scope) => scope.trim())
-      .filter(Boolean),
-  );
 }
 
 function mapSecurity(security: string): string {
@@ -524,7 +515,10 @@ export function AddImapAccount({
         oauthClientSecret,
         // Do not pass form.email as login_hint — unverified typed email causes Yandex invalid_request.
       );
-      const grantedScopes = parseScopeSet(tokens.scope);
+      const grantedScopeValue = providerId === "yandex"
+        ? resolveYandexGrantedScopeValue(tokens.scope, provider.scopes)
+        : tokens.scope?.trim() || null;
+      const grantedScopes = parseOAuthScopes(grantedScopeValue);
 
       if (providerId === "yandex") {
         if (usesManagedOAuthFlow && !hasYandexMailScopes(grantedScopes)) {
@@ -537,7 +531,7 @@ export function AddImapAccount({
             oauthExpiresAt: null,
             oauthEmail: null,
             oauthPicture: null,
-            oauthGrantedScopes: tokens.scope ?? null,
+            oauthGrantedScopes: grantedScopeValue,
           }));
           setYandexMailScopeBlocked(true);
           return;
@@ -564,7 +558,7 @@ export function AddImapAccount({
             : provider.publicClientId
               ? ""
               : form.oauthClientSecret,
-        oauthGrantedScopes: tokens.scope ?? null,
+        oauthGrantedScopes: grantedScopeValue,
       };
 
       setForm(nextForm);
@@ -661,7 +655,7 @@ export function AddImapAccount({
         (smtpHost.toLowerCase().includes("yandex") || form.oauthProvider === "yandex") &&
         form.oauthGrantedScopes
       ) {
-        const scopes = parseScopeSet(form.oauthGrantedScopes);
+        const scopes = parseOAuthScopes(form.oauthGrantedScopes);
         if (!scopes.has("mail:smtp")) {
           const msg = SMTP_SCOPE_MISSING;
           setSmtpTest({ state: "error", message: msg });

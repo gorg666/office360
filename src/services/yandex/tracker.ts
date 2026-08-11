@@ -1,4 +1,5 @@
 import { getYandexServiceContext, getStoredYandexOrgId, parseApiError } from "./accountApi";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 const API = "https://api.tracker.yandex.net/v3";
 export interface TrackerRef { id?: string; key?: string; display?: string; }
@@ -16,7 +17,7 @@ async function request<T>(accountId: string | null, path: string, init: RequestI
   const { account, token } = await getYandexServiceContext(accountId);
   const orgId = await getStoredYandexOrgId(account.id);
   if (!orgId) throw new Error("Укажите организацию Яндекс 360 в настройках интеграции.");
-  const response = await fetch(`${API}${path}`, {
+  const response = await tauriFetch(`${API}${path}`, {
     ...init,
     headers: { Authorization: `OAuth ${token}`, "X-Org-ID": orgId, "Content-Type": "application/json", ...init.headers },
   });
@@ -40,6 +41,6 @@ export async function uploadTrackerAttachment(accountId: string | null, key: str
   const { account, token } = await getYandexServiceContext(accountId); const orgId = await getStoredYandexOrgId(account.id);
   if (!orgId) throw new Error("Укажите организацию Яндекс 360 в настройках интеграции.");
   const form = new FormData(); form.append("file", new Blob([new Uint8Array(data)]), name);
-  const response = await fetch(`${API}/issues/${encodeURIComponent(key)}/attachments`, { method: "POST", headers: { Authorization: `OAuth ${token}`, "X-Org-ID": orgId }, body: form });
+  const response = await tauriFetch(`${API}/issues/${encodeURIComponent(key)}/attachments`, { method: "POST", headers: { Authorization: `OAuth ${token}`, "X-Org-ID": orgId }, body: form });
   if (!response.ok) throw await parseApiError(response); return response.json() as Promise<TrackerAttachment>;
 }

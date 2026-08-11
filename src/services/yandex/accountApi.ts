@@ -10,6 +10,7 @@ import {
 } from "@/services/oauth/yandexUnifiedAuth";
 import { normalizeEmail } from "@/utils/emailUtils";
 import { getCurrentUnixTimestamp } from "@/utils/timestamp";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 export class YandexApiError extends Error {
   constructor(public status: number, message: string, public code?: string) {
@@ -73,7 +74,7 @@ export async function parseApiError(response: Response): Promise<YandexApiError>
 export async function yandexFetch<T>(url: string, init: RequestInit & { accountId?: string | null; serviceAuth?: boolean } = {}): Promise<T> {
   const { accountId, serviceAuth, ...requestInit } = init;
   const { token } = serviceAuth ? await getYandexServiceContext(accountId) : await getYandexContext(accountId);
-  const response = await fetch(url, {
+  const response = await tauriFetch(url, {
     ...requestInit,
     headers: { Authorization: `OAuth ${token}`, ...requestInit.headers },
   });

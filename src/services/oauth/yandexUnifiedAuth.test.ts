@@ -10,6 +10,8 @@ import { getAccount } from "@/services/db/accounts";
 import { getSecureSetting, getSetting, setSecureSetting, setSetting } from "@/services/db/settings";
 import { getOAuthProvider } from "./providers";
 import { refreshProviderToken, startProviderOAuthFlow } from "./oauthFlow";
+import { ensureFreshToken } from "./oauthTokenManager";
+import { fetchYandexLoginProfile } from "./yandexProfile";
 
 vi.mock("@/services/db/accounts", () => ({ getAccount: vi.fn() }));
 vi.mock("@/services/db/settings", () => ({
@@ -23,6 +25,8 @@ vi.mock("./oauthFlow", () => ({
   refreshProviderToken: vi.fn(),
   startProviderOAuthFlow: vi.fn(),
 }));
+vi.mock("./oauthTokenManager", () => ({ ensureFreshToken: vi.fn() }));
+vi.mock("./yandexProfile", () => ({ fetchYandexLoginProfile: vi.fn() }));
 
 const account = {
   id: "account-id",
@@ -38,6 +42,15 @@ describe("Yandex unified OAuth", () => {
     vi.clearAllMocks();
     vi.mocked(getAccount).mockResolvedValue(account as never);
     vi.mocked(getOAuthProvider).mockReturnValue({ id: "yandex" } as never);
+    vi.mocked(getSetting).mockImplementation(async (key) =>
+      key.includes("core_owner_uid") ? "core-uid" : null,
+    );
+    vi.mocked(ensureFreshToken).mockResolvedValue("core-access");
+    vi.mocked(fetchYandexLoginProfile).mockResolvedValue({
+      email: "user@yandex.ru",
+      name: "User",
+      subjectId: "core-uid",
+    });
   });
 
   it("uses a fixed client and scope set for every grant", async () => {
@@ -49,7 +62,7 @@ describe("Yandex unified OAuth", () => {
         token_type: "bearer",
         scope: YANDEX_OAUTH_GRANTS.work.scopes.join(" "),
       },
-      userInfo: { email: "user@yandex.ru", name: "User" },
+      userInfo: { email: "", name: "User", login: "user", subjectId: "core-uid" },
     });
 
     await authorizeYandexGrant(account.id, "work");
@@ -67,18 +80,39 @@ describe("Yandex unified OAuth", () => {
       "yandex_oauth_work_refresh_token:email:user@yandex.ru",
       "work-refresh",
     );
+    expect(setSetting).toHaveBeenCalledWith(
+      "yandex_oauth_work_owner_uid:email:user@yandex.ru",
+      "core-uid",
+    );
   });
 
   it("rejects a grant issued for another Yandex identity", async () => {
     vi.mocked(startProviderOAuthFlow).mockResolvedValue({
       tokens: { access_token: "x", refresh_token: "r", expires_in: 3600, token_type: "bearer" },
-      userInfo: { email: "other@yandex.ru", name: "Other" },
+      userInfo: { email: "", name: "Other", login: "other", subjectId: "other-uid" },
     });
 
     await expect(authorizeYandexGrant(account.id, "communications")).rejects.toThrow(
-      "ожидался User@Yandex.ru",
+      "другой Яндекс ID",
     );
     expect(setSecureSetting).not.toHaveBeenCalled();
+  });
+
+  it("bootstraps the immutable core UID and accepts a domain alias for the same identity", async () => {
+    vi.mocked(getSetting).mockResolvedValue(null);
+    vi.mocked(startProviderOAuthFlow).mockResolvedValue({
+      tokens: { access_token: "x", refresh_token: "r", expires_in: 3600, token_type: "bearer" },
+      userInfo: { email: "alias@company.ru", name: "User", subjectId: "core-uid" },
+    });
+
+    await authorizeYandexGrant(account.id, "work");
+
+    expect(ensureFreshToken).toHaveBeenCalledWith(account);
+    expect(fetchYandexLoginProfile).toHaveBeenCalledWith("core-access");
+    expect(setSetting).toHaveBeenCalledWith(
+      "yandex_oauth_core_owner_uid:email:user@yandex.ru",
+      "core-uid",
+    );
   });
 
   it("continues the standard suite when one optional grant is cancelled", async () => {
@@ -86,7 +120,7 @@ describe("Yandex unified OAuth", () => {
       .mockRejectedValueOnce(new Error("cancelled"))
       .mockResolvedValueOnce({
         tokens: { access_token: "c", refresh_token: "cr", expires_in: 3600, token_type: "bearer" },
-        userInfo: { email: "user@yandex.ru", name: "User" },
+        userInfo: { email: "", name: "User", login: "user", subjectId: "core-uid" },
       });
 
     const result = await authorizeYandexSuite(account.id, { continueOnError: true });
@@ -98,9 +132,12 @@ describe("Yandex unified OAuth", () => {
     vi.mocked(getSecureSetting).mockImplementation(async (key) =>
       key.includes("access_token") ? "old-access" : "refresh-token",
     );
-    vi.mocked(getSetting).mockImplementation(async (key) =>
-      key.includes("owner_email") ? "user@yandex.ru" : key.includes("expires_at") ? "1" : null,
-    );
+    vi.mocked(getSetting).mockImplementation(async (key) => {
+      if (key.includes("owner_email")) return "user@yandex.ru";
+      if (key.includes("owner_uid")) return "core-uid";
+      if (key.includes("expires_at")) return "1";
+      return null;
+    });
     vi.mocked(refreshProviderToken).mockResolvedValue({
       access_token: "new-access",
       refresh_token: "new-refresh",

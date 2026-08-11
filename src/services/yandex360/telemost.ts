@@ -1,5 +1,6 @@
 import { getAccount, getAllAccounts, type DbAccount } from "@/services/db/accounts";
 import { getYandexGrantAccessToken } from "@/services/oauth/yandexUnifiedAuth";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 const TELEMOST_CREATE_URL = "https://cloud-api.yandex.net/v1/telemost-api/conferences";
 
@@ -92,7 +93,7 @@ async function telemostRequest(accountId: string | null, url: string, init: Requ
   const account = await resolveTelemostAccount(accountId);
   const token = await getYandexGrantAccessToken(account.id, "communications");
   if (!token) throw new Error("Яндекс OAuth token не найден. Переавторизуйте аккаунт.");
-  const response = await fetch(url, { ...init, headers: { Authorization: `OAuth ${token}`, "Content-Type": "application/json", ...init.headers } });
+  const response = await tauriFetch(url, { ...init, headers: { Authorization: `OAuth ${token}`, "Content-Type": "application/json", ...init.headers } });
   const body = await response.json().catch(() => ({})) as TelemostCreateResponse;
   if (!response.ok) throw new Error(formatTelemostError(response.status, body));
   return body;
@@ -105,7 +106,7 @@ export async function createTelemostConference(options: TelemostConferenceOption
     throw new Error("Яндекс OAuth token не найден. Переавторизуйте аккаунт.");
   }
 
-  const response = await fetch(TELEMOST_CREATE_URL, {
+  const response = await tauriFetch(TELEMOST_CREATE_URL, {
     method: "POST",
     headers: {
       Authorization: `OAuth ${token}`,

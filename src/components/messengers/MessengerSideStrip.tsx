@@ -51,6 +51,7 @@ import {
 } from "@/services/messengers/yandexMessengerSession";
 import { generateYandexMessengerAiReply } from "@/services/messengers/yandexAiAutoReply";
 import { executeYandexAssistantTools } from "@/services/messengers/yandexAssistantTools";
+import { YandexMessengerWidget } from "./YandexMessengerWidget";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import {
@@ -100,8 +101,8 @@ const PROVIDERS: ProviderView[] = [
   {
     id: "yandex",
     name: "Яндекс",
-    subtitle: "Bot API Мессенджера Яндекс 360 (OAuth аккаунта или токен бота)",
-    tokenLabel: "OAuth аккаунта Яндекс Почты или токен бота",
+    subtitle: "Bot API Мессенджера Яндекс 360",
+    tokenLabel: "Токен бота Яндекс 360",
     targetHint: "chat_id или login",
     docUrl: "https://yandex.ru/dev/messenger/doc/ru/",
     iconSrc: "/assets/yandexmess.svg",
@@ -573,7 +574,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
   const [draft, setDraft] = useState("");
   const [pendingAttachments, setPendingAttachments] = useState<MessengerAttachmentUpload[]>([]);
   const [lightsOut, setLightsOut] = useState(() => isLightsOutActive());
-  const [yandexAiAutoReplyEnabled, setYandexAiAutoReplyEnabled] = useState(() => loadYandexAiAutoReplyEnabled());
+  const [yandexAiAutoReplyEnabled] = useState(() => loadYandexAiAutoReplyEnabled());
   const [busy, setBusy] = useState(false);
   const [, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -820,7 +821,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
   const syncYandexMessengerInbox = useCallback(
     async (options: { silent: boolean }) => {
       if (!yandexSession) {
-        if (!options.silent) throw new Error("Нет аккаунта Яндекс (OAuth) или токена Bot API. Добавьте почту Яндекс или укажите токен в настройках.");
+        if (!options.silent) throw new Error("Нет токена Bot API. Создайте бота в Яндекс 360 и укажите его токен в настройках.");
         return;
       }
       const sourceKey = yandexMessengerSourceKey(yandexSession);
@@ -829,7 +830,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
       if (!response.ok) {
         const message = response.description ?? "getUpdates вернул ошибку.";
         if (isMissingYandexBotScopeError(message)) {
-          const scopeMessage = "Polling отключён: у токена нет scope botplatform:write.";
+          const scopeMessage = "Токен не принадлежит боту Яндекс 360 или не имеет права botplatform:write. Выпустите новый токен на странице «Боты в Мессенджере».";
           if (yandexPollingBlockedReason !== scopeMessage) {
             setYandexPollingBlockedReason(scopeMessage);
             if (!options.silent) setError(scopeMessage);
@@ -1480,6 +1481,31 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
       ? `messenger-slide-panel messenger-slide-panel-delay flex min-h-0 min-w-0 flex-1 flex-col bg-bg-primary/75 ${COLUMN_BORDER_CLASS}`
       : `messenger-slide-panel messenger-slide-panel-delay flex min-h-0 min-w-[320px] max-w-[520px] flex-none flex-col bg-bg-primary/75 ${COLUMN_BORDER_CLASS}`;
 
+  if (selectedProviderId === "yandex") {
+    return <div ref={stripRootRef} className="relative flex h-full min-h-0 min-w-[640px] flex-1 flex-col overflow-hidden bg-bg-primary">
+      <header className="flex items-center justify-between gap-3 border-b border-border-primary bg-bg-secondary/85 px-4 py-2">
+        <div className="flex items-center gap-2">
+          <ProviderLogo provider={selectedProvider}/>
+          <div><div className="text-sm font-semibold text-text-primary">Яндекс Мессенджер</div><div className="text-[0.6875rem] text-text-tertiary">Пользовательские чаты активного Яндекс ID</div></div>
+        </div>
+        <div className="flex items-center gap-1">
+          {PROVIDER_FILTERS.map((provider) => <button key={provider.id} type="button" onClick={() => setSelectedProviderId(provider.id)} className={`rounded-lg px-2 py-1 text-xs ${provider.id === "yandex" ? "bg-bg-tertiary text-text-primary" : "text-text-tertiary hover:bg-bg-hover"}`}>{provider.label}</button>)}
+          <button type="button" onClick={() => setShowSettings((value) => !value)} className={`rounded-lg p-2 hover:bg-bg-hover ${showSettings ? "bg-bg-tertiary text-text-primary" : "text-text-tertiary"}`} title="Автоматизация через Bot API"><Settings size={17}/></button>
+          <button type="button" onClick={() => setMessengersPanelsOpen(false)} className="rounded-lg p-2 text-text-tertiary hover:bg-bg-hover hover:text-text-primary" title="Скрыть мессенджеры"><X size={17}/></button>
+        </div>
+      </header>
+      <div className="relative min-h-0 flex-1">
+        <YandexMessengerWidget accountId={activeAccountId}/>
+        {showSettings && <div className="absolute right-3 top-3 z-20 w-80 rounded-2xl border border-border-primary bg-bg-primary p-4 shadow-xl">
+          <div className="flex items-start justify-between gap-3"><div><div className="text-sm font-semibold text-text-primary">Автоматизация Bot API</div><div className="mt-1 text-xs text-text-tertiary">Не требуется для обычных пользовательских чатов.</div></div><button type="button" onClick={() => setShowSettings(false)} className="rounded p-1 text-text-tertiary hover:bg-bg-hover"><X size={15}/></button></div>
+          <input value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} placeholder="Токен организационного бота" className="mt-3 w-full rounded-xl border border-border-primary bg-bg-secondary px-3 py-2 text-sm outline-none focus:border-accent" type="password"/>
+          <div className="mt-2 grid grid-cols-2 gap-2"><button type="button" onClick={saveToken} className="rounded-xl bg-bg-tertiary px-3 py-2 text-xs font-medium hover:bg-bg-hover">Сохранить</button><button type="button" onClick={verifyToken} disabled={busy || !credentials} className="rounded-xl border border-border-primary px-3 py-2 text-xs disabled:opacity-50">Проверить</button></div>
+          {error && <div className="mt-2 text-xs text-danger">{error}</div>}
+        </div>}
+      </div>
+    </div>;
+  }
+
   return (
     <div
       ref={stripRootRef}
@@ -1605,21 +1631,10 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-text-primary">{selectedProvider.subtitle}</p>
                   <p className="mt-1 text-xs text-text-tertiary">
-                    {selectedProviderId === "yandex" && yandexSession && !yandexSession.manual
-                      ? `OAuth Яндекс Почты: ${yandexSession.accountEmail ?? "аккаунт"}`
-                      : credentials
+                    {credentials
                         ? `Token: ${maskMessengerToken(credentials.token)}`
                         : selectedProvider.tokenLabel}
                   </p>
-                  {selectedProviderId === "yandex" ? (
-                    <p className="mt-2 text-[0.6875rem] leading-snug text-text-tertiary">
-                      Bot API рассчитан на токен организационного бота. Если запросы отклоняются (403), выпустите токен в{" "}
-                      <a className="text-accent underline" href="https://admin.yandex.ru/bot-platform" target="_blank" rel="noopener noreferrer">
-                        Боты в Мессенджере
-                      </a>{" "}
-                      и вставьте его ниже. Для подключённого аккаунта Яндекс всегда используется его OAuth; token служит резервом.
-                    </p>
-                  ) : null}
                 </div>
                 {credentials ? (
                   <button
@@ -1845,9 +1860,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
               <div className="rounded-2xl border border-dashed border-border-primary p-4 text-sm text-text-tertiary">
                 {selectedProviderId === "max"
                   ? "Войдите по номеру телефона или вставьте текущий MAX session token, затем нажмите «Обновить»."
-                  : selectedProviderId === "yandex"
-                    ? "Диалоги подтягиваются из Bot API (getUpdates). Добавьте аккаунт Яндекс Почты через OAuth или токен бота в настройках; можно написать по chat_id или login."
-                    : "Укажите идентификатор чата и отправьте сообщение."}
+                  : "Укажите идентификатор чата и отправьте сообщение."}
               </div>
             )}
           </div>
@@ -1870,27 +1883,8 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                 </span>
               </div>
               <p className="truncate text-[0.6875rem] text-text-tertiary">{selectedProvider.subtitle}</p>
-              {selectedProviderId === "yandex" && yandexPollingBlockedReason ? (
-                <p className="mt-1 text-[0.6875rem] text-warning">{yandexPollingBlockedReason}</p>
-              ) : null}
             </div>
           </div>
-          {selectedProviderId === "yandex" ? (
-            <button
-              type="button"
-              onClick={() => setYandexAiAutoReplyEnabled((enabled) => !enabled)}
-              className={`flex shrink-0 items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[0.6875rem] font-medium transition-colors ${
-                yandexAiAutoReplyEnabled
-                  ? "border-accent/40 bg-accent/10 text-accent"
-                  : "border-border-primary bg-bg-primary/70 text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
-              }`}
-              title={yandexAiAutoReplyEnabled ? "Отключить автоответы локальной ИИ" : "Включить автоответы локальной ИИ"}
-              aria-label={yandexAiAutoReplyEnabled ? "Отключить автоответы локальной ИИ" : "Включить автоответы локальной ИИ"}
-            >
-              <Bot size={14} />
-              {yandexAiAutoReplyEnabled ? "ИИ вкл." : "ИИ выкл."}
-            </button>
-          ) : null}
         </header>
 
         <div ref={chatMessagesRef} className="flex-1 overflow-y-auto px-4 py-3">

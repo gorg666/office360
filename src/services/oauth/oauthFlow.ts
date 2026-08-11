@@ -27,6 +27,8 @@ export interface TokenResponse {
 export interface ProviderUserInfo {
   email: string;
   name: string;
+  subjectId?: string;
+  login?: string;
   picture?: string;
 }
 

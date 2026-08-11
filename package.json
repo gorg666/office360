@@ -53,6 +53,7 @@
     "react-transition-group": "^4.4.5",
     "rrule": "^2.8.1",
     "tsdav": "^2.1.8",
+    "yandex-messenger-widget": "^1.47.0",
     "zustand": "^5.0.11"
   },
   "devDependencies": {

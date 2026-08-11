@@ -24,11 +24,15 @@ describe("isYandexYapicUrlLoginStubGuess", () => {
 describe("normalizeYandexUserInfo", () => {
   it("builds picture URL from default_avatar_id", () => {
     const r = normalizeYandexUserInfo({
+      id: "2179953958",
       default_email: "u@yandex.ru",
+      login: "u",
       real_name: "U",
       default_avatar_id: "131652443",
     });
     expect(r.picture).toBe("https://avatars.yandex.net/get-yapic/131652443/islands-200");
+    expect(r.subjectId).toBe("2179953958");
+    expect(r.login).toBe("u");
   });
 
   it("does not use login as yapic id when default_avatar_id is missing", () => {

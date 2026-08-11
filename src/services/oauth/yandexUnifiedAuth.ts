@@ -5,6 +5,8 @@ import { normalizeEmail } from "@/utils/emailUtils";
 import { getCurrentUnixTimestamp } from "@/utils/timestamp";
 import { getOAuthProvider } from "./providers";
 import { refreshProviderToken, startProviderOAuthFlow } from "./oauthFlow";
+import { ensureFreshToken } from "./oauthTokenManager";
+import { fetchYandexLoginProfile, type YandexNormalizedProfile } from "./yandexProfile";
 
 export type YandexOAuthGrant = "core" | "work" | "communications" | "admin";
 
@@ -81,7 +83,7 @@ export const YANDEX_OAUTH_GRANTS: Record<YandexOAuthGrant, YandexOAuthGrantDefin
   },
 };
 
-const GRANT_FIELDS = ["access_token", "refresh_token", "expires_at", "scopes", "owner_email"] as const;
+const GRANT_FIELDS = ["access_token", "refresh_token", "expires_at", "scopes", "owner_email", "owner_uid"] as const;
 type GrantField = typeof GRANT_FIELDS[number];
 
 function grantIdentity(email: string): string {
@@ -92,12 +94,48 @@ function grantKey(email: string, grant: Exclude<YandexOAuthGrant, "core">, field
   return `yandex_oauth_${grant}_${field}:${grantIdentity(email)}`;
 }
 
+function coreOwnerUidKey(email: string): string {
+  return `yandex_oauth_core_owner_uid:${grantIdentity(email)}`;
+}
+
 async function requireYandexAccount(accountId: string): Promise<DbAccount> {
   const account = await getAccount(accountId);
   if (!account || account.oauth_provider !== "yandex" || account.auth_method !== "oauth2") {
     throw new Error("Аккаунт не подключён через Яндекс ID.");
   }
   return account;
+}
+
+async function getCoreOwnerUid(account: DbAccount): Promise<string> {
+  const key = coreOwnerUidKey(account.email);
+  const savedUid = (await getSetting(key))?.trim();
+  if (savedUid) return savedUid;
+
+  const accessToken = await ensureFreshToken(account);
+  const profile = await fetchYandexLoginProfile(accessToken);
+  const uid = profile.subjectId?.trim();
+  if (!uid) {
+    throw new Error(`Яндекс ID не вернул UID основного аккаунта ${account.email}. Выполните повторный вход.`);
+  }
+  await setSetting(key, uid);
+  return uid;
+}
+
+async function verifyGrantOwner(
+  account: DbAccount,
+  profile: YandexNormalizedProfile,
+): Promise<{ ownerEmail: string; ownerUid: string }> {
+  const expectedUid = await getCoreOwnerUid(account);
+  const ownerUid = profile.subjectId?.trim() ?? "";
+
+  if (!ownerUid) {
+    throw new Error(`Не удалось подтвердить Yandex UID для раздела аккаунта ${account.email}.`);
+  }
+  if (ownerUid !== expectedUid) {
+    throw new Error(`Выполнен вход в другой Яндекс ID, ожидался аккаунт ${account.email}.`);
+  }
+
+  return { ownerEmail: normalizeEmail(account.email), ownerUid };
 }
 
 export async function authorizeYandexGrant(
@@ -113,10 +151,7 @@ export async function authorizeYandexGrant(
     loginHint: account.email,
     scopes: [...definition.scopes],
   });
-  const ownerEmail = normalizeEmail(userInfo.email);
-  if (!ownerEmail || ownerEmail !== normalizeEmail(account.email)) {
-    throw new Error(`Выполнен вход как ${userInfo.email || "другой аккаунт"}, ожидался ${account.email}.`);
-  }
+  const { ownerEmail, ownerUid } = await verifyGrantOwner(account, userInfo);
   if (!tokens.refresh_token) {
     throw new Error(`Яндекс не вернул refresh token для раздела «${definition.label}».`);
   }
@@ -127,6 +162,7 @@ export async function authorizeYandexGrant(
     setSetting(grantKey(account.email, grant, "expires_at"), String(getCurrentUnixTimestamp() + tokens.expires_in)),
     setSetting(grantKey(account.email, grant, "scopes"), tokens.scope ?? definition.scopes.join(" ")),
     setSetting(grantKey(account.email, grant, "owner_email"), ownerEmail),
+    setSetting(grantKey(account.email, grant, "owner_uid"), ownerUid),
   ]);
 }
 
@@ -175,11 +211,13 @@ export async function getYandexGrantAccessToken(
   const refreshToken = await getSecureSetting(grantKey(account.email, grant, "refresh_token"));
   const expiresAt = Number(await getSetting(grantKey(account.email, grant, "expires_at")) || 0);
   const ownerEmail = normalizeEmail(await getSetting(grantKey(account.email, grant, "owner_email")) || "");
+  const ownerUid = (await getSetting(grantKey(account.email, grant, "owner_uid")) || "").trim();
 
   if (!accessToken || !refreshToken) {
     throw new Error(`Подключите раздел «${definition.label}» для аккаунта ${account.email}.`);
   }
-  if (ownerEmail !== normalizeEmail(account.email)) {
+  const expectedUid = await getCoreOwnerUid(account);
+  if (ownerEmail !== normalizeEmail(account.email) || !ownerUid || ownerUid !== expectedUid) {
     await clearYandexGrant(account.email, grant);
     throw new Error(`Раздел «${definition.label}» авторизован для другого Яндекс ID. Подключите его заново.`);
   }
