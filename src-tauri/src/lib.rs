@@ -13,6 +13,23 @@ fn focus_main_window(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(windows)]
+fn restore_main_app_url(window: &tauri::WebviewWindow) {
+    let Ok(current) = window.url() else {
+        return;
+    };
+    if current.host_str() == Some("tauri.localhost") {
+        return;
+    }
+
+    let app_url = tauri::Url::parse("http://tauri.localhost/")
+        .expect("static Office360 app URL must be valid");
+    log::warn!("Restoring main webview from unexpected URL host");
+    if let Err(err) = window.navigate(app_url) {
+        log::error!("Failed to restore main Office360 URL: {err}");
+    }
+}
+
 fn emit_to_main(app: &tauri::AppHandle, event: &str) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.emit(event, ());
@@ -328,6 +345,8 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             {
                 if let Some(window) = app.get_webview_window("main") {
+                    #[cfg(windows)]
+                    restore_main_app_url(&window);
                     let _ = window.set_decorations(false);
                 }
             }
