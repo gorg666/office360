@@ -276,7 +276,9 @@ extern "C" int o360_cef_initialize(void* parent, const wchar_t* profile, const w
 extern "C" int o360_cef_create(const char* url, const wchar_t* profile_path) {
   if (!g_initialized || !g_parent || !profile_path || !*profile_path) return 0;
   const std::wstring profile(profile_path);
-  if (g_client && g_client->browser()) ShowWindow(g_client->browser()->GetHost()->GetWindowHandle(), SW_HIDE);
+  for (auto& entry : g_clients) {
+    if (entry.second && entry.second->browser()) ShowWindow(entry.second->browser()->GetHost()->GetWindowHandle(), SW_HIDE);
+  }
   if (auto existing = g_clients.find(profile); existing != g_clients.end()) {
     g_client = existing->second;
     if (g_client->browser()) {
@@ -302,7 +304,7 @@ extern "C" int o360_cef_create(const char* url, const wchar_t* profile_path) {
   CefBrowserSettings settings; return CefBrowserHost::CreateBrowser(info, g_client, url, settings, nullptr, context) ? 1 : 0;
 }
 extern "C" void o360_cef_set_bounds(int x,int y,int w,int h){g_x=x;g_y=y;g_width=std::max(1,w);g_height=std::max(1,h);g_has_bounds=true;ui([]{if(g_client&&g_client->browser())applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());});}
-extern "C" void o360_cef_set_visible(int v){g_visible=v!=0;ui([]{if(g_client&&g_client->browser())applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());});}
+extern "C" void o360_cef_set_visible(int v){g_visible=v!=0;if(!g_visible){for(auto& entry:g_clients)if(entry.second&&entry.second->browser())ShowWindow(entry.second->browser()->GetHost()->GetWindowHandle(),SW_HIDE);return;}ui([]{if(g_client&&g_client->browser())applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());});}
 extern "C" void o360_cef_navigate(const char* url){std::string s=url?url:"";ui([s]{if(g_client&&g_client->browser()&&trusted(s))g_client->browser()->GetMainFrame()->LoadURL(s);});}
 extern "C" void o360_cef_back(){ui([]{if(g_client&&g_client->browser())g_client->browser()->GoBack();});}
 extern "C" void o360_cef_forward(){ui([]{if(g_client&&g_client->browser())g_client->browser()->GoForward();});}
