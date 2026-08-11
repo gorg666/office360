@@ -28,6 +28,7 @@ import {
   type YandexOAuthGrant,
   type YandexOAuthGrantStatus,
 } from "@/services/oauth/yandexUnifiedAuth";
+import { getInitialLocale, translateText } from "@/i18n";
 
 const statusClasses: Record<Yandex360ServiceStatus, string> = {
   available: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700",
@@ -169,10 +170,10 @@ export function Yandex360AccountHub() {
   );
 }
 
-const grantStatusUi: Record<YandexOAuthGrantStatus["statusLabel"], string> = {
-  CONNECTED: "CONNECTED",
-  "NEEDS ACCESS": "NEEDS ACCESS",
-  ERROR: "ERROR",
+const grantStatusUiKeys: Record<YandexOAuthGrantStatus["statusLabel"], string> = {
+  CONNECTED: "Connected",
+  "NEEDS ACCESS": "Needs access",
+  ERROR: "Error",
 };
 
 function UnifiedAuthPanel({ accountId }: { accountId: string }) {
@@ -263,7 +264,7 @@ function UnifiedAuthPanel({ accountId }: { accountId: string }) {
           <div key={grant.id} className="rounded-md border border-border-primary px-2.5 py-2">
             <div className="text-xs font-medium text-text-primary">{grant.label}</div>
             <div className={`mt-1 text-[11px] ${grant.connected ? "text-emerald-700" : "text-text-tertiary"}`}>
-              {grantStatusUi[grant.statusLabel]}
+              {translateText(grantStatusUiKeys[grant.statusLabel], getInitialLocale())}
             </div>
             {grant.id !== "core" ? (
               <button

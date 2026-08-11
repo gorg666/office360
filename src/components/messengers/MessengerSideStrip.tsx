@@ -52,6 +52,11 @@ import {
 import { generateYandexMessengerAiReply } from "@/services/messengers/yandexAiAutoReply";
 import { executeYandexAssistantTools } from "@/services/messengers/yandexAssistantTools";
 import { YandexMessengerWidget } from "./YandexMessengerWidget";
+import {
+  applyMessengerProviderTab,
+  DEFAULT_MESSENGER_PROVIDER,
+  MESSENGER_PROVIDER_TABS,
+} from "./messengerProviderSelection";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import {
@@ -118,12 +123,6 @@ const PROVIDERS: ProviderView[] = [
     iconSrc: "/assets/telegram.svg",
     accentClass: "bg-[#229ed9]",
   },
-];
-
-const PROVIDER_FILTERS: Array<{ id: MessengerProviderId; label: string }> = [
-  { id: "max", label: "MAX" },
-  { id: "yandex", label: "Яндекс" },
-  { id: "telegram", label: "Telegram" },
 ];
 
 type StripPaneId = "messengerList" | "messengerChat";
@@ -568,7 +567,7 @@ export type MessengerSideStripProps = {
 export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps = {}) {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const setMessengersPanelsOpen = useUIStore((s) => s.setMessengersPanelsOpen);
-  const [selectedProviderId, setSelectedProviderId] = useState<MessengerProviderId>("max");
+  const [selectedProviderId, setSelectedProviderId] = useState<MessengerProviderId>(DEFAULT_MESSENGER_PROVIDER);
   const [activeProviderIds, setActiveProviderIds] = useState<MessengerProviderId[]>(["max", "yandex"]);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
@@ -617,7 +616,10 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
 
   useEffect(() => {
     const openYandex = () => {
-      setSelectedProviderId("yandex");
+      const next = applyMessengerProviderTab("yandex", ["max", "yandex"]);
+      setSelectedProviderId(next.selectedProviderId);
+      setSelectedConversationKey(next.selectedConversationKey);
+      setActiveProviderIds((current) => applyMessengerProviderTab("yandex", current).activeProviderIds);
       setMessengersPanelsOpen(true);
     };
     window.addEventListener("office360:open-yandex-messenger", openYandex);
@@ -1110,7 +1112,6 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
 
   useEffect(() => {
     if (selectedConversation) {
-      setSelectedProviderId(selectedConversation.providerId);
       setTargetKind(selectedConversation.kind);
       setTargetId(selectedConversation.id);
     } else {
@@ -1205,14 +1206,16 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
     setPendingAttachments((current) => current.filter((attachment) => attachment.path !== path));
   }, []);
 
-  const toggleProviderFilter = useCallback((providerId: MessengerProviderId) => {
+  const selectProvider = useCallback((providerId: MessengerProviderId) => {
     setActiveProviderIds((current) => {
-      if (current.includes(providerId)) {
-        const next = current.filter((id) => id !== providerId);
-        return next.length ? next : current;
-      }
-      return [...current, providerId];
+      const next = applyMessengerProviderTab(providerId, current);
+      setSelectedProviderId(next.selectedProviderId);
+      setSelectedConversationKey(next.selectedConversationKey);
+      return next.activeProviderIds;
     });
+    setError(null);
+    setInfo(null);
+    setQuery("");
   }, []);
 
   const saveToken = useCallback(() => {
@@ -1493,13 +1496,13 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
             </div>
           </div>
           <div className="flex items-center gap-1">
-            {PROVIDER_FILTERS.map((provider) => (
+            {MESSENGER_PROVIDER_TABS.map((provider) => (
               <button
                 key={provider.id}
                 type="button"
-                onClick={() => setSelectedProviderId(provider.id)}
+                onClick={() => selectProvider(provider.id)}
                 className={`rounded-lg px-2 py-1 text-xs ${
-                  provider.id === "yandex" ? "bg-bg-tertiary text-text-primary" : "text-text-tertiary hover:bg-bg-hover"
+                  provider.id === selectedProviderId ? "bg-bg-tertiary text-text-primary" : "text-text-tertiary hover:bg-bg-hover"
                 }`}
               >
                 {provider.label}
@@ -1643,13 +1646,13 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
 
             {!showSettings ? (
               <div className="mt-5 grid grid-cols-3 gap-1.5">
-                {PROVIDER_FILTERS.map((provider) => {
-                  const isActive = activeProviderIds.includes(provider.id);
+                {MESSENGER_PROVIDER_TABS.map((provider) => {
+                  const isActive = selectedProviderId === provider.id;
                   return (
                     <button
                       key={provider.id}
                       type="button"
-                      onClick={() => toggleProviderFilter(provider.id)}
+                      onClick={() => selectProvider(provider.id)}
                       className={`rounded-lg border px-2 py-1 text-[0.6875rem] font-medium transition-colors ${
                         isActive
                           ? "border-border-primary bg-bg-tertiary text-text-primary"
@@ -1664,17 +1667,11 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
             ) : null}
 
             {showSettings ? <div className="mt-3 grid grid-cols-3 gap-1.5">
-              {PROVIDER_FILTERS.map((provider) => (
+              {MESSENGER_PROVIDER_TABS.map((provider) => (
                 <button
                   key={provider.id}
                   type="button"
-                  onClick={() => {
-                    setSelectedProviderId(provider.id);
-                    setSelectedConversationKey(null);
-                    setError(null);
-                    setInfo(null);
-                    setQuery("");
-                  }}
+                  onClick={() => selectProvider(provider.id)}
                   className={`rounded-lg border px-2 py-1 text-[0.6875rem] font-medium transition-all ${
                     selectedProviderId === provider.id
                       ? "border-border-primary bg-bg-tertiary text-text-primary"

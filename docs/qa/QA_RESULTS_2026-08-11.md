@@ -580,3 +580,89 @@ Org `8493916`: assumed stored; validity **unknown** until `/v3/myself` = 200.
 - TRACKER-007 (P2) create = title-only prompt  
 
 **Overall VERDICT: PARTIAL** — read/list/open usable; filters/labels/detail UX fail; all writes blocked by 403.
+
+
+---
+
+## EFIM HYBRID RUNTIME QA — 2026-08-11 ~22:25 ICT
+
+| Field | Value |
+|---|---|
+| branch | `GORGDEV2-EFIM-INTEGRATION` |
+| HEAD | `3c592febce7596892678b525661c6e9631d8b6a8` |
+| base | `2aaa905` (protected) |
+| mode | MANUAL RUNTIME SMOKE — observe only, **no code changes**, no commit/push/merge |
+| runtime | `npm run tauri dev` + CDP `9222` |
+| account | active `*@office-360.ru` (second local account `*@yandex.ru` used only for switch) |
+| evidence | `docs/qa/evidence/hybrid-runtime-2026-08-11/` (local screenshots + JSON; no secrets) |
+| Graphify | NOT NEEDED (no code fix this pass) |
+
+### Matrix
+
+| Area | Result | Evidence / notes |
+|---|---|---|
+| Startup | **PASS** | App up `#/mail/inbox`; IMAP sync alive; account auto-loaded; no forced OAuth |
+| Mail auth | **PASS** | Inbox loads; no 17248 conflict observed; no manual refresh setup |
+| Sidebar icons | **PASS** | CDP: all 7 services found, Lucide SVG 18×18, opacity 1, no emoji; RU labels. Screenshots `01-sidebar-mail.png`, `11-disk.png` |
+| Mail unread badge | **PASS** | Start 8 → open unread 7 → `markThreadRead(false)` 8 → `markThreadRead(true)` 7; live without restart |
+| Outbox badge | **PASS** | Исходящие badge hidden at 0 (no fake count) |
+| Tasks badge | **PASS** | Задачи badge `1` preserved |
+| Disk | **PASS** | `#/disk` lists file + quota; `hasYandexServiceAuth=true`; client const `9a7396c3…`; no Client ID prompt |
+| Tracker | **PARTIAL** | `#/tracker` loads; stored org `8493916`; no CORS/429 on open; workspace UI present; issue list empty in this session; empty `<option>` labels remain (**TRACKER-003**); filters not re-validated as PASS (**TRACKER-004**); no write attempted |
+| Messenger | **FAIL / BLOCKED** | Provider tabs MAX/Яндекс/Telegram do not change panel (stuck on MAX UX). No Yandex widget iframe. Hub: communications **NEEDS ACCESS** (consent not completed this pass). Bot token not leaked. Unread badge: **NOT IMPLEMENTED / NO SOURCE** |
+| Telemost smoke | **PASS** | `#/telemost` UI + meeting card; CEF host surface present; after «Новая видеовстреча» `office360-cef-subprocess` processes observed; no separate Passport wall in main UI this pass |
+| Account Hub | **PASS** (UX note) | Human grants: Почта / Диск и Трекер / Мессенджер и Телемост; Core+Work CONNECTED; Communications+Admin NEEDS ACCESS; no Client ID/Secret in UI. **P2:** raw English `CONNECTED` / `NEEDS ACCESS` strings |
+| Account switch | **PASS** | 2 accounts present; switch office-360.ru → yandex.ru; unread badge 7 → `99+`; restored |
+
+### Bugs from this pass
+
+- **MSG-HYBRID-001** (P1) — CLOSED/PASS after fix (tabs + communications CTA)
+- **HUB-HYBRID-001** (P2) — CLOSED/PASS after RU i18n status labels
+- **MSG-HYBRID-002** (P1) — OPEN — Yandex Messenger widget stuck loading after communications consent
+
+### VERDICT (initial hybrid smoke @ `3c592fe`)
+
+**PARTIAL** — core mail + Disk + sidebar/badges + Telemost smoke + Hub structure OK; Messenger blocked/failed at tab/consent stage; Tracker remaining known gaps. **NOT READY TO MERGE BACK TO GORGDEV2**.
+
+---
+
+## EFIM HYBRID CHECKPOINT — 2026-08-11 ~22:50 ICT
+
+| Field | Value |
+|---|---|
+| branch | `GORGDEV2-EFIM-INTEGRATION` |
+| previous HEAD | `3c592fe` |
+| mode | Fix MSG-HYBRID-001 + HUB-HYBRID-001; freeze/docs; **do not fix MSG-HYBRID-002**; commit+push integration branch only |
+| Graphify | NOT NEEDED (freeze/push) |
+
+### Integration matrix (current)
+
+| Area | Result |
+|---|---|
+| Mail | **PASS** |
+| Sidebar icons | **PASS** |
+| Mail unread badge | **PASS** |
+| Outbox badge | **PASS** |
+| Tasks badge | **PASS** |
+| Disk | **PASS** |
+| Tracker | **PARTIAL** (TRACKER-003/004 etc. known) |
+| Telemost smoke | **PASS** |
+| Account Hub | **PASS** (RU: «Подключено» / «Требуется доступ») |
+| Messenger | **PARTIAL / P1** — tabs+consent OK; widget loader stuck (**MSG-HYBRID-002**) |
+
+### Messenger follow-up (manual)
+
+| Check | Result |
+|---|---|
+| MSG-HYBRID-001 tabs MAX ↔ Яндекс | **PASS** |
+| NEEDS ACCESS → CTA «Разрешить доступ» | **PASS** |
+| Communications consent completes | **PASS** (manual) |
+| After CONNECTED: usable Yandex Messenger UI | **FAIL** — endless spinner; widget/iframe content not visible |
+
+### Open blocker
+
+**MSG-HYBRID-002** (P1 OPEN) — after successful communications consent, Yandex tab remains on infinite loader; expected: widget mounts and becomes usable. Hypotheses only (not diagnosed): iframe/widget bootstrap, CSP, widget script, session init, mount event, host sizing, network.
+
+### Overall
+
+**INTEGRATION PARTIAL** — **NOT READY TO MERGE BACK TO GORGDEV2**.

@@ -54,6 +54,9 @@ Results: `docs/qa/QA_RESULTS_2026-08-11.md`
 | TRACKER-005 | P2 | Tracker / issue detail | No author / assignee / created / updated / deadline in panel | OPEN |
 | TRACKER-006 | P2 | Tracker / attachments | Attachment names only — no download/open | OPEN |
 | TRACKER-007 | P2 | Tracker / create UX | Create issue = title-only `window.prompt` | OPEN |
+| MSG-HYBRID-001 | P1 | Messenger / Efim port | Provider tabs stuck on MAX; Yandex widget not shown | CLOSED / PASS |
+| HUB-HYBRID-001 | P2 | Account Hub / i18n | Grant statuses show English CONNECTED / NEEDS ACCESS | CLOSED / PASS |
+| MSG-HYBRID-002 | P1 | Messenger widget / runtime mount | Yandex Messenger stuck loading after communications consent | OPEN |
 
 **Counts:** P0=+TRACKER-002 · P1=+TRACKER-003/004 · P2=+TRACKER-005/006/007 · **TRACKER-001 FIX APPLIED** · write path BLOCKED on org role/ACL
 
@@ -955,3 +958,103 @@ Observed:
 | UI- | UI / empty states / polish |
 | I18N- | Localization |
 | SEC- | Security |
+
+
+---
+
+# BUG MSG-HYBRID-001 — Messenger provider tabs do not switch (Yandex widget missing)
+
+Severity:
+P1
+
+Area:
+Messenger / Efim hybrid port
+
+Status:
+CLOSED / PASS — fix verified runtime 2026-08-11 (~22:45 ICT)
+
+Class:
+Efim port bug — tab click only toggled provider filter; did not set `selectedProviderId`
+
+Environment:
+`GORGDEV2-EFIM-INTEGRATION` (post-`3c592fe` working tree) / Tauri + CDP
+
+Reproducibility:
+was 1/1 FAIL → PASS after fix
+
+Observed (before fix):
+Opening Мессенджеры shows MAX panel. Clicking tabs «Яндекс» / «Telegram» leaves the same MAX session-token UX.
+
+Observed (after fix):
+Tabs MAX ↔ Яндекс switch. NEEDS ACCESS shows CTA «Разрешить доступ». Communications consent can complete.
+
+Evidence:
+CDP tab retest + Hub RU labels; manual consent completed by user.
+
+Notes:
+Widget usability after CONNECTED tracked separately as **MSG-HYBRID-002**.
+
+---
+
+# BUG HUB-HYBRID-001 — Account Hub grant status English labels
+
+Severity:
+P2
+
+Area:
+Account Hub / i18n UX
+
+Status:
+CLOSED / PASS — RU i18n via `translateText` verified runtime 2026-08-11
+
+Class:
+Efim port UX polish
+
+Observed (before):
+Grant rows showed English `CONNECTED` / `NEEDS ACCESS`.
+
+Observed (after):
+«Подключено» / «Требуется доступ» on Hub; no Client ID/Secret leak; `check:i18n` 0 missing.
+
+Evidence:
+CDP Hub probe `#/settings/yandex360` — RU matches only; English grant tokens absent.
+
+---
+
+# BUG MSG-HYBRID-002 — Yandex Messenger widget stuck loading after communications consent
+
+Severity:
+P1
+
+Area:
+Messenger widget / runtime mount
+
+Status:
+OPEN
+
+Class:
+Efim hybrid / runtime mount (not diagnosed this checkpoint)
+
+Environment:
+`GORGDEV2-EFIM-INTEGRATION` / Tauri desktop / after MSG-HYBRID-001 fix
+
+Reproducibility:
+manual runtime 1/1 (screenshot 2026-08-11)
+
+Actual:
+- communications consent completed
+- Yandex tab selectable
+- loader renders indefinitely
+- widget/iframe content does not appear
+
+Expected:
+After CONNECTED communications grant, Yandex Messenger widget mounts and becomes usable.
+
+Evidence:
+Manual runtime screenshot 2026-08-11 — Yandex tab selected, endless spinner, no messenger UI.
+
+Hypotheses (not confirmed):
+iframe/widget bootstrap · CSP · widget script · session initialization · mount event · host sizing · network
+
+Notes:
+Do not start automatic diagnosis in checkpoint freeze; next session owns MSG-HYBRID-002.
