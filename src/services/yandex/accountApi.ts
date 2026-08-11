@@ -34,7 +34,7 @@ export const DEFAULT_YANDEX_SERVICE_CLIENT_ID = "9a7396c327984bd6afc75debf275850
 /** Legacy «диск тест» app — only verification_code callback; do not use for desktop managed OAuth. */
 export const LEGACY_YANDEX_SERVICE_CLIENT_ID = "69e59ec6dcfe4be3a085006d49678056";
 
-const SERVICE_SETTING_NAMES = ["client_id", "access_token", "refresh_token", "expires_at", "scopes", "owner_email"] as const;
+const SERVICE_SETTING_NAMES = ["client_id", "access_token", "refresh_token", "expires_at", "scopes", "owner_email", "owner_uid"] as const;
 type ServiceSettingName = typeof SERVICE_SETTING_NAMES[number];
 
 const serviceKey = (identity: string, name: ServiceSettingName) => `yandex_services_${name}:${identity}`;
@@ -95,6 +95,7 @@ export async function getYandexServiceClientId(accountId: string): Promise<strin
       setSetting(serviceKey(identity, "expires_at"), ""),
       setSetting(serviceKey(identity, "scopes"), ""),
       setSetting(serviceKey(identity, "owner_email"), ""),
+      setSetting(serviceKey(identity, "owner_uid"), ""),
     ]);
   }
   return resolveManagedServiceClientId(stored);
@@ -121,6 +122,7 @@ export async function clearYandexServiceAuth(accountId: string): Promise<void> {
     setSetting(serviceKey(identity, "expires_at"), ""),
     setSetting(serviceKey(identity, "scopes"), ""),
     setSetting(serviceKey(identity, "owner_email"), ""),
+    setSetting(serviceKey(identity, "owner_uid"), ""),
   ]);
 }
 
@@ -165,6 +167,7 @@ export async function authorizeYandexServices(accountId: string, clientId?: stri
   if (!tokens.refresh_token) throw new Error("Яндекс не вернул refresh token для Диска и Трекера.");
 
   const identity = serviceIdentity(account);
+  const ownerUid = userInfo.subjectId?.trim() || "";
   await Promise.all([
     setSetting(serviceKey(identity, "client_id"), normalizedClientId),
     setSecureSetting(serviceKey(identity, "access_token"), tokens.access_token),
@@ -172,6 +175,7 @@ export async function authorizeYandexServices(accountId: string, clientId?: stri
     setSetting(serviceKey(identity, "expires_at"), String(getCurrentUnixTimestamp() + tokens.expires_in)),
     setSetting(serviceKey(identity, "scopes"), tokens.scope ?? YANDEX_SERVICE_SCOPES.join(" ")),
     setSetting(serviceKey(identity, "owner_email"), normalizeEmail(account.email)),
+    setSetting(serviceKey(identity, "owner_uid"), ownerUid),
   ]);
 }
 

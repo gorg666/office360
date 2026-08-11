@@ -173,7 +173,7 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
           else if(++attempts>=60){clearInterval(timer);console.log('__O360_TELEMOST_ACTION__'+JSON.stringify({action:'create',ok:false,error:'Create meeting control was not found'}))}
         },250);
       })())JS", browser->GetMainFrame()->GetURL(), 0);
-      browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{if(window.__o360BrowserJoin)return;let attempts=0;window.__o360BrowserJoin=setInterval(()=>{const item=[...document.querySelectorAll('button,a')].find(el=>/продолжить в браузере|continue in browser/i.test((el.innerText||el.textContent||'').trim()));if(item){clearInterval(window.__o360BrowserJoin);item.click()}else if(++attempts>120)clearInterval(window.__o360BrowserJoin)},500)})())JS", browser->GetMainFrame()->GetURL(), 0);
+      browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{if(window.__o360BrowserJoin)return;let attempts=0;window.__o360BrowserJoin=setInterval(()=>{const item=[...document.querySelectorAll('button,a,[role="button"]')].find(el=>/продолжить в браузере|continue in browser/i.test((el.innerText||el.textContent||el.getAttribute('aria-label')||'').trim()));if(item){clearInterval(window.__o360BrowserJoin);item.setAttribute('data-o360-continue','true');console.log('__O360_TELEMOST_ACTION__'+JSON.stringify({action:'continue',available:true,url:location.origin+location.pathname}))}else if(++attempts>120)clearInterval(window.__o360BrowserJoin)},500)})())JS", browser->GetMainFrame()->GetURL(), 0);
       browser->GetMainFrame()->ExecuteJavaScript(R"JS((()=>{
         if(window.__o360CompactTelemost)return;
         window.__o360CompactTelemost=true;
@@ -212,7 +212,14 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
   bool OnConsoleMessage(CefRefPtr<CefBrowser>, cef_log_severity_t, const CefString& message, const CefString&, int) override {
     const std::string value = message.ToString(), domPrefix = "__O360_DOM__", oauthPrefix = "__O360_OAUTH__", oauthErrorPrefix = "__O360_OAUTH_ERROR__", telemostActionPrefix = "__O360_TELEMOST_ACTION__";
     if (value.rfind(domPrefix, 0) == 0) { emit("dom-result", value.substr(domPrefix.size())); return true; }
-    if (value.rfind(telemostActionPrefix, 0) == 0) { emit("telemost-action", value.substr(telemostActionPrefix.size())); return true; }
+    if (value.rfind(telemostActionPrefix, 0) == 0) {
+      const auto payload = value.substr(telemostActionPrefix.size());
+      if (payload.find("\"action\":\"continue\"") != std::string::npos && payload.find("\"available\":true") != std::string::npos) {
+        g_content_visible = false;
+        if (browser_ && g_client.get() == this) applyBrowserWindowState(browser_->GetHost()->GetWindowHandle());
+      }
+      emit("telemost-action", payload); return true;
+    }
     if (value.rfind(oauthErrorPrefix, 0) == 0) { emit("oauth-error", value.substr(oauthErrorPrefix.size())); return true; }
     if (value.rfind(oauthPrefix, 0) == 0) { emit("oauth-code", value.substr(oauthPrefix.size())); return true; }
     return false;
@@ -287,6 +294,10 @@ extern "C" int o360_cef_create(const char* url, const wchar_t* profile_path) {
     g_client = existing->second;
     g_active_container = g_client->container();
     if (g_client->browser()) {
+      const std::string requested = url ? url : "";
+      if (trusted(requested) && g_client->browser()->GetMainFrame()->GetURL().ToString() != requested) {
+        g_client->browser()->GetMainFrame()->LoadURL(requested);
+      }
       g_content_visible = displayAllowed(g_client->browser()->GetMainFrame()->GetURL().ToString());
       applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());
       return 1;
@@ -319,6 +330,6 @@ extern "C" void o360_cef_navigate(const char* url){std::string s=url?url:"";ui([
 extern "C" void o360_cef_back(){ui([]{if(g_client&&g_client->browser())g_client->browser()->GoBack();});}
 extern "C" void o360_cef_forward(){ui([]{if(g_client&&g_client->browser())g_client->browser()->GoForward();});}
 extern "C" void o360_cef_reload(){ui([]{if(g_client&&g_client->browser())g_client->browser()->Reload();});}
-extern "C" int o360_cef_dom_command(const char* id,const char* command){if(!g_client||!g_client->browser()||!domTrusted(g_client->browser()->GetMainFrame()->GetURL()))return 0;std::string script=domScript(id?id:"",command?command:"{}");ui([script]{if(g_client&&g_client->browser()&&domTrusted(g_client->browser()->GetMainFrame()->GetURL()))g_client->browser()->GetMainFrame()->ExecuteJavaScript(script,g_client->browser()->GetMainFrame()->GetURL(),0);});return 1;}
+extern "C" int o360_cef_dom_command(const char* id,const char* command){if(!g_client||!g_client->browser()||!domTrusted(g_client->browser()->GetMainFrame()->GetURL()))return 0;const std::string raw=command?command:"{}";const bool resumesMeeting=raw.find("data-o360-continue")!=std::string::npos;std::string script=domScript(id?id:"",raw);ui([script,resumesMeeting]{if(g_client&&g_client->browser()&&domTrusted(g_client->browser()->GetMainFrame()->GetURL())){if(resumesMeeting){g_content_visible=true;applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());}g_client->browser()->GetMainFrame()->ExecuteJavaScript(script,g_client->browser()->GetMainFrame()->GetURL(),0);}});return 1;}
 extern "C" void o360_cef_permission_response(uint64_t id,int allow){ui([=]{if(g_client)g_client->permission(id,allow!=0);});}
 extern "C" void o360_cef_shutdown(){std::lock_guard<std::mutex> lock(g_mutex);if(!g_initialized)return;for(auto& entry:g_clients){if(entry.second&&entry.second->browser())entry.second->browser()->GetHost()->CloseBrowser(true);if(entry.second&&entry.second->container())DestroyWindow(entry.second->container());}g_clients.clear();g_client=nullptr;g_active_container=nullptr;CefShutdown();g_initialized=false;g_parent=nullptr;g_has_bounds=false;g_visible=false;g_content_visible=false;g_callback=nullptr;}

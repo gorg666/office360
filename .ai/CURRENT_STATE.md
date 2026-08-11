@@ -4,7 +4,7 @@
 
 ## Last updated
 
-2026-08-11 (~22:00 ICT) — GORGDEV2_PROTECTED_BASELINE freeze (pre-Efim HYBRID)
+2026-08-11 (~22:20 ICT) — Efim HYBRID integration checkpoint on `GORGDEV2-EFIM-INTEGRATION`
 
 ## Project
 
@@ -13,22 +13,34 @@ Remote GitHub: `gorg666/office360`
 
 ## Active focus
 
-- Branch: **`GORGDEV2`**
-- Checkpoint: **GORGDEV2_PROTECTED_BASELINE** (SHA after freeze commit)
-- Efim HYBRID integration: **approved but NOT started** — wait for post-freeze go-ahead
-- Protected: OAuth 17248/PKCE, service client `9a7396…`, Tracker tauriFetch/429/org hybrid/read-only UX, mail send toast, Lucide icons
-- Sidebar mail unread badge: still pending (post-baseline)
+- Branch: **`GORGDEV2-EFIM-INTEGRATION`** (from protected baseline `2aaa905…`)
+- Protected baseline: **GORGDEV2_PROTECTED_BASELINE** = `2aaa905b245519e42284da9ddac09027682b6d4e` (do not rewrite)
+- Efim pin: `aa39e9a04a01218c584ff85284b4fd977084e747`
+- Push / merge back to `GORGDEV2`: **NO** until explicit command
 
-## Recently done
+## Hybrid auth (landed)
 
-- AUTH-005 OAuth listener cancel/release
-- Tracker org hybrid + 429 + read-only UX (TRACKER-002)
-- Disk/Tracker managed auth wiring
-- Mail SendFeedbackToast cleanup, FileTypeIcon / emoji cleanup
-- QA docs backlog updates
-- Full gates green before freeze (i18n / vitest / tsc / cargo / build)
+- **Core/Mail:** keep GORGDEV2 OAuth (PKCE, 17248, refresh/rotation)
+- **Work:** maps to service client `9a7396c327984bd6afc75debf275850f` via existing Disk/Tracker auth
+- **Communications:** Messenger + Telemost grant (ownership UID/email checks)
+- **Admin:** progressive only; no forced consent
+- Secrets: no Client Secret in frontend; Efim `build.rs` embed not ported
+
+## Features landed
+
+- Multi-grant unified OAuth (`yandexUnifiedAuth` / `yandexScopes`)
+- Yandex Messenger widget + CSP + session isolation from bot tokens
+- Telemost prefers communications grant; CEF interstitial detection from Efim
+- Yandex360AccountHub grant UX (Почта / Диск и Трекер / Мессенджер и Телемост)
+- Sidebar canonical `serviceNavRegistry` + Lucide icons + `NavBadge`
+- Mail unread / Outbox / Tasks badges; Messenger badge **NO SOURCE**
+
+## Gates (pre-commit)
+
+- `check:i18n` / `vitest` (1953) / `tsc` / `cargo check` / `build` — green
+- Graphify AST update run; semantic LLM optional/off
 
 ## Next step
 
-- After push: STOP — no Efim merge until explicit command
-- Then HYBRID selective port from this baseline SHA
+- Manual runtime QA matrix (AUTH / Sidebar / Messenger / Telemost open-only)
+- Do not push until approved

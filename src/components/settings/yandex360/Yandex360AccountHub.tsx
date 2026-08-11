@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CalendarDays,
   CheckCircle2,
   CheckSquare,
+  KeyRound,
   Mail,
   MessageSquare,
   RefreshCw,
@@ -20,6 +21,13 @@ import {
   type Yandex360ServiceReadiness,
   type Yandex360ServiceStatus,
 } from "@/services/yandex360";
+import {
+  authorizeYandexGrant,
+  authorizeYandexSuite,
+  getYandexUnifiedAuthStatus,
+  type YandexOAuthGrant,
+  type YandexOAuthGrantStatus,
+} from "@/services/oauth/yandexUnifiedAuth";
 
 const statusClasses: Record<Yandex360ServiceStatus, string> = {
   available: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700",
@@ -148,6 +156,8 @@ export function Yandex360AccountHub() {
             </button>
           </div>
 
+          <UnifiedAuthPanel accountId={status.account.id} />
+
           <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
             {status.services.map((service) => (
               <ServiceCard key={service.id} service={service} accountId={status.account.id} />
@@ -155,6 +165,121 @@ export function Yandex360AccountHub() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+const grantStatusUi: Record<YandexOAuthGrantStatus["statusLabel"], string> = {
+  CONNECTED: "CONNECTED",
+  "NEEDS ACCESS": "NEEDS ACCESS",
+  ERROR: "ERROR",
+};
+
+function UnifiedAuthPanel({ accountId }: { accountId: string }) {
+  const [grants, setGrants] = useState<YandexOAuthGrantStatus[]>([]);
+  const [busy, setBusy] = useState<"suite" | Exclude<YandexOAuthGrant, "core"> | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setGrants(await getYandexUnifiedAuthStatus(accountId));
+  }, [accountId]);
+
+  useEffect(() => {
+    void reload().catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+  }, [reload]);
+
+  const connectSuite = async () => {
+    setBusy("suite");
+    setError(null);
+    try {
+      const results = await authorizeYandexSuite(accountId, {
+        grants: ["work", "communications"],
+        continueOnError: true,
+        onProgress: ({ label, state }) => setProgress(
+          state === "authorizing"
+            ? `Подключаем «${label}»…`
+            : `«${label}» ${state === "connected" ? "подключён" : "не подключён"}`,
+        ),
+      });
+      const failed = results.filter((result) => result.state === "failed");
+      if (failed.length) {
+        setError(failed.map((result) => `${result.label}: ${result.error}`).join("\n"));
+      }
+      await reload();
+    } finally {
+      setBusy(null);
+      setProgress(null);
+    }
+  };
+
+  const connectGrant = async (grant: Exclude<YandexOAuthGrant, "core">) => {
+    setBusy(grant);
+    setError(null);
+    setProgress(`Подключаем «${grants.find((item) => item.id === grant)?.label ?? grant}»…`);
+    try {
+      await authorizeYandexGrant(accountId, grant);
+      await reload();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(null);
+      setProgress(null);
+    }
+  };
+
+  return (
+    <div className="mt-4 rounded-lg border border-border-primary bg-bg-primary p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-medium text-text-primary">Единая авторизация Яндекс ID</h4>
+          <p className="mt-1 text-xs text-text-tertiary">
+            Прогрессивный доступ: основное, Диск и Трекер, Мессенджер и Телемост, администрирование.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={connectSuite}
+            disabled={busy !== null}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-tertiary px-2.5 py-1.5 text-xs text-text-primary disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${busy === "suite" ? "animate-spin" : ""}`} />
+            Подключить сервисы
+          </button>
+          <button
+            type="button"
+            onClick={() => void connectGrant("admin")}
+            disabled={busy !== null}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-tertiary px-2.5 py-1.5 text-xs text-text-primary disabled:opacity-50"
+          >
+            <KeyRound className="h-3.5 w-3.5" />
+            Права администратора
+          </button>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+        {grants.map((grant) => (
+          <div key={grant.id} className="rounded-md border border-border-primary px-2.5 py-2">
+            <div className="text-xs font-medium text-text-primary">{grant.label}</div>
+            <div className={`mt-1 text-[11px] ${grant.connected ? "text-emerald-700" : "text-text-tertiary"}`}>
+              {grantStatusUi[grant.statusLabel]}
+            </div>
+            {grant.id !== "core" ? (
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => void connectGrant(grant.id as Exclude<YandexOAuthGrant, "core">)}
+                className="mt-2 text-[11px] text-accent hover:underline disabled:opacity-50"
+              >
+                {grant.connected ? "Обновить доступ" : "Выдать доступ"}
+              </button>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      {progress && <p className="mt-2 text-xs text-accent">{progress}</p>}
+      {error && <p className="mt-2 whitespace-pre-line text-xs text-danger">{error}</p>}
     </div>
   );
 }

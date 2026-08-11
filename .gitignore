@@ -74,6 +74,8 @@ artifacts/
 *.tmp
 *.temp
 .cache/
+.tmp-efim/
+.tmp-efim-bin/
 
 # Packaging Artifacts
 build-dir/

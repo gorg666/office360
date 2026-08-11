@@ -60,7 +60,7 @@ describe("Yandex360AccountHub", () => {
     expect(screen.getByText("Календарь")).toBeInTheDocument();
     expect(screen.getByText("Мессенджер")).toBeInTheDocument();
     expect(screen.getByText("Задачи")).toBeInTheDocument();
-    expect(screen.queryByText(/Телемост/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Мессенджер и Телемост/i)).toBeInTheDocument();
     expect(screen.queryByText(/future|capability|slice|guardrails/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /исправить/i })).toBeInTheDocument();
   });
