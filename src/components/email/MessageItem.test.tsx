@@ -133,4 +133,11 @@ describe("MessageItem", () => {
     );
     expect(ref.current).toBeInstanceOf(HTMLDivElement);
   });
+
+  it("marks root as context-menu source for desktop ПКМ", () => {
+    const { container } = render(
+      <MessageItem message={makeMessage()} isLast={true} blockImages={false} />,
+    );
+    expect(container.querySelector("[data-office360-context-menu-source]")).toBeTruthy();
+  });
 });

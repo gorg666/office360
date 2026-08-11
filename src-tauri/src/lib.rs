@@ -23,6 +23,7 @@ mod commands;
 mod audio;
 mod imap;
 mod messengers;
+mod notifications;
 mod oauth;
 mod smtp;
 
@@ -111,6 +112,8 @@ pub fn run() {
             close_splashscreen,
             open_devtools,
             audio::play_notification_sound,
+            notifications::show_native_notification,
+            notifications::ensure_notification_app_identity,
             commands::imap_test_connection,
             commands::imap_list_folders,
             commands::imap_fetch_messages,
@@ -146,6 +149,10 @@ pub fn run() {
             messengers::max_client_disconnect,
         ])
         .setup(|app| {
+            if let Err(err) = notifications::ensure_windows_notification_identity(app.handle()) {
+                log::warn!("Windows notification identity setup: {err}");
+            }
+
             {
                 let level = if cfg!(debug_assertions) {
                     log::LevelFilter::Debug

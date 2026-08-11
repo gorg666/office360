@@ -12,9 +12,12 @@ import { getVisibleCalendars, upsertCalendar, updateCalendarSyncToken } from "..
 import { upsertCalendarEvent, deleteEventByRemoteId } from "../db/calendarEvents";
 
 /** When the window/tab is visible — pick up new mail quickly while the app is open. */
-const SYNC_INTERVAL_VISIBLE_MS = 10_000;
+export const SYNC_INTERVAL_VISIBLE_MS = 10_000;
 /** When hidden/minimized — back off to limit CPU and network. */
-const SYNC_INTERVAL_HIDDEN_MS = 120_000;
+export const SYNC_INTERVAL_HIDDEN_MS = 120_000;
+
+/** Current sync mechanism: adaptive polling. IMAP IDLE is not implemented in Rust stack. */
+export const MAIL_SYNC_MECHANISM = "adaptive_polling" as const;
 
 interface ReconnectDiagnosticContext {
   accountId?: string;
@@ -87,6 +90,16 @@ function attachVisibilitySyncListener(): void {
     if (!backgroundAccountIds?.length) return;
     if (syncTimer) clearTimeout(syncTimer);
     syncTimer = null;
+    // Foreground regain: sync immediately, then resume adaptive cadence.
+    if (!document.hidden) {
+      const ids = [...backgroundAccountIds];
+      logReconnectDiagnostic("startBackgroundSync.visibilityVisible", {
+        reason: "window_focus_or_visible",
+        extra: { accountIds: ids },
+      });
+      void runPeriodicSync(ids);
+      return;
+    }
     scheduleNextPeriodicSync();
   });
 }

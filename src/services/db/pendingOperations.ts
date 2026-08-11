@@ -174,7 +174,16 @@ export async function getFailedOpsCount(accountId?: string): Promise<number> {
   return rows[0]?.count ?? 0;
 }
 
-const OUTBOX_SEND_STATUSES = ["queued", "pending", "executing", "failed"] as const;
+/** Statuses still visible in Outbox (includes mid-send / legacy reconcile phases). */
+const OUTBOX_SEND_STATUSES = [
+  "queued",
+  "pending",
+  "executing",
+  "sending",
+  "smtp_accepted",
+  "sent_reconciling",
+  "failed",
+] as const;
 
 /** Count of sendMessage ops visible in Outbox (pending, executing, failed). */
 export async function getOutboxSendCount(accountId?: string): Promise<number> {

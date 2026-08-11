@@ -61,6 +61,8 @@
     "core:window:allow-start-dragging",
     "core:window:allow-show",
     "core:window:allow-set-focus",
+    "core:window:allow-is-focused",
+    "core:window:allow-unminimize",
     "autostart:default",
     "autostart:allow-enable",
     "autostart:allow-disable",

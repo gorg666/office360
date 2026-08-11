@@ -191,11 +191,14 @@ export default function App() {
     };
   }, []);
 
-  // Suppress default browser context menu globally (Tauri app should feel native)
-  // Elements with data-native-context-menu opt out so the browser menu is available
+  // Suppress default browser context menu globally (Tauri app should feel native).
+  // Allow sources that open our custom menus / explicit native opt-out.
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if ((e.target as HTMLElement).closest?.("[data-native-context-menu]")) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest?.("[data-native-context-menu], [data-office360-context-menu-source]")) {
+        return;
+      }
       e.preventDefault();
     };
     document.addEventListener("contextmenu", handler);
@@ -445,6 +448,26 @@ export default function App() {
         startBundleChecker();
         startQueueProcessor();
         startPreCacheManager();
+
+        try {
+          const { reconcileOutboxPendingOperations } = await import(
+            "./services/outbox/reconcileOutboxPending"
+          );
+          const reconcileResults = await reconcileOutboxPendingOperations();
+          const changed = reconcileResults.filter(
+            (r) => r.action !== "kept" && r.action !== "skipped",
+          );
+          if (changed.length > 0) {
+            console.info("[OutboxReconcile]", {
+              total: reconcileResults.length,
+              changed: changed.length,
+              actions: changed.map((r) => ({ id: r.opId, action: r.action, reason: r.reason })),
+            });
+            void triggerQueueFlush();
+          }
+        } catch (err) {
+          console.warn("[OutboxReconcile] startup failed:", err);
+        }
 
         // Initialize notifications
         await initNotifications();

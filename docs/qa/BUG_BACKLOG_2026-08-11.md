@@ -31,8 +31,18 @@ Results: `docs/qa/QA_RESULTS_2026-08-11.md`
 | MAIL-007 | P2 | Mail / Composer | Recipient field has no recent-contact suggestions | OPEN — fix applied, pending retest |
 | MAIL-009 | P2 | Mail / Outbox | Outbox item cannot be opened | FIX APPLIED (pending retest) |
 | UI-001 | P2 | Localization / Composer | Cc/Bcc not localized | OPEN — fix applied, pending retest |
+| MAIL-011 | P1 | Mail / Outbox | Stale/orphan message remains in Outbox | FIX APPLIED / AWAITING MANUAL VERIFY |
+| MAIL-012 | P2 | Mail / UX | No right-click context menu on messages | FIX APPLIED / AWAITING MANUAL VERIFY |
+| UI-002 | P2 | Mail / Search | Developer search syntax in placeholder | FIX APPLIED / AWAITING MANUAL VERIFY |
+| UI-003 | P2 | Localization / Mail | Folder/page titles start lowercase | FIX APPLIED / AWAITING MANUAL VERIFY |
+| MAIL-013 | P1/P2 | Mail / UX | Read/unread state visually unclear | FIX APPLIED / AWAITING MANUAL VERIFY |
+| MAIL-014 | P1 | Mail / Navigation | Account mail folders hierarchy | FIX APPLIED / AWAITING MANUAL VERIFY |
+| MAIL-015 | P1 | Mail / Sync | Incoming mail arrives too slowly | MEASURED / AWAITING MANUAL VERIFY (IDLE deferred) |
+| MAIL-016 | P1 | Mail / Outbox | Context menu missing in Outbox | FIX APPLIED / AWAITING MANUAL VERIFY |
+| MAIL-017 | P2 | Mail / Attachments | Image attachments have no preview | FIX APPLIED / AWAITING MANUAL VERIFY |
+| NOTIF-001 | P1 | Notifications / Windows | Windows notifications appear as PowerShell | FIX APPLIED / AWAITING MANUAL VERIFY |
 
-**Counts:** P0=4 open · CLOSED=2 · P1=4 open · P2=4 open · P3=0
+**Counts:** P0=4 open · CLOSED=2 · P1=+MAIL-011/014/015/016 + NOTIF-001 · P2=+MAIL-012/017/UI-002/UI-003 · P3=0
 
 ---
 
@@ -500,6 +510,113 @@ Do not conflate with mail sync UI bugs. Re-test A2 Calendar after: enable calend
 | UX | Empty state when no message selected | P2 | reading pane UI |
 | UX | Avatars sometimes missing | P2 | `ContactAvatar.tsx`, `yandexProfile.ts`, `gravatar.ts` |
 | Security | npm audit critical/high | see triage | `SECURITY_TRIAGE_2026-08-11.md` |
+
+---
+
+# BUG MAIL-011 — Stale/orphan message remains in Outbox
+
+Severity: P1  
+Area: Mail / Outbox  
+Status: FIX APPLIED / AWAITING MANUAL VERIFY
+
+Expected: Startup reconciliation classifies pending ops; SENT cleaned; impossible stale state → FAILED with Retry; never blind-delete queued user messages.
+
+Actual: Legacy `aaaaa` stuck in Исходящие forever.
+
+Fix applied: `reconcileOutboxPendingOperations()` on App startup; durable Sent → delete op; stale executing/sending/smtp_accepted/sent_reconciling → failed «Не отправлено»; queued without payload → failed; queued with payload → normalize to pending. OutboxList shows FAILED + Retry.
+
+---
+
+# BUG MAIL-012 — No right-click context menu on messages
+
+Severity: P2  
+Area: Mail / UX  
+Status: FIX APPLIED / AWAITING MANUAL VERIFY
+
+Expected: Desktop context menu on list items with Open/Reply/Reply all/Forward/Read/Star/Snooze/Move/Archive/Spam/Delete (disable unavailable).
+
+Fix applied: Allow `[data-office360-context-menu-source]`; ThreadCard + MessageItem mark source; ThreadMenu uses threadMap lookup; capability helper for drafts/trash; RU via i18n.
+
+---
+
+# BUG UI-002 — Developer search syntax exposed to user
+
+Severity: P2  
+Status: FIX APPLIED / AWAITING MANUAL VERIFY
+
+Fix applied: SearchBar placeholder → `Search mail` / i18n `Поиск в почте`. Operators removed from main placeholder.
+
+---
+
+# BUG UI-003 — Folder/page titles start lowercase
+
+Severity: P2  
+Status: FIX APPLIED / AWAITING MANUAL VERIFY
+
+Fix applied: `getSystemFolderTitle()` + EmailList; i18n proper-case system names. No blind `capitalize()` on user folders.
+
+---
+
+# BUG MAIL-013 — Read/unread state visually unclear
+
+Severity: P1/P2  
+Status: FIX APPLIED / AWAITING MANUAL VERIFY
+
+Fix applied: Unread indicator dot; semibold sender/subject; light unread background on ThreadCard.
+
+---
+
+# BUG MAIL-014 — Account mail folders hierarchy
+
+Severity: P1  
+Status: FIX APPLIED / AWAITING MANUAL VERIFY
+
+Fix applied: Canonical `src/services/imap/folderTree.ts` (duplicate `utils/mailFolderTree.ts` removed); Inbox children collapsible; other folders tree; SPECIAL-USE excluded; expanded state persisted; Labels = tags only (no IMAP folder duplex). Unread folder counts: N/A (no unread field on labels yet).
+
+---
+
+# BUG MAIL-015 — Incoming mail arrives too slowly
+
+Severity: P1  
+Status: MEASURED / AWAITING MANUAL VERIFY (IMAP IDLE deferred)
+
+Measured: adaptive polling `SYNC_INTERVAL_VISIBLE_MS=10000` / `SYNC_INTERVAL_HIDDEN_MS=120000`; IMAP IDLE currently NO; focus/visibility → immediate `runPeriodicSync`; online reconnect via App `triggerSync` + queue flush; post-connect `startBackgroundSync`. Interval/IDLE changes deferred to separate decision after Mail UI retest.
+
+---
+
+# BUG MAIL-016 — Context menu missing in Outbox
+
+Severity: P1  
+Area: Mail / Outbox / UX  
+Status: FIX APPLIED / AWAITING MANUAL VERIFY
+
+Actual: ПКМ в «Исходящих» не открывал меню (нет `data-office360-context-menu-source` / outbox menu type).
+
+Fix applied: Outbox capability mapper `outboxContextMenuActions.ts`; `ContextMenuType=outbox`; OutboxList ПКМ + OutboxMenu (queued: Open/Cancel; sending/reconciling: status only; failed: draft/retry/delete). Cancel only for queued/pending (safe `deleteOperation` / `cancelQueuedComposeSend`).
+
+---
+
+# BUG MAIL-017 — Image attachments have no preview
+
+Severity: P2  
+Area: Mail / Attachments / UI  
+Status: FIX APPLIED / AWAITING MANUAL VERIFY
+
+Actual: JPG в открытом письме — только generic attachment card.
+
+Fix applied: safe raster thumbnails in `AttachmentList` (jpeg/png/webp/gif); session cache `attachmentPreviewCache`; click → lightbox; download; skeleton/broken fallback; no SVG/exe preview.
+
+---
+
+# BUG NOTIF-001 — Windows notifications appear as PowerShell
+
+Severity: P1  
+Area: Notifications / Windows / Tauri  
+Status: FIX APPLIED / AWAITING MANUAL VERIFY
+
+Root cause (traced): `tauri-plugin-notification` desktop.rs **не ставит** `app_id` когда exe в `target/debug` или `target/release` → WinRT/notify-rust атрибутирует toast к PowerShell AUMID. Plugin docs: «Shows powershell name & icon in development.»
+
+Fix applied: native WinRT path `show_native_notification` + registry `AppUserModelId\com.office360.desktop` (DisplayName Office360 + IconUri); always use AUMID `com.office360.desktop`; foreground suppression (no OS toast when focused); click focuses main window. Documented: packaged install still preferred for full Start Menu identity; unpackaged + registry works for DisplayName/icon.
 
 ---
 

@@ -31,6 +31,7 @@ import { markThreadRead } from "@/services/emailActions";
 import { updateBadgeCount } from "@/services/badgeManager";
 import { openThreadPopOut } from "@/utils/openThreadWindow";
 import { OutboxList } from "@/components/outbox/OutboxList";
+import { getSystemFolderTitle } from "@/utils/mailFolderTitles";
 import {
   InboxClearIllustration,
   NoSearchResultsIllustration,
@@ -135,6 +136,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
 
   const handleThreadContextMenu = useCallback((e: React.MouseEvent, threadId: string) => {
     e.preventDefault();
+    e.stopPropagation();
     openMenu("thread", { x: e.clientX, y: e.clientY }, { threadId });
   }, [openMenu]);
 
@@ -624,9 +626,9 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
                 ? activeSmartFolder?.name ?? "Smart Folder"
                 : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
                   ? `Inbox — ${activeCategory}`
-                  : LABEL_MAP[activeLabel] !== undefined
-                    ? activeLabel
-                    : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
+                  : getSystemFolderTitle(activeLabel)
+                    ?? userLabels.find((l) => l.id === activeLabel)?.name
+                    ?? activeLabel}
           </h2>
           {isOutbox ? (
             <>

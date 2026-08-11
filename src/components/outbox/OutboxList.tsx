@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, Loader2, RefreshCw, Send } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
+import { useContextMenuStore } from "@/stores/contextMenuStore";
 import {
+  deleteOperation,
   getOutboxSendOperations,
   retryOutboxOperation,
   type PendingOperation,
@@ -11,27 +13,34 @@ import { triggerQueueFlush } from "@/services/queue/queueProcessor";
 import { parseOutboxSendPreview } from "@/utils/outboxSendPreview";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { GenericEmptyIllustration } from "@/components/ui/illustrations";
-import { restoreCompose } from "@/services/composer/composeSendOrchestrator";
+import {
+  cancelQueuedComposeSend,
+  restoreCompose,
+} from "@/services/composer/composeSendOrchestrator";
+import { useSendStatusStore } from "@/stores/sendStatusStore";
 import type { ComposeSendRestore } from "@/stores/sendStatusStore";
 import type { ComposerMode } from "@/stores/composerStore";
 
 export type OutboxDisplayStatus = "pending" | "sending" | "failed";
 
 function mapOutboxStatus(op: PendingOperation): OutboxDisplayStatus {
-  if (op.status === "executing") return "sending";
+  if (op.status === "executing" || op.status === "sending") return "sending";
   if (op.status === "failed") return "failed";
-  if (op.status === "queued") return "pending";
+  if (op.status === "smtp_accepted" || op.status === "sent_reconciling") {
+    return "pending";
+  }
+  if (op.status === "queued" || op.status === "pending") return "pending";
   return "pending";
 }
 
-function statusLabel(status: OutboxDisplayStatus): string {
+function statusLabel(status: OutboxDisplayStatus, op?: PendingOperation): string {
   switch (status) {
     case "pending":
       return "Ожидает отправки";
     case "sending":
       return "Отправка…";
     case "failed":
-      return "Не удалось отправить";
+      return op?.error_message?.trim() || "Не отправлено";
   }
 }
 
@@ -61,9 +70,14 @@ function parseRestoreFromParams(paramsJson: string): ComposeSendRestore | null {
   }
 }
 
+function emitOutboxChanged(): void {
+  window.dispatchEvent(new Event("velo-outbox-changed"));
+}
+
 export function OutboxList() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const pendingOpsCount = useUIStore((s) => s.pendingOpsCount);
+  const openMenu = useContextMenuStore((s) => s.openMenu);
   const [items, setItems] = useState<PendingOperation[]>([]);
   const [loading, setLoading] = useState(true);
   const [retryingId, setRetryingId] = useState<string | null>(null);
@@ -77,7 +91,6 @@ export function OutboxList() {
     setLoading(true);
     try {
       const ops = await getOutboxSendOperations(activeAccountId);
-      // Dedupe by id (and by resource_id) in case of legacy duplicates
       const seen = new Set<string>();
       const deduped: PendingOperation[] = [];
       for (const op of ops) {
@@ -126,7 +139,7 @@ export function OutboxList() {
   const handleOpen = useCallback(
     async (op: PendingOperation) => {
       if (!activeAccountId) return;
-      if (op.status === "executing") return;
+      if (op.status === "executing" || op.status === "sending") return;
       const restore = parseRestoreFromParams(op.params);
       if (!restore) {
         console.warn("[OutboxList] no restore payload for", op.id);
@@ -135,6 +148,62 @@ export function OutboxList() {
       await restoreCompose(restore, activeAccountId);
     },
     [activeAccountId],
+  );
+
+  const handleCancelSend = useCallback(
+    async (op: PendingOperation) => {
+      const active = useSendStatusStore.getState().active;
+      if (active?.outboxOpId === op.id) {
+        await cancelQueuedComposeSend();
+        await load();
+        return;
+      }
+      try {
+        await deleteOperation(op.id);
+        emitOutboxChanged();
+        const restore = parseRestoreFromParams(op.params);
+        if (restore && activeAccountId) {
+          await restoreCompose(restore, activeAccountId);
+        }
+        await load();
+      } catch (err) {
+        console.error("[OutboxList] cancel failed:", err);
+      }
+    },
+    [activeAccountId, load],
+  );
+
+  const handleDelete = useCallback(
+    async (op: PendingOperation) => {
+      try {
+        await deleteOperation(op.id);
+        emitOutboxChanged();
+        await load();
+      } catch (err) {
+        console.error("[OutboxList] delete failed:", err);
+      }
+    },
+    [load],
+  );
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, op: PendingOperation) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openMenu("outbox", { x: e.clientX, y: e.clientY }, {
+        operationId: op.id,
+        status: op.status,
+        errorMessage: op.error_message,
+        onOpen: () => void handleOpen(op),
+        onCancelSend: () => void handleCancelSend(op),
+        onRetry: () => void handleRetry(op.id),
+        onDelete: () => void handleDelete(op),
+        onOpenStatus: () => {
+          /* Status is already visible on the row badge; keep action for menu completeness. */
+        },
+      });
+    },
+    [openMenu, handleOpen, handleCancelSend, handleRetry, handleDelete],
   );
 
   if (!activeAccountId) {
@@ -173,7 +242,12 @@ export function OutboxList() {
         const canRetry = displayStatus === "failed";
         const canOpen = displayStatus !== "sending";
         return (
-          <li key={op.id} className="px-4 py-3 hover:bg-bg-hover transition-colors">
+          <li
+            key={op.id}
+            className="px-4 py-3 hover:bg-bg-hover transition-colors"
+            data-office360-context-menu-source
+            onContextMenu={(e) => handleContextMenu(e, op)}
+          >
             <div className="flex items-start gap-3">
               <div className="mt-0.5 shrink-0 text-accent">
                 {displayStatus === "sending" ? (
@@ -203,7 +277,7 @@ export function OutboxList() {
                           : "bg-bg-tertiary text-text-secondary"
                     }`}
                   >
-                    {statusLabel(displayStatus)}
+                    {statusLabel(displayStatus, op)}
                   </span>
                 </div>
                 <p className="text-xs text-text-secondary truncate mt-0.5">

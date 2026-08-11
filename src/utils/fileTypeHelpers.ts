@@ -18,6 +18,34 @@ export function isImage(mimeType: string | null, filename?: string | null): bool
   );
 }
 
+/** Safe raster previews only (no SVG / arbitrary binary). */
+export function isSafeRasterImagePreview(
+  mimeType: string | null,
+  filename?: string | null,
+): boolean {
+  const mime = (mimeType ?? "").toLowerCase();
+  if (
+    mime === "image/jpeg" ||
+    mime === "image/jpg" ||
+    mime === "image/png" ||
+    mime === "image/webp" ||
+    mime === "image/gif"
+  ) {
+    return true;
+  }
+  if (mime.startsWith("image/") && (mime.includes("svg") || mime.includes("xml"))) {
+    return false;
+  }
+  const ext = filename?.toLowerCase() ?? "";
+  return (
+    ext.endsWith(".jpg") ||
+    ext.endsWith(".jpeg") ||
+    ext.endsWith(".png") ||
+    ext.endsWith(".webp") ||
+    ext.endsWith(".gif")
+  );
+}
+
 export function isPdf(mimeType: string | null, filename?: string | null): boolean {
   if (mimeType === "application/pdf") return true;
   // Gmail sometimes returns application/octet-stream for PDFs

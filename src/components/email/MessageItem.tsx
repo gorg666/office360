@@ -91,7 +91,12 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
   const hasRenderableBody = Boolean((message.body_html ?? message.body_text ?? "").trim());
 
   return (
-    <div ref={ref} className={`border-b border-border-secondary last:border-b-0 ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""} ${focused ? "ring-2 ring-inset ring-accent/50" : ""}`} onContextMenu={onContextMenu}>
+    <div
+      ref={ref}
+      data-office360-context-menu-source
+      className={`border-b border-border-secondary last:border-b-0 ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""} ${focused ? "ring-2 ring-inset ring-accent/50" : ""}`}
+      onContextMenu={onContextMenu}
+    >
       {/* Header — always visible, click to expand/collapse */}
       <button
         onClick={handleToggle}

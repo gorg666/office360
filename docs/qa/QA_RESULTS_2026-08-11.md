@@ -429,3 +429,27 @@ See `docs/qa/SECURITY_TRIAGE_2026-08-11.md`.
 | ~05:40 | MAIL-001 fix applied (oauth.rs + oauthFlow.ts + gmail/auth.ts); awaiting manual retest with listener LISTENING before browser |
 | ~05:50 | MAIL-002 opened (login_hint invalid_request); Yandex OAuth moved to in-app WebView `yandex-oauth`; login_hint optional; awaiting manual retest |
 | ~05:38 | A1 PASS — embedded Yandex OAuth; MAIL-001 PASS; MAIL-002 PASS; account added |
+| ~06:16 | B2 retest FAIL — MAIL-008/009/010 |
+| ~06:30 | MAIL-008/009/010 fix applied — pending retest |
+| ~07:00 | MAIL-011…015 + UI-002/003 fix applied (Outbox reconcile, context menu, titles, unread, folder tree, sync measure) — **manual retest required**; bugs NOT closed |
+| ~07:45 | Scope polish: folderTree canonical only; Outbox FAILED «Не отправлено»; Sidebar Labels≠IMAP duplex; context capability helper; tests — **AWAITING MANUAL VERIFY**; no PASS; IDLE not implemented |
+| ~08:00 | MAIL-016 Outbox ПКМ; MAIL-017 image thumbs; NOTIF-001 native WinRT+AUMID (no PowerShell path) — **FIX APPLIED / AWAITING MANUAL VERIFY**; no Calendar/Messenger |
+
+---
+
+## Mail QA notes (2026-08-11 evening — code fixes, not PASS)
+
+| ID | Code status | Manual |
+|---|---|---|
+| MAIL-011 | reconcileOutboxPending on startup | Retest stale Outbox |
+| MAIL-012 | context menu source + ThreadMenu | Retest ПКМ folders |
+| UI-002 | placeholder «Поиск в почте» | Retest |
+| UI-003 | system folder titles | Retest |
+| MAIL-013 | unread visual | Retest |
+| MAIL-014 | IMAP folder tree under Inbox | Retest hierarchy |
+| MAIL-015 | 10s/120s polling + focus sync; no IDLE | Measure Yandex→UI latency |
+| MAIL-016 | Outbox ПКМ + capability mapper | TEST A/B |
+| MAIL-017 | AttachmentList image thumbs + cache | TEST C |
+| NOTIF-001 | Native WinRT+AUMID (not PowerShell) | TEST D |
+
+Do **not** start Calendar/Messenger/A3 from this pass.
