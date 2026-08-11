@@ -243,8 +243,8 @@ export function navigateToLabel(
     return;
   }
 
-  if (label === "contacts") {
-    router.navigate({ to: "/contacts" });
+  if (label === "disk" || label === "telemost" || label === "tracker") {
+    router.navigate({ to: `/${label}` });
     return;
   }
 
@@ -398,7 +398,127 @@ export function navigateBackFromSettings(): void {
     return;
   }
 
-  navigateToSnapshot(returnSnapshot);
+  useUIStore.getState().setMessengersPanelsOpen(snapshot.messengersPanelsOpen);
+
+  const { pathname } = snapshot;
+  const search = snapshot.search as Record<string, string>;
+
+  const settingsMatch = pathname.match(/^\/settings(?:\/([^/]+))?$/);
+  if (settingsMatch) {
+    router.navigate({
+      to: "/settings/$tab",
+      params: { tab: settingsMatch[1] ?? "general" },
+      search,
+    });
+    return;
+  }
+
+  const mailThreadMatch = pathname.match(/^\/mail\/([^/]+)\/thread\/([^/]+)$/);
+  if (mailThreadMatch) {
+    router.navigate({
+      to: "/mail/$label/thread/$threadId",
+      params: { label: mailThreadMatch[1]!, threadId: mailThreadMatch[2]! },
+      search,
+    });
+    return;
+  }
+
+  const mailMatch = pathname.match(/^\/mail\/([^/]+)$/);
+  if (mailMatch) {
+    router.navigate({
+      to: "/mail/$label",
+      params: { label: mailMatch[1]! },
+      search,
+    });
+    return;
+  }
+
+  const labelThreadMatch = pathname.match(/^\/label\/([^/]+)\/thread\/([^/]+)$/);
+  if (labelThreadMatch) {
+    router.navigate({
+      to: "/label/$labelId/thread/$threadId",
+      params: { labelId: labelThreadMatch[1]!, threadId: labelThreadMatch[2]! },
+      search,
+    });
+    return;
+  }
+
+  const labelMatch = pathname.match(/^\/label\/([^/]+)$/);
+  if (labelMatch) {
+    router.navigate({
+      to: "/label/$labelId",
+      params: { labelId: labelMatch[1]! },
+      search,
+    });
+    return;
+  }
+
+  const smartFolderThreadMatch = pathname.match(/^\/smart-folder\/([^/]+)\/thread\/([^/]+)$/);
+  if (smartFolderThreadMatch) {
+    router.navigate({
+      to: "/smart-folder/$folderId/thread/$threadId",
+      params: { folderId: smartFolderThreadMatch[1]!, threadId: smartFolderThreadMatch[2]! },
+      search,
+    });
+    return;
+  }
+
+  const smartFolderMatch = pathname.match(/^\/smart-folder\/([^/]+)$/);
+  if (smartFolderMatch) {
+    router.navigate({
+      to: "/smart-folder/$folderId",
+      params: { folderId: smartFolderMatch[1]! },
+      search,
+    });
+    return;
+  }
+
+  if (pathname === "/attachments") {
+    router.navigate({ to: "/attachments" });
+    return;
+  }
+
+  if (pathname === "/calendar") {
+    router.navigate({ to: "/calendar" });
+    return;
+  }
+
+  if (pathname === "/tasks") {
+    router.navigate({ to: "/tasks" });
+    return;
+  }
+
+  if (pathname === "/disk" || pathname === "/telemost" || pathname === "/tracker") {
+    router.navigate({ to: pathname });
+    return;
+  }
+
+  if (pathname === "/repair") {
+    router.navigate({ to: "/repair" });
+    return;
+  }
+
+  const repairMatch = pathname.match(/^\/repair\/([^/]+)$/);
+  if (repairMatch) {
+    router.navigate({
+      to: "/repair/$accountId",
+      params: { accountId: repairMatch[1]! },
+      search,
+    });
+    return;
+  }
+
+  const helpMatch = pathname.match(/^\/help(?:\/([^/]+))?$/);
+  if (helpMatch) {
+    router.navigate({
+      to: "/help/$topic",
+      params: { topic: helpMatch[1] ?? "getting-started" },
+      search,
+    });
+    return;
+  }
+
+  navigateToInboxFallback();
 }
 
 export function navigateToRepairCenter(accountId?: string): void {
@@ -521,9 +641,9 @@ export function getActiveLabel(): string {
     if (match.routeId === "/calendar") {
       return "calendar";
     }
-    if (match.routeId === "/contacts") {
-      return "contacts";
-    }
+    if (match.routeId === "/disk") return "disk";
+    if (match.routeId === "/telemost") return "telemost";
+    if (match.routeId === "/tracker") return "tracker";
     if (match.routeId === "/repair" || match.routeId === "/repair/$accountId") {
       return "repair";
     }

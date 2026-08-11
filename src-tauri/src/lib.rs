@@ -22,7 +22,7 @@ use tauri_plugin_autostart::MacosLauncher;
 
 mod commands;
 mod audio;
-mod contact_avatars;
+mod cef;
 mod imap;
 mod ldap;
 mod messengers;
@@ -111,6 +111,16 @@ pub fn run() {
             set_tray_tooltip,
             close_splashscreen,
             open_devtools,
+            cef::cef_initialize,
+            cef::cef_create_browser,
+            cef::cef_set_bounds,
+            cef::cef_set_visible,
+            cef::cef_navigate,
+            cef::cef_back,
+            cef::cef_forward,
+            cef::cef_reload,
+            cef::cef_dom_command,
+            cef::cef_permission_response,
             audio::play_notification_sound,
             contact_avatars::save_contact_avatar,
             contact_avatars::delete_contact_avatar,
@@ -223,6 +233,7 @@ pub fn run() {
                             emit_to_main(app, "tray-open-settings");
                         }
                         "quit" => {
+                            cef::shutdown();
                             app.exit(0);
                         }
                         _ => {}
@@ -342,5 +353,6 @@ pub fn run() {
             }
         });
 
+    cef::shutdown();
     log::info!("Tauri application exited normally");
 }

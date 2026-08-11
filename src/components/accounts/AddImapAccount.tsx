@@ -29,7 +29,7 @@ import {
 import { getOAuthProvider } from "@/services/oauth/providers";
 import { getYandexOAuthConfigDiagnostics } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
-import { getSetting } from "@/services/db/settings";
+import { getSetting, setSetting } from "@/services/db/settings";
 import { createConnectionDiagnostic, type ConnectionDiagnostic } from "@/services/diagnostics";
 
 interface AddImapAccountProps {
@@ -460,6 +460,10 @@ export function AddImapAccount({
         setActiveAccount(accountId);
       } else {
         addAccount(storeAccount);
+      }
+
+      if (accountForm.oauthProvider === "yandex" && accountForm.oauthGrantedScopes) {
+        await setSetting(`yandex_oauth_scopes:${accountId}`, accountForm.oauthGrantedScopes);
       }
 
       onSuccess(accountId);
@@ -1004,7 +1008,7 @@ export function AddImapAccount({
             <>Register at the Yahoo Developer Network with redirect URI <code className="text-accent">http://127.0.0.1:17248</code>.</>
           )}
           {providerId === "yandex" && !usesManagedPublicClient && (
-            <>Создайте приложение на <code className="text-accent">oauth.yandex.ru</code>, добавьте redirect URI <code className="text-accent">http://localhost:17248</code> и выдайте scopes <code className="text-accent">mail:imap_full</code>, <code className="text-accent">mail:smtp</code>, <code className="text-accent">calendar:all</code> (CalDAV), <code className="text-accent">login:email</code>, <code className="text-accent">login:info</code>, <code className="text-accent">login:avatar</code> (аватар — только с <code className="text-accent">default_avatar_id</code> по <a className="text-accent underline" href="https://yandex.com/dev/id/doc/en/user-information" target="_blank" rel="noreferrer">документации Яндекс ID</a>).</>
+            <>Создайте приложение на <code className="text-accent">oauth.yandex.ru</code>, добавьте redirect URI <code className="text-accent">http://localhost:17248</code> и выдайте scopes почты, календаря и Яндекс ID, а для сервисов — <code className="text-accent">cloud_api:disk.read</code>, <code className="text-accent">cloud_api:disk.write</code>, <code className="text-accent">tracker:read</code>, <code className="text-accent">tracker:write</code>, <code className="text-accent">directory:read_organization</code> и <code className="text-accent">telemost-api:conferences.create/read/update</code>.</>
           )}
         </p>
       </div>

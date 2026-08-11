@@ -12,7 +12,7 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { openNewCompose } from "@/utils/openComposeWindow";
 import { runMigrations } from "./services/db/migrations";
 import { getAllAccounts } from "./services/db/accounts";
-import { getSetting } from "./services/db/settings";
+import { getSetting, setSetting } from "./services/db/settings";
 import {
   startBackgroundSync,
   stopBackgroundSync,
@@ -88,6 +88,7 @@ import {
 } from "./router/navigate";
 import { applyColorTheme, applyWindowBackground } from "./utils/themeEffects";
 import { AlertTriangle, X } from "lucide-react";
+import { normalizeSidebarNavConfig } from "@/utils/sidebarNavConfig";
 
 const LIGHTS_OUT_UNTIL_KEY = "velo_messenger_lights_out_until";
 const LIGHTS_OUT_CHANGED_EVENT = "velo-messenger-lights-out-changed";
@@ -395,7 +396,13 @@ export default function App() {
         if (savedNavConfig) {
           try {
             const parsed = JSON.parse(savedNavConfig);
-            if (Array.isArray(parsed)) ui.restoreSidebarNavConfig(parsed);
+            if (Array.isArray(parsed)) {
+              const normalized = normalizeSidebarNavConfig(parsed);
+              ui.restoreSidebarNavConfig(normalized);
+              if (JSON.stringify(normalized) !== JSON.stringify(parsed)) {
+                await setSetting("sidebar_nav_config", JSON.stringify(normalized));
+              }
+            }
           } catch { /* ignore malformed JSON */ }
         }
 

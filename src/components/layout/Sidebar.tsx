@@ -41,6 +41,9 @@ import {
   MailOpen,
   Paperclip,
   FolderSearch,
+  HardDrive,
+  Video,
+  ListTodo,
   Loader2,
   MessageCircle,
   ListChecks,
@@ -58,8 +61,8 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = 
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "starred", label: "Starred", icon: Star },
   { id: "snoozed", label: "Snoozed", icon: Clock },
-  { id: "outbox", label: "Исходящие", icon: SendHorizontal },
   { id: "sent", label: "Sent", icon: Send },
+  { id: "outbox", label: "Исходящие", icon: SendHorizontal },
   { id: "drafts", label: "Drafts", icon: FileEdit },
   { id: "trash", label: "Trash", icon: Trash2 },
   { id: "spam", label: "Spam", icon: Ban },
@@ -69,6 +72,9 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = 
   { id: "calendar", label: "Calendar", icon: Calendar },
   { id: "contacts", label: "Contacts", icon: Users },
   { id: "attachments", label: "Attachments", icon: Paperclip },
+  { id: "disk", label: "Диск", icon: HardDrive },
+  { id: "telemost", label: "Телемост", icon: Video },
+  { id: "tracker", label: "Трекер", icon: ListTodo },
   { id: "smart-folders", label: "Smart Folders", icon: FolderSearch },
   { id: "labels", label: "Labels", icon: Tag },
 ];
@@ -229,7 +235,9 @@ function getSmartFolderIcon(iconName: string): LucideIcon {
 }
 
 const LABELS_COLLAPSED_COUNT = 3;
-const SERVICE_NAV_IDS = new Set(["messengers", "tasks", "calendar", "contacts", "attachments"]);
+const SERVICE_NAV_IDS = new Set([
+  "messengers", "tasks", "calendar", "attachments", "disk", "telemost", "tracker",
+]);
 
 export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const activeLabel = useActiveLabel();
