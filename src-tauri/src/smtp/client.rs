@@ -12,7 +12,7 @@ use lettre::{
 use super::types::{SmtpConfig, SmtpSendResult};
 
 /// Hard cap for SMTP verify — without this, TCP/TLS/auth can hang indefinitely in the UI.
-const SMTP_TEST_TIMEOUT: Duration = Duration::from_secs(20);
+const SMTP_TEST_TIMEOUT: Duration = Duration::from_secs(35);
 
 /// Hard cap for SMTP send — auth/TLS hangs must surface as errors, not silent UI.
 const SMTP_SEND_TIMEOUT: Duration = Duration::from_secs(45);

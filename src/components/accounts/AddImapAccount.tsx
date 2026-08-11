@@ -133,8 +133,8 @@ const labelClass = "block text-xs font-medium text-text-secondary mb-1";
 const selectClass =
   "w-full px-3 py-2 bg-bg-secondary border border-border-primary rounded-lg text-sm text-text-primary outline-none focus:border-accent transition-colors appearance-none";
 const IMAP_TEST_TIMEOUT_MS = 35_000;
-/** UI + belt-and-suspenders around hung lettre `test_connection` (Rust also enforces ~20s). */
-const SMTP_TEST_TIMEOUT_MS = 20_000;
+/** UI guard around hung lettre `test_connection`; Rust enforces the same limit. */
+const SMTP_TEST_TIMEOUT_MS = 35_000;
 const REQUIRED_YANDEX_MAIL_SCOPES = ["mail:imap_full", "mail:smtp"];
 
 const SMTP_SCOPE_MISSING =

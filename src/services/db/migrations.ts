@@ -1103,6 +1103,11 @@ export const MIGRATIONS = [
     description: "Persist OAuth granted scopes for service readiness",
     sql: `ALTER TABLE accounts ADD COLUMN oauth_granted_scopes TEXT;`,
   },
+  {
+    version: 33,
+    description: "Repair OAuth granted scopes column after branch migration collision",
+    sql: `ALTER TABLE accounts ADD COLUMN oauth_granted_scopes TEXT;`,
+  },
 ];
 
 /**
