@@ -163,16 +163,16 @@ export const ThreadCard = memo(function ThreadCard({
         {/* Content */}
         <div className="flex-1 min-w-0">
           {/* First row: sender + date */}
-          <div className="flex items-center justify-between gap-2">
+          <div className="relative flex items-center gap-2">
             {!thread.isRead && (
               <span
-                className="w-1.5 h-1.5 rounded-full bg-accent shrink-0"
+                className="absolute -left-2.5 w-1.5 h-1.5 rounded-full bg-accent"
                 aria-hidden
                 title="Unread"
               />
             )}
             <span
-              className={`text-sm truncate ${
+              className={`min-w-0 flex-1 text-left text-sm truncate ${
                 thread.isRead
                   ? "font-normal text-text-secondary"
                   : "font-semibold text-text-primary"

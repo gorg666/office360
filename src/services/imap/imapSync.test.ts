@@ -105,6 +105,10 @@ describe("IMAP UID checkpoint safety", () => {
   it("rewinds a stored cursor that is ahead of local messages", () => {
     expect(reconcileImapCheckpoint(77677, 77661)).toBe(77661);
   });
+
+  it("rewinds a stored cursor when the local folder is empty", () => {
+    expect(reconcileImapCheckpoint(2351, 0)).toBe(1851);
+  });
 });
 
 describe("imapMessageToParsedMessage", () => {

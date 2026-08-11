@@ -55,6 +55,10 @@ vi.mock("../db/messages", () => ({
   getMessagesForThread: vi.fn().mockResolvedValue([]),
 }));
 
+vi.mock("../db/attachments", () => ({
+  upsertAttachment: vi.fn(),
+}));
+
 vi.mock("../db/connection", () => ({
   getDb: vi.fn().mockResolvedValue({
     select: vi.fn().mockResolvedValue([{ c: 2 }]),
@@ -95,6 +99,7 @@ import {
 import { findSpecialFolder } from "../imap/messageHelper";
 import { getMessagesForThread, upsertMessage } from "../db/messages";
 import { upsertThread, setThreadLabels, getThreadLabelIds } from "../db/threads";
+import { upsertAttachment } from "../db/attachments";
 
 const mockImapConfig = {
   host: "imap.example.com",
@@ -622,6 +627,28 @@ describe("ImapSmtpProvider", () => {
       expect(upsertMessage).toHaveBeenCalled();
       expect(result.id).toMatch(/^imap-sent-/);
       expect(result.localPersisted).toBe(true);
+    });
+
+    it("stores attachment metadata with the immediate local SENT copy", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(imapAppendMessage).mockResolvedValue(undefined);
+      const rawWithAttachment = [
+        "From: user@example.com", "To: bob@example.com", "Subject: File", "Message-ID: <file@example.com>",
+        "MIME-Version: 1.0", 'Content-Type: multipart/mixed; boundary="mixed"', "", "--mixed",
+        "Content-Type: text/plain", "", "Hello", "--mixed", 'Content-Type: text/plain; name="report.txt"',
+        "Content-Transfer-Encoding: base64", 'Content-Disposition: attachment; filename="report.txt"', "", "SGVsbG8=", "--mixed--",
+      ].join("\r\n");
+      const encoded = btoa(rawWithAttachment).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+      await provider.sendMessage(encoded, "existing-thread-1");
+
+      expect(upsertAttachment).toHaveBeenCalledWith(expect.objectContaining({
+        messageId: expect.stringMatching(/^imap-sent-/),
+        filename: "report.txt",
+        mimeType: "text/plain",
+        size: 5,
+      }));
     });
 
     it("throws if SMTP send fails", async () => {

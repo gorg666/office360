@@ -3,6 +3,7 @@ import { listAccountDiagnostics } from "@/services/db/accountDiagnostics";
 import { getQueueSummary, type QueueSummary } from "@/services/db/pendingOperations";
 import type { ConnectionDiagnostic, DiagnosticReason, DiagnosticUserAction } from "@/services/diagnostics";
 import { useUIStore } from "@/stores/uiStore";
+import type { SyncProgress } from "@/services/gmail/sync";
 
 export type AccountSyncHealthStatus =
   | "healthy"
@@ -23,10 +24,12 @@ export interface AccountSyncHealth {
   diagnosticCode?: string;
   userAction?: DiagnosticUserAction;
   queue: QueueSummary;
+  progress?: SyncProgress;
 }
 
 const syncingAccounts = new Set<string>();
 const lastAttemptByAccount = new Map<string, number>();
+const progressByAccount = new Map<string, SyncProgress>();
 
 function nowSec(): number {
   return Math.floor(Date.now() / 1000);
@@ -35,12 +38,15 @@ function nowSec(): number {
 export function recordSyncHealthStatus(
   accountId: string,
   status: "syncing" | "done" | "error",
+  progress?: SyncProgress,
 ): void {
   lastAttemptByAccount.set(accountId, nowSec());
   if (status === "syncing") {
     syncingAccounts.add(accountId);
+    if (progress) progressByAccount.set(accountId, progress);
   } else {
     syncingAccounts.delete(accountId);
+    progressByAccount.delete(accountId);
   }
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event("velo-sync-health-changed"));
@@ -105,7 +111,20 @@ export async function getAccountSyncHealth(accountId: string): Promise<AccountSy
     diagnosticCode: latest?.debugCode,
     userAction: latest?.userAction,
     queue,
+    progress: progressByAccount.get(accountId),
   };
+}
+
+export function syncProgressLabel(progress?: SyncProgress): string | null {
+  if (!progress) return null;
+  const phases: Record<SyncProgress["phase"], string> = {
+    labels: "Папки",
+    threads: "Переписки",
+    messages: "Письма",
+    done: "Завершение",
+  };
+  const stage = phases[progress.phase];
+  return progress.total > 0 ? `${stage}: ${progress.current}/${progress.total}` : stage;
 }
 
 export async function listAccountSyncHealth(accountIds?: string[]): Promise<AccountSyncHealth[]> {

@@ -528,8 +528,8 @@ export default function App() {
   // Listen for sync status updates
   const backfillDoneRef = useRef(false);
   useEffect(() => {
-    const unsub = onSyncStatus((accountId, status, _progress, error) => {
-      recordSyncHealthStatus(accountId, status);
+    const unsub = onSyncStatus((accountId, status, progress, error) => {
+      recordSyncHealthStatus(accountId, status, progress);
       if (status === "done") {
         window.dispatchEvent(new Event("velo-sync-done"));
         updateBadgeCount();

@@ -235,13 +235,24 @@ async function executeSend(active: ActiveComposeSend): Promise<void> {
       }
     }
 
-    // Outbox cleanup only after durable local Sent
+    // Outbox cleanup only after durable local Sent.
     if (active.outboxOpId) {
-      try {
-        await deleteOperation(active.outboxOpId);
-        emitOutboxChanged();
-      } catch {
-        /* ignore */
+      let cleanupError: unknown = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await deleteOperation(active.outboxOpId);
+          cleanupError = null;
+          break;
+        } catch (err) {
+          cleanupError = err;
+          if (attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
+          }
+        }
+      }
+      emitOutboxChanged();
+      if (cleanupError) {
+        console.error("[ComposeSend] Failed to remove delivered Outbox operation:", cleanupError);
       }
     }
 

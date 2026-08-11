@@ -490,7 +490,8 @@ export function calculateSafeImapCheckpoint(
 }
 
 export function reconcileImapCheckpoint(savedUid: number, localMaxUid: number): number {
-  if (localMaxUid <= 0 || localMaxUid >= savedUid) return savedUid;
+  if (localMaxUid <= 0) return Math.max(0, savedUid - UID_REPAIR_WINDOW);
+  if (localMaxUid >= savedUid) return savedUid;
   return Math.max(localMaxUid, savedUid - UID_REPAIR_WINDOW);
 }
 

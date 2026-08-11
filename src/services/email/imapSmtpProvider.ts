@@ -35,6 +35,7 @@ import { getDb } from "../db/connection";
 import { getMessagesForThread, upsertMessage } from "../db/messages";
 import { upsertThread, setThreadLabels, getThreadLabelIds, getThreadById } from "../db/threads";
 import { markSmartFoldersMissingReference, rewriteSmartFolderReference } from "../db/smartFolders";
+import { upsertAttachment } from "../db/attachments";
 
 /**
  * Decode base64url (Gmail/RFC 4648 URL-safe, no padding) to a UTF-8 string.
@@ -108,6 +109,51 @@ function extractSnippet(raw: string, maxLen = 200): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLen);
+}
+
+interface LocalMimeAttachment {
+  filename: string;
+  mimeType: string;
+  size: number;
+  contentId: string | null;
+  isInline: boolean;
+}
+
+function decodeMimeParameter(value: string): string {
+  const extended = value.match(/^(?:UTF-8'')?(.+)$/i)?.[1] ?? value;
+  try {
+    return decodeURIComponent(extended.replace(/^"|"$/g, ""));
+  } catch {
+    return decodeMimeWords(extended.replace(/^"|"$/g, "")) ?? extended;
+  }
+}
+
+export function extractLocalMimeAttachments(raw: string): LocalMimeAttachment[] {
+  const rootType = parseBasicHeaders(raw).get("content-type") ?? "";
+  const boundary = rootType.match(/boundary="?([^";\r\n]+)"?/i)?.[1];
+  if (!boundary) return [];
+
+  return raw.split(`--${boundary}`).flatMap((part) => {
+    const splitAt = part.indexOf("\r\n\r\n");
+    if (splitAt < 0) return [];
+    const headers = parseBasicHeaders(part.slice(0, splitAt));
+    const disposition = headers.get("content-disposition") ?? "";
+    const contentType = headers.get("content-type") ?? "application/octet-stream";
+    const filenameRaw = disposition.match(/filename\*?=([^;\r\n]+)/i)?.[1]
+      ?? contentType.match(/name\*?=([^;\r\n]+)/i)?.[1];
+    if (!filenameRaw) return [];
+    const encoded = part.slice(splitAt + 4).replace(/\r\n/g, "").trim();
+    const size = /content-transfer-encoding:\s*base64/i.test(part.slice(0, splitAt))
+      ? Math.max(0, Math.floor((encoded.length * 3) / 4) - (encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0))
+      : new TextEncoder().encode(encoded).length;
+    return [{
+      filename: decodeMimeParameter(filenameRaw.trim()),
+      mimeType: contentType.split(";")[0]!.trim(),
+      size,
+      contentId: headers.get("content-id")?.replace(/[<>]/g, "") ?? null,
+      isInline: /^inline\b/i.test(disposition),
+    }];
+  });
 }
 
 const PROTECTED_SPECIAL_USES = new Set([
@@ -610,7 +656,8 @@ export class ImapSmtpProvider implements EmailProvider {
           ? bodyHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200)
           : "";
     const effectiveSnippet = snippetFromBodies || fallbackSnippet;
-    const hasAttachments = /content-disposition:\s*attachment\b/i.test(raw);
+    const localAttachments = extractLocalMimeAttachments(raw);
+    const hasAttachments = localAttachments.some((attachment) => !attachment.isInline);
 
     // For replies, add the SENT label to the existing thread.
     // For new compositions, create a new thread.
@@ -673,6 +720,20 @@ export class ImapSmtpProvider implements EmailProvider {
       referencesHeader: references,
       inReplyToHeader: inReplyTo,
     });
+
+    for (const [index, attachment] of localAttachments.entries()) {
+      await upsertAttachment({
+        id: `${messageId}_local_${index}`,
+        messageId,
+        accountId: this.accountId,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        gmailAttachmentId: null,
+        contentId: attachment.contentId,
+        isInline: attachment.isInline,
+      });
+    }
 
     if (threadId) {
       const existing = await getThreadById(this.accountId, threadId);
