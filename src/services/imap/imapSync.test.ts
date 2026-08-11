@@ -615,14 +615,14 @@ describe("imapInitialSync", () => {
     expect(mockImapFetchMessages.mock.calls[0]?.[2]).toEqual([12, 11, 10]);
   });
 
-  it("wraps chunk DB writes in a transaction", async () => {
+  it("does not nest queued chunk writes inside a transaction", async () => {
     const msg = createMockImapMessage({ uid: 1, message_id: "<m1@test>", date: Math.floor(Date.now() / 1000) });
     setupFolderWithMessages("INBOX", [msg]);
 
     await imapInitialSync("acc-1");
 
-    // Phase 2 chunk, Phase 4 batch, then physical-folder label reconciliation.
-    expect(mockWithTransaction).toHaveBeenCalledTimes(3);
+    // Only direct physical-folder reconciliation owns an outer transaction.
+    expect(mockWithTransaction).toHaveBeenCalledTimes(1);
   });
 
   it("continues to next chunk on fetch error", async () => {

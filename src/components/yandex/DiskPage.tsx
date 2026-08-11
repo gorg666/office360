@@ -6,6 +6,7 @@ import { ChevronRight, Download, File, Folder, FolderPlus, Link, RefreshCw, Sear
 import { useAccountStore } from "@/stores/accountStore";
 import { createDiskFolder, deleteDiskResource, getDiskDownloadUrl, getDiskQuota, getDiskResource, listDiskResources, moveDiskResource, publishDiskResource, searchDisk, unpublishDiskResource, uploadDiskFile, type DiskResource } from "@/services/yandex/disk";
 import { authorizeYandexServices, getYandexServiceClientId } from "@/services/yandex/accountApi";
+import { getAccount } from "@/services/db/accounts";
 import { ServicePageShell } from "./ServicePageShell";
 
 function joinPath(parent: string, name: string) { return `${parent.replace(/\/$/, "")}/${name}`; }
@@ -19,6 +20,9 @@ function formatSize(size?: number) {
 
 export function DiskPage() {
   const accountId = useAccountStore((state) => state.activeAccountId);
+  const activeAccount = useAccountStore((state) => state.accounts.find((item) => item.id === state.activeAccountId) ?? null);
+  const [serviceAccountId, setServiceAccountId] = useState<string | null>(null);
+  const [accountChecking, setAccountChecking] = useState(true);
   const [path, setPath] = useState("disk:/");
   const [items, setItems] = useState<DiskResource[]>([]);
   const [query, setQuery] = useState("");
@@ -30,16 +34,47 @@ export function DiskPage() {
   const [quota, setQuota] = useState<{ used: number; total: number } | null>(null);
   const [reauthorizing, setReauthorizing] = useState(false);
 
+  useEffect(() => {
+    let current = true;
+    setAccountChecking(true);
+    setServiceAccountId(null);
+    setItems([]);
+    setQuota(null);
+    setTotal(0);
+    setOffset(0);
+    setPath("disk:/");
+    setQuery("");
+    setError(null);
+    if (!accountId) {
+      setAccountChecking(false);
+      return () => { current = false; };
+    }
+    void getAccount(accountId).then((account) => {
+      if (!current) return;
+      setServiceAccountId(account?.oauth_provider === "yandex" && account.auth_method === "oauth2" ? accountId : null);
+      setAccountChecking(false);
+    }).catch((reason) => {
+      if (!current) return;
+      setError(reason instanceof Error ? reason.message : String(reason));
+      setAccountChecking(false);
+    });
+    return () => { current = false; };
+  }, [accountId]);
+
   const load = useCallback(async () => {
+    if (!serviceAccountId) return;
+    const requestedAccountId = serviceAccountId;
     setLoading(true); setError(null);
     try {
-      const listing = query.trim() ? await searchDisk(accountId, query.trim(), offset) : await listDiskResources(accountId, path, offset, 100, sort);
+      const listing = query.trim() ? await searchDisk(requestedAccountId, query.trim(), offset) : await listDiskResources(requestedAccountId, path, offset, 100, sort);
+      if (useAccountStore.getState().activeAccountId !== requestedAccountId) return;
       setItems(listing.items); setTotal(listing.total);
-      const disk = await getDiskQuota(accountId); setQuota({ used: disk.used_space, total: disk.total_space });
+      const disk = await getDiskQuota(requestedAccountId);
+      if (useAccountStore.getState().activeAccountId === requestedAccountId) setQuota({ used: disk.used_space, total: disk.total_space });
     }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { setLoading(false); }
-  }, [accountId, path, query, offset, sort]);
+  }, [serviceAccountId, path, query, offset, sort]);
   useEffect(() => { void load(); }, [load]);
 
   const reconnect = async () => {
@@ -92,6 +127,15 @@ export function DiskPage() {
       if (action !== "download") await load();
     } catch (err) { setError(String(err)); }
   };
+
+  if (!accountChecking && !serviceAccountId) {
+    return <ServicePageShell title="Яндекс Диск" description="Файлы активного Яндекс-аккаунта">
+      <div className="rounded-lg border border-border-primary p-8 text-center">
+        <div className="font-medium">Яндекс Диск недоступен для активного аккаунта</div>
+        <div className="mt-2 text-sm text-text-tertiary">{activeAccount?.email ?? "Аккаунт не выбран"} не подключён через Яндекс ID. Выберите подключённый Яндекс-аккаунт.</div>
+      </div>
+    </ServicePageShell>;
+  }
 
   return (
     <ServicePageShell title="Яндекс Диск" description="Файлы активного Яндекс-аккаунта" actions={

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getYandexServiceClientId } from "./accountApi";
-import { getAccount } from "@/services/db/accounts";
+import { getAccount, getAllAccounts } from "@/services/db/accounts";
+import { resolveYandexAccount } from "./accountApi";
 import { getAllSettings, getSetting, setSetting } from "@/services/db/settings";
 
 vi.mock("@/services/db/accounts", () => ({
@@ -51,5 +52,19 @@ describe("Yandex service credentials", () => {
       "encrypted-refresh",
     );
     expect(setSetting).toHaveBeenCalledTimes(5);
+  });
+
+  it("does not fall back to another Yandex identity for a preferred account", async () => {
+    vi.mocked(getAccount).mockResolvedValue({
+      id: "imap-account",
+      email: "info@example.com",
+      oauth_provider: null,
+      auth_method: "password",
+    } as never);
+
+    await expect(resolveYandexAccount("imap-account")).rejects.toThrow(
+      "Активный аккаунт не подключён через Яндекс ID.",
+    );
+    expect(getAllAccounts).not.toHaveBeenCalled();
   });
 });

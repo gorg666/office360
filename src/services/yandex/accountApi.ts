@@ -54,6 +54,7 @@ export async function resolveYandexAccount(preferredId?: string | null): Promise
   if (preferredId) {
     const account = await getAccount(preferredId);
     if (account?.oauth_provider === "yandex" && account.auth_method === "oauth2") return account;
+    throw new Error("Активный аккаунт не подключён через Яндекс ID.");
   }
   const accounts = await getAllAccounts();
   const account = accounts.find((item) => item.oauth_provider === "yandex" && item.auth_method === "oauth2");

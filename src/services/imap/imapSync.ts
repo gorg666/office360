@@ -344,12 +344,11 @@ async function storeThreadsAndMessages(
     }
   }
 
-  // Process in batches within transactions to avoid long-held locks
+  // Process in batches; write helpers serialize through the shared DB queue.
   for (let i = 0; i < threadGroups.length; i += THREAD_BATCH_SIZE) {
     const batch = threadGroups.slice(i, i + THREAD_BATCH_SIZE);
 
-    await withTransaction(async () => {
-      for (const group of batch) {
+    for (const group of batch) {
         if (skippedThreadIds.has(group.threadId)) continue;
 
         const messages = group.messageIds
@@ -459,8 +458,7 @@ async function storeThreadsAndMessages(
 
           storedMessages.push(parsed);
         }
-      }
-    });
+    }
   }
 
   return storedMessages;
@@ -591,8 +589,7 @@ async function hydrateUncachedImapBodies(
             chunk.map((ref) => ref.imap_uid),
           );
 
-          await withTransaction(async () => {
-            for (const msg of result.messages) {
+          for (const msg of result.messages) {
               const existing = refsByUid.get(msg.uid);
               if (!existing) continue;
 
@@ -639,8 +636,7 @@ async function hydrateUncachedImapBodies(
                   isInline: att.isInline,
                 });
               }
-            }
-          });
+          }
 
           hydrated += result.messages.length;
           progressInBatch += result.messages.length;
@@ -853,10 +849,9 @@ export async function imapInitialSync(
           chunkParsed.push({ parsed, msg, threadable });
         }
 
-        // Write entire chunk to DB in a single transaction
+        // Write sequentially because each helper owns the shared write lock.
         if (chunkParsed.length > 0) {
-          await withTransaction(async () => {
-            for (const { parsed, msg } of chunkParsed) {
+          for (const { parsed, msg } of chunkParsed) {
               // Create placeholder thread first to satisfy FK constraint
               await upsertThread({
                 id: parsed.id,
@@ -914,8 +909,7 @@ export async function imapInitialSync(
                   isInline: att.isInline,
                 });
               }
-            }
-          });
+          }
           notifyPartialSyncAvailable();
         }
 
@@ -1036,8 +1030,7 @@ export async function imapInitialSync(
       }
     }
 
-    await withTransaction(async () => {
-      for (const group of batch) {
+    for (const group of batch) {
         if (skippedThreadIds.has(group.threadId)) continue;
 
         const messages = group.messageIds
@@ -1088,8 +1081,7 @@ export async function imapInitialSync(
         // Batch-update thread IDs for all messages in this thread
         const messageIds = messages.map((m) => m.id);
         await updateMessageThreadIds(accountId, messageIds, group.threadId);
-      }
-    });
+    }
 
     onProgress?.({
       phase: "storing_threads",

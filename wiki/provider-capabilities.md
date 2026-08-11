@@ -204,3 +204,6 @@ UI hiding недостаточно. Service entry points также должны
 2. Label CRUD works.
 3. `Apply Label` available.
 4. Label actions capability-gated and tested.
+# Active Yandex service identity
+
+Yandex Disk and Telemost are bound to the active account identity. If the active account is not a Yandex OAuth account, service entry points and UI reject the operation instead of falling back to another saved Yandex account. Telemost local meeting history is account-scoped, and its native CEF window is hidden while the active identity is being re-evaluated.

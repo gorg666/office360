@@ -141,11 +141,22 @@ export async function startProviderOAuthFlow(
   const authUrl = `${provider.authUrl}?${new URLSearchParams(params).toString()}`;
 
   let stopCodeListener: (() => void) | null = null;
+  let stopWindowListener: (() => void) | null = null;
   let resolveScreenCode: ((result: OAuthServerResult) => void) | null = null;
   const initialAppLocation = window.location.href;
-  const resultPromise = usesCefScreenCode
+  const callbackPromise = usesCefScreenCode
     ? new Promise<OAuthServerResult>((resolve) => { resolveScreenCode = resolve; })
     : invoke<OAuthServerResult>("start_oauth_server", { port: OAUTH_CALLBACK_PORT, state: oauthState });
+  let rejectWindowClosed: ((reason: Error) => void) | null = null;
+  const windowClosedPromise = new Promise<OAuthServerResult>((_, reject) => { rejectWindowClosed = reject; });
+  if (provider.id === "yandex" && !usesCefScreenCode) {
+    stopWindowListener = await listen("oauth-window-closed", () => {
+      rejectWindowClosed?.(new Error("Окно авторизации Яндекс ID закрыто до завершения подключения."));
+    });
+  }
+  const resultPromise = stopWindowListener
+    ? Promise.race([callbackPromise, windowClosedPromise])
+    : callbackPromise;
   if (usesCefScreenCode) {
     stopCodeListener = await listen<{ type: string; payload: Record<string, unknown> }>("cef-event", (event) => {
       if (event.payload.type === "oauth-code") {
@@ -180,6 +191,7 @@ export async function startProviderOAuthFlow(
     if (routeWatcher !== null) window.clearInterval(routeWatcher);
     if (authorizationTimeout !== null) window.clearTimeout(authorizationTimeout);
     stopCodeListener?.();
+    stopWindowListener?.();
     await closeAuthorization();
   }
 
