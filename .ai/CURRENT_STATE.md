@@ -4,23 +4,23 @@
 
 ## Last updated
 
-2026-08-11 (~22:50 ICT) — hybrid checkpoint freeze (MSG-HYBRID-001/HUB closed; MSG-HYBRID-002 open)
+2026-08-12 — macOS stabilization; MAC-001 fix applied, awaiting manual runtime verification
 
 ## Project
 
-**YALINUX360** — workspace; Office 360 tooling root: `velo-office360-api-ya-clean`  
+**Office360** — macOS stabilization workspace
 Remote GitHub: `gorg666/office360`
 
 ## Active focus
 
-- Branch: **`GORGDEV2-EFIM-INTEGRATION`** (checkpoint after `3c592fe` + MSG/HUB fixes)
-- Protected baseline: `2aaa905…` (ancestor; not rewritten)
-- Push integration branch: yes (this checkpoint)
-- Merge back to `GORGDEV2`: **NO**
+- Branch: **`macos/office360-stabilization`**
+- Baseline: `745cc44d60db4021492aaf6d1383ed96d0536dbe`
+- Current batch: **MAC-001 — Telemost macOS browser fallback**
+- Commit/push: **NO** until review
 
 ## Integration verdict
 
-**INTEGRATION PARTIAL — NOT READY TO MERGE BACK TO GORGDEV2**
+**MAC-001 FIX APPLIED / AWAITING MANUAL VERIFY**
 
 | Area | Status |
 |---|---|
@@ -31,7 +31,7 @@ Remote GitHub: `gorg666/office360`
 | Tasks badge | PASS |
 | Disk | PASS |
 | Tracker | PARTIAL (TRACKER-003/004 etc.) |
-| Telemost smoke | PASS |
+| Telemost macOS fallback | FIX APPLIED / AWAITING MANUAL VERIFY |
 | Account Hub | PASS |
 | Messenger | PARTIAL / P1 **MSG-HYBRID-002** |
 
@@ -40,8 +40,9 @@ Remote GitHub: `gorg666/office360`
 - MSG-HYBRID-001 — **CLOSED/PASS** (tabs + NEEDS ACCESS CTA)
 - HUB-HYBRID-001 — **CLOSED/PASS** (RU «Подключено» / «Требуется доступ»)
 - MSG-HYBRID-002 — **OPEN P1** — after communications consent, Yandex Messenger endless loader; widget/iframe content missing
+- MAC-001 — **FIX APPLIED / AWAITING MANUAL VERIFY** — macOS uses Tauri opener; Windows embedded CEF preserved
 
 ## Next step
 
-- Diagnose MSG-HYBRID-002 only when explicitly requested
-- Do not merge back to GORGDEV2 until Messenger widget usable (or waiver)
+- Complete MAC-001 macOS runtime retest and report before commit/push
+- Do not investigate Sent/CalDAV, notifications, app menu, or Messenger in this batch

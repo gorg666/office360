@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, Copy, ExternalLink, Filter, Mail, MessageCircle, Pencil, Plus, RefreshCw, Search, Users, Video } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useAccountStore } from "@/stores/accountStore";
 import { getCalendarEventsInRange } from "@/services/db/calendarEvents";
 import { createTelemostConference, type TelemostConference } from "@/services/yandex360/telemost";
@@ -9,6 +11,7 @@ import { ServicePageShell } from "./ServicePageShell";
 import { navigateToLabel } from "@/router/navigate";
 import { openNewCompose } from "@/utils/openComposeWindow";
 import { getAccount } from "@/services/db/accounts";
+import { getDesktopPlatform, type DesktopPlatform } from "@/utils/desktopPlatform";
 
 const CREATED_KEY = "office360_telemost_conferences";
 const VISITED_KEY = "office360_telemost_visited";
@@ -75,9 +78,76 @@ export function TelemostPage() {
   const [loading, setLoading] = useState(true);
   const [cefSessionReady, setCefSessionReady] = useState(false);
   const [activeMeetingUrl, setActiveMeetingUrl] = useState<string | null>(null);
+  const [desktopPlatform, setDesktopPlatform] = useState<DesktopPlatform | null>(null);
+  const [macosSpikeOpen, setMacosSpikeOpen] = useState(false);
+  const [macosSpikeUrl, setMacosSpikeUrl] = useState("");
+  const [joinDialogOpen, setJoinDialogOpen] = useState(false);
+  const [joinUrl, setJoinUrl] = useState("");
+  const [routingErrorUrl, setRoutingErrorUrl] = useState<string | null>(null);
   const isTelemostMeeting = /^https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/[^/?#]+/i.test(selectedUrl);
   const isTelemostAuth = /^https:\/\/(?:passport|oauth)\.yandex\.(?:ru|com)\//i.test(selectedUrl);
   const showEmbeddedBrowser = isTelemostMeeting || isTelemostAuth || activeMeetingUrl !== null;
+  const useEmbeddedTelemost = desktopPlatform === "windows";
+
+  useEffect(() => {
+    let current = true;
+    void getDesktopPlatform().then((value) => {
+      if (current) setDesktopPlatform(value);
+    });
+    return () => { current = false; };
+  }, []);
+
+  const openTelemostInBrowser = useCallback(async (url: string) => {
+    try {
+      await openUrl(url);
+    } catch (reason) {
+      console.error("Failed to open Telemost in the system browser:", reason);
+      setError("Не удалось открыть Телемост в браузере.");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (desktopPlatform !== "macos") return;
+    const closed = listen("telemost-macos-spike-closed", () => setMacosSpikeOpen(false));
+    const routingError = listen<string>("telemost-macos-routing-error", (event) => {
+      console.error("Telemost meeting surface left the allowed meeting flow:", event.payload);
+      setRoutingErrorUrl(activeMeetingUrlRef.current);
+      setError("Не удалось открыть видеовстречу внутри приложения.");
+      setMacosSpikeOpen(false);
+      void invoke("close_telemost_macos_spike");
+    });
+    return () => {
+      void closed.then((stop) => stop());
+      void routingError.then((stop) => stop());
+    };
+  }, [desktopPlatform]);
+
+  const openMacosSpike = useCallback(async (meetingUrl: string) => {
+    const value = meetingUrl.trim();
+    if (!value) return;
+    if (!isTelemostJoinUrl(value)) {
+      setError("Введите корректную ссылку на встречу Телемоста.");
+      return;
+    }
+    setError(null);
+    setRoutingErrorUrl(null);
+    try {
+      await invoke("open_telemost_macos_spike", { url: value });
+      setMacosSpikeOpen(true);
+    } catch (reason) {
+      console.error("Telemost WKWebView failed; using browser fallback:", reason);
+      await openTelemostInBrowser(value);
+    }
+  }, [openTelemostInBrowser]);
+
+  const closeMacosSpike = useCallback(async () => {
+    try {
+      await invoke("close_telemost_macos_spike");
+      setMacosSpikeOpen(false);
+    } catch (reason) {
+      console.error("Failed to close Telemost WKWebView:", reason);
+    }
+  }, []);
 
   const rememberActiveMeeting = useCallback((url: string | null) => {
     activeMeetingUrlRef.current = url;
@@ -109,7 +179,7 @@ export function TelemostPage() {
     accountSwitchGenerationRef.current += 1;
     rememberActiveMeeting(null);
     setCreated([]); setVisited([]); setCalendarMeetings([]); setSelectedUrl("https://telemost.yandex.ru/"); setError(null);
-    void cefSetVisible(false);
+    if (useEmbeddedTelemost) void cefSetVisible(false);
     if (!accountId) { setAccountChecking(false); return () => { current = false; }; }
     void getAccount(accountId).then((account) => {
       if (!current) return;
@@ -126,13 +196,13 @@ export function TelemostPage() {
       setAccountChecking(false);
     });
     return () => { current = false; };
-  }, [accountId, rememberActiveMeeting]);
+  }, [accountId, rememberActiveMeeting, useEmbeddedTelemost]);
 
   useEffect(() => { if (serviceAccountId) localStorage.setItem(`${CREATED_KEY}:${serviceAccountId}`, JSON.stringify(created)); }, [created, serviceAccountId]);
   useEffect(() => { if (serviceAccountId) localStorage.setItem(`${VISITED_KEY}:${serviceAccountId}`, JSON.stringify(visited)); }, [visited, serviceAccountId]);
 
   useEffect(() => {
-    if (!serviceAccountId || !activeAccount) return;
+    if (!serviceAccountId || !activeAccount || !useEmbeddedTelemost) return;
     let current = true;
     const generation = ++accountSwitchGenerationRef.current;
     void (async () => {
@@ -155,7 +225,7 @@ export function TelemostPage() {
       if (current) setCefSessionReady(true);
     })().catch((reason) => current && setError(`Не удалось переключить аккаунт Телемоста: ${String(reason)}`));
     return () => { current = false; accountSwitchGenerationRef.current += 1; };
-  }, [activeAccount?.email, serviceAccountId]);
+  }, [activeAccount?.email, serviceAccountId, useEmbeddedTelemost]);
 
   useEffect(() => {
     if (!serviceAccountId) { setCalendarMeetings([]); return; }
@@ -186,6 +256,7 @@ export function TelemostPage() {
   }, [serviceAccountId]);
 
   useEffect(() => {
+    if (desktopPlatform === null) return;
     const eventId = sessionStorage.getItem("office360_telemost_open_event_id");
     if (!eventId || calendarMeetings.length === 0) return;
     const meeting = calendarMeetings.find((item) => item.calendarEventId === eventId);
@@ -195,11 +266,13 @@ export function TelemostPage() {
       setSelectedUrl(meeting.joinUrl);
       rememberActiveMeeting(meeting.joinUrl);
       setError(null);
-      void cefNavigate(meeting.joinUrl);
+      if (useEmbeddedTelemost) void cefNavigate(meeting.joinUrl);
+      else void openTelemostInBrowser(meeting.joinUrl);
     }
-  }, [calendarMeetings, rememberActiveMeeting]);
+  }, [calendarMeetings, desktopPlatform, openTelemostInBrowser, rememberActiveMeeting, useEmbeddedTelemost]);
 
   useEffect(() => {
+    if (!useEmbeddedTelemost) return;
     if (!serviceAccountId || !cefSessionReady) { void cefSetVisible(false); return; }
     let alive = true;
     void cefInitialize().then(() => cefCreate(selectedUrl, serviceAccountId)).catch((reason) => alive && setError(`CEF недоступен: ${String(reason)}`));
@@ -233,7 +306,7 @@ export function TelemostPage() {
       }
     });
     return () => { alive = false; void cefSetVisible(false); void unlisten.then((fn) => fn()); };
-  }, [cefSessionReady, openCalendarDraft, rememberActiveMeeting, serviceAccountId]);
+  }, [cefSessionReady, openCalendarDraft, rememberActiveMeeting, serviceAccountId, useEmbeddedTelemost]);
 
   const syncBounds = useCallback(() => {
     const element = hostRef.current;
@@ -243,6 +316,7 @@ export function TelemostPage() {
   }, []);
 
   useEffect(() => {
+    if (!useEmbeddedTelemost) return;
     if (!serviceAccountId || !cefSessionReady || !showEmbeddedBrowser) { void cefSetVisible(false); return; }
     const element = hostRef.current;
     if (!element) return;
@@ -253,7 +327,7 @@ export function TelemostPage() {
     syncBounds();
     void cefSetVisible(true);
     return () => { observer.disconnect(); window.removeEventListener("resize", syncBounds); window.removeEventListener("scroll", syncBounds, true); void cefSetVisible(false); };
-  }, [cefSessionReady, serviceAccountId, showEmbeddedBrowser, syncBounds]);
+  }, [cefSessionReady, serviceAccountId, showEmbeddedBrowser, syncBounds, useEmbeddedTelemost]);
 
   const meetings = useMemo(() => {
     const fromCreated: MeetingEntry[] = created.map((item) => ({
@@ -273,11 +347,14 @@ export function TelemostPage() {
   }, [calendarMeetings, created, filter, query, selectedCalendarEventId, visited]);
 
   const openMeeting = (meeting: MeetingEntry) => {
+    if (desktopPlatform === null) return;
     setSelectedCalendarEventId(meeting.calendarEventId ?? null);
     setSelectedUrl(meeting.joinUrl);
     rememberActiveMeeting(meeting.joinUrl);
     setError(null);
-    void cefNavigate(meeting.joinUrl);
+    if (useEmbeddedTelemost) void cefNavigate(meeting.joinUrl);
+    else if (desktopPlatform === "macos") void openMacosSpike(meeting.joinUrl);
+    else void openTelemostInBrowser(meeting.joinUrl);
   };
 
   const openCalendarEvent = (meeting: MeetingEntry) => {
@@ -292,44 +369,30 @@ export function TelemostPage() {
   };
 
   const connect = () => {
-    const value = window.prompt("Введите ссылку или номер встречи", "")?.trim();
+    const value = joinUrl.trim();
     if (!value) return;
     const url = /^https:\/\//i.test(value) ? value : `https://telemost.yandex.ru/j/${value.replace(/\D/g, "")}`;
     if (!/^https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/\d+/i.test(url)) {
       setError("Введите корректную ссылку или номер встречи Телемоста.");
       return;
     }
+    setJoinDialogOpen(false);
+    setJoinUrl("");
     openMeeting({ id: meetingId(url), title: `Встреча ${meetingId(url)}`, joinUrl: url, source: "visited" });
   };
 
   const schedule = async () => {
-    if (!serviceAccountId) return;
+    if (!serviceAccountId || desktopPlatform === null) return;
     setError(null);
     if (activeMeetingUrlRef.current) {
       openCalendarDraft(activeMeetingUrlRef.current);
       return;
     }
-    pendingScheduleRef.current = true;
-    try {
-      await createInWebTelemost();
-    } catch (reason) {
-      pendingScheduleRef.current = false;
-      setError(`Не удалось подготовить встречу для календаря: ${reason instanceof Error ? reason.message : String(reason)}`);
-    }
-  };
-
-  const createInWebTelemost = async () => {
-    const url = "https://telemost.yandex.ru/?browser-auto-create=1";
-    setSelectedCalendarEventId(null);
-    rememberActiveMeeting(null);
-    setSelectedUrl(url);
-    setError(null);
-    await cefSetVisible(false);
-    await cefNavigate(url);
+    navigateToLabel("calendar");
   };
 
   const create = async () => {
-    if (!serviceAccountId) return;
+    if (!serviceAccountId || desktopPlatform === null) return;
     try {
       setError(null);
       const title = window.prompt("Название встречи", "Новая встреча")?.trim() || "Новая встреча";
@@ -342,9 +405,8 @@ export function TelemostPage() {
       setCreated((items) => [stored, ...items.filter((item) => item.id !== conference.id)]);
       if (inviteEmails.length > 0) void inviteToMeeting(stored);
       openMeeting({ id: conference.id, title, joinUrl: conference.joinUrl, source: "created", startTime: stored.scheduledAt ?? stored.createdAt });
-    } catch {
-      // Personal Yandex IDs create meetings through the embedded web client.
-      await createInWebTelemost();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось создать встречу Телемоста.");
     }
   };
 
@@ -377,13 +439,21 @@ export function TelemostPage() {
     </ServicePageShell>;
   }
 
-  return <ServicePageShell title="Яндекс Телемост" description="Встречи и встроенный Chromium Embedded Framework" actions={<div className="flex flex-wrap gap-2">
-    <button className="btn-secondary px-3 py-2 flex gap-2" onClick={create}><Plus size={16}/>Новая видеовстреча</button>
-    <button className="btn-secondary px-3 py-2 flex gap-2" onClick={() => void schedule()}><CalendarDays size={16}/>Запланировать</button>
-    <button className="btn-secondary px-3 py-2 flex gap-2" onClick={connect}><Users size={16}/>Подключиться</button>
+  return <ServicePageShell title="Яндекс Телемост" description={useEmbeddedTelemost ? "Встречи в Office360" : "Встречи активного Яндекс-аккаунта"} actions={<div className="flex flex-wrap gap-2">
+    <button className="btn-secondary px-3 py-2 flex gap-2" disabled={desktopPlatform === null} onClick={create}><Plus size={16}/>Новая видеовстреча</button>
+    <button className="btn-secondary px-3 py-2 flex gap-2" disabled={desktopPlatform === null} onClick={() => void schedule()}><CalendarDays size={16}/>Запланировать</button>
+    <button className="btn-secondary px-3 py-2 flex gap-2" disabled={desktopPlatform === null} onClick={() => { setError(null); setJoinDialogOpen(true); }}><Users size={16}/>Подключиться</button>
     <button className="btn-secondary px-3 py-2 flex gap-2 opacity-60" disabled title="Недоступно на текущем тарифе"><Video size={16}/>Трансляция</button>
+    {import.meta.env.DEV && desktopPlatform === "macos" && <input aria-label="Экспериментальная ссылка Телемоста" className="min-w-72 rounded border border-border-primary bg-bg-secondary px-3 py-2 text-sm" placeholder="https://telemost.yandex.ru/j/..." value={macosSpikeUrl} onChange={(event) => setMacosSpikeUrl(event.target.value)}/>}
+    {import.meta.env.DEV && desktopPlatform === "macos" && <button className="btn-secondary px-3 py-2 flex gap-2" onClick={() => void openMacosSpike(macosSpikeUrl)}><Video size={16}/>Открыть внутри Office360 (экспериментально)</button>}
+    {desktopPlatform === "macos" && macosSpikeOpen && <button className="btn-secondary px-3 py-2" onClick={() => void closeMacosSpike()}>Закрыть окно встречи</button>}
   </div>}>
     {error && <div className="mb-3 rounded-md bg-danger/10 text-danger p-3 text-sm flex items-center justify-between"><span>{error}</span><button onClick={() => setError(null)}>Закрыть</button></div>}
+    {joinDialogOpen && <div className="mb-3 rounded-lg border border-border-primary bg-bg-primary p-4" role="dialog" aria-label="Подключиться к встрече">
+      <div className="font-medium">Подключиться к встрече</div>
+      <div className="mt-1 text-sm text-text-tertiary">Вставьте ссылку Яндекс Телемоста.</div>
+      <div className="mt-3 flex gap-2"><input autoFocus aria-label="Ссылка на встречу" value={joinUrl} onChange={(event) => setJoinUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") connect(); }} placeholder="https://telemost.yandex.ru/j/..." className="min-w-0 flex-1 rounded border border-border-primary bg-bg-secondary px-3 py-2 text-sm"/><button className="btn-primary px-4 py-2" onClick={connect}>Подключиться</button><button className="btn-secondary px-4 py-2" onClick={() => setJoinDialogOpen(false)}>Отмена</button></div>
+    </div>}
     <div className="h-full min-h-[650px] grid grid-cols-[400px_minmax(0,1fr)] gap-3">
       <aside className="border border-border-primary rounded-lg overflow-hidden flex flex-col bg-bg-primary">
         <div className="p-3 border-b border-border-primary"><div className="font-medium">Встречи</div><div className="mt-2 relative"><Search size={14} className="absolute left-2 top-2.5 text-text-tertiary"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск встреч" className="w-full rounded border border-border-primary bg-bg-secondary py-2 pl-8 pr-2 text-sm"/></div></div>
@@ -413,15 +483,16 @@ export function TelemostPage() {
           </article>;
         })}</div>
       </aside>
-      <section className="relative border border-border-primary rounded-lg overflow-hidden min-w-0 bg-black">
-        <div ref={hostRef} className="absolute inset-0 bg-black"/>
-        {!showEmbeddedBrowser && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Выберите действие в верхней панели</div><div className="mt-2 text-sm text-text-tertiary">Создайте, запланируйте или откройте встречу по ссылке.</div></div></div>}
-        <div className="absolute right-3 top-3 z-10 flex gap-2 pointer-events-auto">
+      <section className={`relative border border-border-primary rounded-lg overflow-hidden min-w-0 ${useEmbeddedTelemost ? "bg-black" : "bg-bg-primary"}`}>
+        {useEmbeddedTelemost && <div ref={hostRef} className="absolute inset-0 bg-black"/>}
+        {!useEmbeddedTelemost && desktopPlatform !== null && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Встречи внутри Office360</div><div className="mx-auto mt-2 max-w-md text-sm text-text-tertiary">Выберите встречу в списке или подключитесь по ссылке. Видеовстреча откроется в отдельном окне Office360.</div>{isTelemostJoinUrl(selectedUrl) && !routingErrorUrl && <div className="mt-5 flex justify-center gap-2"><button className="btn-primary px-4 py-2 inline-flex items-center gap-2" onClick={() => desktopPlatform === "macos" ? void openMacosSpike(selectedUrl) : void openTelemostInBrowser(selectedUrl)}><Video size={16}/>Подключиться</button><button className="btn-secondary px-4 py-2 inline-flex items-center gap-2" onClick={() => void openTelemostInBrowser(selectedUrl)}><ExternalLink size={16}/>Открыть в браузере</button></div>}{routingErrorUrl && <div className="mt-5"><div className="text-sm text-danger">Не удалось открыть видеовстречу внутри приложения.</div><div className="mt-3 flex justify-center gap-2"><button className="btn-primary px-4 py-2" onClick={() => void openMacosSpike(routingErrorUrl)}>Повторить</button><button className="btn-secondary px-4 py-2" onClick={() => void openTelemostInBrowser(routingErrorUrl)}>Открыть в браузере</button></div></div>}</div></div>}
+        {useEmbeddedTelemost && !showEmbeddedBrowser && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Выберите действие в верхней панели</div><div className="mt-2 text-sm text-text-tertiary">Создайте, запланируйте или откройте встречу по ссылке.</div></div></div>}
+        {useEmbeddedTelemost && <div className="absolute right-3 top-3 z-10 flex gap-2 pointer-events-auto">
           {loading && <span className="rounded bg-black/70 px-2 py-1 text-xs text-white">Загрузка…</span>}
           <button className="rounded bg-black/70 p-2 text-white hover:bg-black" title="Обновить" onClick={() => cefNavigate(selectedUrl)}><RefreshCw size={15}/></button>
           <button className="rounded bg-black/70 p-2 text-white hover:bg-black" title="Копировать ссылку" onClick={() => navigator.clipboard.writeText(selectedUrl)}><Copy size={15}/></button>
-          <button className="rounded bg-black/70 p-2 text-white hover:bg-black" title="Открыть ссылку в системном браузере" onClick={() => window.open(selectedUrl, '_blank')}><ExternalLink size={15}/></button>
-        </div>
+          <button className="rounded bg-black/70 p-2 text-white hover:bg-black" title="Открыть ссылку в системном браузере" onClick={() => void openTelemostInBrowser(selectedUrl)}><ExternalLink size={15}/></button>
+        </div>}
       </section>
     </div>
   </ServicePageShell>;
@@ -429,6 +500,10 @@ export function TelemostPage() {
 
 function parseMeetingAttendees(value: string | null): MeetingEntry["attendees"] {
   try { return value ? JSON.parse(value) as NonNullable<MeetingEntry["attendees"]> : []; } catch { return []; }
+}
+
+function isTelemostJoinUrl(value: string): boolean {
+  return /^https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/[^/?#]+/i.test(value);
 }
 
 function parseInviteEmails(value: string): string[] {

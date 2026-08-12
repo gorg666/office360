@@ -57,6 +57,7 @@ Results: `docs/qa/QA_RESULTS_2026-08-11.md`
 | MSG-HYBRID-001 | P1 | Messenger / Efim port | Provider tabs stuck on MAX; Yandex widget not shown | CLOSED / PASS |
 | HUB-HYBRID-001 | P2 | Account Hub / i18n | Grant statuses show English CONNECTED / NEEDS ACCESS | CLOSED / PASS |
 | MSG-HYBRID-002 | P1 | Messenger widget / runtime mount | Yandex Messenger stuck loading after communications consent | OPEN |
+| MAC-001 | P1 | Telemost / macOS UX | Windows-only CEF error shown instead of browser fallback | FIX APPLIED / AWAITING MANUAL VERIFY |
 
 **Counts:** P0=+TRACKER-002 · P1=+TRACKER-003/004 · P2=+TRACKER-005/006/007 · **TRACKER-001 FIX APPLIED** · write path BLOCKED on org role/ACL
 
@@ -1058,3 +1059,34 @@ iframe/widget bootstrap · CSP · widget script · session initialization · mou
 
 Notes:
 Do not start automatic diagnosis in checkpoint freeze; next session owns MSG-HYBRID-002.
+
+---
+
+# BUG MAC-001 — Telemost macOS browser fallback
+
+Severity:
+P1
+
+Area:
+Telemost / platform navigation / macOS UX
+
+Status:
+FIX APPLIED / AWAITING MANUAL VERIFY
+
+Environment:
+`macos/office360-stabilization` / macOS / Tauri WebKit
+
+Observed:
+The Telemost React flow called Windows-only CEF commands on macOS and displayed a red technical error containing `Embedded Telemost`, `Windows x64`, and CEF details.
+
+Expected:
+On macOS, retain the Office360 Telemost shell/list and open meetings in the default browser through the Tauri opener. On Windows, retain the existing embedded CEF flow.
+
+Root cause:
+Telemost had no product-level platform branch; only the Rust CEF implementation was platform-guarded.
+
+Fix applied:
+A shared desktop platform helper now maps `windows`, `macos`, and `other`. Telemost gates the complete CEF lifecycle to Windows. macOS actions and meeting URLs use `@tauri-apps/plugin-opener`, with localized user-facing failure handling.
+
+Verification:
+Targeted Vitest covers macOS no-CEF behavior, Windows embedded behavior, create, schedule, join, existing and recent URLs, technical-copy absence, and opener failure localization. Runtime retest pending.

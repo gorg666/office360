@@ -30,6 +30,7 @@ mod messengers;
 mod notifications;
 mod oauth;
 mod smtp;
+mod telemost_macos_spike;
 
 #[tauri::command]
 fn close_splashscreen(app: tauri::AppHandle) {
@@ -126,6 +127,8 @@ pub fn run() {
             cef::cef_reload,
             cef::cef_dom_command,
             cef::cef_permission_response,
+            telemost_macos_spike::open_telemost_macos_spike,
+            telemost_macos_spike::close_telemost_macos_spike,
             audio::play_notification_sound,
             notifications::show_native_notification,
             notifications::ensure_notification_app_identity,
