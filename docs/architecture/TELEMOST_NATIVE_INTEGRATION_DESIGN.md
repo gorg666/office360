@@ -75,6 +75,8 @@ The grant readiness check requires `telemost-api:conferences.create`, `telemost-
 
 The account-scoped capability model starts at `UNKNOWN`. Successful create/read marks `API_AVAILABLE`; only the confirmed `ApiRestrictedToOrganizations` response marks `WEB_ONLY`. Generic conference 403, missing scope, authentication, rate-limit and network errors remain separate states. `WEB_ONLY` keeps the native Office360 page and join/history features, while create/schedule offers the official Telemost browser flow without repeated API or consent attempts.
 
+`WEB_ONLY` is an embedded-web capability, not a browser-only limitation. Windows retains its existing account-isolated CEF profile and `https://telemost.yandex.ru/?browser-auto-create=1` flow. macOS opens the same official route in a separate parented persistent WKWebView with no matching Tauri capability. A concrete `/j/<id>` main-frame navigation, trusted popup, or SPA-updated current URL is captured through public webview APIs without DOM/API scraping, stored as `WEB_CREATED`, and returned to the native Office360 meeting list. Unrelated destinations are externalized; the main Telemost page remains native. Browser creation is used only when the embedded renderer fails or on unsupported platforms.
+
 Remote `TelemostConference` data is kept separate from the minimal local meeting record (`joinUrl`, optional title, timestamps, source and optional remote ID). Local history is derived only from Office360 API creation, link joins and Calendar events; no Yandex history scraping is used.
 
 ## Sources

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   navigateToLabel: vi.fn(),
   hasGrantScopes: vi.fn(),
   authorizeGrant: vi.fn(),
+  createMeetingWeb: vi.fn(),
 }));
 
 vi.mock("@/utils/desktopPlatform", () => ({
@@ -57,6 +58,7 @@ vi.mock("@/services/oauth/yandexUnifiedAuth", () => ({
   hasYandexGrantScopes: mocks.hasGrantScopes,
   TELEMOST_REQUIRED_SCOPES: ["create", "read", "update"],
 }));
+vi.mock("@/services/telemost/meetingActions", () => ({ createTelemostMeetingWeb: mocks.createMeetingWeb }));
 vi.mock("@/router/navigate", () => ({ navigateToLabel: mocks.navigateToLabel }));
 vi.mock("@/utils/openComposeWindow", () => ({ openNewCompose: vi.fn() }));
 vi.mock("./ServicePageShell", () => ({
@@ -90,6 +92,7 @@ beforeEach(() => {
   mocks.invoke.mockResolvedValue(undefined);
   mocks.hasGrantScopes.mockResolvedValue(true);
   mocks.authorizeGrant.mockResolvedValue(undefined);
+  mocks.createMeetingWeb.mockResolvedValue("wkwebview");
   mocks.listeners = {};
   localStorage.clear();
   sessionStorage.clear();
@@ -207,20 +210,31 @@ describe("Telemost native macOS shell", () => {
     await waitFor(() => expect(mocks.createConference).toHaveBeenCalled());
   });
 
-  it("switches an exact organization restriction to reusable web-only mode", async () => {
+  it("switches an exact organization restriction to embedded reusable web-only mode", async () => {
     const { TelemostApiError } = await import("@/services/yandex360/telemost");
     mocks.createConference.mockRejectedValueOnce(new TelemostApiError("organization_restricted", "technical 403"));
     vi.spyOn(window, "prompt").mockReturnValue("");
     await renderReady();
 
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
-    expect(await screen.findByText("Создание встреч через Office360 доступно для аккаунтов Яндекс 360 для бизнеса.")).toBeInTheDocument();
+    await waitFor(() => expect(mocks.createMeetingWeb).toHaveBeenCalledWith("macos"));
     expect(document.body.textContent).not.toContain("technical 403");
-    fireEvent.click(screen.getByRole("button", { name: "Закрыть" }));
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
-    await screen.findByRole("dialog", { name: "Создание встреч" });
+    await waitFor(() => expect(mocks.createMeetingWeb).toHaveBeenCalledTimes(2));
     expect(mocks.createConference).toHaveBeenCalledTimes(1);
     expect(mocks.authorizeGrant).not.toHaveBeenCalled();
+    expect(mocks.openUrl).not.toHaveBeenCalled();
+  });
+
+  it("captures a macOS web-created join URL into a native card", async () => {
+    localStorage.setItem("office360_telemost_capability:account-1", "WEB_ONLY");
+    await renderReady();
+    fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
+    await waitFor(() => expect(mocks.listeners["telemost-macos-created"]).toBeDefined());
+    act(() => mocks.listeners["telemost-macos-created"]({ payload: RECENT_URL }));
+    expect(await screen.findByRole("button", { name: /Видеовстреча/ })).toBeInTheDocument();
+    expect(document.body.textContent).toContain("Создана вами");
+    expect(mocks.invoke).toHaveBeenCalledWith("close_telemost_macos_create");
   });
 
 });

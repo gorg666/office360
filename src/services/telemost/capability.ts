@@ -20,7 +20,7 @@ export interface LocalTelemostMeeting {
   joinUrl: string;
   title: string | null;
   lastOpenedAt: number | null;
-  source: "API_CREATED" | "JOINED_LINK" | "CALENDAR";
+  source: "API_CREATED" | "WEB_CREATED" | "JOINED_LINK" | "CALENDAR";
   remoteConferenceId: string | null;
   createdAt: number | null;
   scheduledAt: number | null;

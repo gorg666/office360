@@ -48,3 +48,5 @@ Remote GitHub: `gorg666/office360`
 - Do not investigate Sent/CalDAV, notifications, app menu, or Messenger in this batch
 - Telemost Phase 1 committed/pushed as `65b507f`; Phase 2 API integration is applied locally and awaiting runtime grant verification.
 - Telemost Phase 2 capability fallback: exact organization restriction maps to account-scoped WEB_ONLY; native join remains available and API mode is preserved for eligible Business accounts.
+- Telemost standard-account parity: WEB_ONLY routes create to Windows CEF or macOS owned WKWebView; `/j/` navigation capture creates a local WEB_CREATED card, with browser only as fallback.
+- Telemost standard-account macOS runtime: LIVE VERIFIED for official web create, `/j/` capture, native card, copy link, focus restoration, and join in owned WKWebView.

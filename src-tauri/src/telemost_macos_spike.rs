@@ -1,6 +1,7 @@
 use tauri::{AppHandle, Emitter, Manager};
 
 const WINDOW_LABEL: &str = "telemost-macos-spike";
+const CREATE_WINDOW_LABEL: &str = "telemost-macos-create";
 
 fn is_allowed_navigation(url: &tauri::Url) -> bool {
     if url.scheme() != "https" {
@@ -125,6 +126,105 @@ pub fn close_telemost_macos_spike(app: AppHandle) -> Result<(), String> {
     }
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.set_focus();
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn open_telemost_macos_create(app: AppHandle) -> Result<(), String> {
+    use tauri::{webview::NewWindowResponse, WebviewUrl, WebviewWindowBuilder};
+    use tauri_plugin_opener::OpenerExt;
+
+    if let Some(existing) = app.get_webview_window(CREATE_WINDOW_LABEL) {
+        existing.show().map_err(|error| error.to_string())?;
+        existing.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    let main = app.get_webview_window("main").ok_or_else(|| "Main window is unavailable".to_string())?;
+    let start = tauri::Url::parse("https://telemost.yandex.ru/?browser-auto-create=1").map_err(|error| error.to_string())?;
+    let navigation_app = app.clone();
+    let popup_app = app.clone();
+    let mut builder = WebviewWindowBuilder::new(&app, CREATE_WINDOW_LABEL, WebviewUrl::External(start))
+        .title("Создание встречи — Яндекс Телемост")
+        .inner_size(1100.0, 760.0)
+        .min_inner_size(800.0, 600.0)
+        .resizable(true)
+        .center()
+        .focused(true)
+        .visible(true)
+        .devtools(cfg!(debug_assertions))
+        .incognito(false)
+        .on_navigation(move |target| {
+            let allowed = is_allowed_navigation(target);
+            if allowed && matches!(target.host_str(), Some("telemost.yandex.ru") | Some("telemost.360.yandex.ru")) && target.path().starts_with("/j/") {
+                if let Some(main) = navigation_app.get_webview_window("main") {
+                    let _ = main.emit("telemost-macos-created", target.as_str());
+                }
+            } else if !allowed && target.scheme() == "https" {
+                let _ = navigation_app.opener().open_url(target.as_str(), None::<&str>);
+            }
+            allowed
+        })
+        .on_new_window(move |target, _features| {
+            if is_allowed_navigation(&target) {
+                if matches!(target.host_str(), Some("telemost.yandex.ru") | Some("telemost.360.yandex.ru")) && target.path().starts_with("/j/") {
+                    if let Some(main) = popup_app.get_webview_window("main") {
+                        let _ = main.emit("telemost-macos-created", target.as_str());
+                    }
+                }
+            } else if target.scheme() == "https" {
+                let _ = popup_app.opener().open_url(target.as_str(), None::<&str>);
+            }
+            NewWindowResponse::Deny
+        });
+    builder = builder.parent(&main).map_err(|error| error.to_string())?;
+    let window = builder.build().map_err(|error| format!("Failed to create Telemost create window: {error}"))?;
+    let url_watch_window = window.clone();
+    let url_watch_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
+        loop {
+            interval.tick().await;
+            if url_watch_app.get_webview_window(CREATE_WINDOW_LABEL).is_none() {
+                break;
+            }
+            let Ok(target) = url_watch_window.url() else { continue };
+            if matches!(target.host_str(), Some("telemost.yandex.ru") | Some("telemost.360.yandex.ru"))
+                && target.path().starts_with("/j/")
+            {
+                if let Some(main) = url_watch_app.get_webview_window("main") {
+                    let _ = main.emit("telemost-macos-created", target.as_str());
+                }
+                break;
+            }
+        }
+    });
+    let app_for_close = app.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Destroyed = event {
+            if let Some(main) = app_for_close.get_webview_window("main") {
+                let _ = main.show();
+                let _ = main.set_focus();
+                let _ = main.emit("telemost-macos-create-closed", ());
+            }
+        }
+    });
+    log::info!("[telemost-macos-create] WKWebView opened without a matching IPC capability");
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub fn open_telemost_macos_create(_app: AppHandle) -> Result<(), String> {
+    Err("The Telemost create window is available only on macOS".to_string())
+}
+
+#[tauri::command]
+pub fn close_telemost_macos_create(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(CREATE_WINDOW_LABEL) {
+        window.close().map_err(|error| error.to_string())?;
     }
     Ok(())
 }
