@@ -3,10 +3,7 @@ import { updateAccountAllTokens, updateAccountTokens } from "../db/accounts";
 import { getOAuthProvider } from "./providers";
 import { refreshProviderToken } from "./oauthFlow";
 import { computeTokenExpiresAtSeconds } from "./tokenExpiry";
-import {
-  fingerprintClientId,
-  resolveYandexClientSecret,
-} from "./yandexOAuthCredentials";
+import { fingerprintClientId } from "./yandexOAuthCredentials";
 
 /** Buffer before expiry to trigger a refresh (5 minutes) */
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -79,15 +76,10 @@ export async function ensureFreshToken(
     throw new Error(`OAuth account ${account.email} has no client ID`);
   }
 
-  let clientSecret = account.oauth_client_secret ?? undefined;
-  if (account.oauth_provider === "yandex") {
-    clientSecret = await resolveYandexClientSecret(account.oauth_client_secret);
-    console.info("[oauth][yandex] refresh credentials:", {
-      clientIdFingerprint: fingerprintClientId(account.oauth_client_id),
-      clientSecretPresent: Boolean(clientSecret),
-      refreshTokenPresent: true,
-    });
-  }
+  const clientSecret =
+    account.oauth_provider === "yandex"
+      ? undefined
+      : account.oauth_client_secret ?? undefined;
 
   let tokens;
   try {
@@ -105,13 +97,9 @@ export async function ensureFreshToken(
       clientSecretPresent: Boolean(clientSecret),
       invalidClient: isInvalidClientRefreshError(message),
     });
-    if (
-      account.oauth_provider === "yandex" &&
-      isInvalidClientRefreshError(message)
-    ) {
+    if (account.oauth_provider === "yandex" && isInvalidClientRefreshError(message)) {
       throw new Error(
-        "Сессия Яндекс ID не обновляется: для этого OAuth-приложения нужен client secret. " +
-          "Добавьте секрет Яндекс OAuth в настройках (безопасное хранилище) и подключите аккаунт снова.",
+        "Сессия Яндекс ID не обновляется: OAuth-приложение отклонено или его Client ID не соответствует refresh token. Подключите аккаунт повторно.",
       );
     }
     if (

@@ -50,6 +50,18 @@ const yahooProvider: OAuthProviderConfig = {
   usePkce: true,
 };
 
+const yandexProvider: OAuthProviderConfig = {
+  id: "yandex",
+  name: "Яндекс ID",
+  authUrl: "https://oauth.yandex.ru/authorize",
+  tokenUrl: "https://oauth.yandex.ru/token",
+  scopes: ["login:email", "mail:imap_full", "mail:smtp", "calendar:all"],
+  publicClientId: "managed-yandex-client",
+  userInfoUrl: "https://login.yandex.ru/info?format=json",
+  userInfoAuthScheme: "OAuth",
+  usePkce: true,
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -116,6 +128,25 @@ describe("refreshProviderToken", () => {
       refreshToken: "refresh",
       clientId: "client",
       clientSecret: "secret-123",
+      scope: null,
+    });
+  });
+
+  it("refreshes a Yandex public client without a client secret", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      access_token: "yandex-token",
+      refresh_token: "rotated-refresh",
+      expires_in: 3600,
+      token_type: "Bearer",
+    });
+
+    await refreshProviderToken(yandexProvider, "yandex-refresh", "managed-yandex-client");
+
+    expect(invoke).toHaveBeenCalledWith("oauth_refresh_token", {
+      tokenUrl: yandexProvider.tokenUrl,
+      refreshToken: "yandex-refresh",
+      clientId: "managed-yandex-client",
+      clientSecret: null,
       scope: null,
     });
   });

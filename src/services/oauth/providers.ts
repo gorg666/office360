@@ -12,7 +12,14 @@ export interface OAuthProviderConfig {
   usePkce: boolean;
 }
 
-const DEFAULT_YANDEX_SCOPES = ["login:email", "login:info", "login:avatar"];
+export const DEFAULT_YANDEX_SCOPES = [
+  "login:email",
+  "login:info",
+  "login:avatar",
+  "mail:imap_full",
+  "mail:smtp",
+  "calendar:all",
+];
 const DEFAULT_YANDEX_PUBLIC_CLIENT_ID = "3a2cf9ad4e854c5ab83fc126d1a89ad4";
 const ENV_YANDEX_PUBLIC_CLIENT_ID = import.meta.env.VITE_YANDEX_OAUTH_CLIENT_ID?.trim() ?? "";
 const YANDEX_PUBLIC_CLIENT_ID =

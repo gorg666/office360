@@ -14,7 +14,6 @@ vi.mock("./oauthFlow", () => ({
 }));
 
 vi.mock("./yandexOAuthCredentials", () => ({
-  resolveYandexClientSecret: vi.fn(),
   fingerprintClientId: (id: string) => `…${id.slice(-4)}`,
 }));
 
@@ -22,7 +21,6 @@ import { ensureFreshToken } from "./oauthTokenManager";
 import { updateAccountTokens, updateAccountAllTokens } from "../db/accounts";
 import { getOAuthProvider } from "./providers";
 import { refreshProviderToken } from "./oauthFlow";
-import { resolveYandexClientSecret } from "./yandexOAuthCredentials";
 import { createMockDbAccount } from "@/test/mocks";
 
 const oauthOverrides = {
@@ -133,7 +131,7 @@ describe("ensureFreshToken", () => {
     expect(refreshProviderToken).toHaveBeenCalled();
   });
 
-  it("resolves Yandex client secret before refresh", async () => {
+  it("refreshes a managed Yandex public client without a manual secret", async () => {
     const account = createMockDbAccount({
       ...oauthOverrides,
       email: "user@yandex.ru",
@@ -145,7 +143,6 @@ describe("ensureFreshToken", () => {
 
     const mockProvider = { id: "yandex", name: "Yandex" };
     vi.mocked(getOAuthProvider).mockReturnValue(mockProvider as ReturnType<typeof getOAuthProvider>);
-    vi.mocked(resolveYandexClientSecret).mockResolvedValue("resolved-secret");
     vi.mocked(refreshProviderToken).mockResolvedValue({
       access_token: "yandex-token",
       expires_in: 3600,
@@ -154,12 +151,11 @@ describe("ensureFreshToken", () => {
 
     const token = await ensureFreshToken(account);
     expect(token).toBe("yandex-token");
-    expect(resolveYandexClientSecret).toHaveBeenCalled();
     expect(refreshProviderToken).toHaveBeenCalledWith(
       mockProvider,
       "refresh-token",
       "yandex-client-id",
-      "resolved-secret",
+      undefined,
     );
   });
 

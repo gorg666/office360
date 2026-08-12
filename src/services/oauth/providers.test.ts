@@ -10,7 +10,7 @@ describe("OAuth providers", () => {
     vi.unstubAllEnvs();
   });
 
-  it("registers Yandex ID with minimal login scopes by default", async () => {
+  it("registers managed Yandex ID with core identity, mail, and calendar scopes by default", async () => {
     vi.resetModules();
     const { getOAuthProvider: getProvider } = await import("./providers");
     const provider = getProvider("yandex");
@@ -20,7 +20,14 @@ describe("OAuth providers", () => {
     expect(provider!.tokenUrl).toBe("https://oauth.yandex.ru/token");
     expect(provider!.userInfoAuthScheme).toBe("OAuth");
     expect(provider!.publicClientId).toBe("3a2cf9ad4e854c5ab83fc126d1a89ad4");
-    expect(provider!.scopes).toEqual(["login:email", "login:info", "login:avatar"]);
+    expect(provider!.scopes).toEqual([
+      "login:email",
+      "login:info",
+      "login:avatar",
+      "mail:imap_full",
+      "mail:smtp",
+      "calendar:all",
+    ]);
   });
 
   it("returns microsoft provider config", () => {

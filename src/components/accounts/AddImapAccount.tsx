@@ -30,10 +30,6 @@ import { getOAuthProvider } from "@/services/oauth/providers";
 import { getYandexOAuthConfigDiagnostics } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
 import { computeTokenExpiresAtSeconds } from "@/services/oauth/tokenExpiry";
-import {
-  resolveYandexClientSecret,
-  saveYandexClientSecret,
-} from "@/services/oauth/yandexOAuthCredentials";
 import { getSetting } from "@/services/db/settings";
 
 interface AddImapAccountProps {
@@ -506,25 +502,10 @@ export function AddImapAccount({
         console.info("[oauth][yandex] selected client_id:", clientId);
       }
 
-      let oauthClientSecret =
-        provider.publicClientId && providerId !== "yandex"
+      const oauthClientSecret =
+        providerId === "yandex" || provider.publicClientId
           ? undefined
           : form.oauthClientSecret.trim() || undefined;
-
-      if (providerId === "yandex") {
-        const typedSecret = form.oauthClientSecret.trim();
-        if (typedSecret) {
-          await saveYandexClientSecret(typedSecret);
-        }
-        oauthClientSecret = await resolveYandexClientSecret(typedSecret || null);
-        console.info("[oauth][yandex] client_secret present for flow:", Boolean(oauthClientSecret));
-        if (!oauthClientSecret) {
-          setOauthError(
-            "Укажите Client Secret (пароль) OAuth-приложения Яндекс ID. Без него access token нельзя обновить, и почта перестанет работать.",
-          );
-          return;
-        }
-      }
 
       const { tokens, userInfo } = await startProviderOAuthFlow(
         provider,
@@ -900,6 +881,10 @@ export function AddImapAccount({
     const providerId = form.oauthProvider ?? detectedOAuthProviderId;
     const provider = providerId ? getOAuthProvider(providerId) : null;
     const usesManagedPublicClient = providerId === "yandex" || !!provider?.publicClientId;
+    const managedConfigError =
+      providerId === "yandex" && !provider?.publicClientId
+        ? "Конфигурация Яндекс OAuth отсутствует в dev environment."
+        : null;
     const canStartOAuth =
       form.email.trim().includes("@") &&
       (usesManagedPublicClient ? !!provider?.publicClientId : !!form.oauthClientId.trim());
@@ -947,28 +932,6 @@ export function AddImapAccount({
           </>
         )}
 
-        {providerId === "yandex" && usesManagedPublicClient && (
-          <div>
-            <label htmlFor="yandex-oauth-client-secret" className={labelClass}>
-              Client Secret (пароль приложения Яндекс ID)
-            </label>
-            <input
-              id="yandex-oauth-client-secret"
-              type="password"
-              value={form.oauthClientSecret}
-              onChange={(e) => updateForm("oauthClientSecret", e.target.value)}
-              placeholder="Обязателен для обновления токена"
-              className={inputClass}
-              disabled={hasOAuthTokens}
-              autoComplete="off"
-            />
-            <p className="mt-1 text-xs text-text-tertiary">
-              Берётся из кабинета OAuth-приложения Яндекс ID. Хранится в защищённом
-              хранилище приложения (не в исходниках и не в VITE_*).
-            </p>
-          </div>
-        )}
-
         {hasOAuthTokens ? (
           <div className="flex items-center gap-2 p-3 rounded-lg bg-success/10 border border-success/20">
             <CheckCircle2 className="w-4 h-4 text-success flex-shrink-0" />
@@ -979,7 +942,7 @@ export function AddImapAccount({
         ) : (
           <button
             onClick={() => providerId && handleOAuthConnect(providerId)}
-            disabled={oauthConnecting || saving || !canStartOAuth}
+            disabled={oauthConnecting || saving || !canStartOAuth || !!managedConfigError}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {oauthConnecting || saving ? (
@@ -994,6 +957,12 @@ export function AddImapAccount({
               </>
             )}
           </button>
+        )}
+
+        {managedConfigError && (
+          <div className="bg-danger/10 border border-danger/20 rounded-lg p-3 text-sm text-danger">
+            {managedConfigError}
+          </div>
         )}
 
         {yandexMailScopeBlocked && usesManagedOAuthFlow
