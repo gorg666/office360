@@ -116,7 +116,7 @@ describe("Telemost native macOS shell", () => {
     fireEvent.change(screen.getByLabelText("Ссылка на встречу"), { target: { value: RECENT_URL } });
     fireEvent.click(screen.getByRole("dialog").querySelector("button.btn-primary")!);
 
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: RECENT_URL }));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: RECENT_URL, accountKey: "account-1" }));
     expect(mocks.openUrl).not.toHaveBeenCalled();
   });
 
@@ -132,7 +132,7 @@ describe("Telemost native macOS shell", () => {
 
     fireEvent.click(recentMeeting);
 
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: RECENT_URL }));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: RECENT_URL, accountKey: "account-1" }));
     expect(mocks.cefNavigate).not.toHaveBeenCalled();
   });
 
@@ -154,7 +154,7 @@ describe("Telemost native macOS shell", () => {
 
     fireEvent.click(calendarMeeting);
 
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: RECENT_URL }));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: RECENT_URL, accountKey: "account-1" }));
     expect(mocks.cefNavigate).not.toHaveBeenCalled();
   });
 
@@ -190,7 +190,7 @@ describe("Telemost native macOS shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Открыть внутри Office360 (экспериментально)" }));
 
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: RECENT_URL }));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: RECENT_URL, accountKey: "account-1" }));
     expect(mocks.cefInitialize).not.toHaveBeenCalled();
     expect(mocks.openUrl).not.toHaveBeenCalled();
   });
@@ -217,7 +217,7 @@ describe("Telemost native macOS shell", () => {
     await renderReady();
 
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
-    await waitFor(() => expect(mocks.createMeetingWeb).toHaveBeenCalledWith("macos"));
+    await waitFor(() => expect(mocks.createMeetingWeb).toHaveBeenCalledWith("macos", "account-1"));
     expect(document.body.textContent).not.toContain("technical 403");
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
     await waitFor(() => expect(mocks.createMeetingWeb).toHaveBeenCalledTimes(2));

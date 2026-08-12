@@ -7,10 +7,14 @@ export function isTelemostJoinUrl(value: string): boolean {
   return /^https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/[^/?#]+/i.test(value);
 }
 
-export async function openTelemostMeeting(platform: DesktopPlatform, joinUrl: string): Promise<"cef" | "wkwebview" | "browser"> {
+export async function openTelemostMeeting(platform: DesktopPlatform, joinUrl: string, accountKey?: string): Promise<"cef" | "wkwebview" | "browser"> {
   if (!isTelemostJoinUrl(joinUrl)) throw new Error("Введите корректную ссылку на встречу Телемоста.");
   if (platform === "windows") { await cefNavigate(joinUrl); return "cef"; }
-  if (platform === "macos") { await invoke("open_telemost_macos_spike", { url: joinUrl }); return "wkwebview"; }
+  if (platform === "macos") {
+    if (!accountKey) throw new Error("Telemost account profile is unavailable");
+    await invoke("open_telemost_macos_spike", { url: joinUrl, accountKey });
+    return "wkwebview";
+  }
   await openUrl(joinUrl); return "browser";
 }
 

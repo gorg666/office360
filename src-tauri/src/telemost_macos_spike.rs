@@ -2,6 +2,15 @@ use tauri::{AppHandle, Emitter, Manager};
 
 const WINDOW_LABEL: &str = "telemost-macos-spike";
 const CREATE_WINDOW_LABEL: &str = "telemost-macos-create";
+const MEETING_ISOLATION_SCRIPT: &str = include_str!("telemost_surface_isolation.js");
+
+fn profile_identifier(account_key: &str) -> Result<[u8; 16], String> {
+    let key = account_key.trim();
+    if key.is_empty() || key.len() > 256 {
+        return Err("Telemost account profile is invalid".to_string());
+    }
+    Ok(*uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, format!("office360:telemost:{key}").as_bytes()).as_bytes())
+}
 
 fn is_allowed_navigation(url: &tauri::Url) -> bool {
     if url.scheme() != "https" {
@@ -32,11 +41,12 @@ fn is_generic_yandex_destination(url: &tauri::Url) -> bool {
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub fn open_telemost_macos_spike(app: AppHandle, url: String) -> Result<(), String> {
+pub fn open_telemost_macos_spike(app: AppHandle, url: String, account_key: String) -> Result<(), String> {
     use tauri::{webview::NewWindowResponse, WebviewUrl, WebviewWindowBuilder};
     use tauri_plugin_opener::OpenerExt;
 
     let parsed = tauri::Url::parse(&url).map_err(|_| "Telemost URL is invalid".to_string())?;
+    let data_store_identifier = profile_identifier(&account_key)?;
     if !matches!(parsed.host_str(), Some("telemost.yandex.ru") | Some("telemost.360.yandex.ru"))
         || parsed.scheme() != "https"
         || !parsed.path().starts_with("/j/")
@@ -58,9 +68,15 @@ pub fn open_telemost_macos_spike(app: AppHandle, url: String) -> Result<(), Stri
         .ok_or_else(|| "Main window is unavailable".to_string())?;
     let popup_app = app.clone();
     let navigation_app = app.clone();
-    let mut builder = WebviewWindowBuilder::new(&app, WINDOW_LABEL, WebviewUrl::External(parsed))
+    let monitor = main.current_monitor().ok().flatten().or_else(|| app.primary_monitor().ok().flatten());
+    let (meeting_width, meeting_height) = monitor.map(|value| {
+        let scale = value.scale_factor();
+        let area = value.work_area().size.to_logical::<f64>(scale);
+        ((area.width * 0.9).max(800.0), (area.height * 0.9).max(600.0))
+    }).unwrap_or((1200.0, 780.0));
+    let builder = WebviewWindowBuilder::new(&app, WINDOW_LABEL, WebviewUrl::External(parsed))
         .title("Яндекс Телемост")
-        .inner_size(1100.0, 760.0)
+        .inner_size(meeting_width, meeting_height)
         .min_inner_size(800.0, 600.0)
         .resizable(true)
         .center()
@@ -68,6 +84,15 @@ pub fn open_telemost_macos_spike(app: AppHandle, url: String) -> Result<(), Stri
         .visible(true)
         .devtools(cfg!(debug_assertions))
         .incognito(false)
+        .data_store_identifier(data_store_identifier)
+        .initialization_script(MEETING_ISOLATION_SCRIPT)
+        .on_document_title_changed(|window, title| {
+            if title == "__O360_TELEMOST_SURFACE_DEGRADED__" {
+                if let Some(main) = window.app_handle().get_webview_window("main") {
+                    let _ = main.emit("telemost-macos-surface-degraded", ());
+                }
+            }
+        })
         .on_navigation(move |target| {
             let allowed = is_allowed_navigation(target);
             if !allowed {
@@ -87,10 +112,6 @@ pub fn open_telemost_macos_spike(app: AppHandle, url: String) -> Result<(), Stri
             let _ = popup_app.opener().open_url(target.as_str(), None::<&str>);
             NewWindowResponse::Deny
         });
-
-    builder = builder
-        .parent(&main)
-        .map_err(|error| format!("Failed to set Telemost spike parent: {error}"))?;
 
     let window = builder
         .build()
@@ -113,7 +134,7 @@ pub fn open_telemost_macos_spike(app: AppHandle, url: String) -> Result<(), Stri
 
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
-pub fn open_telemost_macos_spike(_app: AppHandle, _url: String) -> Result<(), String> {
+pub fn open_telemost_macos_spike(_app: AppHandle, _url: String, _account_key: String) -> Result<(), String> {
     Err("The Telemost WKWebView spike is available only on macOS".to_string())
 }
 
@@ -132,7 +153,7 @@ pub fn close_telemost_macos_spike(app: AppHandle) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub fn open_telemost_macos_create(app: AppHandle) -> Result<(), String> {
+pub fn open_telemost_macos_create(app: AppHandle, account_key: String) -> Result<(), String> {
     use tauri::{webview::NewWindowResponse, WebviewUrl, WebviewWindowBuilder};
     use tauri_plugin_opener::OpenerExt;
 
@@ -143,6 +164,7 @@ pub fn open_telemost_macos_create(app: AppHandle) -> Result<(), String> {
     }
 
     let main = app.get_webview_window("main").ok_or_else(|| "Main window is unavailable".to_string())?;
+    let data_store_identifier = profile_identifier(&account_key)?;
     let start = tauri::Url::parse("https://telemost.yandex.ru/?browser-auto-create=1").map_err(|error| error.to_string())?;
     let navigation_app = app.clone();
     let popup_app = app.clone();
@@ -156,6 +178,7 @@ pub fn open_telemost_macos_create(app: AppHandle) -> Result<(), String> {
         .visible(true)
         .devtools(cfg!(debug_assertions))
         .incognito(false)
+        .data_store_identifier(data_store_identifier)
         .on_navigation(move |target| {
             let allowed = is_allowed_navigation(target);
             if allowed && matches!(target.host_str(), Some("telemost.yandex.ru") | Some("telemost.360.yandex.ru")) && target.path().starts_with("/j/") {
@@ -217,7 +240,7 @@ pub fn open_telemost_macos_create(app: AppHandle) -> Result<(), String> {
 
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
-pub fn open_telemost_macos_create(_app: AppHandle) -> Result<(), String> {
+pub fn open_telemost_macos_create(_app: AppHandle, _account_key: String) -> Result<(), String> {
     Err("The Telemost create window is available only on macOS".to_string())
 }
 
@@ -229,9 +252,23 @@ pub fn close_telemost_macos_create(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub async fn reset_telemost_macos_profile(app: AppHandle, account_key: String) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(WINDOW_LABEL) { let _ = window.close(); }
+    if let Some(window) = app.get_webview_window(CREATE_WINDOW_LABEL) { let _ = window.close(); }
+    app.remove_data_store(profile_identifier(&account_key)?).await.map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{is_allowed_navigation, is_generic_yandex_destination};
+    use super::{is_allowed_navigation, is_generic_yandex_destination, profile_identifier};
+
+    #[test]
+    fn derives_stable_account_scoped_profile_identifiers() {
+        assert_eq!(profile_identifier("account-a").unwrap(), profile_identifier("account-a").unwrap());
+        assert_ne!(profile_identifier("account-a").unwrap(), profile_identifier("account-b").unwrap());
+        assert!(profile_identifier("").is_err());
+    }
 
     #[test]
     fn allows_only_expected_yandex_navigation_origins() {

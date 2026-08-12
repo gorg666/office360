@@ -139,9 +139,16 @@ export function TelemostPage() {
       setMacosSpikeOpen(false);
       void invoke("close_telemost_macos_spike");
     });
+    const degraded = listen("telemost-macos-surface-degraded", () => {
+      setRoutingErrorUrl(activeMeetingUrlRef.current);
+      setError("Интерфейс Телемоста изменился. Открыть встречу в браузере?");
+      setMacosSpikeOpen(false);
+      void invoke("close_telemost_macos_spike");
+    });
     return () => {
       void closed.then((stop) => stop());
       void routingError.then((stop) => stop());
+      void degraded.then((stop) => stop());
     };
   }, [desktopPlatform]);
 
@@ -172,12 +179,24 @@ export function TelemostPage() {
     setError(null);
     webCreateOperationRef.current = operation;
     try {
-      await createTelemostMeetingWeb(desktopPlatform);
+      await createTelemostMeetingWeb(desktopPlatform, serviceAccountId ?? accountId ?? undefined);
     } catch (reason) {
       console.error("Embedded Telemost create failed:", reason);
       setWebCreateFallback(operation);
     }
-  }, [desktopPlatform]);
+  }, [accountId, desktopPlatform, serviceAccountId]);
+
+  const switchTelemostAccount = useCallback(async () => {
+    if (desktopPlatform !== "macos" || !serviceAccountId) return;
+    setError(null);
+    try {
+      await invoke("reset_telemost_macos_profile", { accountKey: serviceAccountId });
+      await createTelemostMeetingWeb("macos", serviceAccountId);
+    } catch (reason) {
+      console.error("Failed to reset the Telemost web profile:", reason);
+      setError("Не удалось сменить аккаунт Телемоста.");
+    }
+  }, [desktopPlatform, serviceAccountId]);
 
   const openMacosSpike = useCallback(async (meetingUrl: string) => {
     const value = meetingUrl.trim();
@@ -189,13 +208,13 @@ export function TelemostPage() {
     setError(null);
     setRoutingErrorUrl(null);
     try {
-      await openTelemostMeeting("macos", value);
+      await openTelemostMeeting("macos", value, serviceAccountId ?? accountId ?? undefined);
       setMacosSpikeOpen(true);
     } catch (reason) {
       console.error("Telemost WKWebView failed; using browser fallback:", reason);
       await openTelemostInBrowser(value);
     }
-  }, [openTelemostInBrowser]);
+  }, [accountId, openTelemostInBrowser, serviceAccountId]);
 
   const requireTelemostAccess = useCallback(async (operation: "create" | "schedule"): Promise<boolean> => {
     if (!serviceAccountId) return false;
@@ -233,7 +252,7 @@ export function TelemostPage() {
     } catch (reason) {
       console.error("Failed to close Telemost WKWebView:", reason);
     }
-  }, []);
+  }, [serviceAccountId]);
 
   useEffect(() => {
     let current = true;
@@ -334,7 +353,7 @@ export function TelemostPage() {
       setSelectedUrl(meeting.joinUrl);
       rememberActiveMeeting(meeting.joinUrl);
       setError(null);
-      void openTelemostMeeting(desktopPlatform, meeting.joinUrl).catch(() => openTelemostInBrowser(meeting.joinUrl));
+      void openTelemostMeeting(desktopPlatform, meeting.joinUrl, serviceAccountId ?? accountId ?? undefined).catch(() => openTelemostInBrowser(meeting.joinUrl));
     }
   }, [calendarMeetings, desktopPlatform, openTelemostInBrowser, rememberActiveMeeting, useEmbeddedTelemost]);
 
@@ -430,7 +449,7 @@ export function TelemostPage() {
     setSelectedUrl(meeting.joinUrl);
     rememberActiveMeeting(meeting.joinUrl);
     setError(null);
-    void openTelemostMeeting(desktopPlatform, meeting.joinUrl).catch(async (reason) => {
+    void openTelemostMeeting(desktopPlatform, meeting.joinUrl, serviceAccountId ?? accountId ?? undefined).catch(async (reason) => {
       console.error("Telemost meeting renderer failed; using browser fallback:", reason);
       await openTelemostInBrowser(meeting.joinUrl);
     });
@@ -555,6 +574,7 @@ export function TelemostPage() {
     {import.meta.env.DEV && desktopPlatform === "macos" && <input aria-label="Экспериментальная ссылка Телемоста" className="min-w-72 rounded border border-border-primary bg-bg-secondary px-3 py-2 text-sm" placeholder="https://telemost.yandex.ru/j/..." value={macosSpikeUrl} onChange={(event) => setMacosSpikeUrl(event.target.value)}/>}
     {import.meta.env.DEV && desktopPlatform === "macos" && <button className="btn-secondary px-3 py-2 flex gap-2" onClick={() => void openMacosSpike(macosSpikeUrl)}><Video size={16}/>Открыть внутри Office360 (экспериментально)</button>}
     {desktopPlatform === "macos" && macosSpikeOpen && <button className="btn-secondary px-3 py-2" onClick={() => void closeMacosSpike()}>Закрыть окно встречи</button>}
+    {desktopPlatform === "macos" && <button className="btn-secondary px-3 py-2" onClick={() => void switchTelemostAccount()}>Сменить аккаунт Телемоста</button>}
   </div>}>
     {error && <div className="mb-3 rounded-md bg-danger/10 text-danger p-3 text-sm flex items-center justify-between"><span>{error}</span><button onClick={() => setError(null)}>Закрыть</button></div>}
     {webCreateFallback && <div className="mb-3 rounded-lg border border-border-primary bg-bg-secondary p-4" role="dialog" aria-label="Создание встреч"><div className="font-medium">Не удалось открыть создание встречи внутри Office360.</div><div className="mt-2 text-sm text-text-tertiary">Открыть Телемост в браузере?{webCreateFallback === "schedule" ? " После получения ссылки добавьте её в событие Office360 Calendar." : ""}</div><div className="mt-3 flex gap-2"><button className="btn-primary px-4 py-2" onClick={() => void openTelemostCreateInBrowser().catch(() => setError("Не удалось открыть Телемост в браузере."))}>Открыть Телемост</button><button className="btn-secondary px-4 py-2" onClick={() => { setWebCreateFallback(null); setJoinDialogOpen(true); }}>Подключиться по ссылке</button><button className="btn-secondary px-4 py-2" onClick={() => setWebCreateFallback(null)}>Закрыть</button></div></div>}
@@ -595,7 +615,7 @@ export function TelemostPage() {
       </aside>
       <section className={`relative border border-border-primary rounded-lg overflow-hidden min-w-0 ${useEmbeddedTelemost ? "bg-black" : "bg-bg-primary"}`}>
         {useEmbeddedTelemost && <div ref={hostRef} className="absolute inset-0 bg-black"/>}
-        {!useEmbeddedTelemost && desktopPlatform !== null && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Встречи внутри Office360</div><div className="mx-auto mt-2 max-w-md text-sm text-text-tertiary">Выберите встречу в списке или подключитесь по ссылке. Видеовстреча откроется в отдельном окне Office360.</div>{isTelemostJoinUrl(selectedUrl) && !routingErrorUrl && <div className="mt-5 flex justify-center gap-2"><button className="btn-primary px-4 py-2 inline-flex items-center gap-2" onClick={() => desktopPlatform === "macos" ? void openMacosSpike(selectedUrl) : void openTelemostInBrowser(selectedUrl)}><Video size={16}/>Подключиться</button><button className="btn-secondary px-4 py-2 inline-flex items-center gap-2" onClick={() => void openTelemostInBrowser(selectedUrl)}><ExternalLink size={16}/>Открыть в браузере</button></div>}{routingErrorUrl && <div className="mt-5"><div className="text-sm text-danger">Не удалось открыть видеовстречу внутри приложения.</div><div className="mt-3 flex justify-center gap-2"><button className="btn-primary px-4 py-2" onClick={() => void openMacosSpike(routingErrorUrl)}>Повторить</button><button className="btn-secondary px-4 py-2" onClick={() => void openTelemostInBrowser(routingErrorUrl)}>Открыть в браузере</button></div></div>}</div></div>}
+        {!useEmbeddedTelemost && desktopPlatform !== null && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Встречи внутри Office360</div><div className="mx-auto mt-2 max-w-md text-sm text-text-tertiary">Выберите встречу в списке или подключитесь по ссылке. Видеовстреча откроется в отдельном окне Office360.</div>{isTelemostJoinUrl(selectedUrl) && !routingErrorUrl && <div className="mt-5 flex justify-center gap-2"><button className="btn-primary px-4 py-2 inline-flex items-center gap-2" onClick={() => desktopPlatform === "macos" ? void openMacosSpike(selectedUrl) : void openTelemostInBrowser(selectedUrl)}><Video size={16}/>Подключиться</button><button className="btn-secondary px-4 py-2 inline-flex items-center gap-2" onClick={() => void openTelemostInBrowser(selectedUrl)}><ExternalLink size={16}/>Открыть в браузере</button></div>}{routingErrorUrl && <div className="mt-5" role="dialog" aria-label="Поверхность Телемоста"><div className="text-sm text-danger">{error ?? "Не удалось открыть видеовстречу внутри приложения."}</div><div className="mt-3 flex justify-center gap-2"><button className="btn-primary px-4 py-2" onClick={() => void openMacosSpike(routingErrorUrl)}>Повторить</button><button className="btn-secondary px-4 py-2" onClick={() => void openTelemostInBrowser(routingErrorUrl)}>Открыть в браузере</button></div></div>}</div></div>}
         {useEmbeddedTelemost && !showEmbeddedBrowser && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Выберите действие в верхней панели</div><div className="mt-2 text-sm text-text-tertiary">Создайте, запланируйте или откройте встречу по ссылке.</div></div></div>}
         {useEmbeddedTelemost && <div className="absolute right-3 top-3 z-10 flex gap-2 pointer-events-auto">
           {loading && <span className="rounded bg-black/70 px-2 py-1 text-xs text-white">Загрузка…</span>}

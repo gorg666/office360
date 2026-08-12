@@ -11,6 +11,6 @@ beforeEach(() => vi.clearAllMocks());
 
 describe("openTelemostMeeting", () => {
   it("routes Windows to CEF", async () => { expect(await openTelemostMeeting("windows", URL)).toBe("cef"); expect(mocks.cefNavigate).toHaveBeenCalledWith(URL); });
-  it("routes macOS to WKWebView", async () => { expect(await openTelemostMeeting("macos", URL)).toBe("wkwebview"); expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: URL }); });
+  it("routes macOS to an account-scoped WKWebView", async () => { expect(await openTelemostMeeting("macos", URL, "account-1")).toBe("wkwebview"); expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: URL, accountKey: "account-1" }); });
   it("routes other platforms to the browser", async () => { expect(await openTelemostMeeting("other", URL)).toBe("browser"); expect(mocks.openUrl).toHaveBeenCalledWith(URL); });
 });

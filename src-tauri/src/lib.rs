@@ -131,6 +131,7 @@ pub fn run() {
             telemost_macos_spike::close_telemost_macos_spike,
             telemost_macos_spike::open_telemost_macos_create,
             telemost_macos_spike::close_telemost_macos_create,
+            telemost_macos_spike::reset_telemost_macos_profile,
             audio::play_notification_sound,
             notifications::show_native_notification,
             notifications::ensure_notification_app_identity,
