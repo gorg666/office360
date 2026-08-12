@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, Copy, ExternalLink, Filter, Mail, MessageCircle, Pencil, Plus, RefreshCw, Search, Users, Video } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useAccountStore } from "@/stores/accountStore";
 import { getCalendarEventsInRange } from "@/services/db/calendarEvents";
-import { createTelemostConference, type TelemostConference } from "@/services/yandex360/telemost";
+import { createTelemostConference, getTelemostConference, TelemostApiError, updateTelemostConference, type TelemostConference } from "@/services/yandex360/telemost";
+import { authorizeYandexGrant, hasYandexGrantScopes, TELEMOST_REQUIRED_SCOPES } from "@/services/oauth/yandexUnifiedAuth";
+import { isTelemostJoinUrl, openTelemostCreateInBrowser, openTelemostInBrowser as openTelemostInBrowserService, openTelemostMeeting } from "@/services/telemost/meetingRenderer";
+import { getTelemostCapability, setTelemostCapability, type LocalTelemostMeeting, type TelemostCapability } from "@/services/telemost/capability";
 import { cefCreate, cefInitialize, cefNavigate, cefPermissionResponse, cefSetBounds, cefSetVisible, type CefEvent } from "@/services/cef";
 import { ServicePageShell } from "./ServicePageShell";
 import { navigateToLabel } from "@/router/navigate";
@@ -32,10 +34,7 @@ interface MeetingEntry {
   calendarEventId?: string;
 }
 
-interface StoredConference extends TelemostConference {
-  title?: string;
-  createdAt?: number;
-  scheduledAt?: number;
+interface StoredConference extends TelemostConference, LocalTelemostMeeting {
   inviteEmails?: string[];
 }
 
@@ -84,6 +83,11 @@ export function TelemostPage() {
   const [joinDialogOpen, setJoinDialogOpen] = useState(false);
   const [joinUrl, setJoinUrl] = useState("");
   const [routingErrorUrl, setRoutingErrorUrl] = useState<string | null>(null);
+  const [needsTelemostAccess, setNeedsTelemostAccess] = useState(false);
+  const [pendingOperation, setPendingOperation] = useState<"create" | "schedule" | null>(null);
+  const [authorizing, setAuthorizing] = useState(false);
+  const [capability, setCapability] = useState<TelemostCapability>("UNKNOWN");
+  const [webOnlyAction, setWebOnlyAction] = useState<"create" | "schedule" | null>(null);
   const isTelemostMeeting = /^https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/[^/?#]+/i.test(selectedUrl);
   const isTelemostAuth = /^https:\/\/(?:passport|oauth)\.yandex\.(?:ru|com)\//i.test(selectedUrl);
   const showEmbeddedBrowser = isTelemostMeeting || isTelemostAuth || activeMeetingUrl !== null;
@@ -99,7 +103,7 @@ export function TelemostPage() {
 
   const openTelemostInBrowser = useCallback(async (url: string) => {
     try {
-      await openUrl(url);
+      await openTelemostInBrowserService(url);
     } catch (reason) {
       console.error("Failed to open Telemost in the system browser:", reason);
       setError("Не удалось открыть Телемост в браузере.");
@@ -132,13 +136,42 @@ export function TelemostPage() {
     setError(null);
     setRoutingErrorUrl(null);
     try {
-      await invoke("open_telemost_macos_spike", { url: value });
+      await openTelemostMeeting("macos", value);
       setMacosSpikeOpen(true);
     } catch (reason) {
       console.error("Telemost WKWebView failed; using browser fallback:", reason);
       await openTelemostInBrowser(value);
     }
   }, [openTelemostInBrowser]);
+
+  const requireTelemostAccess = useCallback(async (operation: "create" | "schedule"): Promise<boolean> => {
+    if (!serviceAccountId) return false;
+    if (await hasYandexGrantScopes(serviceAccountId, "communications", TELEMOST_REQUIRED_SCOPES)) return true;
+    setPendingOperation(operation);
+    setNeedsTelemostAccess(true);
+    return false;
+  }, [serviceAccountId]);
+
+  const grantTelemostAccess = useCallback(async () => {
+    if (!serviceAccountId || !pendingOperation) return;
+    setAuthorizing(true);
+    setError(null);
+    try {
+      await authorizeYandexGrant(serviceAccountId, "communications");
+      if (!await hasYandexGrantScopes(serviceAccountId, "communications", TELEMOST_REQUIRED_SCOPES)) {
+        throw new Error("Яндекс не предоставил необходимые разрешения Телемоста.");
+      }
+      const operation = pendingOperation;
+      setNeedsTelemostAccess(false);
+      setPendingOperation(null);
+      if (operation === "create") await createConference(false);
+      else await scheduleConference(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось разрешить доступ к Телемосту.");
+    } finally {
+      setAuthorizing(false);
+    }
+  }, [pendingOperation, serviceAccountId]);
 
   const closeMacosSpike = useCallback(async () => {
     try {
@@ -188,6 +221,9 @@ export function TelemostPage() {
       if (validId) {
         setCreated(readJson(`${CREATED_KEY}:${validId}`, []));
         setVisited(readJson(`${VISITED_KEY}:${validId}`, []));
+        setCapability(getTelemostCapability(validId));
+      } else {
+        setCapability("UNKNOWN");
       }
       setAccountChecking(false);
     }).catch((reason) => {
@@ -266,8 +302,7 @@ export function TelemostPage() {
       setSelectedUrl(meeting.joinUrl);
       rememberActiveMeeting(meeting.joinUrl);
       setError(null);
-      if (useEmbeddedTelemost) void cefNavigate(meeting.joinUrl);
-      else void openTelemostInBrowser(meeting.joinUrl);
+      void openTelemostMeeting(desktopPlatform, meeting.joinUrl).catch(() => openTelemostInBrowser(meeting.joinUrl));
     }
   }, [calendarMeetings, desktopPlatform, openTelemostInBrowser, rememberActiveMeeting, useEmbeddedTelemost]);
 
@@ -352,9 +387,10 @@ export function TelemostPage() {
     setSelectedUrl(meeting.joinUrl);
     rememberActiveMeeting(meeting.joinUrl);
     setError(null);
-    if (useEmbeddedTelemost) void cefNavigate(meeting.joinUrl);
-    else if (desktopPlatform === "macos") void openMacosSpike(meeting.joinUrl);
-    else void openTelemostInBrowser(meeting.joinUrl);
+    void openTelemostMeeting(desktopPlatform, meeting.joinUrl).catch(async (reason) => {
+      console.error("Telemost meeting renderer failed; using browser fallback:", reason);
+      await openTelemostInBrowser(meeting.joinUrl);
+    });
   };
 
   const openCalendarEvent = (meeting: MeetingEntry) => {
@@ -381,18 +417,36 @@ export function TelemostPage() {
     openMeeting({ id: meetingId(url), title: `Встреча ${meetingId(url)}`, joinUrl: url, source: "visited" });
   };
 
-  const schedule = async () => {
+  const scheduleConference = async (checkAccess = true) => {
     if (!serviceAccountId || desktopPlatform === null) return;
     setError(null);
     if (activeMeetingUrlRef.current) {
       openCalendarDraft(activeMeetingUrlRef.current);
       return;
     }
-    navigateToLabel("calendar");
+    if (capability === "WEB_ONLY") { setWebOnlyAction("schedule"); return; }
+    if (checkAccess && !await requireTelemostAccess("schedule")) return;
+    try {
+      const conference = await createTelemostConference({ accountId: serviceAccountId, waitingRoomLevel: "PUBLIC" });
+      setTelemostCapability(serviceAccountId, "API_AVAILABLE"); setCapability("API_AVAILABLE");
+      const stored: StoredConference = { ...conference, title: "Встреча в Яндекс Телемосте", createdAt: conference.createdAt ?? Math.floor(Date.now() / 1000), lastOpenedAt: null, source: "API_CREATED", remoteConferenceId: conference.id };
+      setCreated((items) => [stored, ...items.filter((item) => item.id !== conference.id)]);
+      openCalendarDraft(conference.joinUrl);
+    } catch (reason) {
+      if (reason instanceof TelemostApiError && reason.code === "organization_restricted") {
+        setTelemostCapability(serviceAccountId, "WEB_ONLY"); setCapability("WEB_ONLY"); setWebOnlyAction("schedule"); return;
+      }
+      if (reason instanceof TelemostApiError && (reason.code === "missing_scope" || reason.code === "auth")) {
+        setPendingOperation("schedule"); setNeedsTelemostAccess(true); return;
+      }
+      setError(reason instanceof Error ? reason.message : "Не удалось подготовить встречу для календаря.");
+    }
   };
 
-  const create = async () => {
+  const createConference = async (checkAccess = true) => {
     if (!serviceAccountId || desktopPlatform === null) return;
+    if (capability === "WEB_ONLY") { setWebOnlyAction("create"); return; }
+    if (checkAccess && !await requireTelemostAccess("create")) return;
     try {
       setError(null);
       const title = window.prompt("Название встречи", "Новая встреча")?.trim() || "Новая встреча";
@@ -401,11 +455,18 @@ export function TelemostPage() {
       if (scheduledValue && (!scheduledDate || Number.isNaN(scheduledDate.getTime()))) throw new Error("Укажите дату в формате ГГГГ-ММ-ДД ЧЧ:ММ.");
       const inviteEmails = parseInviteEmails(window.prompt("E-mail участников через запятую", "") ?? "");
       const conference = await createTelemostConference({ accountId: serviceAccountId, waitingRoomLevel: "PUBLIC", cohostEmails: [], autoSummarization: false });
-      const stored: StoredConference = { ...conference, title, createdAt: Math.floor(Date.now() / 1000), scheduledAt: scheduledDate ? Math.floor(scheduledDate.getTime() / 1000) : undefined, inviteEmails };
+      setTelemostCapability(serviceAccountId, "API_AVAILABLE"); setCapability("API_AVAILABLE");
+      const stored: StoredConference = { ...conference, title, createdAt: conference.createdAt ?? Math.floor(Date.now() / 1000), scheduledAt: scheduledDate ? Math.floor(scheduledDate.getTime() / 1000) : null, inviteEmails, lastOpenedAt: null, source: "API_CREATED", remoteConferenceId: conference.id };
       setCreated((items) => [stored, ...items.filter((item) => item.id !== conference.id)]);
       if (inviteEmails.length > 0) void inviteToMeeting(stored);
-      openMeeting({ id: conference.id, title, joinUrl: conference.joinUrl, source: "created", startTime: stored.scheduledAt ?? stored.createdAt });
+      openMeeting({ id: conference.id, title, joinUrl: conference.joinUrl, source: "created", startTime: stored.scheduledAt ?? stored.createdAt ?? undefined });
     } catch (reason) {
+      if (reason instanceof TelemostApiError && reason.code === "organization_restricted") {
+        setTelemostCapability(serviceAccountId, "WEB_ONLY"); setCapability("WEB_ONLY"); setWebOnlyAction("create"); return;
+      }
+      if (reason instanceof TelemostApiError && (reason.code === "missing_scope" || reason.code === "auth")) {
+        setPendingOperation("create"); setNeedsTelemostAccess(true); return;
+      }
       setError(reason instanceof Error ? reason.message : "Не удалось создать встречу Телемоста.");
     }
   };
@@ -416,7 +477,11 @@ export function TelemostPage() {
     const title = window.prompt("Название встречи", current.title || meeting.title)?.trim();
     if (!title) return;
     const emails = parseInviteEmails(window.prompt("E-mail участников через запятую", (current.inviteEmails ?? []).join(", ")) ?? "");
-    setCreated((items) => items.map((item) => item.id === meeting.id ? { ...item, title, inviteEmails: emails } : item));
+    const waitingRoomLevel = current.waitingRoomLevel && current.waitingRoomLevel !== "UNKNOWN" ? current.waitingRoomLevel : "PUBLIC";
+    void updateTelemostConference({ accountId: serviceAccountId, id: meeting.id, waitingRoomLevel })
+      .then(() => getTelemostConference(serviceAccountId, meeting.id))
+      .then((fresh) => setCreated((items) => items.map((item) => item.id === meeting.id ? { ...item, ...fresh, title, inviteEmails: emails } : item)))
+      .catch((reason) => setError(reason instanceof Error ? reason.message : "Не удалось изменить встречу."));
   };
 
   const inviteToMeeting = (conference: StoredConference | MeetingEntry) => {
@@ -440,8 +505,8 @@ export function TelemostPage() {
   }
 
   return <ServicePageShell title="Яндекс Телемост" description={useEmbeddedTelemost ? "Встречи в Office360" : "Встречи активного Яндекс-аккаунта"} actions={<div className="flex flex-wrap gap-2">
-    <button className="btn-secondary px-3 py-2 flex gap-2" disabled={desktopPlatform === null} onClick={create}><Plus size={16}/>Новая видеовстреча</button>
-    <button className="btn-secondary px-3 py-2 flex gap-2" disabled={desktopPlatform === null} onClick={() => void schedule()}><CalendarDays size={16}/>Запланировать</button>
+    <button className="btn-secondary px-3 py-2 flex gap-2" disabled={desktopPlatform === null} onClick={() => void createConference()}><Plus size={16}/>Новая видеовстреча</button>
+    <button className="btn-secondary px-3 py-2 flex gap-2" disabled={desktopPlatform === null} onClick={() => void scheduleConference()}><CalendarDays size={16}/>Запланировать</button>
     <button className="btn-secondary px-3 py-2 flex gap-2" disabled={desktopPlatform === null} onClick={() => { setError(null); setJoinDialogOpen(true); }}><Users size={16}/>Подключиться</button>
     <button className="btn-secondary px-3 py-2 flex gap-2 opacity-60" disabled title="Недоступно на текущем тарифе"><Video size={16}/>Трансляция</button>
     {import.meta.env.DEV && desktopPlatform === "macos" && <input aria-label="Экспериментальная ссылка Телемоста" className="min-w-72 rounded border border-border-primary bg-bg-secondary px-3 py-2 text-sm" placeholder="https://telemost.yandex.ru/j/..." value={macosSpikeUrl} onChange={(event) => setMacosSpikeUrl(event.target.value)}/>}
@@ -449,6 +514,8 @@ export function TelemostPage() {
     {desktopPlatform === "macos" && macosSpikeOpen && <button className="btn-secondary px-3 py-2" onClick={() => void closeMacosSpike()}>Закрыть окно встречи</button>}
   </div>}>
     {error && <div className="mb-3 rounded-md bg-danger/10 text-danger p-3 text-sm flex items-center justify-between"><span>{error}</span><button onClick={() => setError(null)}>Закрыть</button></div>}
+    {webOnlyAction && <div className="mb-3 rounded-lg border border-border-primary bg-bg-secondary p-4" role="dialog" aria-label="Создание встреч"><div className="font-medium">Создание встреч через Office360 доступно для аккаунтов Яндекс 360 для бизнеса.</div><div className="mt-2 text-sm text-text-tertiary">Вы можете создать встречу в Телемосте и затем открыть её здесь по ссылке.{webOnlyAction === "schedule" ? " После получения ссылки добавьте её в событие Office360 Calendar." : ""}</div><div className="mt-3 flex gap-2"><button className="btn-primary px-4 py-2" onClick={() => void openTelemostCreateInBrowser().catch(() => setError("Не удалось открыть Телемост в браузере."))}>Открыть Телемост</button><button className="btn-secondary px-4 py-2" onClick={() => { setWebOnlyAction(null); setJoinDialogOpen(true); }}>Подключиться по ссылке</button><button className="btn-secondary px-4 py-2" onClick={() => setWebOnlyAction(null)}>Закрыть</button></div></div>}
+    {needsTelemostAccess && <div className="mb-3 rounded-lg border border-accent/30 bg-accent/5 p-4" role="dialog" aria-label="Доступ к Телемосту"><div className="font-medium">Чтобы создавать встречи в Office360, разрешите доступ к Телемосту.</div><button className="btn-primary mt-3 px-4 py-2" disabled={authorizing} onClick={() => void grantTelemostAccess()}>{authorizing ? "Подключение…" : "Разрешить доступ"}</button></div>}
     {joinDialogOpen && <div className="mb-3 rounded-lg border border-border-primary bg-bg-primary p-4" role="dialog" aria-label="Подключиться к встрече">
       <div className="font-medium">Подключиться к встрече</div>
       <div className="mt-1 text-sm text-text-tertiary">Вставьте ссылку Яндекс Телемоста.</div>
@@ -500,10 +567,6 @@ export function TelemostPage() {
 
 function parseMeetingAttendees(value: string | null): MeetingEntry["attendees"] {
   try { return value ? JSON.parse(value) as NonNullable<MeetingEntry["attendees"]> : []; } catch { return []; }
-}
-
-function isTelemostJoinUrl(value: string): boolean {
-  return /^https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/[^/?#]+/i.test(value);
 }
 
 function parseInviteEmails(value: string): string[] {

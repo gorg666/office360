@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   listeners: {} as Record<string, (event: { payload: string }) => void>,
   navigateToLabel: vi.fn(),
+  hasGrantScopes: vi.fn(),
+  authorizeGrant: vi.fn(),
 }));
 
 vi.mock("@/utils/desktopPlatform", () => ({
@@ -46,6 +48,14 @@ vi.mock("@/services/db/calendarEvents", () => ({
 }));
 vi.mock("@/services/yandex360/telemost", () => ({
   createTelemostConference: mocks.createConference,
+  getTelemostConference: vi.fn(),
+  updateTelemostConference: vi.fn(),
+  TelemostApiError: class TelemostApiError extends Error { constructor(public code: string, message: string) { super(message); } },
+}));
+vi.mock("@/services/oauth/yandexUnifiedAuth", () => ({
+  authorizeYandexGrant: mocks.authorizeGrant,
+  hasYandexGrantScopes: mocks.hasGrantScopes,
+  TELEMOST_REQUIRED_SCOPES: ["create", "read", "update"],
 }));
 vi.mock("@/router/navigate", () => ({ navigateToLabel: mocks.navigateToLabel }));
 vi.mock("@/utils/openComposeWindow", () => ({ openNewCompose: vi.fn() }));
@@ -78,6 +88,8 @@ beforeEach(() => {
   mocks.cefSetVisible.mockResolvedValue(undefined);
   mocks.getCalendarEvents.mockResolvedValue([]);
   mocks.invoke.mockResolvedValue(undefined);
+  mocks.hasGrantScopes.mockResolvedValue(true);
+  mocks.authorizeGrant.mockResolvedValue(undefined);
   mocks.listeners = {};
   localStorage.clear();
   sessionStorage.clear();
@@ -178,6 +190,37 @@ describe("Telemost native macOS shell", () => {
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: RECENT_URL }));
     expect(mocks.cefInitialize).not.toHaveBeenCalled();
     expect(mocks.openUrl).not.toHaveBeenCalled();
+  });
+
+  it("requests progressive consent and retries meeting creation", async () => {
+    mocks.hasGrantScopes.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    mocks.createConference.mockResolvedValue({ id: "new-1", title: null, joinUrl: RECENT_URL, organizer: null, createdAt: null, scheduledAt: null, status: null, liveStreamWatchUrl: null });
+    vi.spyOn(window, "prompt").mockReturnValue("");
+    await renderReady();
+
+    fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
+    expect(await screen.findByText("Чтобы создавать встречи в Office360, разрешите доступ к Телемосту.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Client Secret");
+    fireEvent.click(screen.getByRole("button", { name: "Разрешить доступ" }));
+
+    await waitFor(() => expect(mocks.authorizeGrant).toHaveBeenCalledWith("account-1", "communications"));
+    await waitFor(() => expect(mocks.createConference).toHaveBeenCalled());
+  });
+
+  it("switches an exact organization restriction to reusable web-only mode", async () => {
+    const { TelemostApiError } = await import("@/services/yandex360/telemost");
+    mocks.createConference.mockRejectedValueOnce(new TelemostApiError("organization_restricted", "technical 403"));
+    vi.spyOn(window, "prompt").mockReturnValue("");
+    await renderReady();
+
+    fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
+    expect(await screen.findByText("Создание встреч через Office360 доступно для аккаунтов Яндекс 360 для бизнеса.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("technical 403");
+    fireEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
+    await screen.findByRole("dialog", { name: "Создание встреч" });
+    expect(mocks.createConference).toHaveBeenCalledTimes(1);
+    expect(mocks.authorizeGrant).not.toHaveBeenCalled();
   });
 
 });

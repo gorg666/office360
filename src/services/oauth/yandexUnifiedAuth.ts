@@ -44,6 +44,12 @@ export interface YandexUnifiedAuthProgress {
   error?: string;
 }
 
+export const TELEMOST_REQUIRED_SCOPES = [
+  "telemost-api:conferences.create",
+  "telemost-api:conferences.read",
+  "telemost-api:conferences.update",
+] as const;
+
 const CORE_CLIENT_ID = import.meta.env.VITE_YANDEX_OAUTH_CLIENT_ID?.trim() || "cdab208ec00f4cbc9c7a453ae6455983";
 const COMMUNICATIONS_CLIENT_ID =
   import.meta.env.VITE_YANDEX_COMMUNICATIONS_OAUTH_CLIENT_ID?.trim() || "0262bbe47f6a41dba9012f63234ffb6a";
@@ -350,6 +356,17 @@ export async function getYandexUnifiedAuthStatus(accountId: string): Promise<Yan
   }
 
   return statuses;
+}
+
+export async function hasYandexGrantScopes(
+  accountId: string,
+  grant: Exclude<YandexOAuthGrant, "core">,
+  requiredScopes: readonly string[],
+): Promise<boolean> {
+  const status = (await getYandexUnifiedAuthStatus(accountId)).find((item) => item.id === grant);
+  if (!status?.connected) return false;
+  const granted = new Set(status.scopes);
+  return requiredScopes.every((scope) => granted.has(scope));
 }
 
 export async function clearYandexGrant(

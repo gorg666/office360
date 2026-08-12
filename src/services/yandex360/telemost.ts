@@ -1,12 +1,16 @@
 import { getAccount, getAllAccounts, type DbAccount } from "@/services/db/accounts";
-import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
 import { getYandexGrantAccessToken } from "@/services/oauth/yandexUnifiedAuth";
 
 const TELEMOST_CREATE_URL = "https://cloud-api.yandex.net/v1/telemost-api/conferences";
 
 export interface TelemostConference {
   id: string;
+  title: string | null;
   joinUrl: string;
+  organizer: string | null;
+  createdAt: number | null;
+  scheduledAt: number | null;
+  status: string | null;
   liveStreamWatchUrl: string | null;
   waitingRoomLevel?: "PUBLIC" | "ORGANIZATION" | "ADMINS" | "UNKNOWN";
   liveStream?: { accessLevel?: string; title?: string; description?: string; watchUrl?: string };
@@ -27,6 +31,17 @@ interface TelemostCreateResponse {
   error?: string;
   message?: string;
   description?: string;
+  organizer?: { email?: string };
+  created_at?: string;
+  status?: string;
+}
+
+export type TelemostErrorCode = "auth" | "missing_scope" | "organization_restricted" | "conference_forbidden" | "rate_limit" | "network" | "api";
+export class TelemostApiError extends Error {
+  constructor(public readonly code: TelemostErrorCode, message: string, public readonly status?: number) {
+    super(message);
+    this.name = "TelemostApiError";
+  }
 }
 
 export interface TelemostConferenceOptions {
@@ -65,9 +80,9 @@ function parseEmails(value: string[]): { email: string }[] {
 }
 
 function formatTelemostError(status: number, body: TelemostCreateResponse): string {
-  if (status === 403) {
-    return "Телемост API доступен только для Яндекс 360 для бизнеса и требует scope telemost-api:conferences.create. Переавторизуйте Яндекс аккаунт с этим разрешением.";
-  }
+  if (status === 401) return "Срок действия доступа к Телемосту истёк. Разрешите доступ повторно.";
+  if (status === 403) return body.message || body.description || body.error || "Для аккаунта недоступна эта операция Телемоста.";
+  if (status === 429) return "Слишком много запросов к Телемосту. Повторите попытку позже.";
   if (status === 404 && body.error === "NoSuchUserPrincipalsFound") {
     return "Некоторые соорганизаторы не найдены в Яндексе. Проверьте e-mail участников.";
   }
@@ -81,7 +96,12 @@ function mapConference(body: TelemostCreateResponse): TelemostConference {
   if (!body.id || !body.join_url) throw new Error("Телемост API не вернул ссылку встречи.");
   return {
     id: body.id,
+    title: null,
     joinUrl: body.join_url,
+    organizer: body.organizer?.email ?? null,
+    createdAt: body.created_at ? Math.floor(new Date(body.created_at).getTime() / 1000) : null,
+    scheduledAt: null,
+    status: body.status ?? null,
     liveStreamWatchUrl: body.live_stream?.watch_url ?? null,
     waitingRoomLevel: body.waiting_room_level,
     liveStream: body.live_stream ? { accessLevel: body.live_stream.access_level, title: body.live_stream.title, description: body.live_stream.description, watchUrl: body.live_stream.watch_url } : undefined,
@@ -92,19 +112,33 @@ function mapConference(body: TelemostCreateResponse): TelemostConference {
 async function resolveTelemostAccessToken(account: DbAccount): Promise<string> {
   try {
     return await getYandexGrantAccessToken(account.id, "communications");
-  } catch {
-    const token = await ensureFreshToken(account);
-    if (!token) throw new Error("Яндекс OAuth token не найден. Подключите «Мессенджер и Телемост» или переавторизуйте аккаунт.");
-    return token;
+  } catch (reason) {
+    throw new TelemostApiError("missing_scope", reason instanceof Error ? reason.message : "Разрешите доступ к Телемосту.");
   }
+}
+
+function apiError(status: number, body: TelemostCreateResponse): TelemostApiError {
+  const raw = `${body.error ?? ""} ${body.message ?? ""} ${body.description ?? ""}`;
+  const organizationRestricted = /ApiRestrictedToOrganizations|доступен пользователям Яндекс 360 для бизнеса/i.test(raw);
+  const code: TelemostErrorCode = status === 401 ? "auth"
+    : status === 429 ? "rate_limit"
+      : status === 403 && /insufficient[_ -]?scope|missing[_ -]?scope|scope.*(?:required|missing|not granted)/i.test(raw) ? "missing_scope"
+        : organizationRestricted ? "organization_restricted"
+          : status === 403 ? "conference_forbidden" : "api";
+  return new TelemostApiError(code, formatTelemostError(status, body), status);
 }
 
 async function telemostRequest(accountId: string | null, url: string, init: RequestInit): Promise<TelemostCreateResponse> {
   const account = await resolveTelemostAccount(accountId);
   const token = await resolveTelemostAccessToken(account);
-  const response = await fetch(url, { ...init, headers: { Authorization: `OAuth ${token}`, "Content-Type": "application/json", ...init.headers } });
+  let response: Response;
+  try {
+    response = await fetch(url, { ...init, headers: { Authorization: `OAuth ${token}`, "Content-Type": "application/json", ...init.headers } });
+  } catch {
+    throw new TelemostApiError("network", "Не удалось связаться с Телемостом. Проверьте подключение к интернету.");
+  }
   const body = await response.json().catch(() => ({})) as TelemostCreateResponse;
-  if (!response.ok) throw new Error(formatTelemostError(response.status, body));
+  if (!response.ok) throw apiError(response.status, body);
   return body;
 }
 
@@ -112,7 +146,8 @@ export async function createTelemostConference(options: TelemostConferenceOption
   const account = await resolveTelemostAccount(options.accountId);
   const token = await resolveTelemostAccessToken(account);
 
-  const response = await fetch(TELEMOST_CREATE_URL, {
+  let response: Response;
+  try { response = await fetch(TELEMOST_CREATE_URL, {
     method: "POST",
     headers: {
       Authorization: `OAuth ${token}`,
@@ -128,11 +163,11 @@ export async function createTelemostConference(options: TelemostConferenceOption
         description: options.liveStream.description,
       } : undefined,
     }),
-  });
+  }); } catch { throw new TelemostApiError("network", "Не удалось связаться с Телемостом. Проверьте подключение к интернету."); }
 
   const body = await response.json().catch(() => ({})) as TelemostCreateResponse;
   if (!response.ok) {
-    throw new Error(formatTelemostError(response.status, body));
+    throw apiError(response.status, body);
   }
 
   if (!body.id || !body.join_url) {

@@ -63,6 +63,20 @@ The macOS renderer allows the concrete Telemost meeting route and the exact Yand
 4. Expand native Calendar scheduling and meeting metadata without relying on a nonexistent list/media SDK.
 5. Keep WKWebView/CEF isolated behind the meeting renderer boundary; do not inject into Yandex UI.
 
+## Phase 2 implementation
+
+The existing `communications` grant is the canonical Telemost OAuth context. It uses the desktop Yandex client selected by `VITE_YANDEX_COMMUNICATIONS_OAUTH_CLIENT_ID`, loopback PKCE, forced confirmation, UID ownership verification, secure access/refresh-token storage and refresh-token rotation. Telemost does not fall back to the Core/Mail token.
+
+The grant readiness check requires `telemost-api:conferences.create`, `telemost-api:conferences.read`, and `telemost-api:conferences.update`. A missing scope produces an Office360 progressive-consent card and retries the pending create or schedule operation after authorization.
+
+`src/services/yandex360/telemost.ts` is the canonical cross-platform REST layer for create/read/update and normalized errors. The API has no published list or scheduling endpoint, so meetings are composed from local created history and Calendar events. Scheduling creates the conference first and passes its join URL into the existing native Office360 Calendar draft.
+
+`src/services/telemost/meetingRenderer.ts` is the platform boundary: Windows routes to existing CEF, macOS to the isolated WKWebView command, and other platforms to the Tauri opener.
+
+The account-scoped capability model starts at `UNKNOWN`. Successful create/read marks `API_AVAILABLE`; only the confirmed `ApiRestrictedToOrganizations` response marks `WEB_ONLY`. Generic conference 403, missing scope, authentication, rate-limit and network errors remain separate states. `WEB_ONLY` keeps the native Office360 page and join/history features, while create/schedule offers the official Telemost browser flow without repeated API or consent attempts.
+
+Remote `TelemostConference` data is kept separate from the minimal local meeting record (`joinUrl`, optional title, timestamps, source and optional remote ID). Local history is derived only from Office360 API creation, link joins and Calendar events; no Yandex history scraping is used.
+
 ## Sources
 
 - https://yandex.ru/dev/telemost/doc/ru/
