@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => ({
   cefNavigate: vi.fn(),
   cefSetBounds: vi.fn(),
   cefSetVisible: vi.fn(),
+  cefCloseBrowser: vi.fn(),
+  cefHasYandexSession: vi.fn(),
+  cefResetAccountProfile: vi.fn(),
+  cefProbeSession: vi.fn(),
   createConference: vi.fn(),
   getCalendarEvents: vi.fn(),
   invoke: vi.fn(),
@@ -34,6 +38,10 @@ vi.mock("@/services/cef", () => ({
   cefPermissionResponse: vi.fn(),
   cefSetBounds: mocks.cefSetBounds,
   cefSetVisible: mocks.cefSetVisible,
+  cefCloseBrowser: mocks.cefCloseBrowser,
+  cefHasYandexSession: mocks.cefHasYandexSession,
+  cefResetAccountProfile: mocks.cefResetAccountProfile,
+  cefProbeSession: mocks.cefProbeSession,
 }));
 vi.mock("@/stores/accountStore", () => ({
   useAccountStore: (selector: (state: unknown) => unknown) => selector({
@@ -73,6 +81,7 @@ vi.stubGlobal("ResizeObserver", class {
 });
 
 const RECENT_URL = "https://telemost.yandex.ru/j/123456789";
+const SURFACE_BOUNDS = { x: 100, y: 120, width: 800, height: 600 };
 
 async function renderReady(): Promise<void> {
   render(<TelemostPage />);
@@ -88,6 +97,10 @@ beforeEach(() => {
   mocks.cefNavigate.mockResolvedValue(undefined);
   mocks.cefSetBounds.mockResolvedValue(undefined);
   mocks.cefSetVisible.mockResolvedValue(undefined);
+  mocks.cefCloseBrowser.mockResolvedValue(undefined);
+  mocks.cefHasYandexSession.mockResolvedValue(false);
+  mocks.cefResetAccountProfile.mockResolvedValue(undefined);
+  mocks.cefProbeSession.mockResolvedValue(undefined);
   mocks.getCalendarEvents.mockResolvedValue([]);
   mocks.invoke.mockResolvedValue(undefined);
   mocks.hasGrantScopes.mockResolvedValue(true);
@@ -96,6 +109,17 @@ beforeEach(() => {
   mocks.listeners = {};
   localStorage.clear();
   sessionStorage.clear();
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
+    x: SURFACE_BOUNDS.x,
+    y: SURFACE_BOUNDS.y,
+    width: SURFACE_BOUNDS.width,
+    height: SURFACE_BOUNDS.height,
+    top: SURFACE_BOUNDS.y,
+    left: SURFACE_BOUNDS.x,
+    bottom: SURFACE_BOUNDS.y + SURFACE_BOUNDS.height,
+    right: SURFACE_BOUNDS.x + SURFACE_BOUNDS.width,
+    toJSON: () => ({}),
+  } as DOMRect);
 });
 
 describe("Telemost native macOS shell", () => {
@@ -106,21 +130,30 @@ describe("Telemost native macOS shell", () => {
     expect(document.body.textContent).toContain("Встречи внутри Office360");
     expect(document.body.textContent).not.toContain("Телемост откроется в браузере");
     expect(document.body.textContent).not.toContain("Windows x64");
-    expect(document.body.textContent).not.toContain("CEF");
   });
 
-  it("uses a native join dialog and opens only the meeting URL internally", async () => {
+  it("mounts CEF in the right pane with container bounds", async () => {
     await renderReady();
 
     fireEvent.click(screen.getByRole("button", { name: "Подключиться" }));
     fireEvent.change(screen.getByLabelText("Ссылка на встречу"), { target: { value: RECENT_URL } });
     fireEvent.click(screen.getByRole("dialog").querySelector("button.btn-primary")!);
 
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: RECENT_URL, accountKey: "account-1" }));
+    await waitFor(() => expect(mocks.cefCreate).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/passport\.yandex\.ru\/auth\?/),
+      "account-1",
+    ));
+    expect(mocks.cefSetBounds).toHaveBeenCalledWith(expect.objectContaining(SURFACE_BOUNDS));
+    expect(screen.getByText("Встречи")).toBeInTheDocument();
+    expect(screen.getByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Закрыть встречу/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Скопировать ссылку/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Открыть в браузере$/ })).not.toBeInTheDocument();
+    expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.anything());
     expect(mocks.openUrl).not.toHaveBeenCalled();
   });
 
-  it("opens a recent meeting URL in the macOS meeting surface", async () => {
+  it("opens a recent meeting URL in the right-pane CEF surface", async () => {
     localStorage.setItem("office360_telemost_visited:account-1", JSON.stringify([{
       id: "123456789",
       title: "Недавняя встреча",
@@ -132,11 +165,17 @@ describe("Telemost native macOS shell", () => {
 
     fireEvent.click(recentMeeting);
 
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: RECENT_URL, accountKey: "account-1" }));
-    expect(mocks.cefNavigate).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.cefCreate).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/passport\.yandex\.ru\/auth\?/),
+      "account-1",
+    ));
+    expect(screen.getByText("Встречи")).toBeInTheDocument();
+    expect(screen.getByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Закрыть встречу/ })).not.toBeInTheDocument();
+    expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.anything());
   });
 
-  it("opens an existing calendar meeting URL in the macOS meeting surface", async () => {
+  it("opens an existing calendar meeting URL in the right-pane CEF surface", async () => {
     mocks.getCalendarEvents.mockResolvedValueOnce([{
       id: "calendar-event-1",
       summary: "Встреча из календаря",
@@ -154,18 +193,85 @@ describe("Telemost native macOS shell", () => {
 
     fireEvent.click(calendarMeeting);
 
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: RECENT_URL, accountKey: "account-1" }));
-    expect(mocks.cefNavigate).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.cefCreate).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/passport\.yandex\.ru\/auth\?/),
+      "account-1",
+    ));
+    expect(screen.getByText("Встречи")).toBeInTheDocument();
+    expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.anything());
   });
 
-  it("preserves a localized browser fallback when the meeting surface fails", async () => {
-    mocks.invoke.mockRejectedValueOnce(new Error("WKWebView unavailable"));
+  it("deduplicates calendar and recent entries for the same Telemost meeting", async () => {
+    localStorage.setItem("office360_telemost_visited:account-1", JSON.stringify([{
+      id: "123456789",
+      title: "Недавний дубль",
+      joinUrl: "https://telemost.360.yandex.ru/j/123456789",
+      source: "visited",
+    }]));
+    mocks.getCalendarEvents.mockResolvedValueOnce([{
+      id: "calendar-event-1",
+      summary: "Одна встреча",
+      description: `Ссылка: ${RECENT_URL}`,
+      location: null,
+      html_link: null,
+      ical_data: null,
+      start_time: 1_786_509_600,
+      end_time: 1_786_513_200,
+      organizer_email: null,
+      attendees_json: null,
+    }]);
+
+    await renderReady();
+
+    expect(await screen.findByRole("button", { name: /Одна встреча/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Недавний дубль/ })).not.toBeInTheDocument();
+  });
+
+  it("opens a meeting without a custom right-pane action toolbar", async () => {
+    await renderReady();
+    fireEvent.click(screen.getByRole("button", { name: "Подключиться" }));
+    fireEvent.change(screen.getByLabelText("Ссылка на встречу"), { target: { value: RECENT_URL } });
+    fireEvent.click(screen.getByRole("dialog").querySelector("button.btn-primary")!);
+    await waitFor(() => expect(mocks.cefCreate).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/passport\.yandex\.ru\/auth\?/),
+      "account-1",
+    ));
+
+    expect(screen.getByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
+    expect(screen.getByText("Встречи")).toBeInTheDocument();
+    expect(screen.queryByText("Встречи внутри Office360")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Закрыть встречу/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Скопировать ссылку/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Открыть в браузере$/ })).not.toBeInTheDocument();
+  });
+
+  it("shows retry and browser fallback only in the error state when CEF create fails", async () => {
+    mocks.cefCreate.mockRejectedValueOnce(new Error("CEF unavailable"));
+    await renderReady();
+    fireEvent.click(screen.getByRole("button", { name: "Подключиться" }));
+    fireEvent.change(screen.getByLabelText("Ссылка на встречу"), { target: { value: RECENT_URL } });
+    fireEvent.click(screen.getByRole("dialog").querySelector("button.btn-primary")!);
+
+    expect(await screen.findByText("Не удалось открыть видеовстречу внутри приложения.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Повторить" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Открыть в браузере" })).toBeInTheDocument();
+    expect(mocks.openUrl).not.toHaveBeenCalled();
+    expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_spike", expect.anything());
+
+    fireEvent.click(screen.getByRole("button", { name: "Открыть в браузере" }));
+    await waitFor(() => expect(mocks.openUrl).toHaveBeenCalledWith(RECENT_URL));
+  });
+
+  it("preserves a localized browser fallback when CEF and opener both fail", async () => {
+    mocks.cefCreate.mockRejectedValueOnce(new Error("CEF unavailable"));
     mocks.openUrl.mockRejectedValueOnce(new Error("opener unavailable"));
     await renderReady();
-    fireEvent.change(screen.getByLabelText("Экспериментальная ссылка Телемоста"), { target: { value: RECENT_URL } });
+    fireEvent.click(screen.getByRole("button", { name: "Подключиться" }));
+    fireEvent.change(screen.getByLabelText("Ссылка на встречу"), { target: { value: RECENT_URL } });
+    fireEvent.click(screen.getByRole("dialog").querySelector("button.btn-primary")!);
 
-    fireEvent.click(screen.getByRole("button", { name: "Открыть внутри Office360 (экспериментально)" }));
-
+    expect(await screen.findByText("Не удалось открыть видеовстречу внутри приложения.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Открыть в браузере" }));
     expect(await screen.findByText("Не удалось открыть Телемост в браузере.")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("opener unavailable");
   });
@@ -182,17 +288,42 @@ describe("Telemost native macOS shell", () => {
     expect((await screen.findAllByText("Не удалось открыть видеовстречу внутри приложения.")).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Повторить" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Открыть в браузере" })).toBeInTheDocument();
+    expect(screen.getByText("Встречи")).toBeInTheDocument();
   });
 
-  it("opens a real meeting URL in the experimental macOS WKWebView path", async () => {
+  it("opens a real meeting URL through right-pane CEF", async () => {
     await renderReady();
-    fireEvent.change(screen.getByLabelText("Экспериментальная ссылка Телемоста"), { target: { value: RECENT_URL } });
+    fireEvent.click(screen.getByRole("button", { name: "Подключиться" }));
+    fireEvent.change(screen.getByLabelText("Ссылка на встречу"), { target: { value: RECENT_URL } });
+    fireEvent.click(screen.getByRole("dialog").querySelector("button.btn-primary")!);
 
-    fireEvent.click(screen.getByRole("button", { name: "Открыть внутри Office360 (экспериментально)" }));
-
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_spike", { url: RECENT_URL, accountKey: "account-1" }));
-    expect(mocks.cefInitialize).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.cefCreate).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/passport\.yandex\.ru\/auth\?/),
+      "account-1",
+    ));
+    expect(screen.getByText("Встречи")).toBeInTheDocument();
+    expect(screen.getByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
+    expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.anything());
     expect(mocks.openUrl).not.toHaveBeenCalled();
+  });
+
+  it("destroys CEF before switching Telemost account", async () => {
+    await renderReady();
+    fireEvent.click(screen.getByRole("button", { name: "Подключиться" }));
+    fireEvent.change(screen.getByLabelText("Ссылка на встречу"), { target: { value: RECENT_URL } });
+    fireEvent.click(screen.getByRole("dialog").querySelector("button.btn-primary")!);
+    await waitFor(() => expect(mocks.cefCreate).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/passport\.yandex\.ru\/auth\?/),
+      "account-1",
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Сменить аккаунт Телемоста" }));
+
+    await waitFor(() => expect(mocks.cefResetAccountProfile).toHaveBeenCalledWith("account-1"));
+    expect(mocks.cefCloseBrowser).toHaveBeenCalled();
+    await waitFor(() => expect(mocks.cefCreate).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/passport\.yandex\.ru\/auth\?/),
+      "account-1",
+    ));
   });
 
   it("requests progressive consent and retries meeting creation", async () => {
@@ -210,31 +341,43 @@ describe("Telemost native macOS shell", () => {
     await waitFor(() => expect(mocks.createConference).toHaveBeenCalled());
   });
 
-  it("switches an exact organization restriction to embedded reusable web-only mode", async () => {
+  it("switches an exact organization restriction to right-pane CEF create", async () => {
     const { TelemostApiError } = await import("@/services/yandex360/telemost");
     mocks.createConference.mockRejectedValueOnce(new TelemostApiError("organization_restricted", "technical 403"));
     vi.spyOn(window, "prompt").mockReturnValue("");
     await renderReady();
 
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
-    await waitFor(() => expect(mocks.createMeetingWeb).toHaveBeenCalledWith("macos", "account-1"));
+    await waitFor(() => expect(mocks.cefCreate).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/passport\.yandex\.ru\/auth\?/),
+      "account-1",
+    ));
     expect(document.body.textContent).not.toContain("technical 403");
-    fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
-    await waitFor(() => expect(mocks.createMeetingWeb).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Встречи")).toBeInTheDocument();
+    expect(screen.getByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
+    expect(mocks.createMeetingWeb).not.toHaveBeenCalled();
     expect(mocks.createConference).toHaveBeenCalledTimes(1);
     expect(mocks.authorizeGrant).not.toHaveBeenCalled();
     expect(mocks.openUrl).not.toHaveBeenCalled();
   });
 
-  it("captures a macOS web-created join URL into a native card", async () => {
+  it("captures a CEF create-flow join URL into meeting mode", async () => {
     localStorage.setItem("office360_telemost_capability:account-1", "WEB_ONLY");
     await renderReady();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
-    await waitFor(() => expect(mocks.listeners["telemost-macos-created"]).toBeDefined());
-    act(() => mocks.listeners["telemost-macos-created"]({ payload: RECENT_URL }));
-    expect(await screen.findByRole("button", { name: /Видеовстреча/ })).toBeInTheDocument();
-    expect(document.body.textContent).toContain("Создана вами");
-    expect(mocks.invoke).toHaveBeenCalledWith("close_telemost_macos_create");
+    await waitFor(() => expect(mocks.cefCreate).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/passport\.yandex\.ru\/auth\?/),
+      "account-1",
+    ));
+    await waitFor(() => expect(mocks.listeners["cef-event"]).toBeDefined());
+    act(() => mocks.listeners["cef-event"]({ payload: { type: "navigation", payload: { url: RECENT_URL } } } as never));
+    expect(await screen.findByText("Видеовстреча")).toBeInTheDocument();
+    expect(screen.getByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
+    expect(screen.getByText("Встречи")).toBeInTheDocument();
+    await waitFor(() => expect(mocks.cefCreate).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/passport\.yandex\.ru\/auth\?/),
+      "account-1",
+    ));
   });
 
 });

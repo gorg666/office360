@@ -7,6 +7,8 @@ graphify-out/
 dist/
 build/
 cef-host/build/
+cef-host/build-macos/
+cef-host/build-macos-*/
 src-tauri/cef-runtime/
 test-buildroot/
 .flatpak-builder/

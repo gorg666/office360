@@ -81,6 +81,9 @@ pub fn run() {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    cef::preload_libcef_allocator();
+
     tauri::Builder::default()
         // Single instance MUST be first
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
@@ -127,8 +130,16 @@ pub fn run() {
             cef::cef_reload,
             cef::cef_dom_command,
             cef::cef_permission_response,
+            cef::cef_close_browser,
+            cef::cef_has_yandex_session,
+            cef::cef_reset_account_profile,
+            cef::cef_probe_session,
+            cef::cef_shutdown,
             telemost_macos_spike::open_telemost_macos_spike,
             telemost_macos_spike::close_telemost_macos_spike,
+            telemost_macos_spike::open_telemost_macos_embedded,
+            telemost_macos_spike::set_telemost_macos_embedded_bounds,
+            telemost_macos_spike::close_telemost_macos_embedded,
             telemost_macos_spike::open_telemost_macos_create,
             telemost_macos_spike::close_telemost_macos_create,
             telemost_macos_spike::reset_telemost_macos_profile,
@@ -250,6 +261,7 @@ pub fn run() {
                             emit_to_main(app, "tray-open-settings");
                         }
                         "quit" => {
+                            log::info!("[cef-life] MAIN_EXIT tray quit pid={}", std::process::id());
                             cef::shutdown();
                             app.exit(0);
                         }
@@ -370,6 +382,7 @@ pub fn run() {
             }
         });
 
+    log::info!("[cef-life] MAIN_EXIT tauri run loop ended pid={}", std::process::id());
     cef::shutdown();
     log::info!("Tauri application exited normally");
 }

@@ -1,13 +1,26 @@
 import Database from "@tauri-apps/plugin-sql";
 
 let db: Database | null = null;
+let dbInitialization: Promise<Database> | null = null;
 
 export async function getDb(): Promise<Database> {
-  if (!db) {
-    db = await Database.load("sqlite:office360.db");
-    await configureSqlite(db);
+  if (db) {
+    return db;
   }
-  return db;
+
+  if (!dbInitialization) {
+    dbInitialization = (async () => {
+      const database = await Database.load("sqlite:office360.db");
+      await configureSqlite(database);
+      db = database;
+      return database;
+    })().catch((error) => {
+      dbInitialization = null;
+      throw error;
+    });
+  }
+
+  return dbInitialization;
 }
 
 async function configureSqlite(database: Database): Promise<void> {

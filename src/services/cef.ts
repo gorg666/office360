@@ -22,3 +22,8 @@ export const cefForward = () => invoke<void>("cef_forward");
 export const cefReload = () => invoke<void>("cef_reload");
 export const cefDomCommand = (command: DomCommand) => invoke<DomSubmission>("cef_dom_command", { command });
 export const cefPermissionResponse = (id: number, allow: boolean) => invoke<void>("cef_permission_response", { id, allow });
+export const cefCloseBrowser = () => invoke<void>("cef_close_browser");
+export const cefHasYandexSession = (profileKey: string) => invoke<boolean>("cef_has_yandex_session", { profileKey });
+export const cefResetAccountProfile = (profileKey: string) => invoke<void>("cef_reset_account_profile", { profileKey });
+export const cefProbeSession = () => invoke<void>("cef_probe_session");
+export const cefShutdown = () => invoke<void>("cef_shutdown");

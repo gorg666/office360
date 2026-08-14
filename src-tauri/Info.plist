@@ -6,5 +6,9 @@
     <string>Office360 использует камеру для видеовстреч в Яндекс Телемосте.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Office360 использует микрофон для видеовстреч в Яндекс Телемосте.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Office360 использует запись экрана для демонстрации экрана в Яндекс Телемосте.</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
 </dict>
 </plist>
