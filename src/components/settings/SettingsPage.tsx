@@ -73,6 +73,7 @@ import {
   configureNotificationSound,
   playConfiguredNewEmailSound,
 } from "@/services/notifications/notificationManager";
+import { resetTelemostMacosProfileForRemovedAccount } from "@/services/telemost/macosProfileCleanup";
 
 type SettingsTab = "general" | "notifications" | "composing" | "mail-rules" | "people" | "accounts" | "yandex360" | "shortcuts" | "ai" | "about";
 
@@ -467,9 +468,17 @@ export function SettingsPage() {
         // Non-Yandex accounts or already-cleared service tokens are fine to ignore.
         console.warn("Yandex Disk/Tracker token cleanup skipped:", clearErr);
       }
-      await deleteAccount(accountToRemove.id);
-      removeClient(accountToRemove.id);
-      removeAccountFromStore(accountToRemove.id);
+      const removedAccountId = accountToRemove.id;
+      const cleanup = await resetTelemostMacosProfileForRemovedAccount(removedAccountId);
+      if (cleanup.status === "failed") {
+        console.warn("telemost profile cleanup failed", {
+          accountId: removedAccountId,
+          errorClass: cleanup.errorClass,
+        });
+      }
+      await deleteAccount(removedAccountId);
+      removeClient(removedAccountId);
+      removeAccountFromStore(removedAccountId);
       const nextActiveId = useAccountStore.getState().activeAccountId;
       setAccountToRemove(null);
       void setSetting("active_account_id", nextActiveId ?? "").catch((err) => {

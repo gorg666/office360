@@ -23,6 +23,7 @@ use tauri_plugin_autostart::MacosLauncher;
 mod commands;
 mod contact_avatars;
 mod audio;
+#[cfg(windows)]
 mod cef;
 mod imap;
 mod ldap;
@@ -41,6 +42,16 @@ fn close_splashscreen(app: tauri::AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
     }
+}
+
+#[tauri::command]
+fn set_dock_badge_count(app: tauri::AppHandle, count: Option<i64>) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window is unavailable".to_string())?;
+    window
+        .set_badge_count(count.filter(|value| *value > 0))
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -68,49 +79,9 @@ fn open_devtools(app: tauri::AppHandle) {
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    // Set explicit AUMID on Windows so toast notifications show "Office360"
-    // instead of "Windows PowerShell"
-    #[cfg(windows)]
-    {
-        use windows::core::w;
-        use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
-        unsafe {
-            let _ = SetCurrentProcessExplicitAppUserModelID(w!("com.office360.desktop"));
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    cef::preload_libcef_allocator();
-
-    tauri::Builder::default()
-        // Single instance MUST be first
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-                let _ = window.unminimize();
-            }
-            // Forward args for deep linking
-            let _ = app.emit("single-instance-args", argv);
-        }))
-        .plugin(tauri_plugin_autostart::init(
-            MacosLauncher::LaunchAgent,
-            Some(vec!["--hidden"]),
-        ))
-        .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_sql::Builder::default().build())
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_os::init())
-        .invoke_handler(tauri::generate_handler![
+macro_rules! office360_invoke_handler {
+    ($($extra:path),* $(,)?) => {
+        tauri::generate_handler![
             oauth::start_oauth_server,
             oauth::stop_oauth_server,
             oauth::oauth_exchange_token,
@@ -118,27 +89,15 @@ pub fn run() {
             oauth::open_oauth_login_window,
             oauth::close_oauth_login_window,
             set_tray_tooltip,
+            set_dock_badge_count,
             close_splashscreen,
             open_devtools,
-            cef::cef_initialize,
-            cef::cef_create_browser,
-            cef::cef_set_bounds,
-            cef::cef_set_visible,
-            cef::cef_navigate,
-            cef::cef_back,
-            cef::cef_forward,
-            cef::cef_reload,
-            cef::cef_dom_command,
-            cef::cef_permission_response,
-            cef::cef_close_browser,
-            cef::cef_has_yandex_session,
-            cef::cef_reset_account_profile,
-            cef::cef_probe_session,
-            cef::cef_shutdown,
+            $($extra,)*
             telemost_macos_spike::open_telemost_macos_spike,
             telemost_macos_spike::close_telemost_macos_spike,
             telemost_macos_spike::open_telemost_macos_embedded,
             telemost_macos_spike::set_telemost_macos_embedded_bounds,
+            telemost_macos_spike::set_telemost_macos_embedded_visible,
             telemost_macos_spike::close_telemost_macos_embedded,
             telemost_macos_spike::open_telemost_macos_create,
             telemost_macos_spike::close_telemost_macos_create,
@@ -190,7 +149,75 @@ pub fn run() {
             messengers::max_client_mark_as_read,
             messengers::max_client_connect,
             messengers::max_client_disconnect,
-        ])
+        ]
+    };
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    // Set explicit AUMID on Windows so toast notifications show "Office360"
+    // instead of "Windows PowerShell"
+    #[cfg(windows)]
+    {
+        use windows::core::w;
+        use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+        unsafe {
+            let _ = SetCurrentProcessExplicitAppUserModelID(w!("com.office360.desktop"));
+        }
+    }
+
+    tauri::Builder::default()
+        // Single instance MUST be first
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+                let _ = window.unminimize();
+            }
+            // Forward args for deep linking
+            let _ = app.emit("single-instance-args", argv);
+        }))
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec!["--hidden"]),
+        ))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_os::init())
+        .invoke_handler({
+            #[cfg(windows)]
+            {
+                office360_invoke_handler![
+                    cef::cef_initialize,
+                    cef::cef_create_browser,
+                    cef::cef_set_bounds,
+                    cef::cef_set_visible,
+                    cef::cef_navigate,
+                    cef::cef_back,
+                    cef::cef_forward,
+                    cef::cef_reload,
+                    cef::cef_dom_command,
+                    cef::cef_permission_response,
+                    cef::cef_close_browser,
+                    cef::cef_has_yandex_session,
+                    cef::cef_reset_account_profile,
+                    cef::cef_probe_session,
+                    cef::cef_shutdown,
+                ]
+            }
+            #[cfg(not(windows))]
+            {
+                office360_invoke_handler![]
+            }
+        })
         .setup(|app| {
             if let Err(err) = notifications::ensure_windows_notification_identity(app.handle()) {
                 log::warn!("Windows notification identity setup: {err}");
@@ -262,6 +289,7 @@ pub fn run() {
                         }
                         "quit" => {
                             log::info!("[cef-life] MAIN_EXIT tray quit pid={}", std::process::id());
+                            #[cfg(windows)]
                             cef::shutdown();
                             app.exit(0);
                         }
@@ -382,7 +410,49 @@ pub fn run() {
             }
         });
 
-    log::info!("[cef-life] MAIN_EXIT tauri run loop ended pid={}", std::process::id());
+    log::info!("[app-life] MAIN_EXIT tauri run loop ended pid={}", std::process::id());
+    #[cfg(windows)]
     cef::shutdown();
     log::info!("Tauri application exited normally");
+}
+
+#[cfg(test)]
+mod sqlite_init_without_cef {
+    #[test]
+    fn lib_rs_does_not_preload_libcef() {
+        let src = include_str!("lib.rs");
+        let production = src.split("#[cfg(test)]").next().expect("lib.rs has tests");
+        assert!(!production.contains("preload_libcef_allocator"));
+        assert!(production.contains("set_dock_badge_count"));
+        assert!(production.contains("set_badge_count"));
+    }
+
+    #[test]
+    fn cef_rs_has_no_macos_host_or_preload() {
+        let src = include_str!("cef.rs");
+        assert!(!src.contains("preload_libcef_allocator"));
+        assert!(!src.contains("Office360CEF.app"));
+        assert!(!src.contains("liboffice360_cef_host.dylib"));
+        assert!(!src.contains("Chromium Embedded Framework"));
+    }
+
+    #[test]
+    fn sqlite_plugin_preload_remains_configured() {
+        let conf = include_str!("../tauri.conf.json");
+        assert!(conf.contains("sqlite:office360.db"));
+    }
+
+    #[test]
+    fn shared_and_macos_bundles_do_not_ship_cef_runtime() {
+        let shared = include_str!("../tauri.conf.json");
+        let macos = include_str!("../tauri.macos.conf.json");
+        assert!(!shared.contains("cef-runtime"));
+        assert!(!macos.contains("cef-runtime"));
+    }
+
+    #[test]
+    fn windows_bundle_still_ships_cef_runtime() {
+        let windows = include_str!("../tauri.windows.conf.json");
+        assert!(windows.contains("cef-runtime/**/*"));
+    }
 }

@@ -13,6 +13,8 @@ import { deleteCalendarEvent as deleteCalendarEventDb } from "@/services/db/cale
 import { useAccountStore } from "@/stores/accountStore";
 import { navigateToLabel } from "@/router/navigate";
 import { cefNavigate } from "@/services/cef";
+import { isTelemostJoinUrl } from "@/services/telemost/meetingRenderer";
+import { getDesktopPlatform } from "@/utils/desktopPlatform";
 
 interface EventDetailModalProps {
   event: DbCalendarEvent;
@@ -100,9 +102,18 @@ export function EventDetailModal({ event, calendars, accountId, anchor, onClose,
 
   const openMeeting = useCallback(() => {
     if (!meetingUrl) return;
+    if (!isTelemostJoinUrl(meetingUrl)) return;
     sessionStorage.setItem("office360_telemost_open_event_id", event.id);
     navigateToLabel("telemost");
-    window.setTimeout(() => void cefNavigate(meetingUrl), 150);
+    void (async () => {
+      const platform = await getDesktopPlatform();
+      if (platform === "macos") return;
+      if (platform === "windows") {
+        window.setTimeout(() => void cefNavigate(meetingUrl), 150);
+        return;
+      }
+      window.setTimeout(() => void openUrl(meetingUrl), 150);
+    })();
   }, [event.id, meetingUrl]);
 
   if (editing) {

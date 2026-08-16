@@ -5,6 +5,7 @@ import { cefCreate, cefInitialize, cefSetBounds, cefSetVisible } from "@/service
 import type { OAuthProviderConfig } from "./providers";
 import { normalizeYandexUserInfo } from "./yandexProfile";
 import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
+import { getDesktopPlatform } from "@/utils/desktopPlatform";
 
 /** Shared desktop loopback port for Yandex (Mail + Disk/Tracker) and Gmail-style flows. */
 export const OAUTH_CALLBACK_PORT = 17248;
@@ -16,6 +17,20 @@ export function isYandexVerificationCodeRedirect(redirectUri: string): boolean {
     redirectUri === YANDEX_VERIFICATION_CODE_REDIRECT_URI
     || redirectUri === "https://oauth.yandex.com/verification_code"
   );
+}
+
+export function resolveYandexOAuthRedirect(
+  requested: string | undefined,
+  platform: "windows" | "macos" | "other",
+): { redirectUri: string; usesCefScreenCode: boolean } {
+  let redirectUri = requested ?? YANDEX_DESKTOP_REDIRECT_URI;
+  if (isYandexVerificationCodeRedirect(redirectUri) && platform !== "windows") {
+    redirectUri = YANDEX_DESKTOP_REDIRECT_URI;
+  }
+  return {
+    redirectUri,
+    usesCefScreenCode: isYandexVerificationCodeRedirect(redirectUri),
+  };
 }
 
 /** Map stable Rust OAuth bind errors to user-facing Russian copy (AUTH-005). */
@@ -131,9 +146,11 @@ export async function startProviderOAuthFlow(
   crypto.getRandomValues(stateArray);
   const oauthState = base64UrlEncode(stateArray);
 
-  // Prefer native localhost callback (same as Mail). verification_code is OOB/CEF scrape — not production UX.
-  const redirectUri = options?.redirectUri ?? (provider.id === "yandex" ? YANDEX_DESKTOP_REDIRECT_URI : `http://localhost:${OAUTH_CALLBACK_PORT}`);
-  const usesCefScreenCode = provider.id === "yandex" && isYandexVerificationCodeRedirect(redirectUri);
+  // Prefer native localhost callback (same as Mail). verification_code is OOB/CEF scrape — Windows-only leftover.
+  const { redirectUri, usesCefScreenCode } = resolveYandexOAuthRedirect(
+    options?.redirectUri ?? (provider.id === "yandex" ? YANDEX_DESKTOP_REDIRECT_URI : `http://localhost:${OAUTH_CALLBACK_PORT}`),
+    provider.id === "yandex" ? await getDesktopPlatform() : "other",
+  );
   const scopeValue = provider.scopes.join(" ");
 
   const params: Record<string, string> = {

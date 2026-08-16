@@ -2,12 +2,16 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "enables the default permissions",
-  "windows": [
+    "windows": [
     "main",
     "splashscreen",
     "thread-*",
     "compose-*",
-    "yandex-oauth"
+    "yandex-oauth",
+    "telemost-embedded",
+    "telemost-create-mask",
+    "telemost-macos-spike",
+    "telemost-macos-create"
   ],
   "permissions": [
     "core:default",

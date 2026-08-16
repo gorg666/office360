@@ -55,7 +55,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["cef-runtime/**/*"],
+    "resources": [],
     "macOS": {
       "entitlements": "Entitlements.plist",
       "minimumSystemVersion": "10.13"

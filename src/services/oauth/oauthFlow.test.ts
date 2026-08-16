@@ -19,6 +19,7 @@ import {
   formatOAuthCallbackBindError,
   isYandexVerificationCodeRedirect,
   refreshProviderToken,
+  resolveYandexOAuthRedirect,
   YANDEX_DESKTOP_REDIRECT_URI,
   YANDEX_VERIFICATION_CODE_REDIRECT_URI,
 } from "./oauthFlow";
@@ -169,6 +170,17 @@ describe("Yandex desktop vs verification_code redirect (AUTH-004)", () => {
   it("uses localhost loopback for preferred desktop callback (same as Mail)", () => {
     expect(YANDEX_DESKTOP_REDIRECT_URI).toBe("http://localhost:17248");
     expect(isYandexVerificationCodeRedirect(YANDEX_DESKTOP_REDIRECT_URI)).toBe(false);
+  });
+
+  it("does not keep CEF screen-code OAuth on macOS", () => {
+    expect(resolveYandexOAuthRedirect(YANDEX_VERIFICATION_CODE_REDIRECT_URI, "macos")).toEqual({
+      redirectUri: YANDEX_DESKTOP_REDIRECT_URI,
+      usesCefScreenCode: false,
+    });
+    expect(resolveYandexOAuthRedirect(YANDEX_VERIFICATION_CODE_REDIRECT_URI, "windows")).toEqual({
+      redirectUri: YANDEX_VERIFICATION_CODE_REDIRECT_URI,
+      usesCefScreenCode: true,
+    });
   });
 });
 
