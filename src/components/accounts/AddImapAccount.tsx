@@ -214,7 +214,7 @@ export function AddImapAccount({
 
     const discovered =
       oauthPreset.providerId === "yandex"
-        ? { settings: yandexMailSettings() }
+        ? { settings: yandexMailSettings(), acceptInvalidCerts: false as boolean | undefined }
         : discoverSettings(oauthPreset.defaultEmail);
     const yandex = yandexMailSettings();
     return {
