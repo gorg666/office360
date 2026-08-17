@@ -9,7 +9,7 @@ vi.mock("@/services/db/connection", async (importOriginal) => {
 });
 
 import { getDb } from "@/services/db/connection";
-import { muteThread, unmuteThread, getMutedThreadIds, deleteAllThreadsForAccount } from "./threads";
+import { muteThread, unmuteThread, getMutedThreadIds, deleteAllThreadsForAccount, getUnreadInboxCount } from "./threads";
 import { createMockDb } from "@/test/mocks";
 
 const mockDb = createMockDb();
@@ -84,5 +84,22 @@ describe("threads service - mute", () => {
 
       expect(result.size).toBe(0);
     });
+  });
+});
+
+describe("threads service - unread inbox count", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getDb).mockResolvedValue(mockDb as unknown as Awaited<ReturnType<typeof getDb>>);
+  });
+
+  it("counts INBOX threads that are unread at thread or message level", async () => {
+    mockDb.select.mockResolvedValueOnce([{ count: 3 }]);
+    const count = await getUnreadInboxCount();
+    expect(count).toBe(3);
+    const sql = String(mockDb.select.mock.calls[0]?.[0] ?? "");
+    expect(sql).toContain("tl.label_id = 'INBOX'");
+    expect(sql).toContain("t.is_read = 0");
+    expect(sql).toContain("m.is_read = 0");
   });
 });

@@ -4,15 +4,22 @@
 
 ## Last updated
 
-2026-08-16 08:32 +0700 — Prompt 50 dual-arch packages built. CEF-free Intel + ARM installers in `artifacts/`. Source consolidation commit follows; both `macos/x86_64` and `macos/arm64` share the same source.
+2026-08-17 08:10 +0700 — Prompt 51: Dock badge uses NSDockTile on the AppKit main thread; inbox unread includes thread.is_read. Efim unique oauth on origin/efim-11-08-auth not transplanted (would regress macOS 17248/PKCE). Telemost WK unchanged.
+
+## Prompt 51 (Dock badge + Efim auth audit)
+
+- Live FAIL on Prompt 50: `WebviewWindow.set_badge_count` did not update Dock. Tao uses `MainThreadMarker::new_unchecked()`; AppKit NSDockTile must run on the main thread. Fix: `macos_dock_badge.rs` → `run_on_main_thread` → `NSApplication.dockTile.setBadgeLabel` + `display()`.
+- Unread source: UI uses `threads.is_read`; badge SQL previously required unread **messages** only. `getUnreadInboxCount` now counts INBOX threads where `t.is_read = 0` OR any message unread.
+- Efim unique vs 8be0948: only `origin/efim-11-08-auth` (`9548cc5`, `aa39e9a`). Rejected: older oauthFlow (drops macOS loopback hardening), different public client id, TelemostPage/CEF host churn. Current grants already include mail/calendar/telemost-api/yamb.
+- 17248 loopback kept. WK Passport remains separate from Office360 tokens.
 
 ## Prompt 50 (macOS consolidation / dual-arch)
 
 - Working tree Telemost (Prompts 36–49) is the protected product baseline. Git recovery: `origin/main`, `office360-mail-workflow`, `chore/office360-plugin-installed-refresh` are ancestors of `macos/arm64` HEAD `a639e58` — no unique missing commits to cherry-pick. `fix/macos-reopen-icon-badge` is already an ancestor (dock Reopen + icon scale).
 - Dock unread badge: historical API is inbox unread → `Window.setBadgeCount`. Restored by rust `set_dock_badge_count` on label `main` (child WK no longer the badge target) + Telemost webview labels in capabilities.
 - `cef-host/macos/` removed. Windows `cef-host/` kept. Local `cef-host/build-macos*` dirs are gitignored residue, not packaged.
-- Intel: `artifacts/Office360-macOS-Intel-x86_64.dmg` (13M, SHA256 `febc9e6f1e298f597d306717175b9e4fb9641ea4f1ea6a8ac9615d369e635faf`), app x86_64 ~34M, CEF absent, codesign valid.
-- ARM: `artifacts/Office360-macOS-Apple-Silicon-arm64.dmg` (12M, SHA256 `2de2712f4e04dbc82a9bd0d4b8fdccf816f8e29dfc00d9a33e9ae7c5ffe5b9dc`), app arm64 ~33M, one Mach-O, CEF absent, codesign static valid. Live hardware: deferred.
+- Intel: `artifacts/Office360-macOS-Intel-x86_64.dmg` (13M, SHA256 `fe77adaae395b13b290f185ca43fb32853858116feb41f0f61677957a3aec99a`), app x86_64 ~34M, CEF absent, codesign valid.
+- ARM: `artifacts/Office360-macOS-Apple-Silicon-arm64.dmg` (12M, SHA256 `015aa5dd4a652135b8b34c947d8deb9bf7a399b9a985b01d362ad532fd92bc9f`), app arm64 ~33M, one Mach-O, CEF absent, codesign static valid. Live hardware: deferred.
 - macOS x86 Telemost live (Prompt 49 signed helper): CREATE → PREJOIN → MEETING → Leave → native IDLE → CREATE again. Rating modal not observed that run.
 - Architecture: Office360 → Tauri → WKWebView/WebKit → official Yandex Telemost. CEF absent on macOS. Windows CEF remains platform-gated.
 

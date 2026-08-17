@@ -29,8 +29,14 @@ export async function updateBadgeCount(): Promise<void> {
 
     const badge = dockBadgeCount(count);
     try {
-      await invoke("set_dock_badge_count", { count: badge ?? null });
+      console.info("[dock-badge]", { unread: count, request: badge ?? null });
     } catch {
+      // logging is best-effort
+    }
+    try {
+      await invoke("set_dock_badge_count", { count: badge ?? null });
+    } catch (err) {
+      console.warn("[dock-badge] native command failed", err);
       try {
         const main = await Window.getByLabel("main");
         await (main ?? getCurrentWindow()).setBadgeCount(badge);

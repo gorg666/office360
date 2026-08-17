@@ -32,6 +32,8 @@ mod notifications;
 mod oauth;
 mod smtp;
 mod telemost_macos_spike;
+#[cfg(target_os = "macos")]
+mod macos_dock_badge;
 
 #[tauri::command]
 fn close_splashscreen(app: tauri::AppHandle) {
@@ -46,12 +48,23 @@ fn close_splashscreen(app: tauri::AppHandle) {
 
 #[tauri::command]
 fn set_dock_badge_count(app: tauri::AppHandle, count: Option<i64>) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window is unavailable".to_string())?;
-    window
-        .set_badge_count(count.filter(|value| *value > 0))
-        .map_err(|err| err.to_string())
+    let badge = count.filter(|value| *value > 0);
+    log::info!("[dock-badge] request={badge:?}");
+
+    #[cfg(target_os = "macos")]
+    {
+        macos_dock_badge::apply(&app, badge)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let window = app
+            .get_webview_window("main")
+            .ok_or_else(|| "Main window is unavailable".to_string())?;
+        window
+            .set_badge_count(badge)
+            .map_err(|err| err.to_string())
+    }
 }
 
 #[tauri::command]
@@ -424,7 +437,17 @@ mod sqlite_init_without_cef {
         let production = src.split("#[cfg(test)]").next().expect("lib.rs has tests");
         assert!(!production.contains("preload_libcef_allocator"));
         assert!(production.contains("set_dock_badge_count"));
-        assert!(production.contains("set_badge_count"));
+        assert!(production.contains("[dock-badge]"));
+        #[cfg(target_os = "macos")]
+        {
+            let native = include_str!("macos_dock_badge.rs");
+            assert!(native.contains("setBadgeLabel"));
+            assert!(native.contains("run_on_main_thread"));
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert!(production.contains("set_badge_count"));
+        }
     }
 
     #[test]

@@ -78,6 +78,7 @@
     "global-shortcut:allow-is-registered",
     "deep-link:default",
     "core:window:allow-set-badge-count",
+    "core:window:allow-set-badge-label",
     {
       "identifier": "http:default",
       "allow": [

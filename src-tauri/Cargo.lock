@@ -3713,6 +3713,8 @@ dependencies = [
  "lz4_flex",
  "mail-parser",
  "native-tls",
+ "objc2-app-kit",
+ "objc2-foundation",
  "reqwest 0.12.28",
  "rmp-serde",
  "rmpv",

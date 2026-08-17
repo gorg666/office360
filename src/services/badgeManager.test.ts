@@ -60,4 +60,12 @@ describe("dock badge", () => {
     expect(getByLabel).toHaveBeenCalledWith("main");
     expect(setBadgeCount).toHaveBeenCalledWith(5);
   });
+
+  it("does not call the window fallback when the rust command succeeds", async () => {
+    getUnreadInboxCount.mockResolvedValue(4);
+    await updateBadgeCount();
+    expect(invoke).toHaveBeenCalledWith("set_dock_badge_count", { count: 4 });
+    expect(getByLabel).not.toHaveBeenCalled();
+    expect(setBadgeCount).not.toHaveBeenCalled();
+  });
 });
