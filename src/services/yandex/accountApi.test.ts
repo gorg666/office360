@@ -188,6 +188,7 @@ describe("Yandex service credentials", () => {
           "directory:read_organization",
         ]),
         redirectUri: "http://localhost:17248",
+        accountKey: "acc-1",
       }),
     );
     const oauthOptions = vi.mocked(startProviderOAuthFlow).mock.calls[0]?.[3] as

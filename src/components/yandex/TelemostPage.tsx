@@ -6,6 +6,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { getCalendarEventsInRange } from "@/services/db/calendarEvents";
 import { createTelemostConference, getTelemostConference, TelemostApiError, updateTelemostConference, type TelemostConference } from "@/services/yandex360/telemost";
 import { authorizeYandexGrant, hasYandexGrantScopes, TELEMOST_REQUIRED_SCOPES } from "@/services/oauth/yandexUnifiedAuth";
+import { bootstrapYandexPassportSession } from "@/services/oauth/yandexAuthSession";
 import { isTelemostJoinUrl, openTelemostCreateInBrowser, openTelemostInBrowser as openTelemostInBrowserService, openTelemostEmbedded, openTelemostMeeting, closeTelemostEmbedded, setTelemostEmbeddedBounds, TELEMOST_CREATE_URL } from "@/services/telemost/meetingRenderer";
 import { getTelemostCapability, setTelemostCapability, type LocalTelemostMeeting, type TelemostCapability } from "@/services/telemost/capability";
 import { createTelemostMeetingWeb } from "@/services/telemost/meetingActions";
@@ -141,6 +142,20 @@ export function TelemostPage() {
     void closeTelemostEmbedded().catch(() => undefined);
   }, [rememberActiveMeeting]);
 
+  const connectPassportSession = useCallback(async () => {
+    if (!serviceAccountId) return;
+    setAuthorizing(true);
+    setError(null);
+    try {
+      await closeTelemostEmbedded().catch(() => undefined);
+      await bootstrapYandexPassportSession(serviceAccountId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось открыть вход в Яндекс ID.");
+    } finally {
+      setAuthorizing(false);
+    }
+  }, [serviceAccountId]);
+
   const openCalendarDraft = useCallback((meetingUrl: string) => {
     const start = new Date();
     start.setMinutes(0, 0, 0);
@@ -200,12 +215,17 @@ export function TelemostPage() {
       setAuthRequired(false);
       setRevealOfficialCreate(false);
     });
+    const passportReady = listen("yandex-passport-bootstrap-complete", () => {
+      setAuthRequired(false);
+      void invoke("close_oauth_login_window").catch(() => undefined);
+    });
     return () => {
       void routingError.then((stop) => stop());
       void degraded.then((stop) => stop());
       void leftMeeting.then((stop) => stop());
       void authNeeded.then((stop) => stop());
       void authResumed.then((stop) => stop());
+      void passportReady.then((stop) => stop());
     };
   }, [desktopPlatform, returnToIdle]);
 
@@ -759,6 +779,7 @@ export function TelemostPage() {
     <button className="btn-secondary px-3 py-2 flex gap-2" disabled={desktopPlatform === null} onClick={() => void scheduleConference()}><CalendarDays size={16}/>Запланировать</button>
     <button className="btn-secondary px-3 py-2 flex gap-2" disabled={desktopPlatform === null} onClick={() => { setError(null); setJoinDialogOpen(true); }}><Users size={16}/>Подключиться</button>
     <button className="btn-secondary px-3 py-2 flex gap-2 opacity-60" disabled title="Недоступно на текущем тарифе"><Video size={16}/>Трансляция</button>
+    {desktopPlatform === "macos" && <button className="btn-secondary px-3 py-2" disabled={authorizing || !serviceAccountId} onClick={() => void connectPassportSession()}>{authorizing ? "Подключение…" : "Подключить Яндекс ID для сервисов"}</button>}
     {desktopPlatform === "macos" && <button className="btn-secondary px-3 py-2" onClick={() => void switchTelemostAccount()}>Сменить аккаунт Телемоста</button>}
   </div>}>
     {error && pageMode === "EMPTY" && <div className="mb-3 rounded-md bg-danger/10 text-danger p-3 text-sm flex items-center justify-between"><span>{error}</span><button onClick={() => setError(null)}>Закрыть</button></div>}
@@ -814,9 +835,10 @@ export function TelemostPage() {
       <section className={`relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border-primary ${useEmbeddedTelemost || (showMacosTelemostSurface && (pageMode === "MEETING" || authRequired || revealOfficialCreate)) ? "bg-black" : "bg-bg-primary"}`}>
         {useEmbeddedTelemost && <div ref={hostRef} className="absolute inset-0 bg-black"/>}
         {showMacosTelemostSurface && <div id="telemost-meeting-surface" ref={meetingSurfaceRef} className="relative min-h-0 flex-1 overflow-hidden bg-black" aria-label={pageMode === "MEETING" ? "Поверхность встречи Телемоста" : "Создание встречи Телемоста"} />}
-        {pageMode === "EMPTY" && !useEmbeddedTelemost && desktopPlatform !== null && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Яндекс Телемост</div><div className="mx-auto mt-2 max-w-md text-sm text-text-tertiary">Создайте новую встречу или подключитесь по ссылке.</div></div></div>}
+        {pageMode === "EMPTY" && !useEmbeddedTelemost && desktopPlatform !== null && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Яндекс Телемост</div><div className="mx-auto mt-2 max-w-md text-sm text-text-tertiary">Создайте новую встречу или подключитесь по ссылке.</div>{desktopPlatform === "macos" && serviceAccountId && <button className="btn-secondary mt-4 px-4 py-2" disabled={authorizing} onClick={() => void connectPassportSession()}>{authorizing ? "Подключение…" : "Подключить Яндекс ID для сервисов"}</button>}</div></div>}
         {pageMode === "CREATE_WEB" && !authRequired && !revealOfficialCreate && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8" aria-label="Создаём встречу"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Создаём встречу</div><div className="mx-auto mt-2 max-w-md text-sm text-text-tertiary">Официальный Телемост откроется на экране подключения.</div></div></div>}
         {pageMode === "ERROR" && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8" role="dialog" aria-label="Поверхность Телемоста"><div><div className="text-sm text-danger">{error ?? "Не удалось открыть видеовстречу внутри приложения."}</div><div className="mt-3 flex justify-center gap-2">{routingErrorUrl && <button className="btn-primary px-4 py-2" onClick={() => void openMeeting({ id: meetingId(routingErrorUrl), title: meetingTitle, joinUrl: routingErrorUrl, source: "visited" })}>Повторить</button>}{routingErrorUrl && <button className="btn-secondary px-4 py-2" onClick={() => void openTelemostInBrowser(routingErrorUrl)}>Открыть в браузере</button>}<button className="btn-secondary px-4 py-2" onClick={returnToIdle}>К списку встреч</button></div></div></div>}
+        {desktopPlatform === "macos" && authRequired && <div className="absolute left-3 top-3 right-28 z-20 max-w-lg rounded-lg bg-black/80 p-3 text-white pointer-events-none" role="status"><div className="font-medium">Подключите Яндекс ID для сервисов</div><div className="mt-1 text-sm text-white/80">Войдите как {activeAccount?.email ?? "тот же аккаунт, что и почта Office360"}. Это браузерный вход Яндекса — токены OAuth сюда не подставляются.</div></div>}
         {desktopPlatform === "macos" && (pageMode === "MEETING" || authRequired || revealOfficialCreate) && <div className="absolute right-3 top-3 z-20 flex gap-2 pointer-events-auto">
           <button className="rounded bg-black/70 px-3 py-2 text-sm text-white hover:bg-black" type="button" onClick={returnToIdle}>Закрыть</button>
         </div>}

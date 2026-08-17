@@ -41,6 +41,57 @@ fn clear_oauth_cancel_slot() {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OAuthWindowPurpose {
+    Oauth,
+    PassportBootstrap,
+}
+
+fn parse_oauth_window_purpose(raw: Option<&str>) -> OAuthWindowPurpose {
+    match raw.map(str::trim) {
+        Some("passport-bootstrap") => OAuthWindowPurpose::PassportBootstrap,
+        _ => OAuthWindowPurpose::Oauth,
+    }
+}
+
+fn is_allowed_oauth_start_url(url: &Url, purpose: OAuthWindowPurpose) -> bool {
+    if url.scheme() != "https" {
+        return false;
+    }
+    let host = url.host_str().unwrap_or("");
+    match purpose {
+        OAuthWindowPurpose::Oauth => matches!(host, "oauth.yandex.ru" | "oauth.yandex.com"),
+        OAuthWindowPurpose::PassportBootstrap => matches!(
+            host,
+            "passport.yandex.ru"
+                | "passport.yandex.com"
+                | "login.yandex.ru"
+                | "login.yandex.com"
+                | "id.yandex.ru"
+                | "id.yandex.com"
+                | "auth.yandex.ru"
+                | "auth.yandex.com"
+        ),
+    }
+}
+
+fn is_passport_bootstrap_complete(url: &Url) -> bool {
+    url.scheme() == "https"
+        && matches!(url.host_str(), Some("id.yandex.ru") | Some("id.yandex.com"))
+}
+
+async fn destroy_existing_oauth_window(app: &AppHandle) {
+    if let Some(existing) = app.get_webview_window(YANDEX_OAUTH_WINDOW_LABEL) {
+        let _ = existing.destroy();
+        for _ in 0..20 {
+            if app.get_webview_window(YANDEX_OAUTH_WINDOW_LABEL).is_none() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+}
+
 fn is_allowed_yandex_oauth_navigation(url: &Url) -> bool {
     let scheme = url.scheme();
     let host = url.host_str().unwrap_or("");
@@ -88,35 +139,46 @@ fn is_allowed_yandex_oauth_navigation(url: &Url) -> bool {
     false
 }
 
-/// Opens (or focuses) the in-app Yandex OAuth WebView. Does not spoof User-Agent.
+/// Opens (or recreates) the in-app Yandex login WebView.
+///
+/// On macOS the window uses the same persistent WKWebsiteDataStore as Telemost
+/// (`wk_account_store`). Passport cookies stay in that store. OAuth tokens are
+/// still exchanged via localhost:17248 PKCE and are never written as cookies.
 #[tauri::command]
-pub async fn open_oauth_login_window(app: AppHandle, url: String) -> Result<(), String> {
+pub async fn open_oauth_login_window(
+    app: AppHandle,
+    url: String,
+    account_key: Option<String>,
+    purpose: Option<String>,
+) -> Result<(), String> {
     let parsed: Url = url
         .parse()
         .map_err(|e| format!("Invalid OAuth URL: {e}"))?;
+    let window_purpose = parse_oauth_window_purpose(purpose.as_deref());
 
-    if parsed.scheme() != "https"
-        || !matches!(
-            parsed.host_str(),
-            Some("oauth.yandex.ru") | Some("oauth.yandex.com")
-        )
-    {
-        return Err(
-            "OAuth login window may only open official Yandex authorize URLs (oauth.yandex.ru)."
-                .to_string(),
-        );
+    if !is_allowed_oauth_start_url(&parsed, window_purpose) {
+        return Err(match window_purpose {
+            OAuthWindowPurpose::Oauth => {
+                "OAuth login window may only open official Yandex authorize URLs (oauth.yandex.ru)."
+                    .to_string()
+            }
+            OAuthWindowPurpose::PassportBootstrap => {
+                "Passport bootstrap may only open official Yandex ID login URLs.".to_string()
+            }
+        });
     }
 
-    if let Some(existing) = app.get_webview_window(YANDEX_OAUTH_WINDOW_LABEL) {
-        let _ = existing.set_focus();
-        existing
-            .navigate(parsed)
-            .map_err(|e| format!("Failed to navigate OAuth window: {e}"))?;
-        log::info!("OAuth WebView focused and navigated (label={YANDEX_OAUTH_WINDOW_LABEL})");
-        return Ok(());
-    }
+    let account_key = account_key.unwrap_or_default();
+    #[cfg(target_os = "macos")]
+    let data_store_identifier = crate::wk_account_store::data_store_identifier(&account_key)?;
+    #[cfg(not(target_os = "macos"))]
+    let _ = account_key;
+
+    // Recreate the window so it cannot keep a previous (default) data store.
+    destroy_existing_oauth_window(&app).await;
 
     let parent = app.get_webview_window("main");
+    let nav_app = app.clone();
     let mut builder = WebviewWindowBuilder::new(
         &app,
         YANDEX_OAUTH_WINDOW_LABEL,
@@ -129,7 +191,25 @@ pub async fn open_oauth_login_window(app: AppHandle, url: String) -> Result<(), 
     .center()
     .focused(true)
     .visible(true)
-    .on_navigation(|nav_url| is_allowed_yandex_oauth_navigation(nav_url));
+    .incognito(false)
+    .on_navigation(move |nav_url| {
+        let allowed = is_allowed_yandex_oauth_navigation(nav_url);
+        if allowed
+            && window_purpose == OAuthWindowPurpose::PassportBootstrap
+            && is_passport_bootstrap_complete(nav_url)
+        {
+            let _ = nav_app.emit("yandex-passport-bootstrap-complete", ());
+        }
+        allowed
+    });
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.data_store_identifier(data_store_identifier);
+        log::info!(
+            "OAuth WebView using account WKWebsiteDataStore (label={YANDEX_OAUTH_WINDOW_LABEL})"
+        );
+    }
 
     if let Some(main) = parent.as_ref() {
         builder = builder
@@ -660,4 +740,48 @@ pub async fn oauth_refresh_token(
         .json::<TokenExchangeResult>()
         .await
         .map_err(|e| format!("Failed to parse token response: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oauth_start_url_rejects_non_authorize_hosts() {
+        let oauth = parse_oauth_window_purpose(Some("oauth"));
+        let authorize: Url = "https://oauth.yandex.ru/authorize?client_id=x"
+            .parse()
+            .unwrap();
+        let passport: Url = "https://passport.yandex.ru/auth".parse().unwrap();
+        assert!(is_allowed_oauth_start_url(&authorize, oauth));
+        assert!(!is_allowed_oauth_start_url(&passport, oauth));
+    }
+
+    #[test]
+    fn passport_bootstrap_start_url_allows_official_login_hosts() {
+        let bootstrap = parse_oauth_window_purpose(Some("passport-bootstrap"));
+        let passport: Url = "https://passport.yandex.ru/auth".parse().unwrap();
+        let authorize: Url = "https://oauth.yandex.ru/authorize".parse().unwrap();
+        assert!(is_allowed_oauth_start_url(&passport, bootstrap));
+        assert!(!is_allowed_oauth_start_url(&authorize, bootstrap));
+    }
+
+    #[test]
+    fn passport_bootstrap_completes_on_id_yandex() {
+        let done: Url = "https://id.yandex.ru/".parse().unwrap();
+        let login: Url = "https://passport.yandex.ru/auth".parse().unwrap();
+        assert!(is_passport_bootstrap_complete(&done));
+        assert!(!is_passport_bootstrap_complete(&login));
+    }
+
+    #[test]
+    fn oauth_window_does_not_inject_tokens() {
+        let src = include_str!("oauth.rs");
+        let production = src.split("#[cfg(test)]").next().expect("oauth.rs has tests");
+        assert!(!production.contains("Session_id"));
+        assert!(!production.contains("set_cookie"));
+        assert!(production.contains("data_store_identifier"));
+        assert!(production.contains("account_key"));
+        assert!(production.contains("never written as cookies"));
+    }
 }

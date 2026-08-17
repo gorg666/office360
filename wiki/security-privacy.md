@@ -55,3 +55,7 @@ Debug bundles may include security warning summaries only:
 - action names.
 
 Debug bundles must not include raw HTML, message body, raw MIME, attachment payloads, OAuth tokens, passwords, auth headers, or private URL query payloads.
+
+## Yandex OAuth vs Passport
+
+Office360 API authorization (OAuth access/refresh tokens) and the macOS WKWebsiteDataStore Passport session are separate security domains. One user-visible Yandex login may establish both because the authorize page runs in the account WK store. Tokens are not written as cookies, cookies are not minted from tokens, and sessions are not copied between accounts.

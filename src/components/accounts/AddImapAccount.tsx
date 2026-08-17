@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowLeft,
@@ -36,6 +36,11 @@ import { getOAuthProvider } from "@/services/oauth/providers";
 import { getYandexOAuthConfigDiagnostics } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
 import { computeTokenExpiresAtSeconds } from "@/services/oauth/tokenExpiry";
+import {
+  assertYandexOAuthMatchesAccount,
+  cleanupProvisionalYandexWkStore,
+  resolveYandexWkAccountKey,
+} from "@/services/oauth/yandexAuthSession";
 import { getSetting } from "@/services/db/settings";
 
 interface AddImapAccountProps {
@@ -247,6 +252,7 @@ export function AddImapAccount({
   );
   const [yandexManualFallback, setYandexManualFallback] = useState(false);
   const [yandexMailScopeBlocked, setYandexMailScopeBlocked] = useState(false);
+  const oauthSessionRef = useRef<{ accountKey: string; provisional: boolean } | null>(null);
 
   const accounts = useAccountStore((s) => s.accounts);
   const addAccount = useAccountStore((s) => s.addAccount);
@@ -359,7 +365,7 @@ export function AddImapAccount({
     [currentStep, goNext, canGoNext],
   );
 
-  async function saveAccount(accountForm: FormState): Promise<void> {
+  async function saveAccount(accountForm: FormState, preferredId?: string): Promise<void> {
     setSaving(true);
     setSaveError(null);
     try {
@@ -368,7 +374,7 @@ export function AddImapAccount({
         accountForm.authMode === "oauth2" ? accountForm.oauthEmail : null,
       );
       const existingAccount = await getAccountByEmail(email);
-      const accountId = existingAccount?.id ?? crypto.randomUUID();
+      const accountId = existingAccount?.id ?? preferredId ?? crypto.randomUUID();
       const preferFullEmail = accountForm.oauthProvider === "yandex";
       const imapUsername =
         resolveMailboxUsername(email, accountForm.imapUsername, { preferFullEmail }) || null;
@@ -481,6 +487,7 @@ export function AddImapAccount({
     setOauthError(null);
     setYandexMailScopeBlocked(false);
     setSaveError(null);
+    let oauthCompleted = false;
 
     try {
       if (providerId === "yandex") {
@@ -498,12 +505,19 @@ export function AddImapAccount({
           ? undefined
           : form.oauthClientSecret.trim() || undefined;
 
+      const session =
+        providerId === "yandex"
+          ? await resolveYandexWkAccountKey(form.email.trim())
+          : { accountKey: "", provisional: false };
+      oauthSessionRef.current = providerId === "yandex" ? session : null;
+
       const { tokens, userInfo } = await startProviderOAuthFlow(
         provider,
         clientId,
         oauthClientSecret,
-        // Do not pass form.email as login_hint — unverified typed email causes Yandex invalid_request.
+        providerId === "yandex" ? { accountKey: session.accountKey } : undefined,
       );
+      oauthCompleted = true;
       const grantedScopes = parseScopeSet(tokens.scope);
 
       if (providerId === "yandex") {
@@ -534,6 +548,26 @@ export function AddImapAccount({
         providerId === "yandex"
           ? resolveMailboxEmail(form.email, userInfo.email)
           : (userInfo.email || form.email);
+
+      if (providerId === "yandex" && !session.provisional) {
+        try {
+          assertYandexOAuthMatchesAccount(form.email, mailboxEmail);
+        } catch (mismatch) {
+          await invoke("reset_telemost_macos_profile", { accountKey: session.accountKey }).catch(
+            () => {},
+          );
+          throw mismatch;
+        }
+      }
+      if (providerId === "yandex" && session.provisional) {
+        const taken = await getAccountByEmail(mailboxEmail);
+        if (taken && taken.id !== session.accountKey) {
+          await cleanupProvisionalYandexWkStore(session.accountKey, true);
+          throw new Error(
+            `Аккаунт ${mailboxEmail} уже добавлен. Откройте его и при необходимости подключите Яндекс ID для сервисов.`,
+          );
+        }
+      }
       const yandexServers = providerId === "yandex" ? yandexMailSettings() : null;
       const mailboxUsername =
         providerId === "yandex"
@@ -570,11 +604,15 @@ export function AddImapAccount({
 
       setForm(nextForm);
       if (usesManagedOAuthFlow) {
-        await saveAccount(nextForm);
+        await saveAccount(nextForm, session.accountKey || undefined);
       } else {
         setCurrentStep("imap");
       }
     } catch (err) {
+      const session = oauthSessionRef.current;
+      if (providerId === "yandex" && session?.provisional && !oauthCompleted) {
+        await cleanupProvisionalYandexWkStore(session.accountKey, true);
+      }
       const message = err instanceof Error ? err.message : String(err);
       console.warn("[oauth] connect failed:", message);
       if (providerId === "yandex" && /invalid_scope/i.test(message)) {
@@ -583,7 +621,11 @@ export function AddImapAccount({
         );
       } else if (providerId === "yandex") {
         setOauthError(
-          message.startsWith("Не удалось") || message.startsWith("Вход через") || message.startsWith("Время ожидания")
+          message.startsWith("Не удалось")
+            || message.startsWith("Вход через")
+            || message.startsWith("Время ожидания")
+            || message.startsWith("В Яндекс ID")
+            || message.startsWith("Аккаунт ")
             ? message
             : "Не удалось войти через Яндекс ID. Попробуйте снова или выберите другой аккаунт.",
         );

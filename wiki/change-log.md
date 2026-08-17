@@ -1,5 +1,13 @@
 # Журнал изменений
 
+## 2026-08-17 — единый вход Яндекс ID и Dock badge
+
+- Первичная авторизация Яндекса на macOS открывается в том же persistent `WKWebsiteDataStore`, что и Телемост (`accounts.id` / UUID v5 `office360:telemost:{id}`).
+- OAuth-токены и Passport-cookies остаются разными доменами безопасности: нет подстановки `access_token`/`refresh_token` в cookies.
+- Для уже добавленных аккаунтов без Passport-сессии доступна кнопка «Подключить Яндекс ID для сервисов».
+- Отмена первого входа очищает provisional WK store и не оставляет orphan-аккаунт.
+- Dock unread badge: после splash `skipTaskbar` приложение возвращает `NSApplicationActivationPolicy::Regular`; badge ставится на main thread и считывается обратно.
+
 ## 2026-08-11 — планирование Телемоста и единая OAuth-сессия
 
 - Домашняя страница встроенного Телемоста остаётся невидимым техническим DOM-исполнителем; CEF показывается только для встречи или авторизации.

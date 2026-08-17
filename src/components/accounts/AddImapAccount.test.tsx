@@ -4,8 +4,13 @@ import { AddImapAccount } from "./AddImapAccount";
 import { getOAuthProvider } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
 import { insertOAuthImapAccount } from "@/services/db/accounts";
+import { invoke } from "@tauri-apps/api/core";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+
+vi.mock("@/utils/desktopPlatform", () => ({
+  getDesktopPlatform: vi.fn().mockResolvedValue("macos"),
+}));
 
 vi.mock("@/services/db/accounts", () => ({
   getAccountByEmail: vi.fn().mockResolvedValue(null),
@@ -105,6 +110,7 @@ describe("managed Yandex account OAuth", () => {
         expect.objectContaining({ id: "yandex", usePkce: true }),
         "managed-yandex-client",
         undefined,
+        expect.objectContaining({ accountKey: expect.any(String) }),
       );
     });
   });
@@ -146,8 +152,12 @@ describe("managed Yandex account OAuth", () => {
     await waitFor(() => {
       expect(insertOAuthImapAccount).toHaveBeenCalled();
     });
+    const oauthOptions = vi.mocked(startProviderOAuthFlow).mock.calls[0]?.[3] as
+      | { accountKey?: string }
+      | undefined;
     expect(insertOAuthImapAccount).toHaveBeenCalledWith(
       expect.objectContaining({
+        id: oauthOptions?.accountKey,
         email: "korotkov.g@office-360.ru",
         imapHost: "imap.yandex.com",
         imapPort: 993,
@@ -179,6 +189,27 @@ describe("managed Yandex account OAuth", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Yandex ID connected, but mail permissions are missing.")).toBeInTheDocument();
+    });
+    expect(insertOAuthImapAccount).not.toHaveBeenCalled();
+  });
+
+  it("cleans the provisional WK store when Yandex login is cancelled", async () => {
+    vi.mocked(startProviderOAuthFlow).mockRejectedValue(
+      new Error("Окно авторизации Яндекс ID закрыто до завершения подключения."),
+    );
+    vi.mocked(invoke).mockResolvedValue(undefined);
+
+    renderManagedYandex();
+    fireEvent.change(screen.getByLabelText("Email Address"), {
+      target: { value: "user@yandex.ru" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Войти через Яндекс ID" }));
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "reset_telemost_macos_profile",
+        expect.objectContaining({ accountKey: expect.any(String) }),
+      );
     });
     expect(insertOAuthImapAccount).not.toHaveBeenCalled();
   });

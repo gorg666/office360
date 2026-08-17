@@ -8,6 +8,16 @@
 
 Трекер требует `X-Org-ID`. Office360 получает организации через `GET https://api360.yandex.net/directory/v1/org`, автоматически выбирает единственную и хранит выбор отдельно для каждого аккаунта. При невозможности определить организацию ID вводится на странице Трекера.
 
+## OAuth API vs Passport browser session
+
+Office360 OAuth (PKCE `localhost:17248`) authorizes Mail, Calendar, and Yandex APIs. Tokens live in encrypted app storage.
+
+macOS Telemost uses a persistent per-account `WKWebsiteDataStore` (`UUID v5` of `office360:telemost:{accounts.id}`). That store holds Yandex Passport cookies. Tokens are never copied into cookies, and cookies are never copied into tokens.
+
+On first add, the Yandex authorize page opens in that same WK store, so one interactive login establishes both grants. Existing accounts without a Passport session can use «Подключить Яндекс ID для сервисов» (official web login in the account store, no OAuth regrant unless tokens are invalid).
+
+Windows still uses platform-gated CEF for Telemost. macOS is CEF-free.
+
 ## Диск
 
 Страница `/disk` работает непосредственно с REST API Яндекс Диска. SQLite не содержит копию каталога. Поддерживаются папки, поиск, сортировка, квота, постраничный просмотр, загрузка и скачивание, переименование/перемещение, удаление в корзину, публикация и снятие публичного доступа. После публикации ссылка копируется в буфер обмена.

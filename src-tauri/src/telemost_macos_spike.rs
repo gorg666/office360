@@ -135,11 +135,8 @@ pub struct TelemostBounds {
 }
 
 fn profile_identifier(account_key: &str) -> Result<[u8; 16], String> {
-    let key = account_key.trim();
-    if key.is_empty() || key.len() > 256 {
-        return Err("Telemost account profile is invalid".to_string());
-    }
-    Ok(*uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, format!("office360:telemost:{key}").as_bytes()).as_bytes())
+    crate::wk_account_store::data_store_identifier(account_key)
+        .map_err(|_| "Telemost account profile is invalid".to_string())
 }
 
 fn validate_bounds(bounds: &TelemostBounds) -> Result<(), String> {

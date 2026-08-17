@@ -113,6 +113,7 @@ describe("Yandex unified OAuth", () => {
         loginHint: account.email,
         scopes: [...YANDEX_OAUTH_GRANTS.communications.scopes],
         redirectUri: YANDEX_DESKTOP_REDIRECT_URI,
+        accountKey: account.id,
       }),
     );
     expect(setSecureSetting).toHaveBeenCalledWith(

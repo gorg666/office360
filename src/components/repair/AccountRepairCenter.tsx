@@ -156,7 +156,9 @@ export function AccountRepairCenter() {
           provider,
           account.oauth_client_id,
           account.oauth_client_secret ?? undefined,
-          account.oauth_provider === "yandex" ? { loginHint: account.email } : undefined,
+          account.oauth_provider === "yandex"
+            ? { loginHint: account.email, accountKey: account.id }
+            : undefined,
         );
         if (userInfo.email && normalizeEmail(userInfo.email) !== normalizeEmail(account.email)) {
           throw new Error(`Signed in as ${userInfo.email}, but expected ${account.email}.`);

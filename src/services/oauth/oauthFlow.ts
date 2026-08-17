@@ -6,6 +6,7 @@ import type { OAuthProviderConfig } from "./providers";
 import { normalizeYandexUserInfo } from "./yandexProfile";
 import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
 import { getDesktopPlatform } from "@/utils/desktopPlatform";
+import { requireYandexWkAccountKey } from "./yandexAuthSession";
 
 /** Shared desktop loopback port for Yandex (Mail + Disk/Tracker) and Gmail-style flows. */
 export const OAUTH_CALLBACK_PORT = 17248;
@@ -69,10 +70,19 @@ export interface ProviderUserInfo {
   picture?: string;
 }
 
+export interface StartProviderOAuthFlowOptions {
+  loginHint?: string;
+  scopes?: string[];
+  redirectUri?: string;
+  /** Stable accounts.id used as the macOS WKWebsiteDataStore key (same as Telemost). */
+  accountKey?: string;
+}
+
 async function openAuthorization(
   provider: OAuthProviderConfig,
   authUrl: string,
   usesCefScreenCode: boolean,
+  accountKey?: string,
 ): Promise<() => Promise<void>> {
   if (provider.id !== "yandex") {
     await openUrl(authUrl);
@@ -80,7 +90,12 @@ async function openAuthorization(
   }
 
   if (!usesCefScreenCode) {
-    await invoke("open_oauth_login_window", { url: authUrl });
+    const sessionKey = requireYandexWkAccountKey(accountKey);
+    await invoke("open_oauth_login_window", {
+      url: authUrl,
+      accountKey: sessionKey,
+      purpose: "oauth",
+    });
     return async () => {
       await invoke("close_oauth_login_window").catch(() => {});
     };
@@ -137,7 +152,7 @@ export async function startProviderOAuthFlow(
   provider: OAuthProviderConfig,
   clientId: string,
   clientSecret?: string,
-  options?: { loginHint?: string; scopes?: string[]; redirectUri?: string },
+  options?: StartProviderOAuthFlowOptions,
 ): Promise<{ tokens: TokenResponse; userInfo: ProviderUserInfo }> {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
@@ -257,7 +272,12 @@ export async function startProviderOAuthFlow(
   }, 180_000) : null;
 
   await new Promise((r) => setTimeout(r, 100));
-  const closeAuthorization = await openAuthorization(provider, authUrl, usesCefScreenCode);
+  const closeAuthorization = await openAuthorization(
+    provider,
+    authUrl,
+    usesCefScreenCode,
+    options?.accountKey,
+  );
   let result: OAuthServerResult;
   try {
     result = await resultPromise;

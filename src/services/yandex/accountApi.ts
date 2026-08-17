@@ -160,6 +160,7 @@ export async function authorizeYandexServices(accountId: string, clientId?: stri
     loginHint: account.email,
     scopes: YANDEX_SERVICE_SCOPES,
     redirectUri: YANDEX_DESKTOP_REDIRECT_URI,
+    accountKey: account.id,
   });
   if (userInfo.email && normalizeEmail(userInfo.email) !== normalizeEmail(account.email)) {
     throw new Error(`Выполнен вход как ${userInfo.email}, ожидался аккаунт ${account.email}.`);
@@ -281,7 +282,7 @@ export async function reauthorizeYandexAccount(accountId: string): Promise<void>
     provider,
     clientId,
     account.oauth_client_secret ?? undefined,
-    { loginHint: account.email },
+    { loginHint: account.email, accountKey: account.id },
   );
   if (normalizeEmail(userInfo.email) !== normalizeEmail(account.email)) {
     throw new Error(`Выполнен вход как ${userInfo.email}, ожидался аккаунт ${account.email}.`);

@@ -4,7 +4,7 @@
 
 ## Last updated
 
-2026-08-17 08:10 +0700 — Prompt 51: Dock badge uses NSDockTile on the AppKit main thread; inbox unread includes thread.is_read. Efim unique oauth on origin/efim-11-08-auth not transplanted (would regress macOS 17248/PKCE). Telemost WK unchanged.
+2026-08-17 — Prompt 53: unified Yandex WK login (OAuth window uses Telemost `WKWebsiteDataStore`) + Dock badge Regular activation policy. Baseline was `3157864`. Live Intel proof still required after rebuild.
 
 ## Prompt 51 (Dock badge + Efim auth audit)
 

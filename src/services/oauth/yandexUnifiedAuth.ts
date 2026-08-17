@@ -191,6 +191,7 @@ async function authorizeStoredGrant(accountId: string, grant: StoredGrant): Prom
     loginHint: account.email,
     scopes: [...definition.scopes],
     redirectUri: YANDEX_DESKTOP_REDIRECT_URI,
+    accountKey: account.id,
   });
   const owner = await verifyGrantOwner(account, userInfo);
   if (!tokens.refresh_token) {

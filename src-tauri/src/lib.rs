@@ -33,6 +33,7 @@ mod notifications;
 mod oauth;
 mod smtp;
 mod telemost_macos_spike;
+mod wk_account_store;
 #[cfg(target_os = "macos")]
 mod macos_dock_badge;
 
@@ -44,6 +45,10 @@ fn close_splashscreen(app: tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.set_focus();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = macos_dock_badge::ensure_regular_activation(&app);
     }
 }
 
@@ -444,6 +449,8 @@ mod sqlite_init_without_cef {
             let native = include_str!("macos_dock_badge.rs");
             assert!(native.contains("setBadgeLabel"));
             assert!(native.contains("run_on_main_thread"));
+            assert!(native.contains("activationPolicy"));
+            assert!(native.contains("isMainThread"));
         }
         #[cfg(not(target_os = "macos"))]
         {
