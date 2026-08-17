@@ -21,6 +21,15 @@ interface WellKnownProvider {
   acceptInvalidCerts?: boolean;
 }
 
+export const YANDEX_MAIL_SETTINGS: ServerSettings = {
+  imapHost: "imap.yandex.com",
+  imapPort: 993,
+  imapSecurity: "ssl",
+  smtpHost: "smtp.yandex.com",
+  smtpPort: 465,
+  smtpSecurity: "ssl",
+};
+
 const wellKnownProviders: WellKnownProvider[] = [
   {
     domains: [
@@ -130,14 +139,7 @@ const wellKnownProviders: WellKnownProvider[] = [
   },
   {
     domains: ["yandex.ru", "ya.ru", "yandex.com", "yandex.by", "yandex.kz", "yandex.ua"],
-    settings: {
-      imapHost: "imap.yandex.ru",
-      imapPort: 993,
-      imapSecurity: "ssl",
-      smtpHost: "smtp.yandex.ru",
-      smtpPort: 465,
-      smtpSecurity: "ssl",
-    },
+    settings: { ...YANDEX_MAIL_SETTINGS },
     authMethods: ["oauth2", "password"],
     oauthProviderId: "yandex",
   },
@@ -183,6 +185,15 @@ export interface WellKnownProviderResult {
   authMethods: AuthMethod[];
   oauthProviderId?: string;
   acceptInvalidCerts?: boolean;
+}
+
+/**
+ * Yandex 360 / Yandex Mail always speak IMAP/SMTP on imap.yandex.com and
+ * smtp.yandex.com (regional .ru aliases resolve to the same A/AAAA set).
+ * Custom corporate domains such as office-360.ru must not guess imap.{domain}.
+ */
+export function yandexMailSettings(): ServerSettings {
+  return { ...YANDEX_MAIL_SETTINGS };
 }
 
 /**

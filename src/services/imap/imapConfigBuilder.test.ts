@@ -139,10 +139,31 @@ describe("imap_username override", () => {
     expect(config.username).toBe("user@example.com");
   });
 
-  it("falls back to email when imap_username is empty string", () => {
-    const account = createMockDbAccount({ imap_username: "" as string | null });
-    const config = buildImapConfig(account);
-    expect(config.username).toBe("user@example.com");
+  it("uses the full Yandex 360 mailbox and does not keep a local-part username", () => {
+    const account = createMockDbAccount({
+      email: "korotkov.g@office-360.ru",
+      oauth_provider: "yandex",
+      auth_method: "oauth2",
+      imap_host: "imap.yandex.com",
+      smtp_host: "smtp.yandex.com",
+      imap_username: "korotkov.g",
+    });
+    expect(buildImapConfig(account, "fresh-token").username).toBe("korotkov.g@office-360.ru");
+    expect(buildSmtpConfig(account, "fresh-token").username).toBe("korotkov.g@office-360.ru");
+  });
+
+  it("defaults Yandex SMTP to implicit TLS port 465 when unset", () => {
+    const account = createMockDbAccount({
+      email: "korotkov.g@office-360.ru",
+      oauth_provider: "yandex",
+      smtp_host: "smtp.yandex.com",
+      smtp_port: null,
+      smtp_security: "ssl",
+    });
+    const config = buildSmtpConfig(account);
+    expect(config.port).toBe(465);
+    expect(config.security).toBe("tls");
+    expect(config.host).toBe("smtp.yandex.com");
   });
 });
 

@@ -24,8 +24,14 @@ import {
   discoverSettings,
   getDefaultImapPort,
   getDefaultSmtpPort,
+  yandexMailSettings,
   type SecurityType,
 } from "@/services/imap/autoDiscovery";
+import {
+  classifyMailProtocolError,
+  resolveMailboxEmail,
+  resolveMailboxUsername,
+} from "@/services/imap/mailErrorClassification";
 import { getOAuthProvider } from "@/services/oauth/providers";
 import { getYandexOAuthConfigDiagnostics } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
@@ -134,10 +140,7 @@ const SMTP_TEST_TIMEOUT_MS = 35_000;
 const REQUIRED_YANDEX_MAIL_SCOPES = ["mail:imap_full", "mail:smtp"];
 
 const SMTP_SCOPE_MISSING =
-  "This token does not include SMTP access. Use an app password or sign in again with the required permissions.";
-
-const SMTP_YANDEX_APP_PASSWORD_HINT =
-  "For Yandex Mail you may need an app password. Enable app passwords in Yandex ID security settings and use it instead of your account password.";
+  "OAuth token is missing the required mail permissions";
 
 const YANDEX_MAIL_SCOPES_MISSING_TITLE =
   "Yandex ID connected, but mail permissions are missing.";
@@ -183,37 +186,11 @@ function normalizeKnownSmtpProviderPort(host: string, port: number): number {
   return port;
 }
 
-function formatSmtpTestError(err: unknown, host: string, port: number): string {
-  const message = err instanceof Error ? err.message : String(err);
-  if (/refused|connection refused|отверг запрос|os error 10061/i.test(message)) {
-    return `SMTP server ${host}:${port} refused the TCP connection. Check port and security type: for Yandex Mail use smtp.yandex.ru, port 465, SSL/TLS. If settings are correct, the port may be blocked by network, VPN, proxy, or antivirus.`;
-  }
-  return message;
-}
-
 function enrichSmtpTestUserFacingMessage(
   raw: string,
   ctx: { authMode: AuthMode; smtpHost: string; smtpPort: number },
 ): string {
-  if (/SMTP test did not complete within|SMTP test timed out after/i.test(raw)) {
-    return raw;
-  }
-  let m = formatSmtpTestError(raw, ctx.smtpHost, ctx.smtpPort);
-  if (ctx.authMode === "oauth2") {
-    if (/5\.7\.8|535|authentication failed|auth.*fail|xoauth2|invalid.*credential|expected.*AUTH/i.test(raw)) {
-      return SMTP_SCOPE_MISSING;
-    }
-  }
-  if (ctx.authMode === "password") {
-    const h = ctx.smtpHost.toLowerCase();
-    if (
-      (h.includes("yandex.ru") || h.includes("yandex.com")) &&
-      /auth|535|invalid|password|credentials|5\.7\.|authentication/i.test(m)
-    ) {
-      return SMTP_YANDEX_APP_PASSWORD_HINT;
-    }
-  }
-  return m;
+  return classifyMailProtocolError(raw, "smtp", ctx.smtpHost).message;
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -235,16 +212,20 @@ export function AddImapAccount({
   const [form, setForm] = useState<FormState>(() => {
     if (!oauthPreset) return initialFormState;
 
-    const discovered = discoverSettings(oauthPreset.defaultEmail);
+    const discovered =
+      oauthPreset.providerId === "yandex"
+        ? { settings: yandexMailSettings() }
+        : discoverSettings(oauthPreset.defaultEmail);
+    const yandex = yandexMailSettings();
     return {
       ...initialFormState,
       email: "",
-      imapHost: discovered?.settings.imapHost ?? "imap.yandex.com",
-      imapPort: discovered?.settings.imapPort ?? 993,
-      imapSecurity: discovered?.settings.imapSecurity ?? "ssl",
-      smtpHost: discovered?.settings.smtpHost ?? "smtp.yandex.com",
-      smtpPort: discovered?.settings.smtpPort ?? 465,
-      smtpSecurity: discovered?.settings.smtpSecurity ?? "ssl",
+      imapHost: discovered?.settings.imapHost ?? yandex.imapHost,
+      imapPort: discovered?.settings.imapPort ?? yandex.imapPort,
+      imapSecurity: discovered?.settings.imapSecurity ?? yandex.imapSecurity,
+      smtpHost: discovered?.settings.smtpHost ?? yandex.smtpHost,
+      smtpPort: discovered?.settings.smtpPort ?? yandex.smtpPort,
+      smtpSecurity: discovered?.settings.smtpSecurity ?? yandex.smtpSecurity,
       authMode: "oauth2",
       oauthProvider: oauthPreset.providerId,
       acceptInvalidCerts: discovered?.acceptInvalidCerts ?? false,
@@ -382,10 +363,15 @@ export function AddImapAccount({
     setSaving(true);
     setSaveError(null);
     try {
-      const email = (accountForm.authMode === "oauth2" ? accountForm.oauthEmail : null) ?? accountForm.email.trim();
+      const email = resolveMailboxEmail(
+        accountForm.email,
+        accountForm.authMode === "oauth2" ? accountForm.oauthEmail : null,
+      );
       const existingAccount = await getAccountByEmail(email);
       const accountId = existingAccount?.id ?? crypto.randomUUID();
-      const imapUsername = accountForm.imapUsername.trim() || null;
+      const preferFullEmail = accountForm.oauthProvider === "yandex";
+      const imapUsername =
+        resolveMailboxUsername(email, accountForm.imapUsername, { preferFullEmail }) || null;
       const accountIsOAuth = accountForm.authMode === "oauth2";
 
       if (accountIsOAuth) {
@@ -458,7 +444,12 @@ export function AddImapAccount({
       onSuccess(accountId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setSaveError(message);
+      const classified = classifyMailProtocolError(
+        message,
+        /smtp/i.test(message) ? "smtp" : "imap",
+        accountForm.imapHost,
+      );
+      setSaveError(classified.message);
       setSaving(false);
       throw err;
     }
@@ -517,7 +508,7 @@ export function AddImapAccount({
 
       if (providerId === "yandex") {
         console.info("[oauth] Yandex granted scopes:", [...grantedScopes].join(" "));
-        if (usesManagedOAuthFlow && !hasYandexMailScopes(grantedScopes)) {
+        if (usesManagedOAuthFlow && grantedScopes.size > 0 && !hasYandexMailScopes(grantedScopes)) {
           console.warn(
             "[oauth][yandex] mail scopes are not granted; account will not be saved",
           );
@@ -539,14 +530,31 @@ export function AddImapAccount({
 
       const expiresAt = computeTokenExpiresAtSeconds(tokens.expires_in);
 
+      const mailboxEmail =
+        providerId === "yandex"
+          ? resolveMailboxEmail(form.email, userInfo.email)
+          : (userInfo.email || form.email);
+      const yandexServers = providerId === "yandex" ? yandexMailSettings() : null;
+      const mailboxUsername =
+        providerId === "yandex"
+          ? resolveMailboxUsername(mailboxEmail, form.imapUsername, { preferFullEmail: true })
+          : form.imapUsername;
+
       const nextForm: FormState = {
         ...form,
         oauthAccessToken: tokens.access_token,
         oauthRefreshToken: tokens.refresh_token ?? null,
         oauthExpiresAt: expiresAt,
-        oauthEmail: userInfo.email,
+        oauthEmail: mailboxEmail,
         oauthPicture: userInfo.picture ?? null,
-        email: userInfo.email || form.email,
+        email: mailboxEmail,
+        imapUsername: mailboxUsername,
+        imapHost: yandexServers?.imapHost ?? form.imapHost,
+        imapPort: yandexServers?.imapPort ?? form.imapPort,
+        imapSecurity: yandexServers?.imapSecurity ?? form.imapSecurity,
+        smtpHost: yandexServers?.smtpHost ?? form.smtpHost,
+        smtpPort: yandexServers?.smtpPort ?? form.smtpPort,
+        smtpSecurity: yandexServers?.smtpSecurity ?? form.smtpSecurity,
         displayName: userInfo.name || form.displayName,
         oauthProvider: providerId,
         oauthClientId: clientId,
@@ -600,7 +608,11 @@ export function AddImapAccount({
               host: imapHost,
               port: imapPort,
               security: mapSecurity(form.imapSecurity),
-              username: form.imapUsername || (isOAuth ? (form.oauthEmail ?? form.email) : form.email),
+              username: resolveMailboxUsername(
+                isOAuth ? (form.oauthEmail ?? form.email) : form.email,
+                form.imapUsername,
+                { preferFullEmail: form.oauthProvider === "yandex" },
+              ),
               password: isOAuth ? (form.oauthAccessToken ?? "") : form.password,
               auth_method: isOAuth ? "oauth2" : "password",
               accept_invalid_certs: form.acceptInvalidCerts,
@@ -608,12 +620,13 @@ export function AddImapAccount({
           },
         ),
         IMAP_TEST_TIMEOUT_MS,
-        `IMAP-проверка ${imapHost}:${imapPort} не ответила за ${IMAP_TEST_TIMEOUT_MS / 1000} сек. Для Яндекса проверьте, что IMAP включен в настройках почты и используются host imap.yandex.ru, порт 993, SSL/TLS.`,
+        `IMAP connection to ${imapHost}:${imapPort} timed out after ${IMAP_TEST_TIMEOUT_MS / 1000}s`,
       );
       setImapTest({ state: "success", message: result });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setImapTest({ state: "error", message });
+      const raw = err instanceof Error ? err.message : String(err);
+      const classified = classifyMailProtocolError(raw, "imap", form.imapHost);
+      setImapTest({ state: "error", message: classified.message });
     }
   };
 
@@ -621,9 +634,11 @@ export function AddImapAccount({
     setSmtpTest({ state: "testing" });
     const smtpHost = form.smtpHost.trim();
     const smtpPort = normalizeKnownSmtpProviderPort(smtpHost, form.smtpPort);
-    const username =
-      form.imapUsername.trim() ||
-      (isOAuth ? (form.oauthEmail ?? form.email).trim() : form.email.trim());
+    const username = resolveMailboxUsername(
+      isOAuth ? (form.oauthEmail ?? form.email) : form.email,
+      form.imapUsername,
+      { preferFullEmail: form.oauthProvider === "yandex" },
+    );
     const authMethod: "oauth2" | "password" = isOAuth ? "oauth2" : "password";
     const t0 = performance.now();
 
@@ -639,7 +654,8 @@ export function AddImapAccount({
           security: form.smtpSecurity,
           securityMapped: mapSecurity(form.smtpSecurity),
           authMethod,
-          username,
+          usernameLen: username.length,
+          userHasAt: username.includes("@"),
           ...(detail ? { detail } : {}),
         }),
       );

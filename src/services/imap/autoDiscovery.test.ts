@@ -6,6 +6,7 @@ import {
   discoverSettings,
   getDefaultSmtpPort,
   getDefaultImapPort,
+  yandexMailSettings,
 } from "./autoDiscovery";
 
 describe("extractDomain", () => {
@@ -81,8 +82,8 @@ describe("findWellKnownProvider", () => {
   it("returns OAuth-first settings for yandex.ru", () => {
     const result = findWellKnownProvider("yandex.ru");
     expect(result).not.toBeNull();
-    expect(result!.settings.imapHost).toBe("imap.yandex.ru");
-    expect(result!.settings.smtpHost).toBe("smtp.yandex.ru");
+    expect(result!.settings.imapHost).toBe("imap.yandex.com");
+    expect(result!.settings.smtpHost).toBe("smtp.yandex.com");
     expect(result!.settings.smtpPort).toBe(465);
     expect(result!.authMethods).toEqual(["oauth2", "password"]);
     expect(result!.oauthProviderId).toBe("yandex");
@@ -192,6 +193,17 @@ describe("discoverSettings", () => {
     const result = discoverSettings("user@me.com");
     expect(result).not.toBeNull();
     expect(result!.settings.imapHost).toBe("imap.mail.me.com");
+  });
+
+  it("does not guess imap.office-360.ru for an unknown corporate domain", () => {
+    const result = discoverSettings("korotkov.g@office-360.ru");
+    expect(result).not.toBeNull();
+    expect(result!.settings.imapHost).toBe("imap.office-360.ru");
+    expect(yandexMailSettings().imapHost).toBe("imap.yandex.com");
+    expect(yandexMailSettings().smtpHost).toBe("smtp.yandex.com");
+    expect(yandexMailSettings().imapPort).toBe(993);
+    expect(yandexMailSettings().smtpPort).toBe(465);
+    expect(yandexMailSettings().smtpSecurity).toBe("ssl");
   });
 });
 

@@ -1,5 +1,26 @@
 import type { DbAccount } from "../db/accounts";
 import type { ImapConfig, SmtpConfig } from "./tauriCommands";
+import { isYandexMailHost, resolveMailboxUsername } from "./mailErrorClassification";
+
+function isYandexMailAccount(account: DbAccount): boolean {
+  return (
+    account.oauth_provider === "yandex" ||
+    isYandexMailHost(account.imap_host) ||
+    isYandexMailHost(account.smtp_host)
+  );
+}
+
+function mailUsername(account: DbAccount): string {
+  return resolveMailboxUsername(account.email, account.imap_username, {
+    preferFullEmail: isYandexMailAccount(account),
+  });
+}
+
+function yandexSmtpPort(account: DbAccount): number {
+  if (account.smtp_port != null) return account.smtp_port;
+  if (isYandexMailAccount(account) || isYandexMailHost(account.smtp_host)) return 465;
+  return 587;
+}
 
 /**
  * Map the DB-stored security value to the config type.
@@ -47,7 +68,7 @@ export function buildImapConfig(
     host: account.imap_host,
     port: account.imap_port ?? 993,
     security: mapSecurity(account.imap_security),
-    username: account.imap_username || account.email,
+    username: mailUsername(account),
     password,
     auth_method: authMethod,
     accept_invalid_certs: !!account.accept_invalid_certs,
@@ -77,9 +98,9 @@ export function buildSmtpConfig(
 
   return {
     host: account.smtp_host,
-    port: account.smtp_port ?? 587,
+    port: yandexSmtpPort(account),
     security: mapSecurity(account.smtp_security),
-    username: account.imap_username || account.email,
+    username: mailUsername(account),
     password,
     auth_method: authMethod,
     accept_invalid_certs: !!account.accept_invalid_certs,

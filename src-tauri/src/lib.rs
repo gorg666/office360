@@ -23,6 +23,7 @@ use tauri_plugin_autostart::MacosLauncher;
 mod commands;
 mod contact_avatars;
 mod audio;
+mod mail_tcp;
 #[cfg(windows)]
 mod cef;
 mod imap;

@@ -125,7 +125,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
         oauthPreset={{
           providerId: "yandex",
           title: locale === "ru" ? "Подключить через Яндекс ID" : "Connect with Yandex ID",
-          defaultEmail: "user@yandex.ru",
+          defaultEmail: "",
           description: locale === "ru"
             ? "Подключите Яндекс Почту и Календарь через один OAuth-вход. IMAP/SMTP и CalDAV будут использовать один сохраненный токен."
             : "Connect Yandex Mail and Calendar with one OAuth sign-in. IMAP/SMTP and CalDAV will share the stored token.",

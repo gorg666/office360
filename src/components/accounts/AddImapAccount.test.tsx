@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AddImapAccount } from "./AddImapAccount";
 import { getOAuthProvider } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
+import { insertOAuthImapAccount } from "@/services/db/accounts";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -122,5 +123,63 @@ describe("managed Yandex account OAuth", () => {
 
     expect(screen.getByText("Конфигурация Яндекс OAuth отсутствует в dev environment.")).toBeInTheDocument();
     expect(screen.queryByText(/Client ID|Client Secret/i)).not.toBeInTheDocument();
+  });
+
+  it("saves a corporate Yandex 360 mailbox with .com IMAP/SMTP even when token.scope is empty", async () => {
+    vi.mocked(insertOAuthImapAccount).mockResolvedValue(undefined as never);
+    vi.mocked(startProviderOAuthFlow).mockResolvedValue({
+      tokens: {
+        access_token: "access-token",
+        refresh_token: "refresh-token",
+        expires_in: 3600,
+        token_type: "Bearer",
+      },
+      userInfo: { email: "korotkov.g@office-360.ru", name: "Georgy" },
+    });
+
+    renderManagedYandex();
+    fireEvent.change(screen.getByLabelText("Email Address"), {
+      target: { value: "korotkov.g@office-360.ru" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Войти через Яндекс ID" }));
+
+    await waitFor(() => {
+      expect(insertOAuthImapAccount).toHaveBeenCalled();
+    });
+    expect(insertOAuthImapAccount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "korotkov.g@office-360.ru",
+        imapHost: "imap.yandex.com",
+        imapPort: 993,
+        smtpHost: "smtp.yandex.com",
+        smtpPort: 465,
+        imapUsername: "korotkov.g@office-360.ru",
+      }),
+    );
+    expect(screen.queryByText(/mail permissions are missing|нет прав на почту/i)).not.toBeInTheDocument();
+  });
+
+  it("shows missing-scope copy only when the token lists non-mail scopes", async () => {
+    vi.mocked(startProviderOAuthFlow).mockResolvedValue({
+      tokens: {
+        access_token: "access-token",
+        refresh_token: "refresh-token",
+        expires_in: 3600,
+        token_type: "Bearer",
+        scope: "login:email login:info",
+      },
+      userInfo: { email: "korotkov.g@office-360.ru", name: "Georgy" },
+    });
+
+    renderManagedYandex();
+    fireEvent.change(screen.getByLabelText("Email Address"), {
+      target: { value: "korotkov.g@office-360.ru" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Войти через Яндекс ID" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Yandex ID connected, but mail permissions are missing.")).toBeInTheDocument();
+    });
+    expect(insertOAuthImapAccount).not.toHaveBeenCalled();
   });
 });

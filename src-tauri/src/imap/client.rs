@@ -1687,15 +1687,7 @@ struct RawFetchedMessage {
 
 /// Connect via STARTTLS for raw TCP operations.
 async fn raw_connect_starttls(config: &ImapConfig) -> Result<ImapStream, String> {
-    let addr = (&*config.host, config.port);
-    let mut tcp = tokio::time::timeout(TCP_CONNECT_TIMEOUT, TcpStream::connect(addr))
-        .await
-        .map_err(|_| format!(
-            "TCP connect to {}:{} timed out after {}s — check your server settings or network connection",
-            config.host, config.port, TCP_CONNECT_TIMEOUT.as_secs()
-        ))?
-        .map_err(|e| format!("TCP: {e}"))?;
-    configure_tcp_socket(&tcp);
+    let mut tcp = connect_tcp_for_mail(config).await?;
     let mut tmp = vec![0u8; 4096];
     let _ = tokio::time::timeout(IMAP_CMD_TIMEOUT, tcp.read(&mut tmp)).await; // consume greeting
     tcp.write_all(b"a0 STARTTLS\r\n")
@@ -2019,22 +2011,25 @@ fn extract_literal_size(line: &str) -> Option<usize> {
 
 // ---------- Internal helpers ----------
 
+async fn connect_tcp_for_mail(config: &ImapConfig) -> Result<TcpStream, String> {
+    let connected = crate::mail_tcp::connect_tcp(&config.host, config.port, TCP_CONNECT_TIMEOUT).await?;
+    configure_tcp_socket(&connected.stream);
+    Ok(connected.stream)
+}
+
 /// Establish TCP + TLS or plain stream for "tls" and "none" security modes.
 async fn connect_stream(config: &ImapConfig) -> Result<ImapStream, String> {
-    let addr = (&*config.host, config.port);
-
     match config.security.as_str() {
         "tls" => {
             let native_connector = build_tls_connector(config.accept_invalid_certs)?;
             let tls_connector = tokio_native_tls::TlsConnector::from(native_connector);
-            let tcp = tokio::time::timeout(TCP_CONNECT_TIMEOUT, TcpStream::connect(addr))
-                .await
-                .map_err(|_| format!(
-                    "TCP connect to {}:{} timed out after {}s — check your server settings or network connection",
-                    config.host, config.port, TCP_CONNECT_TIMEOUT.as_secs()
-                ))?
-                .map_err(|e| format!("TCP connect to {}:{} failed: {e}", config.host, config.port))?;
-            configure_tcp_socket(&tcp);
+            let tcp = connect_tcp_for_mail(config).await?;
+            log::info!(
+                target: "app.imap",
+                "[mail-tls] start host={} port={}",
+                config.host,
+                config.port
+            );
             let tls = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, tls_connector.connect(&config.host, tcp))
                 .await
                 .map_err(|_| format!(
@@ -2042,17 +2037,11 @@ async fn connect_stream(config: &ImapConfig) -> Result<ImapStream, String> {
                     config.host, TLS_HANDSHAKE_TIMEOUT.as_secs()
                 ))?
                 .map_err(|e| format!("TLS handshake with {} failed: {e}", config.host))?;
+            log::info!(target: "app.imap", "[mail-tls] ok host={}", config.host);
             Ok(ImapStream::Tls(tls))
         }
         "none" => {
-            let tcp = tokio::time::timeout(TCP_CONNECT_TIMEOUT, TcpStream::connect(addr))
-                .await
-                .map_err(|_| format!(
-                    "TCP connect to {}:{} timed out after {}s — check your server settings or network connection",
-                    config.host, config.port, TCP_CONNECT_TIMEOUT.as_secs()
-                ))?
-                .map_err(|e| format!("TCP connect to {}:{} failed: {e}", config.host, config.port))?;
-            configure_tcp_socket(&tcp);
+            let tcp = connect_tcp_for_mail(config).await?;
             Ok(ImapStream::Plain(tcp))
         }
         other => Err(format!(
@@ -2067,15 +2056,7 @@ async fn connect_stream(config: &ImapConfig) -> Result<ImapStream, String> {
 /// connection, upgrade the underlying TCP stream to TLS, and then create a new
 /// Client on the TLS stream for authentication.
 async fn connect_starttls(config: &ImapConfig) -> Result<ImapSession, String> {
-    let addr = (&*config.host, config.port);
-    let mut tcp = tokio::time::timeout(TCP_CONNECT_TIMEOUT, TcpStream::connect(addr))
-        .await
-        .map_err(|_| format!(
-            "TCP connect to {}:{} timed out after {}s — check your server settings or network connection",
-            config.host, config.port, TCP_CONNECT_TIMEOUT.as_secs()
-        ))?
-        .map_err(|e| format!("TCP connect to {}:{} failed: {e}", config.host, config.port))?;
-    configure_tcp_socket(&tcp);
+    let mut tcp = connect_tcp_for_mail(config).await?;
 
     // Read the server greeting
     let mut buf = vec![0u8; 4096];
@@ -2131,11 +2112,34 @@ async fn connect_starttls(config: &ImapConfig) -> Result<ImapSession, String> {
 }
 
 /// Authenticate with the IMAP server (LOGIN or XOAUTH2).
+fn map_imap_auth_error(raw: impl std::fmt::Display, oauth2: bool) -> String {
+    let text = raw.to_string();
+    let lower = text.to_lowercase();
+    if lower.contains("imap is disabled")
+        || lower.contains("enable imap")
+        || (lower.contains("oauth") && lower.contains("disabled"))
+    {
+        return format!("MAIL_PROTOCOL_DISABLED: {text}");
+    }
+    if oauth2 {
+        format!("XOAUTH2 authentication failed: {text}")
+    } else {
+        format!("Login failed: {text}")
+    }
+}
+
 async fn authenticate(
     client: Client<ImapStream>,
     config: &ImapConfig,
 ) -> Result<ImapSession, String> {
-    match config.auth_method.as_str() {
+    log::info!(
+        target: "app.imap",
+        "[mail-auth] start method={} user_has_at={} user_len={}",
+        config.auth_method,
+        config.username.contains('@'),
+        config.username.len()
+    );
+    let result = match config.auth_method.as_str() {
         "oauth2" => {
             let initial_response = XOAuth2::initial_response(&config.username, &config.password);
             let auth_type = format!("XOAUTH2 {initial_response}");
@@ -2143,13 +2147,18 @@ async fn authenticate(
             client
                 .authenticate(auth_type, auth)
                 .await
-                .map_err(|(e, _)| format!("XOAUTH2 authentication failed: {e}"))
+                .map_err(|(e, _)| map_imap_auth_error(e, true))
         }
         _ => client
             .login(&config.username, &config.password)
             .await
-            .map_err(|(e, _)| format!("Login failed: {e}")),
+            .map_err(|(e, _)| map_imap_auth_error(e, false)),
+    };
+    match &result {
+        Ok(_) => log::info!(target: "app.imap", "[mail-auth] ok"),
+        Err(err) => log::warn!(target: "app.imap", "[mail-auth] failed classed_error_len={}", err.len()),
     }
+    result
 }
 
 /// Detect special-use attribute from IMAP folder attributes and name heuristics.

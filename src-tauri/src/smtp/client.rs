@@ -24,64 +24,71 @@ fn decode_base64url(input: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Base64 decode error: {}", e))
 }
 
-/// Build an async SMTP transport from the given config.
-fn build_transport(config: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, String> {
-    let credentials = Credentials::new(config.username.clone(), config.password.clone());
+/// Pick a reachable IP with Happy Eyeballs, then let lettre connect to that
+/// literal while keeping the original hostname for TLS SNI/cert checks.
+///
+/// This avoids lettre hanging on a broken IPv6 AAAA record for the full SMTP timeout.
+async fn build_transport(config: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, String> {
+    let reachable = crate::mail_tcp::connect_tcp(&config.host, config.port, Duration::from_secs(15)).await?;
+    let tcp_host = crate::mail_tcp::addr_to_literal(reachable.addr);
+    log::info!(
+        target: "app.smtp",
+        "[mail-tcp] smtp endpoint host={} port={} family={} implicit_tls={}",
+        config.host,
+        config.port,
+        crate::mail_tcp::ip_family(reachable.addr),
+        config.security == "tls"
+    );
+    drop(reachable.stream);
+    build_transport_to_endpoint(config, &tcp_host)
+}
 
-    // For OAuth2, force XOAUTH2 mechanism; for password, use default mechanisms
+fn smtp_tls_parameters(config: &SmtpConfig) -> Result<lettre::transport::smtp::client::TlsParameters, String> {
+    let mut builder = TlsParametersBuilder::new(config.host.clone());
+    if config.accept_invalid_certs {
+        builder = builder
+            .dangerous_accept_invalid_certs(true)
+            .dangerous_accept_invalid_hostnames(true);
+    }
+    builder
+        .build()
+        .map_err(|e| format!("SMTP TLS params error: {}", e))
+}
+
+fn build_transport_to_endpoint(
+    config: &SmtpConfig,
+    tcp_host: &str,
+) -> Result<AsyncSmtpTransport<Tokio1Executor>, String> {
+    let credentials = Credentials::new(config.username.clone(), config.password.clone());
     let auth_mechanisms = if config.auth_method == "oauth2" {
         vec![Mechanism::Xoauth2]
     } else {
         vec![Mechanism::Plain, Mechanism::Login]
     };
+    let tls_params = smtp_tls_parameters(config)?;
 
     let transport = match config.security.as_str() {
         "tls" => {
-            // Implicit TLS (typically port 465)
-            let mut builder = AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)
-                .map_err(|e| format!("SMTP relay error: {}", e))?
+            // Implicit TLS (Yandex: 465). Do not use STARTTLS on this port.
+            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(tcp_host)
                 .port(config.port)
-                .credentials(credentials)
-                .authentication(auth_mechanisms);
-
-            if config.accept_invalid_certs {
-                let tls_params = TlsParametersBuilder::new(config.host.clone())
-                    .dangerous_accept_invalid_certs(true)
-                    .dangerous_accept_invalid_hostnames(true)
-                    .build()
-                    .map_err(|e| format!("SMTP TLS params error: {}", e))?;
-                builder = builder.tls(Tls::Required(tls_params));
-            }
-
-            builder.build()
-        }
-        "starttls" => {
-            // STARTTLS (typically port 587)
-            let mut builder = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host)
-                .map_err(|e| format!("SMTP STARTTLS error: {}", e))?
-                .port(config.port)
-                .credentials(credentials)
-                .authentication(auth_mechanisms);
-
-            if config.accept_invalid_certs {
-                let tls_params = TlsParametersBuilder::new(config.host.clone())
-                    .dangerous_accept_invalid_certs(true)
-                    .dangerous_accept_invalid_hostnames(true)
-                    .build()
-                    .map_err(|e| format!("SMTP TLS params error: {}", e))?;
-                builder = builder.tls(Tls::Required(tls_params));
-            }
-
-            builder.build()
-        }
-        _ => {
-            // Plain / no encryption (typically port 25) — not recommended
-            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
-                .port(config.port)
+                .tls(Tls::Wrapper(tls_params))
                 .credentials(credentials)
                 .authentication(auth_mechanisms)
                 .build()
         }
+        "starttls" => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(tcp_host)
+            .port(config.port)
+            .tls(Tls::Required(tls_params))
+            .credentials(credentials)
+            .authentication(auth_mechanisms)
+            .build(),
+        _ => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(tcp_host)
+            .port(config.port)
+            .tls(Tls::None)
+            .credentials(credentials)
+            .authentication(auth_mechanisms)
+            .build(),
     };
 
     Ok(transport)
@@ -159,7 +166,7 @@ pub async fn send_raw_email(
 ) -> Result<SmtpSendResult, String> {
     let raw_bytes = decode_base64url(raw_email_base64url)?;
     let envelope = extract_envelope(&raw_bytes)?;
-    let transport = build_transport(config)?;
+    let transport = build_transport(config).await?;
 
     let outcome = tokio::time::timeout(
         SMTP_SEND_TIMEOUT,
@@ -194,7 +201,7 @@ pub async fn test_connection(config: &SmtpConfig) -> Result<SmtpSendResult, Stri
         config.accept_invalid_certs
     );
     let started = Instant::now();
-    let transport = build_transport(config)?;
+    let transport = build_transport(config).await?;
 
     let outcome = tokio::time::timeout(SMTP_TEST_TIMEOUT, transport.test_connection()).await;
 
