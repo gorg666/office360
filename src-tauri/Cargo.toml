@@ -53,8 +53,11 @@ rmpv = "1.3.0"
 rodio = "0.21.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-foundation = { version = "0.3.2", features = ["NSString", "NSThread", "NSBundle"] }
+objc2 = "0.6.3"
+block2 = "0.6.2"
+objc2-foundation = { version = "0.3.2", features = ["NSString", "NSThread", "NSBundle", "NSError"] }
 objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSDockTile", "NSRunningApplication"] }
+objc2-user-notifications = { version = "0.3.2", features = ["UNUserNotificationCenter"] }
 
 [target.'cfg(windows)'.dependencies]
 libloading = "0.8"

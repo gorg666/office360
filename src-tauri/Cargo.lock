@@ -3661,7 +3661,10 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9df9128cbbfef73cda168416ccf7f837b62737d748333bfe9ab71c245d76613e"
 dependencies = [
+ "bitflags 2.11.0",
+ "block2",
  "objc2",
+ "objc2-core-location",
  "objc2-foundation",
 ]
 
@@ -3705,6 +3708,7 @@ version = "0.4.21"
 dependencies = [
  "async-imap",
  "base64 0.22.1",
+ "block2",
  "futures",
  "ldap3",
  "lettre",
@@ -3713,8 +3717,10 @@ dependencies = [
  "lz4_flex",
  "mail-parser",
  "native-tls",
+ "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+ "objc2-user-notifications",
  "reqwest 0.12.28",
  "rmp-serde",
  "rmpv",

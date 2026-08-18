@@ -46,7 +46,7 @@ import {
   unregisterComposeShortcut,
 } from "./services/globalShortcut";
 import { initDeepLinkHandler } from "./services/deepLinkHandler";
-import { updateBadgeCount } from "./services/badgeManager";
+import { resetBadgeCountCache, updateBadgeCount } from "./services/badgeManager";
 import {
   startQueueProcessor,
   stopQueueProcessor,
@@ -504,7 +504,13 @@ export default function App() {
         console.error("Failed to initialize:", err);
       }
       setInitialized(true);
-      invoke("close_splashscreen").catch(() => {});
+      try {
+        await invoke("close_splashscreen");
+      } catch {
+        // splash may already be gone
+      }
+      resetBadgeCountCache();
+      await updateBadgeCount();
     }
 
     init();

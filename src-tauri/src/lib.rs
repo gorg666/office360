@@ -48,7 +48,7 @@ fn close_splashscreen(app: tauri::AppHandle) {
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = macos_dock_badge::ensure_regular_activation(&app);
+        let _ = macos_dock_badge::reapply_after_regular(&app);
     }
 }
 
@@ -451,6 +451,11 @@ mod sqlite_init_without_cef {
             assert!(native.contains("run_on_main_thread"));
             assert!(native.contains("activationPolicy"));
             assert!(native.contains("isMainThread"));
+            assert!(native.contains("reapply_after_regular"));
+            assert!(native.contains("reapply after regular"));
+            assert!(native.contains("UNUserNotificationCenter"));
+            assert!(native.contains("UNAuthorizationOptions::Badge"));
+            assert!(native.contains("requestAuthorizationWithOptions"));
         }
         #[cfg(not(target_os = "macos"))]
         {
