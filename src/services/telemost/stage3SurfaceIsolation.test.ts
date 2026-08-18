@@ -14,6 +14,7 @@ type IsolationApi = {
   transitionPollActive?: boolean;
   lastApplyAt: number;
   applyCount?: number;
+  lastReadyBeacon?: string;
   apply: () => void;
   stop: () => void;
 };
@@ -172,6 +173,7 @@ describe("Stage 3 Telemost surface isolation", () => {
     mockPrejoinGeometry();
     eval(SCRIPT);
     expect(api()?.state).toBe("PREJOIN");
+    expect(api()?.lastReadyBeacon).toBe("PREJOIN");
     expect(document.querySelector("#rail")?.className).toContain("o360-telemost-hidden");
     expect(document.querySelector("#tariff")?.className).toContain("o360-telemost-hidden");
     expect(document.querySelector("#footer")?.className).toContain("o360-telemost-hidden");
@@ -232,6 +234,7 @@ describe("Stage 3 Telemost surface isolation", () => {
     mockPrejoinGeometry();
     eval(SCRIPT);
     expect(api()?.state).toBe("MEETING");
+    expect(api()?.lastReadyBeacon).toBe("MEETING");
     expect(document.querySelector("#rail")?.className).toContain("o360-telemost-hidden");
     expect(document.querySelector("#tariff")?.className).toContain("o360-telemost-hidden");
     expect(document.querySelector("#footer")?.className).toContain("o360-telemost-hidden");
@@ -281,12 +284,35 @@ describe("Stage 3 Telemost surface isolation", () => {
     expect(api()?.observerActive).toBe(false);
   });
 
-  it("does not mutate document.title", () => {
+  it("detects a late PREJOIN mount without disconnecting first", () => {
+    document.body.innerHTML = "";
+    eval(SCRIPT);
+    expect(api()?.state).toBe("UNKNOWN");
+    expect(api()?.observerActive).toBe(true);
+    document.body.innerHTML = prejoinHtml();
+    mockPrejoinGeometry();
+    api()?.apply();
+    expect(api()?.state).toBe("PREJOIN");
+    expect(api()?.lastReadyBeacon).toBe("PREJOIN");
+    expect(api()?.observerActive).toBe(true);
+  });
+
+  it("keeps observing until PREJOIN is ready", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    document.body.innerHTML = "";
+    eval(SCRIPT);
+    expect(api()?.observerActive).toBe(true);
+    vi.advanceTimersByTime(12000);
+    expect(api()?.observerActive).toBe(true);
+  });
+
+  it("beacons PREJOIN_READY from join DOM, not from the page title", () => {
     document.title = "Keep Telemost title";
     document.body.innerHTML = prejoinHtml();
     mockPrejoinGeometry();
     eval(SCRIPT);
-    expect(document.title).toBe("Keep Telemost title");
+    expect(api()?.lastReadyBeacon).toBe("PREJOIN");
+    expect(api()?.events).toContain("visual-ready PREJOIN");
     expect(document.title.startsWith("__O360_DOM_CAPTURE__")).toBe(false);
   });
 
@@ -487,5 +513,38 @@ describe("Stage 3 Telemost surface isolation", () => {
     expect(api()?.state).toBe("HOME");
     expect(api()?.hiddenCount).toBe(0);
     expect(document.getElementById("create")?.className).not.toContain("o360-telemost-hidden");
+  });
+
+  it("does not emit visual ready for HOME or URL-only /j/", () => {
+    setLocation("telemost.yandex.ru", "/");
+    document.body.innerHTML = homeHtml();
+    mockPrejoinGeometry();
+    eval(SCRIPT);
+    expect(api()?.state).toBe("HOME");
+    expect(api()?.lastReadyBeacon).toBe("");
+    api()?.stop();
+    delete (window as Window & { __o360TelemostSurfaceIsolation?: unknown }).__o360TelemostSurfaceIsolation;
+    setLocation("telemost.yandex.ru", "/j/1327816640");
+    document.body.innerHTML = homeHtml();
+    mockPrejoinGeometry();
+    eval(SCRIPT);
+    expect(api()?.state).toBe("HOME");
+    expect(api()?.lastReadyBeacon).toBe("");
+    api()?.stop();
+    delete (window as Window & { __o360TelemostSurfaceIsolation?: unknown }).__o360TelemostSurfaceIsolation;
+    setLocation("telemost.yandex.ru", "/j/1327816640");
+    document.body.innerHTML = `<div id="noise"><p>Loading portal</p></div>`;
+    mockPrejoinGeometry();
+    eval(SCRIPT);
+    expect(api()?.state).toBe("UNKNOWN");
+    expect(api()?.lastReadyBeacon).toBe("");
+  });
+
+  it("emits MEETING visual ready from meeting chrome, not from /j/ URL", () => {
+    document.body.innerHTML = meetingHtml();
+    mockPrejoinGeometry();
+    eval(SCRIPT);
+    expect(api()?.state).toBe("MEETING");
+    expect(api()?.lastReadyBeacon).toBe("MEETING");
   });
 });

@@ -5,7 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const SCRIPT = readFileSync(resolve(process.cwd(), "src-tauri/src/telemost_official_create_click.js"), "utf8");
 
-type CreateApi = { events: string[]; clicked: number; stop: () => void; kick: () => void };
+type CreateApi = {
+  events: string[];
+  clicked: number;
+  authState: string;
+  identity: { uid: string; login: string };
+  stop: () => void;
+  kick: () => void;
+};
 
 function api(): CreateApi | undefined {
   return (window as Window & { __o360TelemostOfficialCreate?: CreateApi }).__o360TelemostOfficialCreate;
@@ -28,11 +35,32 @@ function clickTracker(id: string): number[] {
   return clicks;
 }
 
+function preload(user: unknown): string {
+  return `<script type="application/json" id="preloaded-state">${JSON.stringify({ user })}</script>`;
+}
+
+function mockUsersMe(status: number, body: unknown): ReturnType<typeof vi.fn> {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/telemost_front/v2/telemost/users/me")) {
+      return new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response("", { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 beforeEach(() => {
   document.documentElement.innerHTML = "<head></head><body></body>";
   delete (window as Window & { __o360TelemostOfficialCreate?: unknown }).__o360TelemostOfficialCreate;
+  delete (window as Window & { __o360TelemostUsersMeHooked?: unknown }).__o360TelemostUsersMeHooked;
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  mockUsersMe(404, {});
   Object.defineProperty(HTMLElement.prototype, "innerText", { configurable: true, get() { return this.textContent ?? ""; } });
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
     left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}),
@@ -42,78 +70,191 @@ beforeEach(() => {
 
 afterEach(() => {
   api()?.stop();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
   Object.defineProperty(document, "readyState", { configurable: true, get: () => "complete" });
 });
 
 describe("official Telemost HOME create click", () => {
-  it("clicks the exact official create CTA once on HOME even with a zero layout rect", () => {
-    document.body.innerHTML = `<button id="create">Создать видеовстречу</button><button>Запланировать</button><button>Подключиться</button>`;
+  it("clicks once when preloaded-state has a Telemost uid", async () => {
+    document.body.innerHTML = `${preload({ uid: "42", login: "korotkov.g" })}<button id="create">Создать видеовстречу</button>`;
     const clicks = clickTracker("create");
     eval(SCRIPT);
     expect(clicks).toEqual([1]);
     expect(api()?.clicked).toBe(1);
-    expect(api()?.events).toContain("state=HOME");
-    expect(api()?.events).toContain("official CTA matched");
-    expect(api()?.events).toContain("clicked once");
+    expect(api()?.authState).toBe("AUTHENTICATED");
+    expect(api()?.identity).toEqual({ uid: "42", login: "korotkov.g" });
+    expect(api()?.events.some((event) => event.startsWith("auth=AUTHENTICATED"))).toBe(true);
   });
 
-  it("does not treat a zero layout rect as a reason to skip the official CTA", () => {
-    document.body.innerHTML = `<button id="create" style="width:0;height:0">Создать видеовстречу</button>`;
+  it("clicks once when users/me returns a uid after hydration", async () => {
+    document.body.innerHTML = `${preload(null)}<button id="create">Создать видеовстречу</button>`;
+    const clicks = clickTracker("create");
+    mockUsersMe(200, { uid: "99", login: "person" });
+    eval(SCRIPT);
+    await vi.waitFor(() => expect(clicks).toEqual([1]));
+    expect(api()?.authState).toBe("AUTHENTICATED");
+    expect(api()?.identity.uid).toBe("99");
+  });
+
+  it("does not click when the server-backed user is anonymous", async () => {
+    document.body.innerHTML = `${preload(null)}<button id="create">Создать видеовстречу</button>`;
+    const clicks = clickTracker("create");
+    eval(SCRIPT);
+    await vi.waitFor(() => expect(api()?.events.some((event) => event.startsWith("auth=REQUIRED"))).toBe(true));
+    expect(clicks).toEqual([]);
+    expect(api()?.clicked).toBe(0);
+    expect(api()?.authState).toBe("REQUIRED");
+  });
+
+  it("does not click while users/me is still hydrating", () => {
+    document.body.innerHTML = `${preload(null)}<button id="create">Создать видеовстречу</button>`;
+    const clicks = clickTracker("create");
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => undefined)));
+    eval(SCRIPT);
+    expect(clicks).toEqual([]);
+    expect(api()?.clicked).toBe(0);
+    expect(api()?.authState).toBe("CHECKING");
+  });
+
+  it("does not treat a generic avatar CDN as authenticated", async () => {
+    document.body.innerHTML = `${preload(null)}<img src="https://avatars.yandex.net/get-yapic/1"><button id="create">Создать видеовстречу</button>`;
+    const clicks = clickTracker("create");
+    eval(SCRIPT);
+    await vi.waitFor(() => expect(api()?.authState).toBe("REQUIRED"));
+    expect(clicks).toEqual([]);
+  });
+
+  it("does not treat a generic id.yandex link as authenticated", async () => {
+    document.body.innerHTML = `${preload(null)}<a href="https://id.yandex.ru">Профиль</a><button id="create">Создать видеовстречу</button>`;
+    const clicks = clickTracker("create");
+    eval(SCRIPT);
+    await vi.waitFor(() => expect(api()?.authState).toBe("REQUIRED"));
+    expect(clicks).toEqual([]);
+  });
+
+  it("re-evaluates the same URL when preloaded user becomes authenticated", async () => {
+    document.body.innerHTML = `${preload(null)}<button id="create">Создать видеовстречу</button>`;
+    const clicks = clickTracker("create");
+    eval(SCRIPT);
+    await vi.waitFor(() => expect(api()?.authState).toBe("REQUIRED"));
+    expect(clicks).toEqual([]);
+    document.getElementById("preloaded-state")!.textContent = JSON.stringify({ user: { uid: "7", login: "a" } });
+    api()?.kick();
+    expect(clicks).toEqual([1]);
+    expect(api()?.authState).toBe("AUTHENTICATED");
+  });
+
+  it("retries after a users/me attribute/state change via kick", async () => {
+    document.body.innerHTML = `${preload(null)}<button id="create">Создать видеовстречу</button>`;
+    const clicks = clickTracker("create");
+    eval(SCRIPT);
+    await vi.waitFor(() => expect(api()?.authState).toBe("REQUIRED"));
+    mockUsersMe(200, { uid: "55" });
+    api()?.kick();
+    await vi.waitFor(() => expect(clicks).toEqual([1]));
+  });
+
+  it("does not mark clicked when the official CTA is disabled", () => {
+    document.body.innerHTML = `${preload({ uid: "1" })}<button id="create" disabled>Создать видеовстречу</button>`;
+    const clicks = clickTracker("create");
+    eval(SCRIPT);
+    expect(clicks).toEqual([]);
+    expect(api()?.clicked).toBe(0);
+    expect(api()?.authState).toBe("AUTHENTICATED");
+  });
+
+  it("clicks at most once if the HOME DOM rerenders after the first click", () => {
+    document.body.innerHTML = `${preload({ uid: "1" })}<button id="create">Создать видеовстречу</button>`;
     const clicks = clickTracker("create");
     eval(SCRIPT);
     expect(clicks).toEqual([1]);
+    document.body.innerHTML = `${preload({ uid: "1" })}<button id="create2">Создать видеовстречу</button>`;
+    const second = clickTracker("create2");
+    document.body.append(document.createElement("span"));
+    expect(second).toEqual([]);
+    expect(api()?.clicked).toBe(1);
   });
 
-  it("does not click a display:none official CTA", () => {
-    document.body.innerHTML = `<button id="create" style="display:none">Создать видеовстречу</button>`;
+  it("recovers from TIMEOUT on the same page when users/me later authenticates", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `${preload(null)}<button id="create">Создать видеовстречу</button>`;
     const clicks = clickTracker("create");
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => undefined)));
     eval(SCRIPT);
+    await vi.advanceTimersByTimeAsync(12000);
+    expect(api()?.authState).toBe("TIMEOUT");
+    expect(clicks).toEqual([]);
+    vi.useRealTimers();
+    mockUsersMe(200, { uid: "88", login: "korotkov.g@office-360.ru" });
+    api()?.kick();
+    await vi.waitFor(() => expect(clicks).toEqual([1]));
+    expect(api()?.authState).toBe("AUTHENTICATED");
+  });
+
+  it("fails closed on timeout instead of clicking as guest", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `${preload(null)}<button id="create">Создать видеовстречу</button>`;
+    const clicks = clickTracker("create");
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => undefined)));
+    eval(SCRIPT);
+    expect(api()?.authState).toBe("CHECKING");
+    await vi.advanceTimersByTimeAsync(12000);
     expect(clicks).toEqual([]);
     expect(api()?.clicked).toBe(0);
+    expect(api()?.authState).toBe("TIMEOUT");
   });
 
-  it("does not click a generic Создать or Office360 Новая видеовстреча control", () => {
-    document.body.innerHTML = `<button id="generic">Создать</button><button id="office">Новая видеовстреча</button>`;
-    const generic = clickTracker("generic");
-    const office = clickTracker("office");
-    eval(SCRIPT);
-    expect(generic).toEqual([]);
-    expect(office).toEqual([]);
-    expect(api()?.clicked).toBe(0);
-  });
-
-  it("does not auto-click when two official create CTAs are present", () => {
-    document.body.innerHTML = `<button id="a">Создать видеовстречу</button><button id="b">Создать видеовстречу</button>`;
-    const a = clickTracker("a");
-    const b = clickTracker("b");
-    eval(SCRIPT);
-    expect(a).toEqual([]);
-    expect(b).toEqual([]);
-    expect(api()?.clicked).toBe(0);
-    expect(api()?.events).toContain("ambiguous CTA");
-  });
-
-  it("does not click on PREJOIN/MEETING join URLs", () => {
+  it("does not install CREATE/auth automation on PREJOIN/MEETING join URLs", () => {
     setLocation("telemost.yandex.ru", "/j/123456789");
-    document.body.innerHTML = `<button id="create">Создать видеовстречу</button>`;
+    document.body.innerHTML = `${preload({ uid: "1" })}<button id="create">Создать видеовстречу</button>`;
     const clicks = clickTracker("create");
+    const title = vi.spyOn(document, "title", "set");
+    const usersMe = mockUsersMe(200, { uid: "1" });
     eval(SCRIPT);
     expect(clicks).toEqual([]);
     expect(api()).toBeUndefined();
+    expect(usersMe).toHaveBeenCalled();
+    expect(title).not.toHaveBeenCalled();
   });
 
-  it("does not click when PREJOIN join chrome is present", () => {
-    document.body.innerHTML = `<button id="create">Создать видеовстречу</button><button>Присоединиться</button>`;
+  it("beacons REQUIRED from a one-shot /j/ cookie probe without CREATE observers", async () => {
+    setLocation("telemost.yandex.ru", "/j/123456789");
+    document.body.innerHTML = `${preload({ uid: "1" })}<button id="create">Создать видеовстречу</button>`;
+    const clicks = clickTracker("create");
+    mockUsersMe(401, {});
+    eval(SCRIPT);
+    expect(api()).toBeUndefined();
+    await vi.waitFor(() => expect(document.title).toContain("auth=REQUIRED;surface=join"));
+    expect(clicks).toEqual([]);
+  });
+
+  it("probes current-user on auth-check HOME without clicking CREATE", async () => {
+    setLocation("telemost.360.yandex.ru", "/", "?office360-auth-check=1");
+    document.body.innerHTML = `${preload({ uid: "77", login: "korotkov.g@office-360.ru" })}<button id="create">Создать видеовстречу</button>`;
     const clicks = clickTracker("create");
     eval(SCRIPT);
     expect(clicks).toEqual([]);
-    expect(api()?.events).toContain("skip PREJOIN/MEETING chrome");
+    expect(api()?.clicked).toBe(0);
+    expect(api()?.authState).toBe("AUTHENTICATED");
+    expect(api()?.events.some((event) => event.includes("surface=check"))).toBe(true);
+    expect(api()?.events).toContain("state=AUTH_CHECK");
   });
 
-  it("does not click when MEETING leave chrome is present", () => {
-    document.body.innerHTML = `<button id="create">Создать видеовстречу</button><button>Покинуть</button>`;
+  it("probes users/me on auth-check without waiting for HOME SPA complete", async () => {
+    setLocation("telemost.360.yandex.ru", "/", "?office360-auth-check=1");
+    Object.defineProperty(document, "readyState", { configurable: true, get: () => "loading" });
+    document.body.innerHTML = "<div>loading shell</div>";
+    const usersMe = mockUsersMe(200, { uid: "9", login: "person@example.test" });
+    eval(SCRIPT);
+    await vi.waitFor(() => expect(usersMe).toHaveBeenCalled());
+    await vi.waitFor(() => expect(api()?.authState).toBe("AUTHENTICATED"));
+    expect(api()?.clicked).toBe(0);
+  });
+
+  it("does not click when PREJOIN join chrome is present", () => {
+    document.body.innerHTML = `${preload({ uid: "1" })}<button id="create">Создать видеовстречу</button><button>Присоединиться</button>`;
     const clicks = clickTracker("create");
     eval(SCRIPT);
     expect(clicks).toEqual([]);
@@ -122,77 +263,21 @@ describe("official Telemost HOME create click", () => {
 
   it("does not run on Passport", () => {
     setLocation("passport.yandex.ru", "/auth");
-    document.body.innerHTML = `<button id="create">Создать видеовстречу</button>`;
+    document.body.innerHTML = `${preload({ uid: "1" })}<button id="create">Создать видеовстречу</button>`;
     eval(SCRIPT);
     expect(api()).toBeUndefined();
   });
 
-  it("does not run on a non-Telemost host", () => {
-    setLocation("evil.example", "/");
-    document.body.innerHTML = `<button id="create">Создать видеовстречу</button>`;
+  it("does not click a generic Создать control even when authenticated", () => {
+    document.body.innerHTML = `${preload({ uid: "1" })}<button id="generic">Создать</button>`;
+    const generic = clickTracker("generic");
     eval(SCRIPT);
-    expect(api()).toBeUndefined();
-  });
-
-  it("clicks at most once if the HOME DOM rerenders after the first click", () => {
-    document.body.innerHTML = `<button id="create">Создать видеовстречу</button>`;
-    const clicks = clickTracker("create");
-    eval(SCRIPT);
-    expect(clicks).toEqual([1]);
-    document.body.innerHTML = `<button id="create2">Создать видеовстречу</button>`;
-    const second = clickTracker("create2");
-    document.body.append(document.createElement("span"));
-    expect(second).toEqual([]);
-    expect(api()?.clicked).toBe(1);
-    expect(clicks).toEqual([1]);
-  });
-
-  it("stops retrying after /j/ is captured", async () => {
-    document.body.innerHTML = `<div></div>`;
-    eval(SCRIPT);
+    expect(generic).toEqual([]);
     expect(api()?.clicked).toBe(0);
-    setLocation("telemost.yandex.ru", "/j/999");
-    document.body.innerHTML = `<button id="create">Создать видеовстречу</button>`;
-    const clicks = clickTracker("create");
-    document.body.append(document.createElement("span"));
-    await vi.waitFor(() => expect(api()?.events).toContain("/j/ captured"));
-    expect(clicks).toEqual([]);
-    expect(api()?.clicked).toBe(0);
-  });
-
-  it("does not click until the document is complete", () => {
-    Object.defineProperty(document, "readyState", { configurable: true, get: () => "loading" });
-    document.body.innerHTML = `<button id="create">Создать видеовстречу</button>`;
-    const clicks = clickTracker("create");
-    eval(SCRIPT);
-    expect(clicks).toEqual([]);
-    expect(api()?.clicked).toBe(0);
-  });
-
-  it("clicks once on re-eval kick after the document becomes complete", () => {
-    let readyState = "loading";
-    Object.defineProperty(document, "readyState", { configurable: true, get: () => readyState });
-    document.body.innerHTML = `<button id="create">Создать видеовстречу</button>`;
-    const clicks = clickTracker("create");
-    eval(SCRIPT);
-    expect(clicks).toEqual([]);
-    readyState = "complete";
-    eval(SCRIPT);
-    expect(clicks).toEqual([1]);
-    expect(api()?.clicked).toBe(1);
-  });
-
-  it("does not click on Passport even if an official create CTA exists", () => {
-    setLocation("passport.yandex.ru", "/auth");
-    document.body.innerHTML = `<button id="create">Создать видеовстречу</button>`;
-    const clicks = clickTracker("create");
-    eval(SCRIPT);
-    expect(clicks).toEqual([]);
-    expect(api()).toBeUndefined();
   });
 
   it("resets click eligibility for a new HOME epoch after Passport and clicks once more", () => {
-    document.body.innerHTML = `<button id="create">Создать видеовстречу</button>`;
+    document.body.innerHTML = `${preload({ uid: "1" })}<button id="create">Создать видеовстречу</button>`;
     const first = clickTracker("create");
     eval(SCRIPT);
     expect(first).toEqual([1]);
@@ -200,7 +285,7 @@ describe("official Telemost HOME create click", () => {
     eval(SCRIPT);
     expect(first).toEqual([1]);
     setLocation("telemost.yandex.ru", "/", "?from_passport=1");
-    document.body.innerHTML = `<button id="create2">Создать видеовстречу</button>`;
+    document.body.innerHTML = `${preload({ uid: "1" })}<button id="create2">Создать видеовстречу</button>`;
     const second = clickTracker("create2");
     eval(SCRIPT);
     expect(second).toEqual([1]);

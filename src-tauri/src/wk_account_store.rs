@@ -20,6 +20,10 @@ pub fn data_store_identifier(account_key: &str) -> Result<[u8; 16], String> {
     .as_bytes())
 }
 
+pub fn data_store_uuid_string(identifier: [u8; 16]) -> String {
+    uuid::Uuid::from_bytes(identifier).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::data_store_identifier;
@@ -47,5 +51,9 @@ mod tests {
         )
         .as_bytes();
         assert_eq!(data_store_identifier("account-a").unwrap(), expected);
+        assert_eq!(
+            super::data_store_uuid_string(expected),
+            uuid::Uuid::from_bytes(expected).to_string()
+        );
     }
 }

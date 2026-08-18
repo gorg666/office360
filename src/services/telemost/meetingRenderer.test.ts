@@ -51,6 +51,7 @@ describe("openTelemostEmbedded create surface", () => {
   it("accepts the official Telemost create URL", () => {
     expect(isTelemostCreateUrl(TELEMOST_CREATE_URL)).toBe(true);
     expect(isTelemostCreateUrl("https://telemost.yandex.ru/")).toBe(true);
+    expect(isTelemostCreateUrl("https://telemost.360.yandex.ru/?office360-auth-check=1")).toBe(true);
     expect(isTelemostCreateUrl(URL)).toBe(false);
   });
 

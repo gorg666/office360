@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
+use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -54,6 +55,47 @@ fn parse_oauth_window_purpose(raw: Option<&str>) -> OAuthWindowPurpose {
     }
 }
 
+fn oauth_purpose_label(purpose: OAuthWindowPurpose) -> &'static str {
+    match purpose {
+        OAuthWindowPurpose::Oauth => "oauth",
+        OAuthWindowPurpose::PassportBootstrap => "passport-bootstrap",
+    }
+}
+
+fn redact_oauth_url_for_log(url: &Url) -> String {
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for (key, value) in url.query_pairs() {
+        let key = key.into_owned();
+        let lower = key.to_ascii_lowercase();
+        let redacted = lower.contains("token")
+            || lower.contains("code")
+            || lower == "state"
+            || lower.contains("challenge")
+            || lower.contains("secret")
+            || lower.contains("password");
+        pairs.push((
+            key,
+            if redacted {
+                "<redacted>".to_string()
+            } else {
+                value.into_owned()
+            },
+        ));
+    }
+    let mut out = format!("{}://{}{}", url.scheme(), url.host_str().unwrap_or(""), url.path());
+    if !pairs.is_empty() {
+        out.push('?');
+        out.push_str(
+            &pairs
+                .into_iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join("&"),
+        );
+    }
+    out
+}
+
 fn is_allowed_oauth_start_url(url: &Url, purpose: OAuthWindowPurpose) -> bool {
     if url.scheme() != "https" {
         return false;
@@ -98,6 +140,9 @@ fn is_allowed_yandex_oauth_navigation(url: &Url) -> bool {
 
     // Official Yandex OAuth / ID hosts only.
     if scheme == "https" {
+        if host == "sso.ya.ru" {
+            return url.path() == "/sync";
+        }
         return matches!(
             host,
             "oauth.yandex.ru"
@@ -169,20 +214,25 @@ pub async fn open_oauth_login_window(
     }
 
     let account_key = account_key.unwrap_or_default();
+    let purpose_name = oauth_purpose_label(window_purpose);
     #[cfg(target_os = "macos")]
     let data_store_identifier = crate::wk_account_store::data_store_identifier(&account_key)?;
-    #[cfg(not(target_os = "macos"))]
-    let _ = account_key;
+
+    log::info!(
+        "[oauth-wk] open purpose={purpose_name} host={} account_key={account_key}",
+        parsed.host_str().unwrap_or("")
+    );
 
     // Recreate the window so it cannot keep a previous (default) data store.
     destroy_existing_oauth_window(&app).await;
 
     let parent = app.get_webview_window("main");
     let nav_app = app.clone();
+    let nav_purpose = purpose_name;
     let mut builder = WebviewWindowBuilder::new(
         &app,
         YANDEX_OAUTH_WINDOW_LABEL,
-        WebviewUrl::External(parsed),
+        WebviewUrl::External(parsed.clone()),
     )
     .title("Яндекс ID")
     .inner_size(520.0, 720.0)
@@ -194,6 +244,11 @@ pub async fn open_oauth_login_window(
     .incognito(false)
     .on_navigation(move |nav_url| {
         let allowed = is_allowed_yandex_oauth_navigation(nav_url);
+        log::info!(
+            "[oauth-wk] NAVIGATION REQUEST purpose={nav_purpose} url={} decision={}",
+            redact_oauth_url_for_log(nav_url),
+            if allowed { "ALLOW" } else { "BLOCK" }
+        );
         if allowed
             && window_purpose == OAuthWindowPurpose::PassportBootstrap
             && is_passport_bootstrap_complete(nav_url)
@@ -201,13 +256,25 @@ pub async fn open_oauth_login_window(
             let _ = nav_app.emit("yandex-passport-bootstrap-complete", ());
         }
         allowed
+    })
+    .on_page_load(move |_window, payload| {
+        let phase = match payload.event() {
+            PageLoadEvent::Started => "START",
+            PageLoadEvent::Finished => "FINISH",
+        };
+        log::info!(
+            "[oauth-wk] PAGE LOAD {phase} purpose={purpose_name} url={}",
+            redact_oauth_url_for_log(payload.url())
+        );
     });
 
     #[cfg(target_os = "macos")]
     {
         builder = builder.data_store_identifier(data_store_identifier);
-        log::info!(
-            "OAuth WebView using account WKWebsiteDataStore (label={YANDEX_OAUTH_WINDOW_LABEL})"
+        log::debug!(
+            "[oauth-wk] account_key={} store_uuid={} label={YANDEX_OAUTH_WINDOW_LABEL} default_store=false",
+            account_key,
+            crate::wk_account_store::data_store_uuid_string(data_store_identifier)
         );
     }
 
@@ -215,6 +282,8 @@ pub async fn open_oauth_login_window(
         builder = builder
             .parent(main)
             .map_err(|e| format!("Failed to set OAuth window parent: {e}"))?;
+    } else {
+        log::warn!("[oauth-wk] parent skipped: main webview window is unavailable");
     }
 
     let window = builder
@@ -230,7 +299,7 @@ pub async fn open_oauth_login_window(
         }
     });
 
-    log::info!("OAuth WebView opened (label={YANDEX_OAUTH_WINDOW_LABEL})");
+    log::info!("OAuth WebView opened (label={YANDEX_OAUTH_WINDOW_LABEL}) purpose={purpose_name}");
     Ok(())
 }
 
@@ -783,5 +852,62 @@ mod tests {
         assert!(production.contains("data_store_identifier"));
         assert!(production.contains("account_key"));
         assert!(production.contains("never written as cookies"));
+        assert!(production.contains("store_uuid="));
+        assert!(production.contains("default_store=false"));
+    }
+
+    #[test]
+    fn passport_bootstrap_url_roundtrip_keeps_retpath() {
+        let raw = "https://passport.yandex.ru/auth?origin=office360&retpath=https%3A%2F%2Fid.yandex.ru";
+        let parsed: Url = raw.parse().unwrap();
+        assert_eq!(parsed.host_str(), Some("passport.yandex.ru"));
+        assert_eq!(parsed.path(), "/auth");
+        let retpath = parsed
+            .query_pairs()
+            .find(|(key, _)| key == "retpath")
+            .map(|(_, value)| value.into_owned());
+        assert_eq!(retpath.as_deref(), Some("https://id.yandex.ru"));
+        let serialized = parsed.as_str();
+        assert_eq!(raw, serialized, "Url parse must not transform bootstrap URL");
+        let unencoded_retpath = serialized.contains("retpath=https://");
+        let encoded_retpath = serialized.contains("retpath=https%3A");
+        assert!(
+            encoded_retpath || unencoded_retpath,
+            "serialized retpath missing: {serialized}"
+        );
+    }
+
+    #[test]
+    fn oauth_authorize_url_roundtrip_keeps_redirect_uri() {
+        let raw = "https://oauth.yandex.ru/authorize?client_id=x&redirect_uri=http%3A%2F%2Flocalhost%3A17248&response_type=code";
+        let parsed: Url = raw.parse().unwrap();
+        assert_eq!(parsed.host_str(), Some("oauth.yandex.ru"));
+        let redirect = parsed
+            .query_pairs()
+            .find(|(key, _)| key == "redirect_uri")
+            .map(|(_, value)| value.into_owned());
+        assert_eq!(redirect.as_deref(), Some("http://localhost:17248"));
+    }
+
+    #[test]
+    fn oauth_navigation_allows_sso_ya_sync_only() {
+        let sync: Url = "https://sso.ya.ru/sync?uuid=825def96-4905-46bf-b7f9-4caaae92bcf8&finish=https://id.yandex.ru"
+            .parse()
+            .unwrap();
+        let other_path: Url = "https://sso.ya.ru/prepare".parse().unwrap();
+        let http_sync: Url = "http://sso.ya.ru/sync".parse().unwrap();
+        let ya_home: Url = "https://ya.ru/".parse().unwrap();
+        let passport: Url = "https://passport.yandex.ru/auth".parse().unwrap();
+        let sso_passport: Url = "https://sso.passport.yandex.ru/prepare?finish=https://id.yandex.ru"
+            .parse()
+            .unwrap();
+        let id: Url = "https://id.yandex.ru/".parse().unwrap();
+        assert!(is_allowed_yandex_oauth_navigation(&sync));
+        assert!(!is_allowed_yandex_oauth_navigation(&other_path));
+        assert!(!is_allowed_yandex_oauth_navigation(&http_sync));
+        assert!(!is_allowed_yandex_oauth_navigation(&ya_home));
+        assert!(is_allowed_yandex_oauth_navigation(&passport));
+        assert!(is_allowed_yandex_oauth_navigation(&sso_passport));
+        assert!(is_allowed_yandex_oauth_navigation(&id));
     }
 }

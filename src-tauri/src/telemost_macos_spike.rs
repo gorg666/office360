@@ -9,7 +9,7 @@ const EMBEDDED_LABEL: &str = "telemost-embedded";
 const CREATE_MASK_LABEL: &str = "telemost-create-mask";
 const CREATE_MASK_SCRIPT: &str = r#"(function(){
   document.documentElement.lang = "ru";
-  document.documentElement.innerHTML = "<head><meta charset=\"utf-8\"><style>html,body{margin:0;height:100%;background:#18181b;color:#fafafa;font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:grid;place-items:center;-webkit-user-select:none;user-select:none}main{text-align:center;padding:2rem}h1{font-size:1.125rem;font-weight:600;margin:0 0 .5rem}p{font-size:.875rem;line-height:1.4;color:#a1a1aa;margin:0;max-width:22em}</style></head><body><main aria-label=\"Создаём встречу\"><h1>Создаём встречу</h1><p>Официальный Телемост откроется на экране подключения.</p></main></body>";
+  document.documentElement.innerHTML = "<head><meta charset=\"utf-8\"><style>html,body{margin:0;height:100%;background:#18181b;color:#fafafa;font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:grid;place-items:center;-webkit-user-select:none;user-select:none}main{text-align:center;padding:2rem}h1{font-size:1.125rem;font-weight:600;margin:0 0 .5rem}p{font-size:.875rem;line-height:1.4;color:#a1a1aa;margin:0;max-width:22em}</style></head><body><main aria-label=\"Подготавливаем встречу\"><h1 id=\"o360-phase\">Подготавливаем встречу…</h1><p id=\"o360-phase-detail\">Откроется экран подключения Телемоста. Домашняя страница не показывается.</p></main></body>";
 })();"#;
 const MEETING_ISOLATION_SCRIPT: &str = include_str!("telemost_surface_isolation.js");
 const EMBEDDED_PROMO_DISMISS_SCRIPT: &str = include_str!("telemost_embedded_promo_dismiss.js");
@@ -17,6 +17,10 @@ const OFFICIAL_CREATE_CLICK_SCRIPT: &str = include_str!("telemost_official_creat
 const STAGE3_SURFACE_ISOLATION_SCRIPT: &str = include_str!("telemost_stage3_surface_isolation.js");
 const LEAVE_TO_IDLE_SCRIPT: &str = include_str!("telemost_leave_to_idle.js");
 const LEFT_TITLE: &str = "__O360_TELEMOST_LEFT__";
+const PREJOIN_READY_TITLE: &str = "__O360_TELEMOST_PREJOIN_READY__";
+const MEETING_READY_TITLE: &str = "__O360_TELEMOST_MEETING_READY__";
+const VISUAL_READY_TIMEOUT_TICKS: u32 = 40;
+const VISUAL_READY_TICK_MS: u64 = 250;
 const DESTROY_CONFIRM_ATTEMPTS: u32 = 20;
 const DESTROY_CONFIRM_DELAY_MS: u64 = 50;
 const DATA_STORE_RETRY_ATTEMPTS: u32 = 5;
@@ -40,6 +44,16 @@ struct TelemostMacSessionState {
     last_created_join: Option<String>,
     embedded_bounds: Option<TelemostBounds>,
     auth_challenge: bool,
+    capture_created_join: bool,
+    visual_ready: bool,
+    awaiting_visual_ready: bool,
+    visual_ready_epoch: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VisualReadyKind {
+    Prejoin,
+    Meeting,
 }
 
 fn session_state() -> &'static Mutex<TelemostMacSessionState> {
@@ -54,6 +68,10 @@ fn session_state() -> &'static Mutex<TelemostMacSessionState> {
             last_created_join: None,
             embedded_bounds: None,
             auth_challenge: false,
+            capture_created_join: false,
+            visual_ready: false,
+            awaiting_visual_ready: false,
+            visual_ready_epoch: 0,
         })
     })
 }
@@ -139,6 +157,13 @@ fn profile_identifier(account_key: &str) -> Result<[u8; 16], String> {
         .map_err(|_| "Telemost account profile is invalid".to_string())
 }
 
+fn log_wk_store(surface: &str, account_key: &str, identifier: [u8; 16], reused: bool) {
+    log::debug!(
+        "[telemost-wk-poc] WK STORE surface={surface} account_key={account_key} store_uuid={} reused={reused} default_store=false",
+        crate::wk_account_store::data_store_uuid_string(identifier)
+    );
+}
+
 fn validate_bounds(bounds: &TelemostBounds) -> Result<(), String> {
     if ![bounds.x, bounds.y, bounds.width, bounds.height]
         .into_iter()
@@ -196,6 +221,8 @@ fn is_allowed_navigation(url: &tauri::Url) -> bool {
             | Some("oauth.yandex.com")
             | Some("sso.passport.yandex.ru")
             | Some("sso.passport.yandex.com")
+            | Some("id.yandex.ru")
+            | Some("id.yandex.com")
     )
 }
 
@@ -260,12 +287,42 @@ fn same_embedded_destination(current: &tauri::Url, target: &tauri::Url) -> bool 
     }
 }
 
+fn is_auto_create_query(url: &tauri::Url) -> bool {
+    url.query()
+        .map(|query| query.split('&').any(|part| part == "browser-auto-create=1"))
+        .unwrap_or(false)
+}
+
+fn is_auth_check_query(url: &tauri::Url) -> bool {
+    url.query()
+        .map(|query| query.split('&').any(|part| part == "office360-auth-check=1"))
+        .unwrap_or(false)
+}
+
+fn should_suppress_stale_web_create(
+    incoming_auto_create: bool,
+    current_is_join: bool,
+    current_is_auth_check: bool,
+) -> bool {
+    incoming_auto_create && (current_is_join || current_is_auth_check)
+}
+
+fn should_keep_join_surface(incoming_is_web_create: bool, current_is_join: bool) -> bool {
+    incoming_is_web_create && current_is_join
+}
+
+fn auth_beacon_is_create_surface(payload: &str) -> bool {
+    payload.contains("surface=create")
+}
+
 fn should_emit_created_join(
     mode: Option<EmbeddedSurfaceMode>,
     last_created_join: Option<&str>,
     url: &tauri::Url,
+    capture_created_join: bool,
 ) -> bool {
-    mode == Some(EmbeddedSurfaceMode::Create)
+    capture_created_join
+        && mode == Some(EmbeddedSurfaceMode::Create)
         && is_telemost_join_path(url)
         && last_created_join != Some(url.as_str())
 }
@@ -300,6 +357,158 @@ fn hide_create_mask(app: &AppHandle) {
     }
     close_labeled_webview(app, CREATE_MASK_LABEL);
     log::info!("[telemost-wk-poc] CREATE MASK OFF");
+    emit_direct_join_timing(app, "MASK_OFF");
+}
+
+fn emit_direct_join_timing(app: &AppHandle, mark: &str) {
+    log::info!("[direct-join-timing] {mark}");
+    if let Err(error) = app.emit("telemost-macos-timing", mark) {
+        log::error!("[direct-join-timing] emit {mark} failed: {error}");
+    }
+}
+
+fn js_quoted(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+fn set_create_mask_phase(app: &AppHandle, title: &str, detail: &str) {
+    let Some(mask) = app.get_webview(CREATE_MASK_LABEL) else { return };
+    let script = format!(
+        "(function(){{var t=document.getElementById('o360-phase');if(t)t.textContent={};var d=document.getElementById('o360-phase-detail');if(d)d.textContent={};}})();",
+        js_quoted(title),
+        js_quoted(detail),
+    );
+    let _ = mask.eval(&script);
+}
+
+fn visual_ready_kind(title: &str) -> Option<VisualReadyKind> {
+    if title == PREJOIN_READY_TITLE {
+        Some(VisualReadyKind::Prejoin)
+    } else if title == MEETING_READY_TITLE {
+        Some(VisualReadyKind::Meeting)
+    } else {
+        None
+    }
+}
+
+fn should_cover_until_visual_ready(visual_ready: bool, same_destination: bool) -> bool {
+    !(visual_ready && same_destination)
+}
+
+fn cancel_visual_ready_wait() {
+    let mut state = lock_session();
+    state.awaiting_visual_ready = false;
+    state.visual_ready_epoch = state.visual_ready_epoch.wrapping_add(1);
+}
+
+fn on_visual_ready(app: &AppHandle, kind: VisualReadyKind) {
+    {
+        let mut state = lock_session();
+        state.visual_ready = true;
+        state.awaiting_visual_ready = false;
+        state.visual_ready_epoch = state.visual_ready_epoch.wrapping_add(1);
+    }
+    match kind {
+        VisualReadyKind::Prejoin => log::info!("[telemost-wk-poc] PREJOIN_READY"),
+        VisualReadyKind::Meeting => log::info!("[telemost-wk-poc] MEETING_READY"),
+    }
+    emit_direct_join_timing(app, "STAGE3_READY");
+    reveal_embedded_surface(app);
+    let payload = match kind {
+        VisualReadyKind::Prejoin => "PREJOIN",
+        VisualReadyKind::Meeting => "MEETING",
+    };
+    if let Err(error) = app.emit("telemost-macos-prejoin-ready", payload) {
+        log::error!("[direct-join-auth] app emit prejoin-ready failed: {error}");
+    }
+}
+
+fn fail_closed_visual_timeout(app: &AppHandle) {
+    {
+        let mut state = lock_session();
+        if !state.awaiting_visual_ready {
+            return;
+        }
+        state.awaiting_visual_ready = false;
+        state.visual_ready = false;
+        state.visual_ready_epoch = state.visual_ready_epoch.wrapping_add(1);
+    }
+    log::warn!("[telemost-wk-poc] PREJOIN TIMEOUT");
+    emit_direct_join_timing(app, "TIMEOUT");
+    hide_create_mask(app);
+    set_embedded_visible(app, false);
+    if let Err(error) = app.emit("telemost-macos-prejoin-timeout", "PREJOIN") {
+        log::error!("[direct-join-auth] app emit prejoin-timeout failed: {error}");
+    }
+}
+
+fn spawn_visual_ready_watch(app: AppHandle) {
+    let epoch = {
+        let mut state = lock_session();
+        state.awaiting_visual_ready = true;
+        state.visual_ready_epoch = state.visual_ready_epoch.wrapping_add(1);
+        state.visual_ready_epoch
+    };
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_millis(VISUAL_READY_TICK_MS));
+        for _ in 0..VISUAL_READY_TIMEOUT_TICKS {
+            interval.tick().await;
+            let (current_epoch, awaiting) = {
+                let state = lock_session();
+                (state.visual_ready_epoch, state.awaiting_visual_ready)
+            };
+            if current_epoch != epoch || !awaiting {
+                return;
+            }
+            if app.get_webview(EMBEDDED_LABEL).is_none() {
+                return;
+            }
+        }
+        let (current_epoch, awaiting) = {
+            let state = lock_session();
+            (state.visual_ready_epoch, state.awaiting_visual_ready)
+        };
+        if current_epoch != epoch || !awaiting {
+            return;
+        }
+        fail_closed_visual_timeout(&app);
+    });
+}
+
+fn apply_embedded_cover_policy(app: &AppHandle, incoming_mode: EmbeddedSurfaceMode, same_destination: bool) {
+    if incoming_mode == EmbeddedSurfaceMode::Create {
+        cancel_visual_ready_wait();
+        lock_session().visual_ready = false;
+        cover_embedded_create(app);
+        set_create_mask_phase(
+            app,
+            "Проверяем Яндекс ID…",
+            "Гостевая встреча не открывается. Домашняя страница не показывается.",
+        );
+        return;
+    }
+    let visual_ready = lock_session().visual_ready;
+    if !should_cover_until_visual_ready(visual_ready, same_destination) {
+        reveal_embedded_surface(app);
+        return;
+    }
+    lock_session().visual_ready = false;
+    cover_embedded_create(app);
+    if incoming_mode == EmbeddedSurfaceMode::Create {
+        set_create_mask_phase(
+            app,
+            "Проверяем Яндекс ID…",
+            "Гостевая встреча не открывается. Домашняя страница не показывается.",
+        );
+    } else {
+        set_create_mask_phase(
+            app,
+            "Открываем встречу…",
+            "Экран подключения откроется сразу, как будет готов.",
+        );
+    }
+    spawn_visual_ready_watch(app.clone());
+    log::info!("[telemost-wk-poc] CREATE MASK KEEP awaiting visual ready");
 }
 
 fn sync_create_mask_bounds(app: &AppHandle, bounds: &TelemostBounds) {
@@ -371,12 +580,55 @@ fn set_embedded_visible(app: &AppHandle, visible: bool) {
 }
 
 fn emit_auth_required(app: &AppHandle) {
+    emit_auth_required_with_reveal(app, true, "auth=REQUIRED;surface=create");
+}
+
+fn emit_auth_required_with_reveal(app: &AppHandle, reveal: bool, payload: &str) {
     lock_session().auth_challenge = true;
-    if let Some(main) = app.get_webview_window("main") {
-        let _ = main.emit("telemost-macos-auth-required", ());
+    let state = if payload.starts_with("auth=TIMEOUT") { "TIMEOUT" } else { "REQUIRED" };
+    log::info!("[telemost-auth] state={state}");
+    log::info!("[direct-join-auth] transition={state} reveal={reveal}");
+    if let Err(error) = app.emit("telemost-macos-auth-required", payload) {
+        log::error!("[direct-join-auth] app emit required failed: {error}");
     }
-    reveal_embedded_surface(app);
-    log::info!("[telemost-wk-poc] AUTH REQUIRED");
+    if reveal {
+        cancel_visual_ready_wait();
+        reveal_embedded_surface(app);
+    }
+}
+
+fn auth_beacon_is_join_surface(payload: &str) -> bool {
+    payload.contains("surface=join")
+}
+
+fn should_emit_auth_required_for_beacon(payload: &str) -> bool {
+    (payload.starts_with("auth=REQUIRED") || payload.starts_with("auth=TIMEOUT"))
+        && !auth_beacon_is_join_surface(payload)
+}
+
+fn emit_auth_authenticated(app: &AppHandle, payload: &str) {
+    log::info!("[telemost-auth] state=AUTHENTICATED");
+    log::info!("[direct-join-auth] transition=AUTHENTICATED");
+    if let Err(error) = app.emit("telemost-macos-auth-authenticated", payload) {
+        log::error!("[direct-join-auth] app emit authenticated failed: {error}");
+    }
+}
+
+fn emit_create_auth_beacon(app: &AppHandle, payload: &str) {
+    if should_emit_auth_required_for_beacon(payload) {
+        emit_auth_required_with_reveal(app, false, payload);
+        return;
+    }
+    if payload.starts_with("auth=AUTHENTICATED") {
+        emit_auth_authenticated(app, payload);
+        if !auth_beacon_is_create_surface(payload) {
+            return;
+        }
+        let home = tauri::Url::parse("https://telemost.yandex.ru/?browser-auto-create=1").ok();
+        if let Some(url) = home.as_ref() {
+            let _ = try_resume_create_after_auth(app, url);
+        }
+    }
 }
 
 fn try_resume_create_after_auth(app: &AppHandle, url: &tauri::Url) -> bool {
@@ -389,10 +641,10 @@ fn try_resume_create_after_auth(app: &AppHandle, url: &tauri::Url) -> bool {
     }
     lock_session().auth_challenge = false;
     cover_embedded_create(app);
-    if let Some(main) = app.get_webview_window("main") {
-        let _ = main.emit("telemost-macos-auth-resumed", ());
+    if let Err(error) = app.emit("telemost-macos-auth-resumed", ()) {
+        log::error!("[direct-join-auth] app emit resumed failed: {error}");
     }
-    log::info!("[telemost-wk-poc] AUTH RESUMED CREATE URL={url}");
+    log::info!("[telemost-auth] state=RESUMED_CREATE");
     true
 }
 
@@ -400,16 +652,22 @@ fn try_emit_created_join(app: &AppHandle, url: &tauri::Url) -> bool {
     let payload = url.as_str().to_string();
     {
         let mut state = lock_session();
-        if !should_emit_created_join(state.embedded_mode, state.last_created_join.as_deref(), url) {
+        if !should_emit_created_join(
+            state.embedded_mode,
+            state.last_created_join.as_deref(),
+            url,
+            state.capture_created_join,
+        ) {
             return false;
         }
         state.last_created_join = Some(payload.clone());
         state.embedded_mode = Some(EmbeddedSurfaceMode::Meeting);
         state.auth_challenge = false;
+        state.visual_ready = false;
     }
-    reveal_embedded_surface(app);
-    if let Some(main) = app.get_webview_window("main") {
-        let _ = main.emit("telemost-macos-created", payload.as_str());
+    apply_embedded_cover_policy(app, EmbeddedSurfaceMode::Meeting, false);
+    if let Err(error) = app.emit("telemost-macos-created", payload.as_str()) {
+        log::error!("[telemost-auth] app emit created join failed: {error}");
     }
     log::info!("[telemost-wk-poc] CREATE JOIN CAPTURED URL={payload}");
     true
@@ -422,6 +680,9 @@ fn remember_embedded_mode(url: &tauri::Url) {
     if mode == EmbeddedSurfaceMode::Create {
         state.last_created_join = None;
         state.auth_challenge = false;
+        state.capture_created_join = is_auto_create_query(url);
+    } else {
+        state.capture_created_join = false;
     }
 }
 
@@ -471,6 +732,9 @@ fn close_embedded_webview(app: &AppHandle) {
     state.last_created_join = None;
     state.embedded_bounds = None;
     state.auth_challenge = false;
+    state.visual_ready = false;
+    state.awaiting_visual_ready = false;
+    state.visual_ready_epoch = state.visual_ready_epoch.wrapping_add(1);
 }
 
 fn reconcile_live_ownership(app: &AppHandle) {
@@ -602,12 +866,46 @@ pub async fn open_telemost_macos_embedded(
     }
 
     let view_exists = app.get_webview(EMBEDDED_LABEL).is_some();
+    if let Some(existing) = app.get_webview(EMBEDDED_LABEL) {
+        if let Ok(current) = existing.url() {
+            let stale_web_create = should_suppress_stale_web_create(
+                is_auto_create_query(&parsed),
+                is_telemost_join_path(&current),
+                is_auth_check_query(&current),
+            );
+            let keep_join = should_keep_join_surface(
+                is_auto_create_query(&parsed),
+                is_telemost_join_path(&current),
+            );
+            if stale_web_create || keep_join {
+                log::warn!(
+                    "[telemost-wk-poc] CREATE SUPPRESSED current={current} incoming={parsed}"
+                );
+                existing
+                    .set_position(LogicalPosition::new(bounds.x, bounds.y))
+                    .map_err(|error| format!("Failed to position embedded Telemost: {error}"))?;
+                existing
+                    .set_size(LogicalSize::new(bounds.width, bounds.height))
+                    .map_err(|error| format!("Failed to size embedded Telemost: {error}"))?;
+                remember_embedded_bounds(bounds);
+                if is_telemost_join_path(&current) {
+                    apply_embedded_cover_policy(&app, EmbeddedSurfaceMode::Meeting, true);
+                }
+                log::info!(
+                    "[telemost-wk-poc] RESIZE x={} y={} width={} height={}",
+                    bounds.x, bounds.y, bounds.width, bounds.height
+                );
+                return Ok(());
+            }
+        }
+    }
     let stored = lock_session().embedded_profile;
     match decide_embedded_open(view_exists, stored, data_store_identifier) {
         EmbeddedOpenAction::Reuse => {
             let existing = app
                 .get_webview(EMBEDDED_LABEL)
                 .ok_or_else(|| "Embedded Telemost surface disappeared".to_string())?;
+            log_wk_store("embedded", &account_key, data_store_identifier, true);
             log::info!("[telemost-wk-poc] WK INIT reuse persistent child view");
             existing
                 .set_position(LogicalPosition::new(bounds.x, bounds.y))
@@ -628,6 +926,10 @@ pub async fn open_telemost_macos_embedded(
                     if let Err(error) = existing.eval(OFFICIAL_CREATE_CLICK_SCRIPT) {
                         log::warn!("[telemost-create] eval fail: {error}");
                     }
+                } else if let Err(error) = existing.eval(
+                    "window.__o360TelemostSurfaceIsolation && window.__o360TelemostSurfaceIsolation.apply()",
+                ) {
+                    log::warn!("[telemost-isolation] apply fail: {error}");
                 }
             } else {
                 existing.navigate(parsed.clone()).map_err(|error| {
@@ -635,11 +937,9 @@ pub async fn open_telemost_macos_embedded(
                     format!("Failed to navigate embedded Telemost: {error}")
                 })?;
             }
-            if incoming_mode == EmbeddedSurfaceMode::Create {
-                cover_embedded_create(&app);
+            apply_embedded_cover_policy(&app, incoming_mode, skip_navigate);
+            if incoming_mode == EmbeddedSurfaceMode::Create && is_auto_create_query(&parsed) {
                 spawn_embedded_create_join_watch(app.clone());
-            } else {
-                reveal_embedded_surface(&app);
             }
             log::info!(
                 "[telemost-wk-poc] RESIZE x={} y={} width={} height={}",
@@ -648,7 +948,13 @@ pub async fn open_telemost_macos_embedded(
             return Ok(());
         }
         EmbeddedOpenAction::Recreate => {
-            log::info!("[telemost-wk-poc] WK INIT recreate different_profile");
+            log::info!(
+                "[telemost-wk-poc] WK INIT recreate different_profile incoming={} stored={}",
+                crate::wk_account_store::data_store_uuid_string(data_store_identifier),
+                stored
+                    .map(crate::wk_account_store::data_store_uuid_string)
+                    .unwrap_or_else(|| "none".to_string())
+            );
             close_embedded_webview(&app);
             confirm_embedded_gone(&app).await?;
         }
@@ -664,6 +970,7 @@ pub async fn open_telemost_macos_embedded(
     let nav_app = app.clone();
     let load_app = app.clone();
     let popup_app = app.clone();
+    log_wk_store("embedded", &account_key, data_store_identifier, false);
     log::info!("[telemost-wk-poc] WK INIT persistent_store=true url={parsed}");
     let builder = WebviewBuilder::new(EMBEDDED_LABEL, WebviewUrl::External(parsed.clone()))
         .initialization_script(EMBEDDED_PROMO_DISMISS_SCRIPT)
@@ -676,16 +983,21 @@ pub async fn open_telemost_macos_embedded(
             move |_webview, title| {
                 if title == LEFT_TITLE {
                     log::info!("[telemost-create] left → idle");
-                    let _ = title_app.emit("telemost-macos-left", "");
-                    if let Some(main) = title_app.get_webview_window("main") {
-                        let _ = main.emit("telemost-macos-left", "");
+                    if let Err(error) = title_app.emit("telemost-macos-left", "") {
+                        log::error!("[direct-join-auth] app emit left failed: {error}");
                     }
+                    cancel_visual_ready_wait();
                     hide_create_mask(&title_app);
                     set_embedded_visible(&title_app, false);
                     return;
                 }
+                if let Some(kind) = visual_ready_kind(&title) {
+                    on_visual_ready(&title_app, kind);
+                    return;
+                }
                 if let Some(payload) = title.strip_prefix("__O360_TELEMOST_CREATE__:") {
                     log::info!("[telemost-create] {payload}");
+                    emit_create_auth_beacon(&title_app, payload);
                     return;
                 }
                 log_title_kind(&title);
@@ -705,6 +1017,11 @@ pub async fn open_telemost_macos_embedded(
             if allowed {
                 log::info!("[telemost-wk-poc] NAV START URL={target}");
                 log_page_kind(target);
+                if is_telemost_join_path(target) {
+                    emit_direct_join_timing(&nav_app, "J_NAV_START");
+                } else if is_auth_check_query(target) {
+                    emit_direct_join_timing(&nav_app, "AUTH_CHECK_OPEN");
+                }
                 if is_passport_url(target) {
                     emit_auth_required(&nav_app);
                 } else {
@@ -720,10 +1037,18 @@ pub async fn open_telemost_macos_embedded(
             PageLoadEvent::Started => {
                 log::info!("[telemost-wk-poc] NAV COMMIT URL={}", payload.url());
                 log_page_kind(payload.url());
+                if is_telemost_join_path(payload.url()) {
+                    emit_direct_join_timing(&load_app, "J_COMMIT");
+                } else if is_auth_check_query(payload.url()) {
+                    emit_direct_join_timing(&load_app, "AUTH_CHECK_COMMIT");
+                }
             }
             PageLoadEvent::Finished => {
                 log::info!("[telemost-wk-poc] NAV FINISH URL={}", payload.url());
                 log_page_kind(payload.url());
+                if is_telemost_join_path(payload.url()) {
+                    emit_direct_join_timing(&load_app, "J_FINISH");
+                }
                 if is_telemost_create_path(payload.url()) {
                     try_resume_create_after_auth(&load_app, payload.url());
                     if let Err(error) = webview.eval(OFFICIAL_CREATE_CLICK_SCRIPT) {
@@ -770,11 +1095,9 @@ pub async fn open_telemost_macos_embedded(
     lock_session().embedded_profile = ownership_after_create_attempt(created.is_ok(), data_store_identifier);
     created?;
     remember_embedded_bounds(bounds);
-    if incoming_mode == EmbeddedSurfaceMode::Create {
-        cover_embedded_create(&app);
+    apply_embedded_cover_policy(&app, incoming_mode, false);
+    if incoming_mode == EmbeddedSurfaceMode::Create && is_auto_create_query(&parsed) {
         spawn_embedded_create_join_watch(app.clone());
-    } else {
-        reveal_embedded_surface(&app);
     }
 
     log::info!("[telemost-wk-poc] VIEW ATTACHED");
@@ -799,7 +1122,12 @@ pub async fn open_telemost_macos_embedded(
 #[tauri::command]
 pub fn set_telemost_macos_embedded_visible(app: AppHandle, visible: bool) -> Result<(), String> {
     if visible {
-        reveal_embedded_surface(&app);
+        if lock_session().awaiting_visual_ready {
+            set_embedded_visible(&app, true);
+            show_create_mask(&app);
+        } else {
+            reveal_embedded_surface(&app);
+        }
     } else {
         hide_create_mask(&app);
         set_embedded_visible(&app, false);
@@ -858,6 +1186,7 @@ pub async fn open_telemost_macos_spike(app: AppHandle, url: String, account_key:
 
     if let Some(existing) = app.get_webview_window(WINDOW_LABEL) {
         if should_reuse_embedded_webview(lock_session().standalone_profile, data_store_identifier) {
+            log_wk_store("standalone", &account_key, data_store_identifier, true);
             existing
                 .navigate(parsed)
                 .map_err(|error| format!("Failed to navigate Telemost spike: {error}"))?;
@@ -882,6 +1211,7 @@ pub async fn open_telemost_macos_spike(app: AppHandle, url: String, account_key:
             ((area.width * 0.9).max(800.0), (area.height * 0.9).max(600.0))
         })
         .unwrap_or((1200.0, 780.0));
+    log_wk_store("standalone", &account_key, data_store_identifier, false);
     let builder = WebviewWindowBuilder::new(&app, WINDOW_LABEL, WebviewUrl::External(parsed))
         .title("Яндекс Телемост")
         .inner_size(meeting_width, meeting_height)
@@ -990,6 +1320,7 @@ pub async fn open_telemost_macos_create(app: AppHandle, account_key: String) -> 
 
     if let Some(existing) = app.get_webview_window(CREATE_WINDOW_LABEL) {
         if should_reuse_embedded_webview(lock_session().create_profile, data_store_identifier) {
+            log_wk_store("create-window", &account_key, data_store_identifier, true);
             existing.show().map_err(|error| error.to_string())?;
             existing.set_focus().map_err(|error| error.to_string())?;
             return Ok(());
@@ -1002,6 +1333,7 @@ pub async fn open_telemost_macos_create(app: AppHandle, account_key: String) -> 
     let start = tauri::Url::parse("https://telemost.yandex.ru/?browser-auto-create=1").map_err(|error| error.to_string())?;
     let navigation_app = app.clone();
     let popup_app = app.clone();
+    log_wk_store("create-window", &account_key, data_store_identifier, false);
     let mut builder = WebviewWindowBuilder::new(&app, CREATE_WINDOW_LABEL, WebviewUrl::External(start))
         .title("Создание встречи — Яндекс Телемост")
         .inner_size(1100.0, 760.0)
@@ -1154,9 +1486,13 @@ async fn reset_owned_profile_surfaces(app: &AppHandle, target: ProfileId) -> Res
 mod tests {
     use super::{
         can_open_during_reset, decide_embedded_open, embedded_mode_for_url, is_allowed_navigation,
+        should_emit_auth_required_for_beacon,
         is_data_store_in_use_error, is_generic_yandex_destination, is_telemost_create_path, ownership_after_create_attempt,
         parse_embedded_url, parse_meeting_url, profile_identifier, reconcile_surface_owner, same_embedded_destination,
-        should_close_owned_surface, should_emit_created_join, should_resume_create_after_auth,
+        should_close_owned_surface, should_emit_created_join, should_keep_join_surface,
+        is_auto_create_query,
+        should_resume_create_after_auth, should_suppress_stale_web_create,
+        should_cover_until_visual_ready, visual_ready_kind, VisualReadyKind,
         should_retry_data_store_removal, should_reuse_embedded_webview, validate_bounds, EmbeddedOpenAction,
         EmbeddedSurfaceMode, TelemostBounds,
     };
@@ -1170,6 +1506,8 @@ mod tests {
         assert!(src.contains("emit_auth_required"));
         assert!(src.contains("telemost-macos-left"));
         assert!(src.contains("telemost-macos-auth-required"));
+        assert!(src.contains("[direct-join-auth]"));
+        assert!(src.contains("app.emit(\"telemost-macos-auth-required\""));
         assert!(src.contains("telemost-macos-auth-resumed"));
         assert!(src.contains("sso.passport.yandex.ru"));
         assert!(src.contains("STAGE3_SURFACE_ISOLATION_SCRIPT"));
@@ -1177,13 +1515,42 @@ mod tests {
         assert!(src.contains("show_create_mask"));
         assert!(src.contains("cover_embedded_create"));
         assert!(src.contains("reveal_embedded_surface"));
+        assert!(src.contains("apply_embedded_cover_policy"));
+        assert!(src.contains("PREJOIN_READY_TITLE"));
+        assert!(src.contains("MEETING_READY_TITLE"));
+        assert!(src.contains("telemost-macos-prejoin-ready"));
+        assert!(src.contains("telemost-macos-prejoin-timeout"));
+        assert!(src.contains("[direct-join-timing]"));
+        assert!(src.contains("o360-phase"));
+        assert!(src.contains("Подготавливаем встречу"));
+        assert!(src.contains("log_wk_store"));
+        assert!(src.contains("store_uuid="));
+        assert!(src.contains("default_store=false"));
         let create = include_str!("telemost_official_create_click.js");
         assert!(create.contains("[telemost-create] "));
         assert!(create.contains("clicked once"));
         assert!(create.contains("official CTA matched"));
         assert!(create.contains("epoch reset"));
         assert!(create.contains("readyState"));
+        assert!(create.contains("telemost_front/v2/telemost/users/me"));
+        assert!(create.contains("office360-auth-check=1"));
+        assert!(create.contains("authCheckPath"));
+        assert!(create.contains("auth=REQUIRED;surface=join"));
+        assert!(create.contains("if (!authCheckPath() && document.readyState !== \"complete\") return"));
+        assert!(create.contains("surface=${surfaceName()}"));
+        assert!(create.contains("preloaded-state"));
+        assert!(create.contains("AUTHENTICATED"));
+        assert!(create.contains("REQUIRED"));
+        assert!(create.contains("TIMEOUT"));
+        assert!(create.contains("auth="));
         assert!(!create.contains("getBoundingClientRect"));
+        assert!(!create.contains("avatars.yandex"));
+        assert!(!create.contains("id.yandex"));
+        assert!(!create.contains("Гость"));
+        assert!(src.contains("emit_create_auth_beacon"));
+        assert!(src.contains("telemost-macos-auth-authenticated"));
+        assert!(src.contains("app.emit(\"telemost-macos-auth-authenticated\""));
+        assert!(src.contains("fn emit_auth_authenticated"));
         let leave = include_str!("telemost_leave_to_idle.js");
         assert!(leave.contains("__O360_TELEMOST_LEFT__"));
         assert!(leave.contains("onJoinPath"));
@@ -1276,6 +1643,7 @@ mod tests {
             "https://passport.yandex.ru/auth",
             "https://oauth.yandex.ru/authorize",
             "https://sso.passport.yandex.ru/prepare?finish=https%3A%2F%2Ftelemost.yandex.ru%2F",
+            "https://id.yandex.ru/",
             "https://yandex.ru/user-id?from=Telemost",
             "about:blank",
             "about:srcdoc",
@@ -1296,6 +1664,89 @@ mod tests {
     }
 
     #[test]
+    fn join_surface_auth_beacons_do_not_start_passport_bootstrap() {
+        assert!(should_emit_auth_required_for_beacon("auth=REQUIRED;surface=check"));
+        assert!(should_emit_auth_required_for_beacon("auth=TIMEOUT;surface=create"));
+        assert!(!should_emit_auth_required_for_beacon("auth=REQUIRED;surface=join"));
+        assert!(!should_emit_auth_required_for_beacon("auth=TIMEOUT;uid=;surface=join"));
+        assert!(!should_emit_auth_required_for_beacon("auth=AUTHENTICATED;uid=1;surface=check"));
+    }
+
+    #[test]
+    fn authenticated_app_emit_does_not_require_main_webview() {
+        let src = include_str!("telemost_macos_spike.rs");
+        let production = src.split("#[cfg(test)]").next().expect("telemost_macos_spike.rs has tests");
+        let emit_fn = production
+            .split("fn emit_auth_authenticated")
+            .nth(1)
+            .and_then(|rest| rest.split("fn emit_create_auth_beacon").next())
+            .expect("emit_auth_authenticated body");
+        assert!(emit_fn.contains("app.emit(\"telemost-macos-auth-authenticated\""));
+        assert!(!emit_fn.contains("get_webview_window"));
+        let required_fn = production
+            .split("fn emit_auth_required_with_reveal")
+            .nth(1)
+            .and_then(|rest| rest.split("fn auth_beacon_is_join_surface").next())
+            .expect("emit_auth_required_with_reveal body");
+        assert!(required_fn.contains("app.emit(\"telemost-macos-auth-required\""));
+        assert!(!required_fn.contains("get_webview_window"));
+        let beacon_fn = production
+            .split("fn emit_create_auth_beacon")
+            .nth(1)
+            .and_then(|rest| rest.split("fn try_resume_create_after_auth").next())
+            .expect("emit_create_auth_beacon body");
+        assert!(beacon_fn.contains("emit_auth_authenticated(app, payload)"));
+        assert!(!beacon_fn.contains("get_webview_window(\"main\")"));
+        let resumed_fn = production
+            .split("fn try_resume_create_after_auth")
+            .nth(1)
+            .and_then(|rest| rest.split("fn try_emit_created_join").next())
+            .expect("try_resume_create_after_auth body");
+        assert!(resumed_fn.contains("app.emit(\"telemost-macos-auth-resumed\""));
+        assert!(!resumed_fn.contains("get_webview_window"));
+        let created_fn = production
+            .split("fn try_emit_created_join")
+            .nth(1)
+            .and_then(|rest| rest.split("fn remember_embedded_mode").next())
+            .expect("try_emit_created_join body");
+        assert!(created_fn.contains("app.emit(\"telemost-macos-created\""));
+        assert!(created_fn.contains("apply_embedded_cover_policy"));
+        assert!(!created_fn.contains("reveal_embedded_surface"));
+        assert!(!created_fn.contains("get_webview_window"));
+        let auth_fn = production
+            .split("fn emit_auth_authenticated")
+            .nth(1)
+            .and_then(|rest| rest.split("fn emit_create_auth_beacon").next())
+            .expect("emit_auth_authenticated body");
+        assert!(!auth_fn.contains("hide_create_mask"));
+        assert!(!auth_fn.contains("reveal_embedded_surface"));
+        assert!(!auth_fn.contains("CREATE MASK OFF"));
+    }
+
+    #[test]
+    fn join_url_heuristic_is_not_visual_ready() {
+        assert!(visual_ready_kind("PREJOIN DETECTED URL=https://telemost.360.yandex.ru/j/1327816640").is_none());
+        assert!(visual_ready_kind("https://telemost.360.yandex.ru/j/1327816640").is_none());
+        assert!(visual_ready_kind("Яндекс Телемост — бесплатные видеовстречи без регистрации и ограничения по времени").is_none());
+        assert_eq!(
+            visual_ready_kind("__O360_TELEMOST_PREJOIN_READY__"),
+            Some(VisualReadyKind::Prejoin)
+        );
+        assert_eq!(
+            visual_ready_kind("__O360_TELEMOST_MEETING_READY__"),
+            Some(VisualReadyKind::Meeting)
+        );
+    }
+
+    #[test]
+    fn meeting_open_keeps_mask_until_visual_ready() {
+        assert!(should_cover_until_visual_ready(false, false));
+        assert!(should_cover_until_visual_ready(false, true));
+        assert!(should_cover_until_visual_ready(true, false));
+        assert!(!should_cover_until_visual_ready(true, true));
+    }
+
+    #[test]
     fn resumes_create_only_after_an_auth_challenge_returns_to_telemost_home() {
         let home: tauri::Url = "https://telemost.yandex.ru/?browser-auto-create=1".parse().unwrap();
         let finish: tauri::Url = "https://telemost.yandex.ru/browser-auto-create?from_passport=1".parse().unwrap();
@@ -1310,6 +1761,17 @@ mod tests {
         assert!(!should_resume_create_after_auth(true, Some(EmbeddedSurfaceMode::Meeting), &home));
         assert!(!should_resume_create_after_auth(true, Some(EmbeddedSurfaceMode::Create), &join));
         assert!(!should_resume_create_after_auth(true, Some(EmbeddedSurfaceMode::Create), &passport));
+        assert!(should_suppress_stale_web_create(true, true, false));
+        assert!(should_suppress_stale_web_create(true, false, true));
+        assert!(!should_suppress_stale_web_create(true, false, false));
+        assert!(!should_suppress_stale_web_create(false, true, true));
+        assert!(should_keep_join_surface(true, true));
+        assert!(!should_keep_join_surface(false, true));
+        assert!(!should_keep_join_surface(true, false));
+        // Auth-check / new join must be allowed to replace a live /j/ surface.
+        assert!(!should_keep_join_surface(is_auto_create_query(
+            &"https://telemost.360.yandex.ru/?office360-auth-check=1".parse().unwrap()
+        ), true));
     }
 
     #[test]
@@ -1350,6 +1812,7 @@ mod tests {
             "https://telemost.yandex.ru/",
             "https://telemost.yandex.ru/?browser-auto-create=1",
             "https://telemost.360.yandex.ru/",
+            "https://telemost.360.yandex.ru/?office360-auth-check=1",
             "https://telemost.yandex.ru/j/123456789",
             "https://telemost.360.yandex.ru/j/123456789",
         ] {
@@ -1376,13 +1839,15 @@ mod tests {
     fn emits_created_join_only_from_create_mode_once() {
         let join: tauri::Url = "https://telemost.yandex.ru/j/123456789".parse().unwrap();
         let create: tauri::Url = "https://telemost.yandex.ru/?browser-auto-create=1".parse().unwrap();
-        assert!(should_emit_created_join(Some(EmbeddedSurfaceMode::Create), None, &join));
-        assert!(!should_emit_created_join(Some(EmbeddedSurfaceMode::Meeting), None, &join));
-        assert!(!should_emit_created_join(Some(EmbeddedSurfaceMode::Create), None, &create));
+        assert!(should_emit_created_join(Some(EmbeddedSurfaceMode::Create), None, &join, true));
+        assert!(!should_emit_created_join(Some(EmbeddedSurfaceMode::Create), None, &join, false));
+        assert!(!should_emit_created_join(Some(EmbeddedSurfaceMode::Meeting), None, &join, true));
+        assert!(!should_emit_created_join(Some(EmbeddedSurfaceMode::Create), None, &create, true));
         assert!(!should_emit_created_join(
             Some(EmbeddedSurfaceMode::Create),
             Some(join.as_str()),
-            &join
+            &join,
+            true
         ));
     }
 

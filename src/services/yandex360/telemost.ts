@@ -193,3 +193,20 @@ export async function updateTelemostConference(options: TelemostConferenceOption
   });
   return mapConference(body);
 }
+
+export async function deleteTelemostConference(accountId: string | null, id: string): Promise<void> {
+  const account = await resolveTelemostAccount(accountId);
+  const token = await resolveTelemostAccessToken(account);
+  let response: Response;
+  try {
+    response = await fetch(`${TELEMOST_CREATE_URL}/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { Authorization: `OAuth ${token}` },
+    });
+  } catch {
+    throw new TelemostApiError("network", "Не удалось связаться с Телемостом. Проверьте подключение к интернету.");
+  }
+  if (response.status === 404 || response.ok) return;
+  const body = await response.json().catch(() => ({})) as TelemostCreateResponse;
+  throw apiError(response.status, body);
+}

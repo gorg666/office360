@@ -1,15 +1,42 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, Copy, ExternalLink, Filter, Mail, MessageCircle, Pencil, Plus, RefreshCw, Search, Users, Video } from "lucide-react";
+import { CalendarDays, Copy, ExternalLink, Filter, Mail, MessageCircle, Pencil, Plus, RefreshCw, Search, Trash2, Users, Video } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { useAccountStore } from "@/stores/accountStore";
 import { getCalendarEventsInRange } from "@/services/db/calendarEvents";
-import { createTelemostConference, getTelemostConference, TelemostApiError, updateTelemostConference, type TelemostConference } from "@/services/yandex360/telemost";
+import { createTelemostConference, deleteTelemostConference, getTelemostConference, TelemostApiError, updateTelemostConference, type TelemostConference } from "@/services/yandex360/telemost";
 import { authorizeYandexGrant, hasYandexGrantScopes, TELEMOST_REQUIRED_SCOPES } from "@/services/oauth/yandexUnifiedAuth";
 import { bootstrapYandexPassportSession } from "@/services/oauth/yandexAuthSession";
 import { isTelemostJoinUrl, openTelemostCreateInBrowser, openTelemostInBrowser as openTelemostInBrowserService, openTelemostEmbedded, openTelemostMeeting, closeTelemostEmbedded, setTelemostEmbeddedBounds, TELEMOST_CREATE_URL } from "@/services/telemost/meetingRenderer";
 import { getTelemostCapability, setTelemostCapability, type LocalTelemostMeeting, type TelemostCapability } from "@/services/telemost/capability";
 import { createTelemostMeetingWeb } from "@/services/telemost/meetingActions";
+import {
+  AUTH_CHECK_WATCHDOG_MS,
+  DIRECT_JOIN_AUTH_REQUIRED_MESSAGE,
+  clearPendingJoin,
+  decideAuthRequiredAction,
+  invalidateVerifiedBrowserAuth,
+  logDirectJoinAuth,
+  logRetryReuse,
+  markDirectJoinTiming,
+  parseTelemostAuthBeacon,
+  readPendingJoin,
+  rememberVerifiedBrowserAuth,
+  reportDirectJoinTiming,
+  decideAuthenticatedIdentity,
+  startDirectJoinTiming,
+  telemostAuthCheckUrl,
+  writePendingJoin,
+  shouldAllowWebCreate,
+  shouldIgnoreDuplicateCreateClick,
+  shouldOpenMacosEmbeddedUrl,
+  shouldRecheckAfterJoinAuthFailure,
+  shouldSkipAuthCheck,
+  decideCreateAccountOwner,
+  type DirectJoinPhase,
+  type DirectJoinTimingMark,
+  type PendingJoin,
+} from "@/services/telemost/directJoinAuth";
 import { cefCreate, cefInitialize, cefNavigate, cefPermissionResponse, cefSetBounds, cefSetVisible, type CefEvent } from "@/services/cef";
 import { ServicePageShell } from "./ServicePageShell";
 import { navigateToLabel } from "@/router/navigate";
@@ -17,10 +44,11 @@ import { openNewCompose } from "@/utils/openComposeWindow";
 import { getAccount } from "@/services/db/accounts";
 import { getDesktopPlatform, type DesktopPlatform } from "@/utils/desktopPlatform";
 
-type RightPaneMode = "EMPTY" | "CREATE_WEB" | "MEETING" | "ERROR";
+type RightPaneMode = "EMPTY" | "CREATE_WEB" | "PREPARE_JOIN" | "MEETING" | "ERROR";
 const CREATED_KEY = "office360_telemost_conferences";
 const VISITED_KEY = "office360_telemost_visited";
 const CEF_PROFILE_READY_KEY = "office360_telemost_cef_profile_ready";
+const PREJOIN_VISUAL_TIMEOUT_MESSAGE = "Не удалось открыть экран подключения. Повторите.";
 const TELEMost_URL = /https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/\d+/gi;
 
 type MeetingSource = "created" | "invited" | "visited";
@@ -89,6 +117,16 @@ export function TelemostPage() {
   const initializedProfilesRef = useRef(new Set<string>());
   /** Join URL already shown in the same embedded WKWebView after CREATE → /j/. */
   const inPlaceJoinUrlRef = useRef<string | null>(null);
+  const lastMeetingBoundsRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  const pendingJoinRef = useRef<PendingJoin | null>(null);
+  const resumedJoinUrlRef = useRef<string | null>(null);
+  const directJoinPhaseRef = useRef<DirectJoinPhase>("idle");
+  const bootstrapDoneRef = useRef(false);
+  const bootstrapInFlightRef = useRef(false);
+  const authCheckWatchdogRef = useRef<number | null>(null);
+  const createOwnerAccountIdRef = useRef<string | null>(null);
+  const usedAuthCacheRef = useRef(false);
+  const pageModeRef = useRef<RightPaneMode>("EMPTY");
   const [serviceAccountId, setServiceAccountId] = useState<string | null>(null);
   const [accountChecking, setAccountChecking] = useState(true);
   const [created, setCreated] = useState<StoredConference[]>([]);
@@ -115,6 +153,9 @@ export function TelemostPage() {
   const [webCreateFallback, setWebCreateFallback] = useState<"create" | "schedule" | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
   const [revealOfficialCreate, setRevealOfficialCreate] = useState(false);
+  const [joinAuthError, setJoinAuthError] = useState<string | null>(null);
+  const [prepareStatus, setPrepareStatus] = useState("Создаём встречу…");
+  pageModeRef.current = pageMode;
   const isTelemostMeeting = /^https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/[^/?#]+/i.test(selectedUrl);
   const isTelemostAuth = /^https:\/\/(?:passport|oauth)\.yandex\.(?:ru|com)\//i.test(selectedUrl);
   const showEmbeddedBrowser = isTelemostMeeting || isTelemostAuth || activeMeetingUrl !== null;
@@ -130,17 +171,128 @@ export function TelemostPage() {
     setActiveMeetingUrl(url);
   }, []);
 
+  const clearAuthCheckWatchdog = useCallback(() => {
+    if (authCheckWatchdogRef.current !== null) {
+      window.clearTimeout(authCheckWatchdogRef.current);
+      authCheckWatchdogRef.current = null;
+    }
+  }, []);
+
   const returnToIdle = useCallback(() => {
     setAuthRequired(false);
     setRevealOfficialCreate(false);
+    setJoinAuthError(null);
     setRoutingErrorUrl(null);
     setError(null);
     inPlaceJoinUrlRef.current = null;
     webCreateOperationRef.current = null;
+    bootstrapDoneRef.current = false;
+    bootstrapInFlightRef.current = false;
+    directJoinPhaseRef.current = "idle";
+    resumedJoinUrlRef.current = null;
+    clearAuthCheckWatchdog();
+    if (serviceAccountId) clearPendingJoin(serviceAccountId);
+    pendingJoinRef.current = null;
+    createOwnerAccountIdRef.current = null;
     rememberActiveMeeting(null);
     setPageMode("EMPTY");
     void closeTelemostEmbedded().catch(() => undefined);
-  }, [rememberActiveMeeting]);
+    void invoke("close_oauth_login_window").catch(() => undefined);
+  }, [clearAuthCheckWatchdog, rememberActiveMeeting, serviceAccountId]);
+
+  const failClosedDirectJoin = useCallback((message: string) => {
+    logDirectJoinAuth("FAIL_CLOSED");
+    invalidateVerifiedBrowserAuth();
+    usedAuthCacheRef.current = false;
+    directJoinPhaseRef.current = "fail_closed";
+    bootstrapDoneRef.current = false;
+    bootstrapInFlightRef.current = false;
+    clearAuthCheckWatchdog();
+    returnToIdle();
+    setError(message);
+  }, [clearAuthCheckWatchdog, returnToIdle]);
+
+  const failClosedVisualJoin = useCallback((message: string) => {
+    const pending = pendingJoinRef.current ?? (serviceAccountId ? readPendingJoin(serviceAccountId) : null);
+    logDirectJoinAuth("FAIL_CLOSED");
+    directJoinPhaseRef.current = "fail_closed";
+    bootstrapDoneRef.current = false;
+    bootstrapInFlightRef.current = false;
+    resumedJoinUrlRef.current = null;
+    clearAuthCheckWatchdog();
+    rememberActiveMeeting(null);
+    setRoutingErrorUrl(pending?.joinUrl ?? null);
+    setError(message);
+    setLoading(false);
+    setPageMode("ERROR");
+    void closeTelemostEmbedded().catch(() => undefined);
+  }, [clearAuthCheckWatchdog, rememberActiveMeeting, serviceAccountId]);
+
+  const resumePendingJoin = useCallback(() => {
+    const pending = pendingJoinRef.current;
+    if (!pending) return;
+    if (resumedJoinUrlRef.current === pending.joinUrl) return;
+    resumedJoinUrlRef.current = pending.joinUrl;
+    logDirectJoinAuth("OPEN_JOIN");
+    markDirectJoinTiming("OPEN_JOIN");
+    clearAuthCheckWatchdog();
+    bootstrapDoneRef.current = false;
+    bootstrapInFlightRef.current = false;
+    directJoinPhaseRef.current = "open_join";
+    setPrepareStatus("Открываем встречу…");
+    setJoinAuthError(null);
+    setAuthRequired(false);
+    setRevealOfficialCreate(false);
+    setMeetingTitle(pending.title || `Встреча ${meetingId(pending.joinUrl)}`);
+    setSelectedUrl(pending.joinUrl);
+    setPageMode("MEETING");
+    rememberActiveMeeting(pending.joinUrl);
+    void invoke("close_telemost_macos_create").catch(() => undefined);
+  }, [clearAuthCheckWatchdog, rememberActiveMeeting]);
+
+  const startPrepareJoin = useCallback((meeting: PendingJoin) => {
+    if (!serviceAccountId) return;
+    const retrying = pageModeRef.current === "ERROR" || directJoinPhaseRef.current === "fail_closed";
+    if (retrying) {
+      logDirectJoinAuth("RETRY_REUSE");
+      logRetryReuse(meeting.id);
+    }
+    createOwnerAccountIdRef.current = serviceAccountId;
+    webCreateOperationRef.current = null;
+    writePendingJoin(serviceAccountId, meeting);
+    pendingJoinRef.current = meeting;
+    resumedJoinUrlRef.current = null;
+    bootstrapDoneRef.current = false;
+    bootstrapInFlightRef.current = false;
+    setJoinAuthError(null);
+    setAuthRequired(false);
+    setRevealOfficialCreate(false);
+    setRoutingErrorUrl(null);
+    setError(null);
+    setMeetingTitle(meeting.title || `Встреча ${meetingId(meeting.joinUrl)}`);
+    setPageMode("PREPARE_JOIN");
+    void invoke("close_telemost_macos_create").catch(() => undefined);
+    clearAuthCheckWatchdog();
+    if (shouldSkipAuthCheck(serviceAccountId)) {
+      usedAuthCacheRef.current = true;
+      directJoinPhaseRef.current = "auth_ready";
+      logDirectJoinAuth("AUTH_CACHE_HIT");
+      markDirectJoinTiming("AUTHENTICATED");
+      setPrepareStatus("Открываем встречу…");
+      resumePendingJoin();
+      return;
+    }
+    usedAuthCacheRef.current = false;
+    directJoinPhaseRef.current = "wk_auth_check";
+    logDirectJoinAuth("CHECKING");
+    markDirectJoinTiming("AUTH_CHECK_OPEN");
+    setPrepareStatus("Проверяем Яндекс ID…");
+    rememberActiveMeeting(telemostAuthCheckUrl(meeting.joinUrl));
+    authCheckWatchdogRef.current = window.setTimeout(() => {
+      if (directJoinPhaseRef.current !== "wk_auth_check" || bootstrapInFlightRef.current) return;
+      failClosedDirectJoin(DIRECT_JOIN_AUTH_REQUIRED_MESSAGE);
+    }, AUTH_CHECK_WATCHDOG_MS);
+  }, [clearAuthCheckWatchdog, failClosedDirectJoin, rememberActiveMeeting, resumePendingJoin, serviceAccountId]);
 
   const connectPassportSession = useCallback(async () => {
     if (!serviceAccountId) return;
@@ -207,17 +359,152 @@ export function TelemostPage() {
     const leftMeeting = listen("telemost-macos-left", () => {
       returnToIdle();
     });
-    const authNeeded = listen("telemost-macos-auth-required", () => {
+    const authNeeded = listen<string>("telemost-macos-auth-required", (event) => {
+      const beacon = parseTelemostAuthBeacon(String(event.payload ?? ""));
+      const storedPending = pendingJoinRef.current ?? (serviceAccountId ? readPendingJoin(serviceAccountId) : null);
+      if (storedPending && !pendingJoinRef.current) pendingJoinRef.current = storedPending;
+      const action = decideAuthRequiredAction({
+        beacon,
+        pageMode: pageModeRef.current,
+        hasPendingJoin: Boolean(pendingJoinRef.current),
+        bootstrapInFlight: bootstrapInFlightRef.current,
+        recheckAfterBootstrap: bootstrapDoneRef.current && directJoinPhaseRef.current === "wk_auth_check",
+      });
+      if (action === "ignore") {
+        if (shouldRecheckAfterJoinAuthFailure(beacon, usedAuthCacheRef.current) && pendingJoinRef.current) {
+          invalidateVerifiedBrowserAuth();
+          usedAuthCacheRef.current = false;
+          startPrepareJoin(pendingJoinRef.current);
+        }
+        return;
+      }
+      if (action === "fail_closed") {
+        failClosedDirectJoin(DIRECT_JOIN_AUTH_REQUIRED_MESSAGE);
+        return;
+      }
+      if (!serviceAccountId) {
+        if (action === "bootstrap") failClosedDirectJoin(DIRECT_JOIN_AUTH_REQUIRED_MESSAGE);
+        return;
+      }
+      if (action === "bootstrap") {
+        logDirectJoinAuth("REQUIRED");
+        logDirectJoinAuth("BOOTSTRAP_START");
+        invalidateVerifiedBrowserAuth();
+        usedAuthCacheRef.current = false;
+        bootstrapInFlightRef.current = true;
+        bootstrapDoneRef.current = false;
+        directJoinPhaseRef.current = "passport_bootstrap";
+        clearAuthCheckWatchdog();
+        setAuthRequired(true);
+        setJoinAuthError(null);
+        rememberActiveMeeting(null);
+        void bootstrapYandexPassportSession(serviceAccountId).catch((reason) => {
+          bootstrapInFlightRef.current = false;
+          failClosedDirectJoin(reason instanceof Error ? reason.message : DIRECT_JOIN_AUTH_REQUIRED_MESSAGE);
+        });
+        return;
+      }
+      if (pageModeRef.current !== "CREATE_WEB") return;
+      logDirectJoinAuth("REQUIRED");
+      logDirectJoinAuth("BOOTSTRAP_START");
+      bootstrapInFlightRef.current = true;
       setAuthRequired(true);
       setRevealOfficialCreate(false);
+      void bootstrapYandexPassportSession(serviceAccountId).catch((reason) => {
+        bootstrapInFlightRef.current = false;
+        setError(reason instanceof Error ? reason.message : "Не удалось открыть вход в Яндекс ID.");
+      });
     });
     const authResumed = listen("telemost-macos-auth-resumed", () => {
       setAuthRequired(false);
       setRevealOfficialCreate(false);
     });
+    const authAuthenticated = listen<string>("telemost-macos-auth-authenticated", (event) => {
+      const beacon = parseTelemostAuthBeacon(String(event.payload ?? ""));
+      logDirectJoinAuth("AUTHENTICATED");
+      markDirectJoinTiming("AUTHENTICATED");
+      if (serviceAccountId && beacon.uid) {
+        rememberVerifiedBrowserAuth(serviceAccountId, beacon.uid, beacon.login);
+      }
+      const storedPending = pendingJoinRef.current ?? (serviceAccountId ? readPendingJoin(serviceAccountId) : null);
+      if (storedPending && !pendingJoinRef.current) pendingJoinRef.current = storedPending;
+      const decision = decideAuthenticatedIdentity({
+        beacon,
+        pendingJoinUrl: pendingJoinRef.current?.joinUrl ?? null,
+        alreadyResumedJoinUrl: resumedJoinUrlRef.current,
+        expectedEmail: activeAccount?.email,
+      });
+      if (decision === "ignore") {
+        setAuthRequired(false);
+        return;
+      }
+      if (decision === "mismatch") {
+        logDirectJoinAuth("ACCOUNT_MISMATCH");
+        failClosedDirectJoin(`В Яндекс ID выбран другой аккаунт${beacon.login ? ` (${beacon.login})` : ""}. Ожидался ${activeAccount?.email ?? "аккаунт Office360"}.`);
+        return;
+      }
+      if (decision === "create_ready") {
+        setAuthRequired(false);
+        return;
+      }
+      resumePendingJoin();
+    });
     const passportReady = listen("yandex-passport-bootstrap-complete", () => {
+      if (directJoinPhaseRef.current === "passport_bootstrap" && pendingJoinRef.current) {
+        logDirectJoinAuth("BOOTSTRAP_COMPLETE");
+        bootstrapInFlightRef.current = false;
+        bootstrapDoneRef.current = true;
+        setAuthRequired(false);
+        void invoke("close_oauth_login_window").catch(() => undefined);
+        const bounds = lastMeetingBoundsRef.current;
+        const pending = pendingJoinRef.current;
+        if (!serviceAccountId || !bounds || !pending) {
+          failClosedDirectJoin(DIRECT_JOIN_AUTH_REQUIRED_MESSAGE);
+          return;
+        }
+        logDirectJoinAuth("RECHECK");
+        directJoinPhaseRef.current = "wk_auth_check";
+        rememberActiveMeeting(telemostAuthCheckUrl(pending.joinUrl));
+        return;
+      }
+      bootstrapDoneRef.current = true;
       setAuthRequired(false);
       void invoke("close_oauth_login_window").catch(() => undefined);
+      const bounds = lastMeetingBoundsRef.current;
+      if (desktopPlatform === "macos" && serviceAccountId && bounds && pageModeRef.current === "CREATE_WEB"
+        && shouldAllowWebCreate({
+          capability: "WEB_ONLY",
+          pendingJoinUrl: pendingJoinRef.current?.joinUrl ?? null,
+          directJoinPhase: directJoinPhaseRef.current,
+          alreadyOpenedJoinUrl: resumedJoinUrlRef.current,
+        })) {
+        void openTelemostEmbedded("macos", TELEMOST_CREATE_URL, serviceAccountId, bounds).catch(() => undefined);
+      }
+    });
+    const oauthClosed = listen("oauth-window-closed", () => {
+      if (directJoinPhaseRef.current !== "passport_bootstrap" || !pendingJoinRef.current || bootstrapDoneRef.current) return;
+      failClosedDirectJoin(DIRECT_JOIN_AUTH_REQUIRED_MESSAGE);
+    });
+    const prejoinTimeout = listen("telemost-macos-prejoin-timeout", () => {
+      reportDirectJoinTiming(pendingJoinRef.current?.id ?? "");
+      failClosedVisualJoin(PREJOIN_VISUAL_TIMEOUT_MESSAGE);
+    });
+    const prejoinReady = listen("telemost-macos-prejoin-ready", () => {
+      markDirectJoinTiming("STAGE3_READY");
+      markDirectJoinTiming("MASK_OFF");
+      reportDirectJoinTiming(pendingJoinRef.current?.id ?? "");
+      if (serviceAccountId) clearPendingJoin(serviceAccountId);
+      pendingJoinRef.current = null;
+      directJoinPhaseRef.current = "idle";
+    });
+    const timing = listen<string>("telemost-macos-timing", (event) => {
+      const mark = String(event.payload ?? "") as DirectJoinTimingMark | "TIMEOUT";
+      if (mark === "TIMEOUT") {
+        reportDirectJoinTiming(pendingJoinRef.current?.id ?? "");
+        return;
+      }
+      markDirectJoinTiming(mark);
+      if (mark === "MASK_OFF") reportDirectJoinTiming(pendingJoinRef.current?.id ?? "");
     });
     return () => {
       void routingError.then((stop) => stop());
@@ -225,18 +512,14 @@ export function TelemostPage() {
       void leftMeeting.then((stop) => stop());
       void authNeeded.then((stop) => stop());
       void authResumed.then((stop) => stop());
+      void authAuthenticated.then((stop) => stop());
       void passportReady.then((stop) => stop());
+      void oauthClosed.then((stop) => stop());
+      void prejoinTimeout.then((stop) => stop());
+      void prejoinReady.then((stop) => stop());
+      void timing.then((stop) => stop());
     };
-  }, [desktopPlatform, returnToIdle]);
-
-  useEffect(() => {
-    if (desktopPlatform !== "macos" || pageMode !== "CREATE_WEB" || authRequired || revealOfficialCreate) return;
-    const timer = window.setTimeout(() => {
-      setRevealOfficialCreate(true);
-      void invoke("set_telemost_macos_embedded_visible", { visible: true }).catch(() => undefined);
-    }, 12000);
-    return () => window.clearTimeout(timer);
-  }, [authRequired, desktopPlatform, pageMode, revealOfficialCreate]);
+  }, [activeAccount?.email, clearAuthCheckWatchdog, desktopPlatform, failClosedDirectJoin, failClosedVisualJoin, rememberActiveMeeting, resumePendingJoin, returnToIdle, serviceAccountId, startPrepareJoin]);
 
   useEffect(() => {
     if (desktopPlatform !== "macos" || !serviceAccountId) return;
@@ -267,11 +550,21 @@ export function TelemostPage() {
     return () => { void createdMeeting.then((stop) => stop()); };
   }, [desktopPlatform, openCalendarDraft, rememberActiveMeeting, serviceAccountId]);
 
-  const startWebCreate = useCallback(async (operation: "create" | "schedule") => {
+  const startWebCreate = useCallback(async (operation: "create" | "schedule", webOnly = capability === "WEB_ONLY") => {
     if (!desktopPlatform) return;
+    if (!shouldAllowWebCreate({
+      capability: webOnly ? "WEB_ONLY" : capability,
+      pendingJoinUrl: pendingJoinRef.current?.joinUrl ?? (serviceAccountId ? readPendingJoin(serviceAccountId)?.joinUrl ?? null : null),
+      directJoinPhase: directJoinPhaseRef.current,
+      alreadyOpenedJoinUrl: resumedJoinUrlRef.current,
+    })) {
+      logDirectJoinAuth("WEB_CREATE_SUPPRESSED");
+      return;
+    }
     setError(null);
     webCreateOperationRef.current = operation;
     if (desktopPlatform === "macos") {
+      createOwnerAccountIdRef.current = serviceAccountId;
       setRoutingErrorUrl(null);
       setWebCreateFallback(null);
       setMeetingTitle(operation === "schedule" ? "Запланировать встречу" : "Новая видеовстреча");
@@ -289,7 +582,7 @@ export function TelemostPage() {
       console.error("Embedded Telemost create failed:", reason);
       setWebCreateFallback(operation);
     }
-  }, [accountId, desktopPlatform, rememberActiveMeeting, serviceAccountId]);
+  }, [accountId, capability, desktopPlatform, rememberActiveMeeting, serviceAccountId]);
 
   const switchTelemostAccount = useCallback(async () => {
     if (desktopPlatform !== "macos" || !serviceAccountId) return;
@@ -297,11 +590,17 @@ export function TelemostPage() {
     try {
       setPageMode("EMPTY");
       rememberActiveMeeting(null);
+      clearPendingJoin(serviceAccountId);
+      pendingJoinRef.current = null;
+      directJoinPhaseRef.current = "idle";
+      invalidateVerifiedBrowserAuth();
+      usedAuthCacheRef.current = false;
       await closeTelemostEmbedded().catch(() => undefined);
       await invoke("reset_telemost_macos_profile", { accountKey: serviceAccountId });
       setMeetingTitle("Телемост");
       setAuthRequired(false);
       setRevealOfficialCreate(false);
+      setJoinAuthError(null);
     } catch (reason) {
       console.error("Failed to reset the Telemost web profile:", reason);
       setError("Не удалось сменить аккаунт Телемоста.");
@@ -319,12 +618,14 @@ export function TelemostPage() {
     }
     const rect = element.getBoundingClientRect();
     if (rect.width < 32 || rect.height < 32) return null;
-    return {
+    const bounds = {
       x: Math.round(rect.left),
       y: Math.round(rect.top),
       width: Math.round(rect.width),
       height: Math.round(rect.height),
     };
+    lastMeetingBoundsRef.current = bounds;
+    return bounds;
   }, []);
 
   const requireTelemostAccess = useCallback(async (operation: "create" | "schedule"): Promise<boolean> => {
@@ -365,6 +666,10 @@ export function TelemostPage() {
     accountSwitchGenerationRef.current += 1;
     rememberActiveMeeting(null);
     setPageMode("EMPTY");
+    pendingJoinRef.current = null;
+    directJoinPhaseRef.current = "idle";
+    createOwnerAccountIdRef.current = null;
+    setJoinAuthError(null);
     setCreated([]); setVisited([]); setCalendarMeetings([]); setSelectedUrl("https://telemost.yandex.ru/"); setError(null);
     if (useEmbeddedTelemost) void cefSetVisible(false);
     void closeTelemostEmbedded();
@@ -552,8 +857,12 @@ export function TelemostPage() {
     return result.sort((a, b) => Number(b.calendarEventId === selectedCalendarEventId) - Number(a.calendarEventId === selectedCalendarEventId));
   }, [calendarMeetings, created, filter, query, selectedCalendarEventId, visited]);
 
-  const openMeeting = (meeting: MeetingEntry) => {
+  const openMeeting = (meeting: MeetingEntry, requirePassport = false) => {
     if (desktopPlatform === null) return;
+    if (desktopPlatform === "macos" && requirePassport && serviceAccountId && isTelemostJoinUrl(meeting.joinUrl)) {
+      startPrepareJoin({ id: meeting.id, title: meeting.title, joinUrl: meeting.joinUrl });
+      return;
+    }
     setSelectedCalendarEventId(meeting.calendarEventId ?? null);
     setSelectedUrl(meeting.joinUrl);
     rememberActiveMeeting(meeting.joinUrl);
@@ -572,7 +881,7 @@ export function TelemostPage() {
 
   const macosProfile = serviceAccountId ?? accountId ?? "shared";
   const macosWebKitActive = desktopPlatform === "macos"
-    && (pageMode === "MEETING" || pageMode === "CREATE_WEB")
+    && (pageMode === "MEETING" || pageMode === "CREATE_WEB" || pageMode === "PREPARE_JOIN")
     && Boolean(activeMeetingUrl);
 
   useLayoutEffect(() => {
@@ -615,8 +924,27 @@ export function TelemostPage() {
             return;
           }
           inPlaceJoinUrlRef.current = null;
+          const ownerAccountId = createOwnerAccountIdRef.current ?? macosProfile;
+          if (decideCreateAccountOwner(ownerAccountId, macosProfile) === "mismatch") {
+            logDirectJoinAuth("ACCOUNT_OWNER_MISMATCH");
+            failClosedDirectJoin("Не удалось открыть Телемост: аккаунт поверхности не совпадает с выбранным.");
+            return;
+          }
+          if (!shouldOpenMacosEmbeddedUrl(activeMeetingUrl, {
+            capability,
+            pendingJoinUrl: pendingJoinRef.current?.joinUrl ?? null,
+            directJoinPhase: directJoinPhaseRef.current,
+            alreadyOpenedJoinUrl: resumedJoinUrlRef.current,
+          })) {
+            logDirectJoinAuth("WEB_CREATE_SUPPRESSED");
+            await setTelemostEmbeddedBounds(bounds);
+            if (!cancelled) setLoading(false);
+            return;
+          }
           setLoading(true);
-          await openTelemostEmbedded("macos", activeMeetingUrl, macosProfile, bounds);
+          if (cancelled) return;
+          await openTelemostEmbedded("macos", activeMeetingUrl, ownerAccountId, bounds);
+          if (cancelled) return;
           if (!cancelled) setLoading(false);
           frame = window.requestAnimationFrame(() => {
             frame = window.requestAnimationFrame(() => { void syncWebKitSurface(); });
@@ -649,10 +977,16 @@ export function TelemostPage() {
       window.removeEventListener("resize", onWindowChange);
       window.removeEventListener("scroll", onWindowChange, true);
     };
-  }, [activeMeetingUrl, macosProfile, macosWebKitActive, readMeetingBounds]);
+  }, [activeMeetingUrl, capability, failClosedDirectJoin, macosProfile, macosWebKitActive, readMeetingBounds, serviceAccountId]);
 
   useEffect(() => {
-    return () => { void closeTelemostEmbedded(); };
+    return () => {
+      if (authCheckWatchdogRef.current !== null) {
+        window.clearTimeout(authCheckWatchdogRef.current);
+        authCheckWatchdogRef.current = null;
+      }
+      void closeTelemostEmbedded();
+    };
   }, []);
 
   useLayoutEffect(() => {
@@ -687,12 +1021,13 @@ export function TelemostPage() {
 
   const scheduleConference = async (checkAccess = true) => {
     if (!serviceAccountId || desktopPlatform === null) return;
+    if (shouldIgnoreDuplicateCreateClick(directJoinPhaseRef.current)) return;
     setError(null);
     if (activeMeetingUrlRef.current) {
       openCalendarDraft(activeMeetingUrlRef.current);
       return;
     }
-    if (capability === "WEB_ONLY") { await startWebCreate("schedule"); return; }
+    if (capability === "WEB_ONLY") { await startWebCreate("schedule", true); return; }
     if (checkAccess && !await requireTelemostAccess("schedule")) return;
     try {
       const conference = await createTelemostConference({ accountId: serviceAccountId, waitingRoomLevel: "PUBLIC" });
@@ -702,7 +1037,7 @@ export function TelemostPage() {
       openCalendarDraft(conference.joinUrl);
     } catch (reason) {
       if (reason instanceof TelemostApiError && reason.code === "organization_restricted") {
-        setTelemostCapability(serviceAccountId, "WEB_ONLY"); setCapability("WEB_ONLY"); await startWebCreate("schedule"); return;
+        setTelemostCapability(serviceAccountId, "WEB_ONLY"); setCapability("WEB_ONLY"); await startWebCreate("schedule", true); return;
       }
       if (reason instanceof TelemostApiError && (reason.code === "missing_scope" || reason.code === "auth")) {
         setPendingOperation("schedule"); setNeedsTelemostAccess(true); return;
@@ -713,24 +1048,38 @@ export function TelemostPage() {
 
   const createConference = async (checkAccess = true) => {
     if (!serviceAccountId || desktopPlatform === null) return;
-    if (capability === "WEB_ONLY") { await startWebCreate("create"); return; }
+    if (shouldIgnoreDuplicateCreateClick(directJoinPhaseRef.current)) return;
+    if (capability === "WEB_ONLY") { await startWebCreate("create", true); return; }
     if (checkAccess && !await requireTelemostAccess("create")) return;
     try {
       setError(null);
+      setPrepareStatus("Создаём встречу…");
+      startDirectJoinTiming();
+      directJoinPhaseRef.current = "join_url_ready";
+      createOwnerAccountIdRef.current = serviceAccountId;
       const title = window.prompt("Название встречи", "Новая встреча")?.trim() || "Новая встреча";
       const scheduledValue = window.prompt("Дата и время (ГГГГ-ММ-ДД ЧЧ:ММ), можно оставить пустым", "")?.trim() ?? "";
       const scheduledDate = scheduledValue ? new Date(scheduledValue.replace(" ", "T")) : null;
       if (scheduledValue && (!scheduledDate || Number.isNaN(scheduledDate.getTime()))) throw new Error("Укажите дату в формате ГГГГ-ММ-ДД ЧЧ:ММ.");
       const inviteEmails = parseInviteEmails(window.prompt("E-mail участников через запятую", "") ?? "");
+      markDirectJoinTiming("API_REQUEST_START");
       const conference = await createTelemostConference({ accountId: serviceAccountId, waitingRoomLevel: "PUBLIC", cohostEmails: [], autoSummarization: false });
+      markDirectJoinTiming("API_RESPONSE");
+      markDirectJoinTiming("JOIN_URL_READY");
       setTelemostCapability(serviceAccountId, "API_AVAILABLE"); setCapability("API_AVAILABLE");
       const stored: StoredConference = { ...conference, title, createdAt: conference.createdAt ?? Math.floor(Date.now() / 1000), scheduledAt: scheduledDate ? Math.floor(scheduledDate.getTime() / 1000) : null, inviteEmails, lastOpenedAt: null, source: "API_CREATED", remoteConferenceId: conference.id };
       setCreated((items) => [stored, ...items.filter((item) => item.id !== conference.id)]);
       if (inviteEmails.length > 0) void inviteToMeeting(stored);
-      openMeeting({ id: conference.id, title, joinUrl: conference.joinUrl, source: "created", startTime: stored.scheduledAt ?? stored.createdAt ?? undefined });
+      if (desktopPlatform === "macos") {
+        startPrepareJoin({ id: conference.id, title, joinUrl: conference.joinUrl });
+      } else {
+        directJoinPhaseRef.current = "idle";
+        openMeeting({ id: conference.id, title, joinUrl: conference.joinUrl, source: "created", startTime: stored.scheduledAt ?? stored.createdAt ?? undefined });
+      }
     } catch (reason) {
+      directJoinPhaseRef.current = "idle";
       if (reason instanceof TelemostApiError && reason.code === "organization_restricted") {
-        setTelemostCapability(serviceAccountId, "WEB_ONLY"); setCapability("WEB_ONLY"); await startWebCreate("create"); return;
+        setTelemostCapability(serviceAccountId, "WEB_ONLY"); setCapability("WEB_ONLY"); await startWebCreate("create", true); return;
       }
       if (reason instanceof TelemostApiError && (reason.code === "missing_scope" || reason.code === "auth")) {
         setPendingOperation("create"); setNeedsTelemostAccess(true); return;
@@ -750,6 +1099,31 @@ export function TelemostPage() {
       .then(() => getTelemostConference(serviceAccountId, meeting.id))
       .then((fresh) => setCreated((items) => items.map((item) => item.id === meeting.id ? { ...item, ...fresh, title, inviteEmails: emails } : item)))
       .catch((reason) => setError(reason instanceof Error ? reason.message : "Не удалось изменить встречу."));
+  };
+
+  const deleteCreatedMeeting = async (meeting: MeetingEntry) => {
+    if (!serviceAccountId) return;
+    if (!window.confirm("Удалить эту встречу? Ссылка перестанет работать.")) return;
+    const current = created.find((item) => item.id === meeting.id || item.joinUrl === meeting.joinUrl);
+    const remoteId = current?.remoteConferenceId ?? meeting.id;
+    try {
+      await deleteTelemostConference(serviceAccountId, remoteId);
+      setCreated((items) => items.filter((item) => item.id !== meeting.id && item.remoteConferenceId !== remoteId && item.joinUrl !== meeting.joinUrl));
+      if (selectedUrl === meeting.joinUrl || selectedCalendarEventId === meeting.calendarEventId) {
+        if (pageMode === "MEETING" || pageMode === "PREPARE_JOIN" || pageMode === "CREATE_WEB") returnToIdle();
+        else {
+          setSelectedUrl("https://telemost.yandex.ru/");
+          setSelectedCalendarEventId(null);
+        }
+      }
+    } catch (reason) {
+      if (reason instanceof TelemostApiError && (reason.code === "missing_scope" || reason.code === "auth")) {
+        setNeedsTelemostAccess(true);
+        setError("Чтобы удалять встречи, разрешите доступ к Телемосту повторно.");
+        return;
+      }
+      setError(reason instanceof Error ? reason.message : "Не удалось удалить встречу Телемоста.");
+    }
   };
 
   const inviteToMeeting = (conference: StoredConference | MeetingEntry) => {
@@ -772,7 +1146,7 @@ export function TelemostPage() {
     </ServicePageShell>;
   }
 
-  const showMacosTelemostSurface = desktopPlatform === "macos" && (pageMode === "CREATE_WEB" || pageMode === "MEETING");
+  const showMacosTelemostSurface = desktopPlatform === "macos" && (pageMode === "CREATE_WEB" || pageMode === "PREPARE_JOIN" || pageMode === "MEETING");
 
   return <ServicePageShell title="Яндекс Телемост" description={useEmbeddedTelemost ? "Встречи в Office360" : "Встречи активного Яндекс-аккаунта"} actions={<div className="flex flex-wrap gap-2">
     <button className="btn-secondary px-3 py-2 flex gap-2" disabled={desktopPlatform === null} onClick={() => void createConference()}><Plus size={16}/>Новая видеовстреча</button>
@@ -814,7 +1188,7 @@ export function TelemostPage() {
           const contacts = meeting.attendees?.filter((person) => person.email && person.email !== meeting.organizerEmail) ?? [];
           const selected = selectedCalendarEventId ? meeting.calendarEventId === selectedCalendarEventId : selectedUrl === meeting.joinUrl;
           return <article key={`${meeting.source}:${meeting.joinUrl}:${meeting.calendarEventId ?? meeting.startTime ?? ''}`} className={`border-b border-border-primary p-3 ${selected ? 'bg-accent/10' : ''}`}>
-            <button className="w-full text-left hover:text-accent" onClick={() => openMeeting(meeting)}>
+            <button className="w-full text-left hover:text-accent" onClick={() => openMeeting(meeting, meeting.source === "created")}>
               <div className="flex gap-2 items-center"><Video size={15} className="shrink-0"/><span className="truncate font-medium">{meeting.title}</span></div>
               <div className="mt-1 text-xs text-text-tertiary">{meeting.organizerEmail ? `Организатор: ${meeting.organizerEmail}` : meeting.source === 'created' ? 'Создана вами' : meeting.source === 'visited' ? 'Вы открывали' : 'Организатор не указан'}</div>
               {meeting.startTime && <div className="mt-1 text-xs text-text-secondary">{formatMeetingTime(meeting)}</div>}
@@ -828,18 +1202,20 @@ export function TelemostPage() {
               {meeting.source === "created" && <button className="rounded bg-bg-secondary px-2 py-1 text-xs hover:bg-bg-hover inline-flex items-center gap-1" onClick={() => void inviteToMeeting(meeting)}><Mail size={13}/>Пригласить</button>}
               {meeting.source === "created" && <button className="rounded bg-bg-secondary px-2 py-1 text-xs hover:bg-bg-hover inline-flex items-center gap-1" onClick={() => void navigator.clipboard.writeText(meeting.joinUrl)}><Copy size={13}/>Ссылка</button>}
               {meeting.source === "created" && <button className="rounded bg-bg-secondary px-2 py-1 text-xs hover:bg-bg-hover inline-flex items-center gap-1" onClick={() => editCreated(meeting)}><Pencil size={13}/>Изменить</button>}
+              {meeting.source === "created" && <button className="rounded bg-bg-secondary px-2 py-1 text-xs hover:bg-bg-hover inline-flex items-center gap-1 text-danger" onClick={() => void deleteCreatedMeeting(meeting)}><Trash2 size={13}/>Удалить встречу</button>}
             </div>
           </article>;
         })}</div>
       </aside>
       <section className={`relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border-primary ${useEmbeddedTelemost || (showMacosTelemostSurface && (pageMode === "MEETING" || authRequired || revealOfficialCreate)) ? "bg-black" : "bg-bg-primary"}`}>
         {useEmbeddedTelemost && <div ref={hostRef} className="absolute inset-0 bg-black"/>}
-        {showMacosTelemostSurface && <div id="telemost-meeting-surface" ref={meetingSurfaceRef} className="relative min-h-0 flex-1 overflow-hidden bg-black" aria-label={pageMode === "MEETING" ? "Поверхность встречи Телемоста" : "Создание встречи Телемоста"} />}
+        {showMacosTelemostSurface && <div id="telemost-meeting-surface" ref={meetingSurfaceRef} className="relative min-h-0 flex-1 overflow-hidden bg-black" aria-label={pageMode === "MEETING" ? "Поверхность встречи Телемоста" : pageMode === "PREPARE_JOIN" ? "Подготовка встречи Телемоста" : "Создание встречи Телемоста"} />}
         {pageMode === "EMPTY" && !useEmbeddedTelemost && desktopPlatform !== null && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Яндекс Телемост</div><div className="mx-auto mt-2 max-w-md text-sm text-text-tertiary">Создайте новую встречу или подключитесь по ссылке.</div>{desktopPlatform === "macos" && serviceAccountId && <button className="btn-secondary mt-4 px-4 py-2" disabled={authorizing} onClick={() => void connectPassportSession()}>{authorizing ? "Подключение…" : "Подключить Яндекс ID для сервисов"}</button>}</div></div>}
-        {pageMode === "CREATE_WEB" && !authRequired && !revealOfficialCreate && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8" aria-label="Создаём встречу"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Создаём встречу</div><div className="mx-auto mt-2 max-w-md text-sm text-text-tertiary">Официальный Телемост откроется на экране подключения.</div></div></div>}
-        {pageMode === "ERROR" && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8" role="dialog" aria-label="Поверхность Телемоста"><div><div className="text-sm text-danger">{error ?? "Не удалось открыть видеовстречу внутри приложения."}</div><div className="mt-3 flex justify-center gap-2">{routingErrorUrl && <button className="btn-primary px-4 py-2" onClick={() => void openMeeting({ id: meetingId(routingErrorUrl), title: meetingTitle, joinUrl: routingErrorUrl, source: "visited" })}>Повторить</button>}{routingErrorUrl && <button className="btn-secondary px-4 py-2" onClick={() => void openTelemostInBrowser(routingErrorUrl)}>Открыть в браузере</button>}<button className="btn-secondary px-4 py-2" onClick={returnToIdle}>К списку встреч</button></div></div></div>}
+        {pageMode === "CREATE_WEB" && !revealOfficialCreate && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8" aria-label="Создаём встречу"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Создаём встречу</div><div className="mx-auto mt-2 max-w-md text-sm text-text-tertiary">{authRequired ? "Нужен вход в Яндекс ID. Гостевая встреча не создаётся." : "Официальный Телемост откроется на экране подключения."}</div></div></div>}
+        {pageMode === "PREPARE_JOIN" && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8" aria-label="Подготавливаем встречу"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">{prepareStatus}</div><div className="mx-auto mt-2 max-w-md text-sm text-text-tertiary">{joinAuthError ?? (authRequired ? "Откройте окно Яндекс ID. Гостевая встреча не открывается." : "Гостевая встреча не открывается. Домашняя страница не показывается.")}</div>{(joinAuthError || authRequired) && <div className="mt-4 flex justify-center gap-2"><button className="btn-primary px-4 py-2" type="button" onClick={() => { const pending = pendingJoinRef.current ?? (serviceAccountId ? readPendingJoin(serviceAccountId) : null); if (pending) startPrepareJoin(pending); }}>Повторить</button><button className="btn-secondary px-4 py-2" type="button" onClick={returnToIdle}>Отмена</button></div>}</div></div>}
+        {pageMode === "ERROR" && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8" role="dialog" aria-label="Поверхность Телемоста"><div><div className="text-sm text-danger">{error ?? "Не удалось открыть видеовстречу внутри приложения."}</div><div className="mt-3 flex justify-center gap-2">{routingErrorUrl && <button className="btn-primary px-4 py-2" onClick={() => { const pending = pendingJoinRef.current ?? (serviceAccountId ? readPendingJoin(serviceAccountId) : null); if (pending) startPrepareJoin(pending); else void openMeeting({ id: meetingId(routingErrorUrl), title: meetingTitle, joinUrl: routingErrorUrl, source: "visited" }, true); }}>Повторить</button>}{routingErrorUrl && <button className="btn-secondary px-4 py-2" onClick={() => void openTelemostInBrowser(routingErrorUrl)}>Открыть в браузере</button>}<button className="btn-secondary px-4 py-2" onClick={returnToIdle}>К списку встреч</button></div></div></div>}
         {desktopPlatform === "macos" && authRequired && <div className="absolute left-3 top-3 right-28 z-20 max-w-lg rounded-lg bg-black/80 p-3 text-white pointer-events-none" role="status"><div className="font-medium">Подключите Яндекс ID для сервисов</div><div className="mt-1 text-sm text-white/80">Войдите как {activeAccount?.email ?? "тот же аккаунт, что и почта Office360"}. Это браузерный вход Яндекса — токены OAuth сюда не подставляются.</div></div>}
-        {desktopPlatform === "macos" && (pageMode === "MEETING" || authRequired || revealOfficialCreate) && <div className="absolute right-3 top-3 z-20 flex gap-2 pointer-events-auto">
+        {desktopPlatform === "macos" && (pageMode === "MEETING" || pageMode === "PREPARE_JOIN" || authRequired || revealOfficialCreate) && <div className="absolute right-3 top-3 z-20 flex gap-2 pointer-events-auto">
           <button className="rounded bg-black/70 px-3 py-2 text-sm text-white hover:bg-black" type="button" onClick={returnToIdle}>Закрыть</button>
         </div>}
         {useEmbeddedTelemost && !showEmbeddedBrowser && <div className="absolute inset-0 z-10 grid place-items-center bg-bg-primary text-center p-8"><div><Video size={42} className="mx-auto text-accent"/><div className="mt-4 text-lg font-semibold">Выберите действие в верхней панели</div><div className="mt-2 text-sm text-text-tertiary">Создайте, запланируйте или откройте встречу по ссылке.</div></div></div>}

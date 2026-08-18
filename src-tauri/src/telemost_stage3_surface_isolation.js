@@ -32,10 +32,28 @@
   let leavePoll = null;
   let meetingApplied = false;
   let historyHooked = false;
+  let lastReadyBeacon = "";
+  const PREJOIN_READY_TITLE = "__O360_TELEMOST_PREJOIN_READY__";
+  const MEETING_READY_TITLE = "__O360_TELEMOST_MEETING_READY__";
   const originalPushState = history.pushState;
   const originalReplaceState = history.replaceState;
 
   const record = (name) => { events.push(name); };
+
+  const emitVisualReady = (kind) => {
+    if (lastReadyBeacon === kind) return;
+    lastReadyBeacon = kind;
+    const title = kind === "MEETING" ? MEETING_READY_TITLE : PREJOIN_READY_TITLE;
+    record(`visual-ready ${kind}`);
+    console.info(`[telemost-isolation] visual-ready=${kind}`);
+    try {
+      const previous = document.title;
+      document.title = title;
+      setTimeout(() => {
+        if (String(document.title) === title) document.title = previous;
+      }, 0);
+    } catch (_) { /* ignore */ }
+  };
 
   const visible = (element) => {
     if (!(element instanceof HTMLElement)) return false;
@@ -163,7 +181,9 @@
     if (positiveMeeting) return "MEETING";
     if (hasBusyJoin && (state === "PREJOIN" || state === "TRANSITION")) return "TRANSITION";
     if (hasJoin) return "PREJOIN";
-    if (state === "PREJOIN") return "TRANSITION";
+    // Do not auto-TRANSITION when the join control briefly unmounts during SPA
+    // remounts. TRANSITION is entered only from the JOIN click handler.
+    if (state === "PREJOIN" || lastReadyBeacon === "PREJOIN") return "PREJOIN";
     if (endedText.test(bodyText) && !hasJoin && !hasLeave) return "ENDED";
     return "UNKNOWN";
   };
@@ -290,6 +310,7 @@
     teardownObserver();
     unhideAll();
     meetingApplied = false;
+    lastReadyBeacon = "";
   };
 
   const watchTransition = () => {
@@ -367,6 +388,8 @@
         state = next;
         console.info(`[telemost-isolation] state=${state}`);
       }
+      if (state === "PREJOIN") emitVisualReady("PREJOIN");
+      if (state === "MEETING") emitVisualReady("MEETING");
       if (state === "PREJOIN" && lastCapture?.state !== "PREJOIN") captureSnapshot("PREJOIN");
       if (state === "MEETING" && lastCapture?.state !== "MEETING") captureSnapshot("MEETING");
       if (state === "UNKNOWN") {
@@ -407,6 +430,7 @@
   };
 
   const bumpIdle = () => {
+    if (!lastReadyBeacon) return;
     if (timeoutId !== null) clearTimeout(timeoutId);
     timeoutId = setTimeout(teardownObserver, OBSERVER_MS);
   };
@@ -421,13 +445,15 @@
   };
 
   const armObserver = () => {
-    if (!document.body || state === "TRANSITION" || state === "MEETING") return;
+    if (state === "TRANSITION" || state === "MEETING") return;
+    const root = document.documentElement || document.body;
+    if (!root) return;
     if (!observer) {
       observer = new MutationObserver(() => {
         observerCallbacks += 1;
         schedule();
       });
-      observer.observe(document.body, { childList: true, subtree: true });
+      observer.observe(root, { childList: true, subtree: true });
     }
     bumpIdle();
   };
@@ -460,6 +486,7 @@
     get lastCapture() { return lastCapture; },
     get applyCount() { return applyCount; },
     get observerCallbacks() { return observerCallbacks; },
+    get lastReadyBeacon() { return lastReadyBeacon; },
     apply,
     stop,
   };
