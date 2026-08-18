@@ -864,6 +864,59 @@ describe("Telemost native macOS shell", () => {
     expect(screen.getByLabelText("Создаём встречу")).toBeInTheDocument();
   });
 
+  it("maps PREJOIN close to the same native idle path as Leave", async () => {
+    await renderReady();
+    fireEvent.click(screen.getByRole("button", { name: "Подключиться" }));
+    fireEvent.change(screen.getByLabelText("Ссылка на встречу"), { target: { value: RECENT_URL } });
+    fireEvent.click(screen.getByRole("dialog").querySelector("button.btn-primary")!);
+    await waitFor(() => expect(mocks.listeners["telemost-macos-prejoin-ready"]).toBeDefined());
+    act(() => mocks.listeners["telemost-macos-prejoin-ready"]({ payload: "PREJOIN" }));
+    expect(screen.getByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
+    mocks.invoke.mockClear();
+    act(() => mocks.listeners["telemost-macos-left"]({ payload: "" }));
+    expect(await screen.findByTestId("telemost-placeholder")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Поверхность встречи Телемоста")).not.toBeInTheDocument();
+    expect(mocks.invoke).toHaveBeenCalledWith("close_telemost_macos_embedded");
+    act(() => mocks.listeners["telemost-macos-left"]({ payload: "" }));
+    expect(screen.getByTestId("telemost-placeholder")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Поверхность встречи Телемоста")).not.toBeInTheDocument();
+    expect(mocks.cefCreate).not.toHaveBeenCalled();
+  });
+
+  it("keeps the idle right pane viewport-bounded when the meeting list is long", async () => {
+    localStorage.setItem("office360_telemost_conferences:account-1", JSON.stringify(
+      Array.from({ length: 40 }, (_, index) => ({
+        id: String(index + 1),
+        title: `Встреча ${index + 1}`,
+        joinUrl: `https://telemost.360.yandex.ru/j/${index + 1}`,
+        organizer: null, createdAt: 1, scheduledAt: null, status: null, liveStreamWatchUrl: null,
+        lastOpenedAt: null, source: "API_CREATED", remoteConferenceId: String(index + 1),
+      })),
+    ));
+    await renderReady();
+    const viewport = screen.getByTestId("telemost-viewport");
+    const split = screen.getByTestId("telemost-split");
+    const list = screen.getByTestId("telemost-meeting-list");
+    const pane = screen.getByTestId("telemost-right-pane");
+    const placeholder = screen.getByTestId("telemost-placeholder");
+    expect(viewport.className).toMatch(/h-full/);
+    expect(viewport.className).toMatch(/min-h-0/);
+    expect(viewport.className).toMatch(/overflow-hidden/);
+    expect(split.className).toMatch(/min-h-0/);
+    expect(split.className).toMatch(/flex-1/);
+    expect(split.className).toMatch(/overflow-hidden/);
+    expect(split.className).not.toMatch(/min-h-\[650px\]/);
+    expect(list.className).toMatch(/min-h-0/);
+    expect(list.className).toMatch(/h-full/);
+    expect(pane.className).toMatch(/min-h-0/);
+    expect(pane.className).toMatch(/h-full/);
+    expect(pane.className).toMatch(/overflow-hidden/);
+    expect(placeholder.className).toMatch(/absolute/);
+    expect(placeholder.className).toMatch(/inset-0/);
+    expect(placeholder.className).toMatch(/h-full/);
+    expect(list.querySelectorAll("article")).toHaveLength(40);
+  });
+
   // Cross-account ownership is enforced Rust-side via should_close_owned_surface.
   // Same-account CREATE-after-JOIN now reuses the right-pane embedded surface
   // instead of opening open_telemost_macos_create.

@@ -311,6 +311,45 @@ fn should_keep_join_surface(incoming_is_web_create: bool, current_is_join: bool)
     incoming_is_web_create && current_is_join
 }
 
+fn should_emit_left_after_join_home(
+    mode: Option<EmbeddedSurfaceMode>,
+    visual_ready: bool,
+    url: &tauri::Url,
+) -> bool {
+    visual_ready
+        && mode == Some(EmbeddedSurfaceMode::Meeting)
+        && is_telemost_create_path(url)
+        && !is_auth_check_query(url)
+        && !is_auto_create_query(url)
+}
+
+fn should_eval_official_create_click(mode: Option<EmbeddedSurfaceMode>, url: &tauri::Url) -> bool {
+    is_telemost_create_path(url)
+        && (is_auth_check_query(url) || mode == Some(EmbeddedSurfaceMode::Create) || is_auto_create_query(url))
+}
+
+fn emit_left_to_idle(app: &AppHandle) {
+    log::info!("[telemost-create] left → idle");
+    if let Err(error) = app.emit("telemost-macos-left", "") {
+        log::error!("[direct-join-auth] app emit left failed: {error}");
+    }
+    cancel_visual_ready_wait();
+    hide_create_mask(app);
+    set_embedded_visible(app, false);
+}
+
+fn try_emit_left_after_join_home(app: &AppHandle, url: &tauri::Url) -> bool {
+    let should = {
+        let state = lock_session();
+        should_emit_left_after_join_home(state.embedded_mode, state.visual_ready, url)
+    };
+    if !should {
+        return false;
+    }
+    emit_left_to_idle(app);
+    true
+}
+
 fn auth_beacon_is_create_surface(payload: &str) -> bool {
     payload.contains("surface=create")
 }
@@ -982,13 +1021,7 @@ pub async fn open_telemost_macos_embedded(
             let title_app = app.clone();
             move |_webview, title| {
                 if title == LEFT_TITLE {
-                    log::info!("[telemost-create] left → idle");
-                    if let Err(error) = title_app.emit("telemost-macos-left", "") {
-                        log::error!("[direct-join-auth] app emit left failed: {error}");
-                    }
-                    cancel_visual_ready_wait();
-                    hide_create_mask(&title_app);
-                    set_embedded_visible(&title_app, false);
+                    emit_left_to_idle(&title_app);
                     return;
                 }
                 if let Some(kind) = visual_ready_kind(&title) {
@@ -1028,6 +1061,7 @@ pub async fn open_telemost_macos_embedded(
                     try_resume_create_after_auth(&nav_app, target);
                 }
                 try_emit_created_join(&nav_app, target);
+                try_emit_left_after_join_home(&nav_app, target);
             } else {
                 log::warn!("[telemost-wk-poc] NAV FAIL blocked URL={target}");
             }
@@ -1051,9 +1085,16 @@ pub async fn open_telemost_macos_embedded(
                 }
                 if is_telemost_create_path(payload.url()) {
                     try_resume_create_after_auth(&load_app, payload.url());
-                    if let Err(error) = webview.eval(OFFICIAL_CREATE_CLICK_SCRIPT) {
-                        log::warn!("[telemost-create] eval fail: {error}");
+                    let eval_create = {
+                        let state = lock_session();
+                        should_eval_official_create_click(state.embedded_mode, payload.url())
+                    };
+                    if eval_create {
+                        if let Err(error) = webview.eval(OFFICIAL_CREATE_CLICK_SCRIPT) {
+                            log::warn!("[telemost-create] eval fail: {error}");
+                        }
                     }
+                    try_emit_left_after_join_home(&load_app, payload.url());
                 }
                 try_emit_created_join(&load_app, payload.url());
             }
@@ -1490,7 +1531,7 @@ mod tests {
         is_data_store_in_use_error, is_generic_yandex_destination, is_telemost_create_path, ownership_after_create_attempt,
         parse_embedded_url, parse_meeting_url, profile_identifier, reconcile_surface_owner, same_embedded_destination,
         should_close_owned_surface, should_emit_created_join, should_keep_join_surface,
-        is_auto_create_query,
+        is_auto_create_query, should_emit_left_after_join_home, should_eval_official_create_click,
         should_resume_create_after_auth, should_suppress_stale_web_create,
         should_cover_until_visual_ready, visual_ready_kind, VisualReadyKind,
         should_retry_data_store_removal, should_reuse_embedded_webview, validate_bounds, EmbeddedOpenAction,
@@ -1558,8 +1599,32 @@ mod tests {
         assert!(leave.contains("PREJOIN_CTA"));
         assert!(leave.contains("sawRating"));
         assert!(leave.contains("sawLeave"));
+        assert!(leave.contains("sawPrejoin"));
+        assert!(leave.contains("JOIN_CONNECT"));
         assert!(leave.contains("выйти из встречи"));
         assert!(leave.contains("RATING_WAIT_MS"));
+        assert!(src.contains("try_emit_left_after_join_home"));
+        assert!(src.contains("should_eval_official_create_click"));
+        assert!(src.contains("emit_left_to_idle"));
+    }
+
+    #[test]
+    fn prejoin_home_after_visual_ready_maps_to_native_idle_not_create_click() {
+        let home: tauri::Url = "https://telemost.yandex.ru/".parse().unwrap();
+        let auth_check: tauri::Url = "https://telemost.yandex.ru/?office360-auth-check=1".parse().unwrap();
+        let auto_create: tauri::Url = "https://telemost.yandex.ru/?browser-auto-create=1".parse().unwrap();
+        let join: tauri::Url = "https://telemost.yandex.ru/j/abc".parse().unwrap();
+        assert!(should_emit_left_after_join_home(Some(EmbeddedSurfaceMode::Meeting), true, &home));
+        assert!(!should_emit_left_after_join_home(Some(EmbeddedSurfaceMode::Meeting), false, &home));
+        assert!(!should_emit_left_after_join_home(Some(EmbeddedSurfaceMode::Create), true, &home));
+        assert!(!should_emit_left_after_join_home(Some(EmbeddedSurfaceMode::Meeting), true, &auth_check));
+        assert!(!should_emit_left_after_join_home(Some(EmbeddedSurfaceMode::Meeting), true, &auto_create));
+        assert!(!should_emit_left_after_join_home(Some(EmbeddedSurfaceMode::Meeting), true, &join));
+        assert!(should_eval_official_create_click(Some(EmbeddedSurfaceMode::Create), &home));
+        assert!(should_eval_official_create_click(Some(EmbeddedSurfaceMode::Create), &auth_check));
+        assert!(should_eval_official_create_click(None, &auto_create));
+        assert!(!should_eval_official_create_click(Some(EmbeddedSurfaceMode::Meeting), &home));
+        assert!(!should_eval_official_create_click(Some(EmbeddedSurfaceMode::Meeting), &join));
     }
 
     #[test]

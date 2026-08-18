@@ -7,6 +7,7 @@
   const CREATE_CTA = /^\s*(создать видеовстречу|create video meeting)\s*$/i;
   // PREJOIN chrome only. HOME also has "Подключиться" — that must not block post-call IDLE.
   const PREJOIN_CTA = /^\s*(присоединиться|продолжить|join)\s*$/i;
+  const JOIN_CONNECT = /^\s*(подключиться|join(?:\s+(?:the\s+)?(?:meeting|call))?)\s*$/i;
   const LEAVE_CTA = /^\s*(выйти из встречи|выйти|покинуть встречу|покинуть|leave(?: the)? meeting|leave)\s*$/i;
   const RATING_COPY = /оцените качество связи|rate (?:the )?(?:connection|call) quality/i;
   const LEFT_TITLE = "__O360_TELEMOST_LEFT__";
@@ -15,6 +16,7 @@
   let emitted = false;
   let sawLeave = false;
   let sawRating = false;
+  let sawPrejoin = false;
   let leavingAt = 0;
   let poll = null;
   let observer = null;
@@ -66,7 +68,27 @@
       leavingAt = 0;
       return;
     }
+    const prejoinChrome = onJoinPath()
+      && (hasLabel(PREJOIN_CTA) || hasLabel(JOIN_CONNECT))
+      && !hasLabel(CREATE_CTA);
+    if (prejoinChrome) {
+      sawPrejoin = true;
+      armed = true;
+    }
     if (onJoinPath() && document.querySelector("video")) armed = true;
+    // Official PREJOIN card X dismisses the join surface (SPA HOME or leave /j/).
+    // Detect that transition — do not click-jack the close control (aria-label
+    // "Закрыть" also appears on settings/rating dialogs).
+    if (sawPrejoin && !sawLeave && !sawRating) {
+      const leftJoinPath = !onJoinPath();
+      const homeAfterPrejoin = hasLabel(CREATE_CTA)
+        && !hasLabel(PREJOIN_CTA)
+        && !hasLabel(LEAVE_CTA);
+      if (leftJoinPath || homeAfterPrejoin) {
+        emitLeft();
+        return;
+      }
+    }
     if (!armed) return;
     if (isRatingModal()) {
       sawRating = true;
@@ -94,6 +116,7 @@
     get emitted() { return emitted; },
     get sawLeave() { return sawLeave; },
     get sawRating() { return sawRating; },
+    get sawPrejoin() { return sawPrejoin; },
     stop() {
       if (poll !== null) {
         clearInterval(poll);

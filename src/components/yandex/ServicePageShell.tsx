@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 
-export function ServicePageShell({ title, description, actions, children }: {
+export function ServicePageShell({ title, description, actions, children, lockViewport = false }: {
   title: string;
   description: string;
   actions?: ReactNode;
   children: ReactNode;
+  lockViewport?: boolean;
 }) {
   return (
     <main className="flex-1 min-w-0 overflow-hidden bg-bg-primary text-text-primary flex flex-col">
@@ -15,7 +16,7 @@ export function ServicePageShell({ title, description, actions, children }: {
         </div>
         {actions}
       </header>
-      <div className="flex-1 min-h-0 overflow-auto p-6">{children}</div>
+      <div className={`flex-1 min-h-0 p-6 ${lockViewport ? "flex flex-col overflow-hidden" : "overflow-auto"}`}>{children}</div>
     </main>
   );
 }

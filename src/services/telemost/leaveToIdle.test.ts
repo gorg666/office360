@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const SCRIPT = readFileSync(resolve(process.cwd(), "src-tauri/src/telemost_leave_to_idle.js"), "utf8");
 
-type LeaveApi = { armed: boolean; emitted: boolean; sawLeave: boolean; sawRating: boolean; stop: () => void };
+type LeaveApi = { armed: boolean; emitted: boolean; sawLeave: boolean; sawRating: boolean; sawPrejoin: boolean; stop: () => void };
 
 function api(): LeaveApi | undefined {
   return (window as Window & { __o360TelemostLeaveToIdle?: LeaveApi }).__o360TelemostLeaveToIdle;
@@ -152,5 +152,41 @@ describe("leave returns Office360 idle", () => {
     expect(api()?.emitted).toBe(false);
     vi.advanceTimersByTime(1800);
     expect(api()?.emitted).toBe(true);
+  });
+
+  it("emits native IDLE when PREJOIN X leaves /j/ for HOME without a Leave click", () => {
+    document.body.innerHTML = `<video></video><button>Камера</button><button>Микрофон</button><button>Подключиться</button>`;
+    eval(SCRIPT);
+    vi.advanceTimersByTime(300);
+    expect(api()?.sawPrejoin).toBe(true);
+    expect(api()?.emitted).toBe(false);
+    setLocation("/");
+    document.body.innerHTML = `<button>Создать видеовстречу</button><button>Подключиться</button>`;
+    vi.advanceTimersByTime(300);
+    expect(api()?.emitted).toBe(true);
+    expect(document.title).toBe("__O360_TELEMOST_LEFT__");
+    document.body.append(document.createElement("span"));
+    vi.advanceTimersByTime(500);
+    expect(document.title).toBe("__O360_TELEMOST_LEFT__");
+  });
+
+  it("emits native IDLE when PREJOIN X keeps /j/ but shows HOME create chrome", () => {
+    document.body.innerHTML = `<button>Подключиться</button><button>Камера</button>`;
+    eval(SCRIPT);
+    vi.advanceTimersByTime(300);
+    expect(api()?.sawPrejoin).toBe(true);
+    document.body.innerHTML = `<button>Создать видеовстречу</button><button>Подключиться</button>`;
+    vi.advanceTimersByTime(300);
+    expect(api()?.emitted).toBe(true);
+  });
+
+  it("does not treat PREJOIN → in-meeting Leave chrome as dismissed PREJOIN", () => {
+    document.body.innerHTML = `<button>Подключиться</button><button>Камера</button>`;
+    eval(SCRIPT);
+    vi.advanceTimersByTime(300);
+    document.body.innerHTML = `<button>Выйти из встречи</button><button>Чат</button>`;
+    vi.advanceTimersByTime(300);
+    expect(api()?.sawLeave).toBe(true);
+    expect(api()?.emitted).toBe(false);
   });
 });
