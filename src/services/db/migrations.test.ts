@@ -158,3 +158,11 @@ describe("full address book migration", () => {
     expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS contact_list_members");
   });
 });
+
+describe("yandex uid persistence migration", () => {
+  it("adds yandex_uid without inventing it from email", () => {
+    const migration = MIGRATIONS.find((item) => item.version === 34);
+    expect(migration?.sql).toContain("ALTER TABLE accounts ADD COLUMN yandex_uid TEXT");
+    expect(migration?.sql).not.toContain("email");
+  });
+});

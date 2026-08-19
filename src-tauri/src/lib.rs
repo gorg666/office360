@@ -33,6 +33,7 @@ mod notifications;
 mod oauth;
 mod smtp;
 mod telemost_macos_spike;
+mod telemost_flow_log;
 mod wk_account_store;
 #[cfg(target_os = "macos")]
 mod macos_dock_badge;
@@ -115,6 +116,7 @@ macro_rules! office360_invoke_handler {
             telemost_macos_spike::open_telemost_macos_spike,
             telemost_macos_spike::close_telemost_macos_spike,
             telemost_macos_spike::open_telemost_macos_embedded,
+            telemost_flow_log::telemost_flow_log,
             telemost_macos_spike::set_telemost_macos_embedded_bounds,
             telemost_macos_spike::set_telemost_macos_embedded_visible,
             telemost_macos_spike::close_telemost_macos_embedded,

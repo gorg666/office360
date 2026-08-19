@@ -36,6 +36,7 @@ export async function openTelemostEmbedded(
   url: string,
   accountKey?: string,
   bounds?: TelemostSurfaceBounds,
+  epoch?: number,
 ): Promise<"cef" | "wkwebview-embedded" | "browser"> {
   if (!isTelemostEmbeddedUrl(url)) throw new Error("Введите корректную ссылку на встречу Телемоста.");
   if (platform === "windows") {
@@ -45,7 +46,12 @@ export async function openTelemostEmbedded(
   if (platform === "macos") {
     if (!accountKey) throw new Error("Telemost account profile is unavailable");
     if (!bounds) throw new Error("Embedded Telemost bounds are unavailable");
-    await invoke("open_telemost_macos_embedded", { url, accountKey, bounds });
+    await invoke("open_telemost_macos_embedded", {
+      url,
+      accountKey,
+      bounds,
+      ...(epoch != null ? { epoch } : {}),
+    });
     return "wkwebview-embedded";
   }
   await openUrl(isTelemostJoinUrl(url) ? url : "https://telemost.yandex.ru/");
@@ -57,9 +63,10 @@ export async function openTelemostMeeting(
   joinUrl: string,
   accountKey?: string,
   bounds?: TelemostSurfaceBounds,
+  epoch?: number,
 ): Promise<"cef" | "wkwebview-embedded" | "browser"> {
   if (!isTelemostJoinUrl(joinUrl)) throw new Error("Введите корректную ссылку на встречу Телемоста.");
-  return openTelemostEmbedded(platform, joinUrl, accountKey, bounds);
+  return openTelemostEmbedded(platform, joinUrl, accountKey, bounds, epoch);
 }
 
 export async function setTelemostEmbeddedBounds(bounds: TelemostSurfaceBounds): Promise<void> {

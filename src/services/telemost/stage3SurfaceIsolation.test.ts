@@ -23,11 +23,12 @@ function api(): IsolationApi | undefined {
   return (window as Window & { __o360TelemostSurfaceIsolation?: IsolationApi }).__o360TelemostSurfaceIsolation;
 }
 
-function setLocation(hostname: string, pathname: string): void {
+function setLocation(hostname: string, pathname: string, search = ""): void {
   vi.stubGlobal("location", {
     hostname,
     pathname,
-    href: `https://${hostname}${pathname}`,
+    search,
+    href: `https://${hostname}${pathname}${search}`,
     protocol: "https:",
     host: hostname,
   });
@@ -316,6 +317,40 @@ describe("Stage 3 Telemost surface isolation", () => {
     expect(document.title.startsWith("__O360_DOM_CAPTURE__")).toBe(false);
   });
 
+  it("still beacons PREJOIN_READY when requestAnimationFrame is suspended by the create mask", () => {
+    // Release repro: the native create mask is an opaque sibling webview pinned
+    // over the Telemost webview until readiness is reported, and WebKit suspends
+    // rAF while a WKWebView is occluded. Detection must not depend on rAF alone.
+    vi.useFakeTimers();
+    globalThis.requestAnimationFrame = (() => 1) as unknown as typeof requestAnimationFrame;
+    document.body.innerHTML = prejoinHtml();
+    mockPrejoinGeometry();
+    eval(SCRIPT);
+
+    expect(api()?.lastReadyBeacon).toBe("");
+
+    vi.advanceTimersByTime(250);
+
+    expect(api()?.lastReadyBeacon).toBe("PREJOIN");
+    expect(api()?.events).toContain("visual-ready PREJOIN");
+    expect(api()?.state).toBe("PREJOIN");
+  });
+
+  it("applies exactly once when both requestAnimationFrame and the fallback timer fire", () => {
+    // Keep the synchronous rAF stub from beforeEach so rAF wins first, then let
+    // the fallback timer fire and assert it does not double-apply.
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    document.body.innerHTML = prejoinHtml();
+    mockPrejoinGeometry();
+    eval(SCRIPT);
+    const afterRaf = api()?.applyCount ?? 0;
+
+    vi.advanceTimersByTime(250);
+
+    expect(afterRaf).toBeGreaterThan(0);
+    expect(api()?.applyCount).toBe(afterRaf);
+  });
+
   it("enters TRANSITION, unhides PREJOIN chrome, and stops hiding when JOIN is clicked", () => {
     document.body.innerHTML = prejoinHtml();
     mockPrejoinGeometry();
@@ -394,6 +429,17 @@ describe("Stage 3 Telemost surface isolation", () => {
     expect(api()?.hiddenCount).toBe(0);
     expect(document.querySelector("#rail")?.className).not.toContain("o360-telemost-hidden");
     expect(document.getElementById("create")?.className).not.toContain("o360-telemost-hidden");
+  });
+
+  it("treats captured /j/ with browser-auto-create query as PREJOIN, not HOME", () => {
+    delete (window as Window & { __o360TelemostSurfaceIsolation?: unknown }).__o360TelemostSurfaceIsolation;
+    setLocation("telemost.yandex.ru", "/j/98543805636845", "?browser-auto-create=1");
+    document.body.innerHTML = prejoinHtml();
+    mockPrejoinGeometry();
+    eval(SCRIPT);
+    expect(api()?.state).toBe("PREJOIN");
+    expect(api()?.lastReadyBeacon).toBe("PREJOIN");
+    expect(document.querySelector("#rail")?.className).toContain("o360-telemost-hidden");
   });
 
   it("is idempotent on repeated MEETING apply", () => {

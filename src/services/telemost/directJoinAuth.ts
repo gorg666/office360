@@ -25,6 +25,10 @@ export type PendingJoin = {
   id: string;
   title: string;
   joinUrl: string;
+  ownerAccountId: string;
+  expectedUid?: string;
+  expectedLogin?: string;
+  epoch: number;
 };
 
 export type PassportMatch = "match" | "mismatch" | "unknown";
@@ -39,10 +43,17 @@ export function readPendingJoin(accountId: string): PendingJoin | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<PendingJoin>;
     if (!parsed.joinUrl || !parsed.id) return null;
+    const ownerAccountId = String(parsed.ownerAccountId ?? "").trim();
+    const epoch = Number(parsed.epoch);
+    if (!ownerAccountId || ownerAccountId !== accountId || !Number.isFinite(epoch)) return null;
     return {
       id: String(parsed.id),
       title: String(parsed.title ?? ""),
       joinUrl: String(parsed.joinUrl),
+      ownerAccountId,
+      expectedUid: parsed.expectedUid ? String(parsed.expectedUid) : undefined,
+      expectedLogin: parsed.expectedLogin ? String(parsed.expectedLogin) : undefined,
+      epoch,
     };
   } catch {
     return null;
@@ -120,7 +131,27 @@ export function passportIdentityMatches(
 }
 
 export function shouldOpenJoinAfterAuthCheck(beacon: TelemostAuthBeacon): boolean {
-  return beacon.surface === "check" && beacon.state === "AUTHENTICATED" && Boolean(beacon.uid);
+  return beacon.surface === "check" && beacon.state === "AUTHENTICATED";
+}
+
+export type PassportIdentityDecision = "match" | "mismatch" | "unavailable";
+
+export function decidePassportIdentity(input: {
+  expectedUid?: string | null;
+  expectedEmail?: string | null;
+  beaconUid: string;
+  beaconLogin: string;
+}): PassportIdentityDecision {
+  const expectedUid = input.expectedUid?.trim() ?? "";
+  const beaconUid = input.beaconUid.trim();
+  if (expectedUid) {
+    if (!beaconUid) return "unavailable";
+    return beaconUid === expectedUid ? "match" : "mismatch";
+  }
+  const loginMatch = passportIdentityMatches(input.expectedEmail, input.beaconLogin);
+  if (loginMatch === "match") return "match";
+  if (loginMatch === "mismatch") return "mismatch";
+  return "unavailable";
 }
 
 export function shouldBootstrapAfterAuthCheck(beacon: TelemostAuthBeacon): boolean {
@@ -135,18 +166,26 @@ export function shouldIgnoreJoinAuthRequired(beacon: TelemostAuthBeacon): boolea
   return beacon.surface === "join";
 }
 
-export type AuthenticatedJoinDecision = "resume" | "ignore" | "mismatch";
-export type AuthenticatedIdentityDecision = "resume_join" | "create_ready" | "ignore" | "mismatch";
+export type AuthenticatedJoinDecision = "resume" | "ignore" | "mismatch" | "auth_required";
+export type AuthenticatedIdentityDecision = "resume_join" | "create_ready" | "ignore" | "mismatch" | "auth_required";
 
 export function decideAuthenticatedIdentity(input: {
   beacon: TelemostAuthBeacon;
   pendingJoinUrl: string | null;
   alreadyResumedJoinUrl: string | null;
   expectedEmail?: string | null;
+  expectedUid?: string | null;
 }): AuthenticatedIdentityDecision {
   if (shouldIgnoreJoinAuthRequired(input.beacon)) return "ignore";
-  if (input.beacon.state !== "AUTHENTICATED" || !input.beacon.uid) return "ignore";
-  if (passportIdentityMatches(input.expectedEmail, input.beacon.login) === "mismatch") return "mismatch";
+  if (input.beacon.state !== "AUTHENTICATED") return "ignore";
+  const identity = decidePassportIdentity({
+    expectedUid: input.expectedUid,
+    expectedEmail: input.expectedEmail,
+    beaconUid: input.beacon.uid,
+    beaconLogin: input.beacon.login,
+  });
+  if (identity === "mismatch") return "mismatch";
+  if (identity === "unavailable") return "auth_required";
   if (shouldOpenJoinAfterAuthCheck(input.beacon)) {
     if (!input.pendingJoinUrl) return "ignore";
     if (input.alreadyResumedJoinUrl === input.pendingJoinUrl) return "ignore";
@@ -165,6 +204,7 @@ export function shouldResumeAuthenticatedJoin(input: {
   const decision = decideAuthenticatedIdentity(input);
   if (decision === "resume_join") return "resume";
   if (decision === "mismatch") return "mismatch";
+  if (decision === "auth_required") return "auth_required";
   return "ignore";
 }
 
@@ -298,6 +338,41 @@ export function shouldOpenMacosEmbeddedUrl(url: string, input: {
   return false;
 }
 
+export function normalizeCapturedJoinUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" || !/^telemost(?:\.360)?\.yandex\.ru$/i.test(parsed.hostname)) return null;
+    const id = parsed.pathname.match(/^\/j\/(\d+)/)?.[1];
+    if (!id) return null;
+    const host = parsed.hostname.replace(/^telemost\.360\.yandex\.ru$/i, "telemost.yandex.ru");
+    return `https://${host}/j/${id}`;
+  } catch {
+    return null;
+  }
+}
+
+export type WebOnlyFailClosedRetry = "retry_existing" | "retry_new_web_create";
+
+export function decideWebOnlyFailClosedRetry(capturedJoinUrl: string | null | undefined): WebOnlyFailClosedRetry {
+  return capturedJoinUrl && normalizeCapturedJoinUrl(capturedJoinUrl) ? "retry_existing" : "retry_new_web_create";
+}
+
+export function shouldReuseCurrentJoinSurface(
+  currentWkUrl: string | null | undefined,
+  capturedJoinUrl: string,
+): boolean {
+  const captured = normalizeCapturedJoinUrl(capturedJoinUrl);
+  const current = currentWkUrl ? normalizeCapturedJoinUrl(currentWkUrl) : null;
+  return Boolean(captured && current && captured === current);
+}
+
+export function shouldPermitCreateWebOverlay(input: {
+  directJoinPhase: DirectJoinPhase;
+  nativeCreateWillOpen: boolean;
+}): boolean {
+  return input.nativeCreateWillOpen && input.directJoinPhase === "idle";
+}
+
 export const AUTH_CHECK_WATCHDOG_MS = 8_000;
 export const VERIFIED_BROWSER_AUTH_TTL_MS = 90_000;
 
@@ -316,8 +391,12 @@ export function rememberVerifiedBrowserAuth(
   login = "",
   now = Date.now(),
 ): void {
-  if (!accountId || !uid) return;
+  if (!accountId) return;
   verifiedBrowserAuth = { accountId, uid, login, at: now };
+}
+
+export function invalidateVerifiedBrowserAuthForAccount(accountId: string): void {
+  if (verifiedBrowserAuth?.accountId === accountId) verifiedBrowserAuth = null;
 }
 
 export function invalidateVerifiedBrowserAuth(): void {

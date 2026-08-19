@@ -26,6 +26,8 @@ export async function resetTelemostMacosProfileForRemovedAccount(
 ): Promise<TelemostMacosCleanupResult> {
   const accountKey = accountId.trim();
   if (!accountKey) return { status: "skipped", reason: "invalid-account" };
+  const { clearTelemostAccountScopedData } = await import("./multiAccountOwnership");
+  clearTelemostAccountScopedData(accountKey);
 
   try {
     if ((await getDesktopPlatform()) !== "macos") {

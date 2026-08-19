@@ -29,6 +29,8 @@ beforeEach(() => {
   mocks.platform = "macos";
   mocks.invoke.mockResolvedValue(undefined);
   mocks.getAccount.mockImplementation(async (id: string) => yandexAccount(id));
+  localStorage.clear();
+  sessionStorage.clear();
 });
 
 describe("resetTelemostMacosProfileForRemovedAccount", () => {
@@ -51,6 +53,23 @@ describe("resetTelemostMacosProfileForRemovedAccount", () => {
       reason: "not-macos",
     });
     expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+
+  it("clears account-scoped Telemost storage even when WK reset is skipped", async () => {
+    localStorage.setItem("office360_telemost_conferences:account-a", "a");
+    localStorage.setItem("office360_telemost_conferences:account-b", "b");
+    localStorage.setItem("office360_telemost_visited:account-a", "va");
+    localStorage.setItem("office360_telemost_capability:account-a", "API_AVAILABLE");
+    localStorage.setItem("office360_telemost_cef_profile_ready:account-a", "1");
+    sessionStorage.setItem("office360_telemost_pending_join:account-a", "{\"id\":\"1\"}");
+    mocks.platform = "windows";
+    await resetTelemostMacosProfileForRemovedAccount("account-a");
+    expect(localStorage.getItem("office360_telemost_conferences:account-a")).toBeNull();
+    expect(localStorage.getItem("office360_telemost_visited:account-a")).toBeNull();
+    expect(localStorage.getItem("office360_telemost_capability:account-a")).toBeNull();
+    expect(localStorage.getItem("office360_telemost_cef_profile_ready:account-a")).toBeNull();
+    expect(sessionStorage.getItem("office360_telemost_pending_join:account-a")).toBeNull();
+    expect(localStorage.getItem("office360_telemost_conferences:account-b")).toBe("b");
   });
 
   it("does not invoke for a non-Yandex account on macOS", async () => {

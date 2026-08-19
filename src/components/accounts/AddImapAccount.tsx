@@ -605,6 +605,13 @@ export function AddImapAccount({
       setForm(nextForm);
       if (usesManagedOAuthFlow) {
         await saveAccount(nextForm, session.accountKey || undefined);
+        if (providerId === "yandex" && userInfo.subjectId) {
+          const saved = await getAccountByEmail(mailboxEmail);
+          if (saved) {
+            const { persistAccountYandexUid } = await import("@/services/db/accounts");
+            await persistAccountYandexUid(saved.id, userInfo.subjectId);
+          }
+        }
       } else {
         setCurrentStep("imap");
       }

@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ invoke: vi.fn(), openUrl: vi.fn(), cefNavigate
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: mocks.openUrl }));
 vi.mock("@/services/cef", () => ({ cefNavigate: mocks.cefNavigate }));
-import { closeTelemostEmbedded, isTelemostCreateUrl, openTelemostEmbedded, openTelemostMeeting, setTelemostEmbeddedBounds, TELEMOST_CREATE_URL } from "./meetingRenderer";
+import { closeTelemostEmbedded, isTelemostCreateUrl, isTelemostJoinUrl, openTelemostEmbedded, openTelemostMeeting, setTelemostEmbeddedBounds, TELEMOST_CREATE_URL } from "./meetingRenderer";
 
 const URL = "https://telemost.yandex.ru/j/123456789";
 const BOUNDS = { x: 120, y: 80, width: 900, height: 640 };
@@ -41,6 +41,11 @@ describe("openTelemostMeeting", () => {
     expect(mocks.invoke).not.toHaveBeenCalled();
   });
 
+  it("refuses to open a WK surface without a real account key", async () => {
+    await expect(openTelemostMeeting("macos", URL, undefined, BOUNDS)).rejects.toThrow("account profile is unavailable");
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+
   it("routes other platforms to the browser", async () => {
     expect(await openTelemostMeeting("other", URL)).toBe("browser");
     expect(mocks.openUrl).toHaveBeenCalledWith(URL);
@@ -53,6 +58,8 @@ describe("openTelemostEmbedded create surface", () => {
     expect(isTelemostCreateUrl("https://telemost.yandex.ru/")).toBe(true);
     expect(isTelemostCreateUrl("https://telemost.360.yandex.ru/?office360-auth-check=1")).toBe(true);
     expect(isTelemostCreateUrl(URL)).toBe(false);
+    expect(isTelemostJoinUrl("https://telemost.yandex.ru/j/98543805636845?browser-auto-create=1")).toBe(true);
+    expect(isTelemostCreateUrl("https://telemost.yandex.ru/j/98543805636845?browser-auto-create=1")).toBe(false);
   });
 
   it("opens the macOS create UI in the same embedded child WKWebView", async () => {

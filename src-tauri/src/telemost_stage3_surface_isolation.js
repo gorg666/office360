@@ -7,6 +7,8 @@
   const HIDDEN = "o360-telemost-hidden";
   const STYLE_ID = "o360-telemost-stage3-isolation-style";
   const OBSERVER_MS = 12000;
+  /** rAF is suspended while the native create mask occludes this webview. */
+  const SCHEDULE_FALLBACK_MS = 200;
   const SIDEBAR = "[data-testid='orb-global-bar']";
   const DIALOG = "[role='dialog'],[role='alertdialog'],[aria-modal='true']";
   const protectedControl = /камера|микрофон|подключиться|участники|чат|реакц|демонстрац|поделиться|экран|настройки|выйти|завершить|join|camera|microphone|mic\b|participants|chat|reactions|share|settings|leave|end (the )?(call|meeting)/i;
@@ -438,10 +440,19 @@
   const schedule = () => {
     if (state === "TRANSITION" || state === "MEETING" || scheduled) return;
     scheduled = true;
-    requestAnimationFrame(() => {
+    // The native create mask is an opaque sibling webview pinned over this one
+    // until PREJOIN/MEETING is reported, and WebKit suspends requestAnimationFrame
+    // while a WKWebView is occluded. Without a timer fallback `apply` never runs,
+    // the readiness title is never set, and the native watchdog fails closed.
+    let ran = false;
+    const run = () => {
+      if (ran) return;
+      ran = true;
       apply();
       if (observer) bumpIdle();
-    });
+    };
+    requestAnimationFrame(run);
+    setTimeout(run, SCHEDULE_FALLBACK_MS);
   };
 
   const armObserver = () => {

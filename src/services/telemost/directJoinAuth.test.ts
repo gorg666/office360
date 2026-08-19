@@ -13,14 +13,20 @@ import {
   shouldResumeAuthenticatedJoin,
   telemostAuthCheckUrl,
   writePendingJoin,
+  decidePassportIdentity,
   shouldAllowWebCreate,
   shouldOpenMacosEmbeddedUrl,
+  shouldPermitCreateWebOverlay,
   shouldIgnoreDuplicateCreateClick,
   decideCreateAccountOwner,
+  isTelemostWebCreateUrl,
   rememberVerifiedBrowserAuth,
   invalidateVerifiedBrowserAuth,
   shouldSkipAuthCheck,
   shouldRecheckAfterJoinAuthFailure,
+  decideWebOnlyFailClosedRetry,
+  normalizeCapturedJoinUrl,
+  shouldReuseCurrentJoinSurface,
   VERIFIED_BROWSER_AUTH_TTL_MS,
 } from "./directJoinAuth";
 
@@ -39,13 +45,38 @@ describe("directJoinAuth", () => {
   });
 
   it("preserves and clears the pending join URL", () => {
-    writePendingJoin("acc-1", { id: "new-1", title: "Новая встреча", joinUrl: "https://telemost.360.yandex.ru/j/7110455263" });
+    writePendingJoin("acc-1", {
+      id: "new-1",
+      title: "Новая встреча",
+      joinUrl: "https://telemost.360.yandex.ru/j/7110455263",
+      ownerAccountId: "acc-1",
+      epoch: 1,
+    });
     expect(readPendingJoin("acc-1")).toEqual({
       id: "new-1",
       title: "Новая встреча",
       joinUrl: "https://telemost.360.yandex.ru/j/7110455263",
+      ownerAccountId: "acc-1",
+      epoch: 1,
     });
     clearPendingJoin("acc-1");
+    expect(readPendingJoin("acc-1")).toBeNull();
+  });
+
+  it("rejects a pending join without owner or epoch", () => {
+    sessionStorage.setItem("office360_telemost_pending_join:acc-1", JSON.stringify({
+      id: "new-1",
+      title: "Новая встреча",
+      joinUrl: "https://telemost.360.yandex.ru/j/7110455263",
+    }));
+    expect(readPendingJoin("acc-1")).toBeNull();
+    sessionStorage.setItem("office360_telemost_pending_join:acc-1", JSON.stringify({
+      id: "new-1",
+      title: "Новая встреча",
+      joinUrl: "https://telemost.360.yandex.ru/j/7110455263",
+      ownerAccountId: "acc-2",
+      epoch: 1,
+    }));
     expect(readPendingJoin("acc-1")).toBeNull();
   });
 
@@ -163,6 +194,43 @@ describe("directJoinAuth", () => {
     expect(passportIdentityMatches("korotkov.g@office-360.ru", "korotkov.g")).toBe("match");
     expect(passportIdentityMatches("korotkov.g@office-360.ru", "other@yandex.ru")).toBe("mismatch");
     expect(passportIdentityMatches("korotkov.g@office-360.ru", "")).toBe("unknown");
+    expect(decidePassportIdentity({
+      expectedEmail: "korotkov.g@office-360.ru",
+      beaconUid: "1",
+      beaconLogin: "",
+    })).toBe("unavailable");
+    expect(decidePassportIdentity({
+      expectedUid: "1130000072185511",
+      beaconUid: "1130000072185511",
+      beaconLogin: "",
+    })).toBe("match");
+    expect(decidePassportIdentity({
+      expectedUid: "111",
+      expectedEmail: "korotkov.g@office-360.ru",
+      beaconUid: "222",
+      beaconLogin: "korotkov.g@office-360.ru",
+    })).toBe("mismatch");
+  });
+
+  it("fails closed when AUTHENTICATED cannot be positively matched", () => {
+    const joinUrl = "https://telemost.360.yandex.ru/j/7110455263";
+    expect(decideAuthenticatedIdentity({
+      beacon: parseTelemostAuthBeacon("auth=AUTHENTICATED;uid=1;login=;surface=check"),
+      pendingJoinUrl: joinUrl,
+      alreadyResumedJoinUrl: null,
+      expectedEmail: "korotkov.g@office-360.ru",
+    })).toBe("auth_required");
+    expect(decideAuthenticatedIdentity({
+      beacon: parseTelemostAuthBeacon("auth=AUTHENTICATED;uid=99;login=other@yandex.ru;surface=check"),
+      pendingJoinUrl: joinUrl,
+      alreadyResumedJoinUrl: null,
+      expectedEmail: "korotkov.g@office-360.ru",
+    })).toBe("mismatch");
+    expect(decideAuthenticatedIdentity({
+      beacon: parseTelemostAuthBeacon("auth=AUTHENTICATED;uid=1;login=;surface=check"),
+      pendingJoinUrl: joinUrl,
+      alreadyResumedJoinUrl: null,
+    })).toBe("auth_required");
   });
 
   it("allows WEB CREATE only when API CREATE is unavailable and no pending join owns the surface", () => {
@@ -222,6 +290,64 @@ describe("directJoinAuth", () => {
     expect(shouldIgnoreDuplicateCreateClick("open_join")).toBe(true);
     expect(decideCreateAccountOwner("df5c12c9", "df5c12c9")).toBe("ok");
     expect(decideCreateAccountOwner("df5c12c9", "6f9630dd")).toBe("mismatch");
+  });
+
+  it("treats captured /j/ with browser-auto-create query as a meeting URL", () => {
+    const captured = "https://telemost.yandex.ru/j/98543805636845?browser-auto-create=1";
+    const webIdle = {
+      capability: "WEB_ONLY" as const,
+      pendingJoinUrl: null as string | null,
+      directJoinPhase: "idle" as const,
+      alreadyOpenedJoinUrl: null as string | null,
+    };
+    expect(shouldOpenMacosEmbeddedUrl(captured, webIdle)).toBe(true);
+    expect(isTelemostWebCreateUrl(captured)).toBe(false);
+    expect(isTelemostWebCreateUrl("https://telemost.yandex.ru/?browser-auto-create=1")).toBe(true);
+    expect(shouldAllowWebCreate(webIdle)).toBe(true);
+    expect(shouldAllowWebCreate({ ...webIdle, pendingJoinUrl: captured })).toBe(false);
+    expect(decideAuthRequiredAction({
+      beacon: parseTelemostAuthBeacon("auth=REQUIRED;surface=join"),
+      pageMode: "MEETING_PREPARING",
+      hasPendingJoin: false,
+      bootstrapInFlight: false,
+      recheckAfterBootstrap: false,
+    })).toBe("ignore");
+    expect(normalizeCapturedJoinUrl(captured)).toBe("https://telemost.yandex.ru/j/98543805636845");
+    expect(shouldReuseCurrentJoinSurface("https://telemost.yandex.ru/", captured)).toBe(false);
+    expect(shouldReuseCurrentJoinSurface(captured, captured)).toBe(true);
+    expect(shouldReuseCurrentJoinSurface(null, captured)).toBe(false);
+  });
+
+  it("splits fail_closed retry into reuse captured /j/ vs a legal WEB CREATE restart", () => {
+    const captured = "https://telemost.yandex.ru/j/40669270118884?browser-auto-create=1";
+    expect(decideWebOnlyFailClosedRetry(captured)).toBe("retry_existing");
+    expect(decideWebOnlyFailClosedRetry(null)).toBe("retry_new_web_create");
+    expect(shouldOpenMacosEmbeddedUrl("https://telemost.yandex.ru/?browser-auto-create=1", {
+      capability: "WEB_ONLY",
+      pendingJoinUrl: null,
+      directJoinPhase: "fail_closed",
+      alreadyOpenedJoinUrl: null,
+    })).toBe(false);
+    expect(shouldPermitCreateWebOverlay({
+      directJoinPhase: "fail_closed",
+      nativeCreateWillOpen: false,
+    })).toBe(false);
+    expect(shouldPermitCreateWebOverlay({
+      directJoinPhase: "idle",
+      nativeCreateWillOpen: true,
+    })).toBe(true);
+    expect(shouldOpenMacosEmbeddedUrl("https://telemost.yandex.ru/?browser-auto-create=1", {
+      capability: "WEB_ONLY",
+      pendingJoinUrl: null,
+      directJoinPhase: "idle",
+      alreadyOpenedJoinUrl: null,
+    })).toBe(true);
+    expect(shouldOpenMacosEmbeddedUrl("https://telemost.yandex.ru/j/40669270118884", {
+      capability: "WEB_ONLY",
+      pendingJoinUrl: null,
+      directJoinPhase: "fail_closed",
+      alreadyOpenedJoinUrl: null,
+    })).toBe(true);
   });
 
   it("ignores stale WEB CREATE auth beacons while a pending join owns the surface", () => {

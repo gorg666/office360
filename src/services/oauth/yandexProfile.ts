@@ -127,6 +127,10 @@ export async function refreshYandexImapAccountAvatars(accounts: DbAccount[]): Pr
       if (!token.trim()) continue;
 
       const info = await fetchYandexLoginProfile(token);
+      if (info.subjectId) {
+        const { persistAccountYandexUid } = await import("@/services/db/accounts");
+        await persistAccountYandexUid(acc.id, info.subjectId);
+      }
       if (!info.picture?.trim()) continue;
 
       const displayName = info.name?.trim() || null;

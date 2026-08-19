@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   deleteConference: vi.fn(),
   getCalendarEvents: vi.fn(),
   invoke: vi.fn(),
-  listeners: {} as Record<string, (event: { payload: string }) => void>,
+  listeners: {} as Record<string, (event: { payload: unknown }) => void>,
   navigateToLabel: vi.fn(),
   hasGrantScopes: vi.fn(),
   authorizeGrant: vi.fn(),
@@ -32,7 +32,7 @@ vi.mock("@/utils/desktopPlatform", () => ({
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: mocks.openUrl }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async (event: string, handler: (event: { payload: string }) => void) => { mocks.listeners[event] = handler; return () => { delete mocks.listeners[event]; }; }) }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async (event: string, handler: (event: { payload: unknown }) => void) => { mocks.listeners[event] = handler; return () => { delete mocks.listeners[event]; }; }) }));
 vi.mock("@/services/cef", () => ({
   cefInitialize: mocks.cefInitialize,
   cefCreate: mocks.cefCreate,
@@ -84,7 +84,21 @@ vi.stubGlobal("ResizeObserver", class {
 });
 
 const RECENT_URL = "https://telemost.yandex.ru/j/123456789";
+const LIVE_WEB_CREATED_URL = "https://telemost.yandex.ru/j/98543805636845?browser-auto-create=1";
+const LIVE_CAPTURED_JOIN = "https://telemost.yandex.ru/j/98543805636845";
+const PROVEN_LIVE_JOIN = "https://telemost.yandex.ru/j/40669270118884";
+const PROVEN_LIVE_CREATED = "https://telemost.yandex.ru/j/40669270118884?browser-auto-create=1";
+
+function flowTransitions(): string[] {
+  return mocks.invoke.mock.calls
+    .filter((call) => call[0] === "telemost_flow_log")
+    .map((call) => String((call[1] as { transition?: string } | undefined)?.transition ?? ""));
+}
 const SURFACE_BOUNDS = { x: 100, y: 120, width: 800, height: 600 };
+
+function owned(payload = "", owner = "account-1", epoch = 1) {
+  return { payload: { owner_account_id: owner, epoch, payload } };
+}
 
 async function renderReady(): Promise<void> {
   render(<TelemostPage />);
@@ -147,9 +161,9 @@ describe("Telemost native macOS shell", () => {
     fireEvent.change(screen.getByLabelText("Ссылка на встречу"), { target: { value: RECENT_URL } });
     fireEvent.click(screen.getByRole("dialog").querySelector("button.btn-primary")!);
 
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: RECENT_URL, accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(screen.getByText("Встречи")).toBeInTheDocument();
     expect(screen.getByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Закрыть встречу/ })).not.toBeInTheDocument();
@@ -183,9 +197,9 @@ describe("Telemost native macOS shell", () => {
 
     fireEvent.click(recentMeeting);
 
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: RECENT_URL, accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(screen.getByText("Встречи")).toBeInTheDocument();
     expect(screen.getByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Закрыть встречу/ })).not.toBeInTheDocument();
@@ -210,9 +224,9 @@ describe("Telemost native macOS shell", () => {
 
     fireEvent.click(calendarMeeting);
 
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: RECENT_URL, accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(screen.getByText("Встречи")).toBeInTheDocument();
     expect(mocks.cefCreate).not.toHaveBeenCalled();
   });
@@ -232,9 +246,9 @@ describe("Telemost native macOS shell", () => {
       attendees_json: null,
     }]);
     await renderReady();
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: RECENT_URL, accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(mocks.cefCreate).not.toHaveBeenCalled();
     expect(mocks.cefNavigate).not.toHaveBeenCalled();
   });
@@ -336,9 +350,9 @@ describe("Telemost native macOS shell", () => {
     fireEvent.change(screen.getByLabelText("Ссылка на встречу"), { target: { value: RECENT_URL } });
     fireEvent.click(screen.getByRole("dialog").querySelector("button.btn-primary")!);
 
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: RECENT_URL, accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(screen.getByText("Встречи")).toBeInTheDocument();
     expect(screen.getByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
     expect(mocks.cefCreate).not.toHaveBeenCalled();
@@ -380,6 +394,50 @@ describe("Telemost native macOS shell", () => {
     }));
   });
 
+  it("ignores a stale AUTHENTICATED event from another account", async () => {
+    mocks.createConference.mockResolvedValue({
+      id: "new-1", title: null, joinUrl: "https://telemost.360.yandex.ru/j/7110455263", organizer: null,
+      createdAt: null, scheduledAt: null, status: null, liveStreamWatchUrl: null,
+    });
+    vi.spyOn(window, "prompt").mockReturnValue("");
+    await renderReady();
+    fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
+    await waitFor(() => expect(mocks.listeners["telemost-macos-auth-authenticated"]).toBeDefined());
+    mocks.invoke.mockClear();
+    act(() => mocks.listeners["telemost-macos-auth-authenticated"](owned(
+      "auth=AUTHENTICATED;uid=42;login=person@example.test;surface=check",
+      "account-a",
+      99,
+    )));
+    expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: "https://telemost.360.yandex.ru/j/7110455263",
+    }));
+    expect(screen.getByText("Проверяем Яндекс ID…")).toBeInTheDocument();
+  });
+
+  it("does not silently open an Office360-created meeting under another owner", async () => {
+    localStorage.setItem("office360_telemost_conferences:account-1", JSON.stringify([{
+      id: "3320691266",
+      title: "Встреча аккаунта A",
+      joinUrl: RECENT_URL,
+      organizer: null,
+      createdAt: 1,
+      scheduledAt: null,
+      status: null,
+      liveStreamWatchUrl: null,
+      lastOpenedAt: null,
+      source: "API_CREATED",
+      remoteConferenceId: "3320691266",
+      ownerAccountId: "account-a",
+    }]));
+    await renderReady();
+    fireEvent.click(screen.getByText("Встреча аккаунта A"));
+    expect(await screen.findByText(/Эта встреча создана в другом аккаунте Office360/)).toBeInTheDocument();
+    expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: RECENT_URL,
+    }));
+  });
+
   it("fails closed when visual PREJOIN never becomes ready", async () => {
     mocks.createConference.mockResolvedValue({
       id: "1327816640", title: null, joinUrl: "https://telemost.360.yandex.ru/j/1327816640", organizer: null,
@@ -389,22 +447,20 @@ describe("Telemost native macOS shell", () => {
     await renderReady();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
     await waitFor(() => expect(mocks.listeners["telemost-macos-auth-authenticated"]).toBeDefined());
-    act(() => mocks.listeners["telemost-macos-auth-authenticated"]({
-      payload: "auth=AUTHENTICATED;uid=42;login=person@example.test;surface=check",
-    }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    act(() => mocks.listeners["telemost-macos-auth-authenticated"](owned("auth=AUTHENTICATED;uid=42;login=person@example.test;surface=check")));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.360.yandex.ru/j/1327816640", accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     await waitFor(() => expect(mocks.listeners["telemost-macos-prejoin-timeout"]).toBeDefined());
-    act(() => mocks.listeners["telemost-macos-prejoin-timeout"]({ payload: "PREJOIN" }));
+    act(() => mocks.listeners["telemost-macos-prejoin-timeout"](owned("PREJOIN")));
     await waitFor(() => expect(screen.getByText("Не удалось открыть экран подключения. Повторите.")).toBeInTheDocument());
     expect(screen.queryByLabelText("Поверхность встречи Телемоста")).not.toBeInTheDocument();
     expect(sessionStorage.getItem("office360_telemost_pending_join:account-1")).toContain("1327816640");
     mocks.invoke.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.360.yandex.ru/j/1327816640", accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.360.yandex.ru/?office360-auth-check=1",
     }));
@@ -419,9 +475,9 @@ describe("Telemost native macOS shell", () => {
     vi.spyOn(window, "prompt").mockReturnValue("");
     await renderReady();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.360.yandex.ru/?office360-auth-check=1", accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(screen.getByLabelText("Подготавливаем встречу")).toBeInTheDocument();
     expect(sessionStorage.getItem("office360_telemost_pending_join:account-1")).toContain("7110455263");
     expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
@@ -430,15 +486,13 @@ describe("Telemost native macOS shell", () => {
     expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.yandex.ru/?browser-auto-create=1",
     }));
-    act(() => mocks.listeners["telemost-macos-auth-authenticated"]({
-      payload: "auth=AUTHENTICATED;uid=42;login=person@example.test;surface=check",
-    }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    act(() => mocks.listeners["telemost-macos-auth-authenticated"](owned("auth=AUTHENTICATED;uid=42;login=person@example.test;surface=check")));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.360.yandex.ru/j/7110455263", accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(sessionStorage.getItem("office360_telemost_pending_join:account-1")).toContain("7110455263");
     await waitFor(() => expect(mocks.listeners["telemost-macos-prejoin-ready"]).toBeDefined());
-    act(() => mocks.listeners["telemost-macos-prejoin-ready"]({ payload: "PREJOIN" }));
+    act(() => mocks.listeners["telemost-macos-prejoin-ready"](owned("PREJOIN")));
     await waitFor(() => expect(sessionStorage.getItem("office360_telemost_pending_join:account-1")).toBeNull());
     expect(screen.getByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
     expect(mocks.cefCreate).not.toHaveBeenCalled();
@@ -458,22 +512,20 @@ describe("Telemost native macOS shell", () => {
     vi.spyOn(window, "prompt").mockReturnValue("");
     await renderReady();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.360.yandex.ru/?office360-auth-check=1", accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
-    act(() => mocks.listeners["telemost-macos-auth-authenticated"]({
-      payload: "auth=AUTHENTICATED;uid=42;login=person@example.test;surface=check",
-    }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    })));
+    act(() => mocks.listeners["telemost-macos-auth-authenticated"](owned("auth=AUTHENTICATED;uid=42;login=person@example.test;surface=check")));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.360.yandex.ru/j/111", accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
-    act(() => mocks.listeners["telemost-macos-prejoin-ready"]({ payload: "PREJOIN" }));
+    })));
+    act(() => mocks.listeners["telemost-macos-prejoin-ready"](owned("PREJOIN")));
     await waitFor(() => expect(sessionStorage.getItem("office360_telemost_pending_join:account-1")).toBeNull());
     mocks.invoke.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.360.yandex.ru/j/222", accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.360.yandex.ru/?office360-auth-check=1",
     }));
@@ -489,18 +541,18 @@ describe("Telemost native macOS shell", () => {
     vi.spyOn(window, "prompt").mockReturnValue("");
     await renderReady();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.360.yandex.ru/?office360-auth-check=1", accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
     expect(mocks.createConference).toHaveBeenCalledTimes(1);
-    const payload = { payload: "auth=AUTHENTICATED;uid=1130000072185511;login=person@example.test;surface=check" };
+    const payload = owned("auth=AUTHENTICATED;uid=1130000072185511;login=person@example.test;surface=check");
     act(() => mocks.listeners["telemost-macos-auth-authenticated"](payload));
     act(() => mocks.listeners["telemost-macos-auth-authenticated"](payload));
-    act(() => mocks.listeners["telemost-macos-auth-required"]({ payload: "auth=TIMEOUT;surface=create" }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    act(() => mocks.listeners["telemost-macos-auth-required"](owned("auth=TIMEOUT;surface=create")));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: joinUrl, accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(mocks.invoke.mock.calls.filter((call) =>
       call[0] === "open_telemost_macos_embedded"
       && (call[1] as { url?: string } | undefined)?.url === joinUrl
@@ -512,7 +564,7 @@ describe("Telemost native macOS shell", () => {
       call[0] === "open_telemost_macos_embedded"
     ).every((call) => (call[1] as { accountKey?: string } | undefined)?.accountKey === "account-1")).toBe(true);
     expect(mocks.createMeetingWeb).not.toHaveBeenCalled();
-    act(() => mocks.listeners["telemost-macos-prejoin-ready"]({ payload: "PREJOIN" }));
+    act(() => mocks.listeners["telemost-macos-prejoin-ready"](owned("PREJOIN")));
     await waitFor(() => expect(sessionStorage.getItem("office360_telemost_pending_join:account-1")).toBeNull());
   });
 
@@ -541,17 +593,17 @@ describe("Telemost native macOS shell", () => {
     await renderReady();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
     await waitFor(() => expect(mocks.listeners["telemost-macos-auth-authenticated"]).toBeDefined());
-    const payload = { payload: "auth=AUTHENTICATED;uid=42;login=person@example.test;surface=check" };
+    const payload = owned("auth=AUTHENTICATED;uid=42;login=person@example.test;surface=check");
     act(() => mocks.listeners["telemost-macos-auth-authenticated"](payload));
     act(() => mocks.listeners["telemost-macos-auth-authenticated"](payload));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.360.yandex.ru/j/7110455263", accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(mocks.invoke.mock.calls.filter((call) =>
       call[0] === "open_telemost_macos_embedded"
       && (call[1] as { url?: string } | undefined)?.url === "https://telemost.360.yandex.ru/j/7110455263"
     )).toHaveLength(1);
-    act(() => mocks.listeners["telemost-macos-prejoin-ready"]({ payload: "PREJOIN" }));
+    act(() => mocks.listeners["telemost-macos-prejoin-ready"](owned("PREJOIN")));
     await waitFor(() => expect(sessionStorage.getItem("office360_telemost_pending_join:account-1")).toBeNull());
     expect(screen.getByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
   });
@@ -590,15 +642,13 @@ describe("Telemost native macOS shell", () => {
       await renderReady();
       fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
       await waitFor(() => expect(watchdogHandle).toBe(4242));
-      act(() => mocks.listeners["telemost-macos-auth-authenticated"]({
-        payload: "auth=AUTHENTICATED;uid=42;login=person@example.test;surface=check",
-      }));
+      act(() => mocks.listeners["telemost-macos-auth-authenticated"](owned("auth=AUTHENTICATED;uid=42;login=person@example.test;surface=check")));
       expect(clearTimeoutSpy).toHaveBeenCalledWith(4242);
       expect(watchdogFn).toBeNull();
       expect(watchdogHandle).toBeNull();
-      await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+      await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
         url: "https://telemost.360.yandex.ru/j/7110455263", accountKey: "account-1", bounds: SURFACE_BOUNDS,
-      }));
+      })));
       expect(screen.queryByText("Для входа во встречу через ваш Яндекс ID требуется авторизация.")).not.toBeInTheDocument();
     } finally {
       setTimeoutSpy.mockRestore();
@@ -615,8 +665,8 @@ describe("Telemost native macOS shell", () => {
     await renderReady();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
     await waitFor(() => expect(mocks.listeners["telemost-macos-auth-required"]).toBeDefined());
-    act(() => mocks.listeners["telemost-macos-auth-required"]({ payload: "auth=REQUIRED;surface=check" }));
-    act(() => mocks.listeners["telemost-macos-auth-required"]({ payload: "auth=REQUIRED;surface=check" }));
+    act(() => mocks.listeners["telemost-macos-auth-required"](owned("auth=REQUIRED;surface=check")));
+    act(() => mocks.listeners["telemost-macos-auth-required"](owned("auth=REQUIRED;surface=check")));
     expect(screen.getByText("Откройте окно Яндекс ID. Гостевая встреча не открывается.")).toBeInTheDocument();
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_oauth_login_window", expect.objectContaining({
       purpose: "passport-bootstrap",
@@ -629,9 +679,9 @@ describe("Telemost native macOS shell", () => {
       url: RECENT_URL,
     }));
     act(() => mocks.listeners["yandex-passport-bootstrap-complete"]({ payload: "" }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.yandex.ru/?office360-auth-check=1", accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.yandex.ru/?browser-auto-create=1",
     }));
@@ -647,15 +697,13 @@ describe("Telemost native macOS shell", () => {
     await renderReady();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
     await waitFor(() => expect(mocks.listeners["telemost-macos-auth-required"]).toBeDefined());
-    act(() => mocks.listeners["telemost-macos-auth-required"]({ payload: "auth=REQUIRED;surface=check" }));
+    act(() => mocks.listeners["telemost-macos-auth-required"](owned("auth=REQUIRED;surface=check")));
     act(() => mocks.listeners["yandex-passport-bootstrap-complete"]({ payload: "" }));
-    act(() => mocks.listeners["telemost-macos-auth-authenticated"]({
-      payload: "auth=AUTHENTICATED;uid=42;login=person@example.test;surface=check",
-    }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    act(() => mocks.listeners["telemost-macos-auth-authenticated"](owned("auth=AUTHENTICATED;uid=42;login=person@example.test;surface=check")));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: RECENT_URL, accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
-    act(() => mocks.listeners["telemost-macos-prejoin-ready"]({ payload: "PREJOIN" }));
+    })));
+    act(() => mocks.listeners["telemost-macos-prejoin-ready"](owned("PREJOIN")));
     expect(sessionStorage.getItem("office360_telemost_pending_join:account-1")).toBeNull();
     expect(mocks.createConference).toHaveBeenCalledTimes(1);
   });
@@ -669,9 +717,9 @@ describe("Telemost native macOS shell", () => {
     await renderReady();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
     await waitFor(() => expect(mocks.listeners["telemost-macos-auth-required"]).toBeDefined());
-    act(() => mocks.listeners["telemost-macos-auth-required"]({ payload: "auth=REQUIRED;surface=check" }));
+    act(() => mocks.listeners["telemost-macos-auth-required"](owned("auth=REQUIRED;surface=check")));
     act(() => mocks.listeners["yandex-passport-bootstrap-complete"]({ payload: "" }));
-    act(() => mocks.listeners["telemost-macos-auth-required"]({ payload: "auth=REQUIRED;surface=check" }));
+    act(() => mocks.listeners["telemost-macos-auth-required"](owned("auth=REQUIRED;surface=check")));
     expect(screen.getByText("Для входа во встречу через ваш Яндекс ID требуется авторизация.")).toBeInTheDocument();
     expect(await screen.findByText("Создайте новую встречу или подключитесь по ссылке.")).toBeInTheDocument();
     expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
@@ -689,7 +737,7 @@ describe("Telemost native macOS shell", () => {
     await renderReady();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
     await waitFor(() => expect(mocks.listeners["oauth-window-closed"]).toBeDefined());
-    act(() => mocks.listeners["telemost-macos-auth-required"]({ payload: "auth=REQUIRED;surface=check" }));
+    act(() => mocks.listeners["telemost-macos-auth-required"](owned("auth=REQUIRED;surface=check")));
     act(() => mocks.listeners["oauth-window-closed"]({ payload: "" }));
     expect(screen.getByText("Для входа во встречу через ваш Яндекс ID требуется авторизация.")).toBeInTheDocument();
     expect(await screen.findByText("Создайте новую встречу или подключитесь по ссылке.")).toBeInTheDocument();
@@ -708,9 +756,7 @@ describe("Telemost native macOS shell", () => {
     await renderReady();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
     await waitFor(() => expect(mocks.listeners["telemost-macos-auth-authenticated"]).toBeDefined());
-    act(() => mocks.listeners["telemost-macos-auth-authenticated"]({
-      payload: "auth=AUTHENTICATED;uid=9;login=other@yandex.ru;surface=check",
-    }));
+    act(() => mocks.listeners["telemost-macos-auth-authenticated"](owned("auth=AUTHENTICATED;uid=9;login=other@yandex.ru;surface=check")));
     expect(screen.getByText(/В Яндекс ID выбран другой аккаунт/)).toBeInTheDocument();
     expect(await screen.findByText("Создайте новую встречу или подключитесь по ссылке.")).toBeInTheDocument();
     expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
@@ -723,9 +769,9 @@ describe("Telemost native macOS shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Подключиться" }));
     fireEvent.change(screen.getByLabelText("Ссылка на встречу"), { target: { value: RECENT_URL } });
     fireEvent.click(screen.getByRole("dialog").querySelector("button.btn-primary")!);
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: RECENT_URL, accountKey: "account-1", bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(mocks.invoke).not.toHaveBeenCalledWith("open_oauth_login_window", expect.anything());
     expect(sessionStorage.getItem("office360_telemost_pending_join:account-1")).toBeNull();
   });
@@ -736,7 +782,7 @@ describe("Telemost native macOS shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
     await waitFor(() => expect(mocks.listeners["telemost-macos-auth-required"]).toBeDefined());
     expect(screen.getByLabelText("Создаём встречу")).toBeInTheDocument();
-    act(() => mocks.listeners["telemost-macos-auth-required"]({ payload: "" }));
+    act(() => mocks.listeners["telemost-macos-auth-required"](owned("")));
     expect(screen.getByLabelText("Создаём встречу")).toBeInTheDocument();
     expect(screen.getByText("Нужен вход в Яндекс ID. Гостевая встреча не создаётся.")).toBeInTheDocument();
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_oauth_login_window", expect.objectContaining({
@@ -753,10 +799,10 @@ describe("Telemost native macOS shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
     await waitFor(() => expect(mocks.listeners["telemost-macos-auth-required"]).toBeDefined());
     expect(mocks.listeners["telemost-macos-auth-resumed"]).toBeDefined();
-    act(() => mocks.listeners["telemost-macos-auth-required"]({ payload: "" }));
+    act(() => mocks.listeners["telemost-macos-auth-required"](owned("")));
     expect(screen.getByLabelText("Создаём встречу")).toBeInTheDocument();
     expect(screen.queryByText("Тарифы для бизнеса")).not.toBeInTheDocument();
-    act(() => mocks.listeners["telemost-macos-auth-resumed"]({ payload: "" }));
+    act(() => mocks.listeners["telemost-macos-auth-resumed"](owned("")));
     expect(screen.getByLabelText("Создаём встречу")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("Тарифы для бизнеса");
   });
@@ -783,11 +829,11 @@ describe("Telemost native macOS shell", () => {
     await renderReady();
 
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.yandex.ru/?browser-auto-create=1",
       accountKey: "account-1",
       bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(mocks.createMeetingWeb).not.toHaveBeenCalled();
     expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_create", expect.anything());
     expect(document.body.textContent).not.toContain("technical 403");
@@ -799,23 +845,48 @@ describe("Telemost native macOS shell", () => {
     expect(screen.queryByLabelText("Поверхность встречи Телемоста")).not.toBeInTheDocument();
   });
 
-  it("captures a WKWebView create-flow join URL into meeting mode", async () => {
+  it("captures a WKWebView create-flow join URL into meeting preparation", async () => {
     localStorage.setItem("office360_telemost_capability:account-1", "WEB_ONLY");
     await renderReady();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.yandex.ru/?browser-auto-create=1",
       accountKey: "account-1",
       bounds: SURFACE_BOUNDS,
-    }));
+    })));
     await waitFor(() => expect(mocks.listeners["telemost-macos-created"]).toBeDefined());
     mocks.invoke.mockClear();
-    act(() => mocks.listeners["telemost-macos-created"]({ payload: RECENT_URL }));
+    act(() => mocks.listeners["telemost-macos-created"](owned(RECENT_URL)));
     expect(await screen.findByText("Видеовстреча")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Создаём встречу")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Подготавливаем встречу")).toBeInTheDocument();
+    expect(screen.getByText("Открываем встречу…")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Поверхность встречи Телемоста")).not.toBeInTheDocument();
+    expect(sessionStorage.getItem("office360_telemost_pending_join:account-1")).toBeNull();
+    expect(mocks.createConference).not.toHaveBeenCalled();
     expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_create", expect.anything());
-    expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({ url: RECENT_URL }));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: RECENT_URL,
+      accountKey: "account-1",
+      bounds: SURFACE_BOUNDS,
+    })));
+    expect(flowTransitions()).toEqual(expect.arrayContaining([
+      "WEB_CREATED",
+      "WEB_CREATED_HANDOFF",
+      "MEETING_OPEN_REQUEST",
+      "MEETING_PREPARING",
+    ]));
     expect(mocks.createMeetingWeb).not.toHaveBeenCalled();
     expect(mocks.cefCreate).not.toHaveBeenCalled();
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem("office360_telemost_conferences:account-1") ?? "[]") as Array<{ ownerAccountId?: string; source?: string }>;
+      expect(stored[0]?.ownerAccountId).toBe("account-1");
+      expect(stored[0]?.source).toBe("WEB_CREATED");
+    });
+    act(() => mocks.listeners["telemost-macos-prejoin-ready"](owned("PREJOIN")));
+    expect(await screen.findByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Создаём встречу")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Подготавливаем встречу")).not.toBeInTheDocument();
   });
 
   it("does not reopen the same join URL when create emits twice", async () => {
@@ -823,10 +894,192 @@ describe("Telemost native macOS shell", () => {
     await renderReady();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
     await waitFor(() => expect(mocks.listeners["telemost-macos-created"]).toBeDefined());
-    act(() => mocks.listeners["telemost-macos-created"]({ payload: RECENT_URL }));
+    act(() => mocks.listeners["telemost-macos-created"](owned(RECENT_URL)));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: RECENT_URL,
+    })));
     mocks.invoke.mockClear();
-    act(() => mocks.listeners["telemost-macos-created"]({ payload: RECENT_URL }));
+    act(() => mocks.listeners["telemost-macos-created"](owned(RECENT_URL)));
     expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.anything());
+    expect(JSON.parse(localStorage.getItem("office360_telemost_conferences:account-1") ?? "[]")).toHaveLength(1);
+  });
+
+  it("hands WEB_ONLY create with browser-auto-create query off CREATE_WEB without API pending join", async () => {
+    localStorage.setItem("office360_telemost_capability:account-1", "WEB_ONLY");
+    await renderReady();
+    fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
+    await waitFor(() => expect(screen.getByLabelText("Создаём встречу")).toBeInTheDocument());
+    await waitFor(() => expect(mocks.listeners["telemost-macos-created"]).toBeDefined());
+    mocks.invoke.mockClear();
+    act(() => mocks.listeners["telemost-macos-created"](owned(LIVE_WEB_CREATED_URL)));
+    expect(screen.queryByLabelText("Создаём встречу")).not.toBeInTheDocument();
+    expect(screen.getByText("Открываем встречу…")).toBeInTheDocument();
+    expect(screen.getByLabelText("Подготавливаем встречу")).toBeInTheDocument();
+    expect(sessionStorage.getItem("office360_telemost_pending_join:account-1")).toBeNull();
+    expect(mocks.createConference).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: LIVE_CAPTURED_JOIN,
+      accountKey: "account-1",
+      bounds: SURFACE_BOUNDS,
+    })));
+    expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: LIVE_WEB_CREATED_URL,
+    }));
+    expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: "https://telemost.yandex.ru/?browser-auto-create=1",
+    }));
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem("office360_telemost_conferences:account-1") ?? "[]") as Array<{
+        id?: string; ownerAccountId?: string; source?: string; joinUrl?: string;
+      }>;
+      expect(stored[0]?.id).toBe("98543805636845");
+      expect(stored[0]?.ownerAccountId).toBe("account-1");
+      expect(stored[0]?.source).toBe("WEB_CREATED");
+      expect(stored[0]?.joinUrl).toBe(LIVE_CAPTURED_JOIN);
+    });
+    act(() => mocks.listeners["telemost-macos-prejoin-ready"](owned("PREJOIN")));
+    expect(await screen.findByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Создаём встречу")).not.toBeInTheDocument();
+    expect(mocks.createConference).not.toHaveBeenCalled();
+  });
+
+  it("fails closed from WEB_CREATED visual timeout and retries the same /j/ without a second create", async () => {
+    localStorage.setItem("office360_telemost_capability:account-1", "WEB_ONLY");
+    await renderReady();
+    fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
+    await waitFor(() => expect(mocks.listeners["telemost-macos-created"]).toBeDefined());
+    act(() => mocks.listeners["telemost-macos-created"](owned(LIVE_WEB_CREATED_URL)));
+    expect(screen.queryByLabelText("Создаём встречу")).not.toBeInTheDocument();
+    expect(screen.getByText("Открываем встречу…")).toBeInTheDocument();
+    await waitFor(() => expect(mocks.listeners["telemost-macos-prejoin-timeout"]).toBeDefined());
+    act(() => mocks.listeners["telemost-macos-prejoin-timeout"](owned("PREJOIN")));
+    expect(await screen.findByText("Не удалось открыть экран подключения. Повторите.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Создаём встречу")).not.toBeInTheDocument();
+    expect(sessionStorage.getItem("office360_telemost_pending_join:account-1")).toBeNull();
+    mocks.invoke.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: LIVE_CAPTURED_JOIN,
+      accountKey: "account-1",
+      bounds: SURFACE_BOUNDS,
+    })));
+    expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: "https://telemost.yandex.ru/?browser-auto-create=1",
+    }));
+    expect(mocks.createConference).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem("office360_telemost_conferences:account-1") ?? "[]")).toHaveLength(1);
+    expect(screen.getByText("Открываем встречу…")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Создаём встречу")).not.toBeInTheDocument();
+    expect(flowTransitions()).toEqual(expect.arrayContaining([
+      "RETRY_EXISTING",
+      "MEETING_OPEN_REQUEST",
+    ]));
+  });
+
+  it("hands the proven live WEB_ONLY /j/ capture into a meeting open", async () => {
+    localStorage.setItem("office360_telemost_capability:account-1", "WEB_ONLY");
+    await renderReady();
+    fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: "https://telemost.yandex.ru/?browser-auto-create=1",
+    })));
+    await waitFor(() => expect(mocks.listeners["telemost-macos-created"]).toBeDefined());
+    mocks.invoke.mockClear();
+    act(() => mocks.listeners["telemost-macos-created"](owned(PROVEN_LIVE_CREATED)));
+    expect(screen.getByLabelText("Подготавливаем встречу")).toBeInTheDocument();
+    expect(screen.getByText("Открываем встречу…")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Создаём встречу")).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: PROVEN_LIVE_JOIN,
+      accountKey: "account-1",
+      bounds: SURFACE_BOUNDS,
+    })));
+    expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: "https://telemost.yandex.ru/?browser-auto-create=1",
+    }));
+    expect(mocks.createConference).not.toHaveBeenCalled();
+    expect(flowTransitions()).toEqual(expect.arrayContaining([
+      "WEB_CREATED_HANDOFF",
+      "MEETING_OPEN_REQUEST",
+    ]));
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem("office360_telemost_conferences:account-1") ?? "[]") as Array<{
+        id?: string; joinUrl?: string; source?: string;
+      }>;
+      expect(stored).toHaveLength(1);
+      expect(stored[0]?.id).toBe("40669270118884");
+      expect(stored[0]?.joinUrl).toBe(PROVEN_LIVE_JOIN);
+      expect(stored[0]?.source).toBe("WEB_CREATED");
+    });
+  });
+
+  it("retries the captured conference from fail_closed via New meeting without a second WEB CREATE", async () => {
+    localStorage.setItem("office360_telemost_capability:account-1", "WEB_ONLY");
+    await renderReady();
+    fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
+    await waitFor(() => expect(mocks.listeners["telemost-macos-created"]).toBeDefined());
+    act(() => mocks.listeners["telemost-macos-created"](owned(PROVEN_LIVE_CREATED)));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: PROVEN_LIVE_JOIN,
+    })));
+    act(() => mocks.listeners["telemost-macos-prejoin-timeout"](owned("PREJOIN")));
+    expect(await screen.findByText("Не удалось открыть экран подключения. Повторите.")).toBeInTheDocument();
+    mocks.invoke.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: PROVEN_LIVE_JOIN,
+    })));
+    expect(mocks.invoke).not.toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: "https://telemost.yandex.ru/?browser-auto-create=1",
+    }));
+    expect(mocks.createConference).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem("office360_telemost_conferences:account-1") ?? "[]")).toHaveLength(1);
+    expect(screen.getByText("Открываем встречу…")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Создаём встречу")).not.toBeInTheDocument();
+    expect(flowTransitions()).toEqual(expect.arrayContaining(["RETRY_EXISTING"]));
+  });
+
+  it("resets fail_closed to idle so WEB CREATE can start when no meeting was captured", async () => {
+    localStorage.setItem("office360_telemost_capability:account-1", "WEB_ONLY");
+    await renderReady();
+    fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
+    await waitFor(() => expect(screen.getByLabelText("Создаём встречу")).toBeInTheDocument());
+    await waitFor(() => expect(mocks.listeners["telemost-macos-prejoin-timeout"]).toBeDefined());
+    act(() => mocks.listeners["telemost-macos-prejoin-timeout"](owned("PREJOIN")));
+    expect(await screen.findByText("Не удалось открыть экран подключения. Повторите.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Создаём встречу")).not.toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("office360_telemost_conferences:account-1") ?? "[]")).toEqual([]);
+    mocks.invoke.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
+      url: "https://telemost.yandex.ru/?browser-auto-create=1",
+      accountKey: "account-1",
+      bounds: SURFACE_BOUNDS,
+    })));
+    expect(screen.getByLabelText("Создаём встречу")).toBeInTheDocument();
+    expect(flowTransitions()).toEqual(expect.arrayContaining([
+      "RETRY_NEW_WEB_CREATE",
+      "WEB_CREATE_START",
+    ]));
+  });
+
+  it("ignores a stale WEB_CREATED event from another account and keeps CREATE_WEB", async () => {
+    localStorage.setItem("office360_telemost_capability:account-1", "WEB_ONLY");
+    await renderReady();
+    fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
+    await waitFor(() => expect(mocks.listeners["telemost-macos-created"]).toBeDefined());
+    expect(screen.getByLabelText("Создаём встречу")).toBeInTheDocument();
+    act(() => mocks.listeners["telemost-macos-created"](owned(LIVE_WEB_CREATED_URL, "account-b", 1)));
+    expect(screen.getByLabelText("Создаём встречу")).toBeInTheDocument();
+    expect(screen.queryByText("Открываем встречу…")).not.toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("office360_telemost_conferences:account-1") ?? "[]")).toEqual([]);
+    act(() => mocks.listeners["telemost-macos-created"](owned(LIVE_WEB_CREATED_URL)));
+    expect(screen.queryByLabelText("Создаём встречу")).not.toBeInTheDocument();
+    expect(screen.getByText("Открываем встречу…")).toBeInTheDocument();
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem("office360_telemost_conferences:account-1") ?? "[]") as Array<{ ownerAccountId?: string }>;
+      expect(stored[0]?.ownerAccountId).toBe("account-1");
+    });
   });
 
   it("returns to Office360 idle after leave and does not keep Telemost HOME", async () => {
@@ -837,7 +1090,7 @@ describe("Telemost native macOS shell", () => {
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.anything()));
     await waitFor(() => expect(mocks.listeners["telemost-macos-left"]).toBeDefined());
     mocks.invoke.mockClear();
-    act(() => mocks.listeners["telemost-macos-left"]({ payload: "" }));
+    act(() => mocks.listeners["telemost-macos-left"](owned("")));
     expect(await screen.findByText("Создайте новую встречу или подключитесь по ссылке.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Поверхность встречи Телемоста")).not.toBeInTheDocument();
     expect(mocks.invoke).toHaveBeenCalledWith("close_telemost_macos_embedded");
@@ -850,17 +1103,18 @@ describe("Telemost native macOS shell", () => {
     await renderReady();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
     await waitFor(() => expect(mocks.listeners["telemost-macos-created"]).toBeDefined());
-    act(() => mocks.listeners["telemost-macos-created"]({ payload: RECENT_URL }));
+    act(() => mocks.listeners["telemost-macos-created"](owned(RECENT_URL)));
+    act(() => mocks.listeners["telemost-macos-prejoin-ready"](owned("PREJOIN")));
     expect(await screen.findByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
-    act(() => mocks.listeners["telemost-macos-left"]({ payload: "" }));
+    act(() => mocks.listeners["telemost-macos-left"](owned("")));
     expect(await screen.findByText("Создайте новую встречу или подключитесь по ссылке.")).toBeInTheDocument();
     mocks.invoke.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "Новая видеовстреча" }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", {
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_telemost_macos_embedded", expect.objectContaining({
       url: "https://telemost.yandex.ru/?browser-auto-create=1",
       accountKey: "account-1",
       bounds: SURFACE_BOUNDS,
-    }));
+    })));
     expect(screen.getByLabelText("Создаём встречу")).toBeInTheDocument();
   });
 
@@ -870,14 +1124,14 @@ describe("Telemost native macOS shell", () => {
     fireEvent.change(screen.getByLabelText("Ссылка на встречу"), { target: { value: RECENT_URL } });
     fireEvent.click(screen.getByRole("dialog").querySelector("button.btn-primary")!);
     await waitFor(() => expect(mocks.listeners["telemost-macos-prejoin-ready"]).toBeDefined());
-    act(() => mocks.listeners["telemost-macos-prejoin-ready"]({ payload: "PREJOIN" }));
+    act(() => mocks.listeners["telemost-macos-prejoin-ready"](owned("PREJOIN")));
     expect(screen.getByLabelText("Поверхность встречи Телемоста")).toBeInTheDocument();
     mocks.invoke.mockClear();
-    act(() => mocks.listeners["telemost-macos-left"]({ payload: "" }));
+    act(() => mocks.listeners["telemost-macos-left"](owned("")));
     expect(await screen.findByTestId("telemost-placeholder")).toBeInTheDocument();
     expect(screen.queryByLabelText("Поверхность встречи Телемоста")).not.toBeInTheDocument();
     expect(mocks.invoke).toHaveBeenCalledWith("close_telemost_macos_embedded");
-    act(() => mocks.listeners["telemost-macos-left"]({ payload: "" }));
+    act(() => mocks.listeners["telemost-macos-left"](owned("")));
     expect(screen.getByTestId("telemost-placeholder")).toBeInTheDocument();
     expect(screen.queryByLabelText("Поверхность встречи Телемоста")).not.toBeInTheDocument();
     expect(mocks.cefCreate).not.toHaveBeenCalled();

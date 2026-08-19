@@ -15,6 +15,19 @@ async function ensureOAuthAccountSchema(): Promise<void> {
   }
 }
 
+async function ensureYandexUidColumn(): Promise<void> {
+  const db = await getDb();
+  const columns = await db.select<{ name: string }[]>("PRAGMA table_info(accounts)");
+  if (columns.some((column) => column.name === "yandex_uid")) return;
+
+  try {
+    await executeWrite("ALTER TABLE accounts ADD COLUMN yandex_uid TEXT");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.includes("duplicate column")) throw err;
+  }
+}
+
 export interface DbAccount {
   id: string;
   email: string;
@@ -49,6 +62,7 @@ export interface DbAccount {
   caldav_home_url: string | null;
   calendar_provider: string | null;
   accept_invalid_certs: number;
+  yandex_uid?: string | null;
 }
 
 async function decryptAccountTokens(account: DbAccount): Promise<DbAccount> {
@@ -165,6 +179,16 @@ export async function updateAccountSyncState(
 }
 
 /** Аватар и (опционально) отображаемое имя из Яндекс ID / OAuth profile. */
+export async function persistAccountYandexUid(accountId: string, uid: string): Promise<void> {
+  const value = uid.trim();
+  if (!accountId.trim() || !value || value.includes("@")) return;
+  await ensureYandexUidColumn();
+  await executeWrite(
+    "UPDATE accounts SET yandex_uid = $1, updated_at = unixepoch() WHERE id = $2 AND (yandex_uid IS NULL OR yandex_uid = '')",
+    [value, accountId],
+  );
+}
+
 export async function updateAccountProfilePresentation(
   id: string,
   patch: { avatarUrl: string; displayName?: string | null },
