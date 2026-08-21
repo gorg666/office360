@@ -48,9 +48,11 @@
 
 ## Bugs
 
-### CAL-BUG-101 — confirmed
+### CAL-BUG-101 — closed by CAL-101B
 
-Original DAV/tsdav error возникает в `loginYandexCalDavClient()` либо в `CalDAVProvider.listCalendars()` / `fetchEvents()`. `CalendarPage.loadEvents()` ловит ошибку; специальные Google 403 cases преобразуются в UI state, а прочие ошибки уходят только в `console.error`. Frontend сохраняет cached events, пользователь не получает stale/remote-failure marker. UX fix остаётся отдельной задачей.
+`CalendarPage.loadEvents()` теперь использует явные взаимоисключающие состояния `loading | fresh | stale | error` для Google и CalDAV/Yandex. Успешный remote load переводит UI в `fresh` и очищает прежние ошибки. Remote failure при наличии событий текущего диапазона из локального cache сохраняет их на экране и показывает `Не удалось обновить календарь` / `Показаны ранее загруженные данные`; доступен безопасный Retry. При отсутствии пригодного cache показывается явный error state, а не пустой успешный календарь. Исходные provider error messages не выводятся пользователю и не логируются этим load path.
+
+Текущая схема не хранит range-level cache-completeness marker, поэтому пустой DB result считается отсутствием пригодного cache. Это ограничение документировано и не требует изменения DB schema в CAL-101B.
 
 ### CAL-BUG-102 — closed
 
@@ -69,6 +71,19 @@ Native `connect_imap_with_diagnostic()` и `imap_test_connection()` переда
 | Month / Day / Week | PASS |
 | Read-only remote list/query | PASS |
 | Create/update/delete/RSVP | NOT TESTED — реальные cloud data не изменялись |
+
+### CAL-101B final validation
+
+Дата: 2026-08-21 (Asia/Bangkok). Проверка выполнена в `npm run tauri dev` только read-only навигацией; реальные события и настройки аккаунта не изменялись.
+
+| Проверка | Статус | Наблюдение |
+|---|---|---|
+| Month | PASS | События отобразились; переход на следующий месяц с повторной загрузкой завершился без ложного stale/error banner |
+| Week | PASS | Week time-grid отрендерировался, навигация между диапазонами сработала, remote load завершился без ложного stale/error banner |
+| Day | PASS | Day time-grid отрендерировался, навигация по датам сработала, remote load завершился без ложного stale/error banner |
+| Calendar load: fresh state | PASS | После успешных remote loads отсутствовали loading, stale, error и cached-data warning; это наблюдаемый эквивалент `CalendarLoadState = fresh` |
+| Stale/error automated coverage | PASS | Targeted cases A–D покрывают success, cache + failure, no-cache failure и Retry для Google/CalDAV |
+| Stale/error live forcing | NOT FORCED | Безопасного способа нет: вмешательство в live provider/credentials не оправдано при наличии автоматического покрытия |
 
 ## Checks
 

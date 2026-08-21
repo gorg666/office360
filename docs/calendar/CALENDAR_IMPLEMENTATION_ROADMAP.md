@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
-Baseline: `10c7a54`, subject to Git cleanup/approval.
-Roadmap state: proposal based on current Office360 code; no implementation started.
+Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
+Roadmap state: CAL-101A and CAL-101B completed; CAL-102 remains the next foundation ticket.
 
 ## ID convention
 
@@ -58,6 +58,13 @@ CAL-101 Git/runtime gate
 - no tokens/raw calendar data in logs.
 
 **Риски:** OAuth scopes/client configuration, network/provider availability, unrelated EFIM integration blocker.
+
+### CAL-101 delivery status
+
+- **CAL-101A — completed:** read-only Yandex CalDAV runtime chain verified; historical A2/CAL-001 not reproduced; sanitized response-level evidence recorded in `CALENDAR_RUNTIME_BASELINE.md`.
+- **CAL-101B — completed:** `CAL-BUG-101` closed with explicit `loading | fresh | stale | error` UI semantics shared by Google and CalDAV/Yandex, cached stale-data notice, no-cache error state, Retry and targeted A–D tests.
+- Empty cached ranges remain indistinguishable from a cache miss until a later persistence ticket introduces range-completeness metadata; CAL-101B deliberately treats an empty result as no usable cache and does not change the DB schema.
+- **Next:** CAL-101C final Calendar gate/review, then CAL-102 domain and timezone contracts.
 
 ## CAL-102 — Calendar domain and timezone contracts
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { deleteCalendarEventsInRange, getCalendarEventsInRangeMulti, upsertCalendarEvent, type DbCalendarEvent } from "@/services/db/calendarEvents";
 import { getVisibleCalendars, getCalendarsForAccount, upsertCalendar, type DbCalendar } from "@/services/db/calendars";
@@ -12,6 +13,13 @@ import { EventCreateModal, type EventCreateInput } from "./EventCreateModal";
 import { EventDetailModal } from "./EventDetailModal";
 import { CalendarList } from "./CalendarList";
 import { CalendarReauthBanner } from "./CalendarReauthBanner";
+import { Button } from "@/components/ui/Button";
+
+type CalendarLoadState =
+  | { status: "loading" }
+  | { status: "fresh" }
+  | { status: "stale" }
+  | { status: "error" };
 
 export function CalendarPage() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
@@ -21,7 +29,7 @@ export function CalendarPage() {
   const [view, setView] = useState<CalendarView>("month");
   const [events, setEvents] = useState<DbCalendarEvent[]>([]);
   const [calendars, setCalendars] = useState<DbCalendar[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loadState, setLoadState] = useState<CalendarLoadState>({ status: "loading" });
   const [showCreate, setShowCreate] = useState(false);
   const [createInitialValues, setCreateInitialValues] = useState<Partial<EventCreateInput> | undefined>();
   const [selectedEvent, setSelectedEvent] = useState<DbCalendarEvent | null>(null);
@@ -76,18 +84,24 @@ export function CalendarPage() {
 
   const loadEvents = useCallback(async () => {
     if (!activeAccountId) return;
-    setLoading(true);
+    setLoadState({ status: "loading" });
+    setNeedsReauth(false);
+    setCalendarError(null);
 
     const { start, end } = getRange();
     const startTs = Math.floor(start.getTime() / 1000);
     const endTs = Math.floor(end.getTime() / 1000);
 
-    // Load from local cache first
+    let hasUsableCache = false;
+
+    // Load from local cache first. An empty result is not treated as usable
+    // because the current schema has no cache-completeness marker for a range.
     try {
       const visibleCals = await getVisibleCalendars(activeAccountId);
       const calendarIds = visibleCals.map((c) => c.id);
       const cached = await getCalendarEventsInRangeMulti(activeAccountId, calendarIds, startTs, endTs);
       setEvents(cached);
+      hasUsableCache = cached.length > 0;
     } catch {
       // ignore cache errors
     }
@@ -96,7 +110,7 @@ export function CalendarPage() {
     try {
       const supported = await hasCalendarSupport(activeAccountId);
       if (!supported) {
-        setLoading(false);
+        setLoadState({ status: "fresh" });
         return;
       }
 
@@ -141,6 +155,7 @@ export function CalendarPage() {
       setEvents(fresh);
       setNeedsReauth(false);
       setCalendarError(null);
+      setLoadState({ status: "fresh" });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const lowerMessage = message.toLowerCase();
@@ -149,6 +164,7 @@ export function CalendarPage() {
         lowerMessage.includes("not been used") ||
         lowerMessage.includes("not enabled") ||
         lowerMessage.includes("accessnotconfigured");
+      setLoadState({ status: hasUsableCache ? "stale" : "error" });
       if (message.includes("403") || message.includes("insufficient")) {
         if (isCalendarApiDisabled) {
           setNeedsReauth(false);
@@ -166,11 +182,7 @@ export function CalendarPage() {
         } else {
           setNeedsReauth(true);
         }
-      } else {
-        console.error("Failed to load calendar events:", err);
       }
-    } finally {
-      setLoading(false);
     }
   }, [activeAccountId, getRange]);
 
@@ -346,6 +358,7 @@ export function CalendarPage() {
         <CalendarReauthBanner
           accountId={activeAccount.id}
           email={activeAccount.email}
+          hasCachedData={loadState.status === "stale"}
           onReauthSuccess={() => {
             reauthDoneRef.current = true;
             setNeedsReauth(false);
@@ -355,27 +368,73 @@ export function CalendarPage() {
         />
       )}
 
-      {calendarError && !needsReauth && (
-        <div className="mx-6 my-4 p-4 rounded-lg bg-danger/10 border border-danger/30 flex items-start gap-3">
-          <div>
-            <p className="text-sm font-medium text-text-primary">Ошибка доступа к календарю</p>
-            <p className="text-xs text-text-secondary mt-1">{calendarError}</p>
-            <button
-              onClick={async () => {
-                const { openUrl } = await import("@tauri-apps/plugin-opener");
-                await openUrl(calendarApiEnableUrl);
-              }}
-              className="mt-3 px-3 py-1.5 text-xs font-medium bg-accent text-white rounded-md hover:bg-accent-hover transition-colors"
-            >
-              Открыть Google Calendar API
-            </button>
+      {(loadState.status === "stale" || loadState.status === "error") && !needsReauth && (
+        <div
+          role={loadState.status === "error" ? "alert" : "status"}
+          aria-live="polite"
+          className={`mx-6 my-4 p-4 rounded-lg border flex items-start gap-3 ${
+            loadState.status === "stale"
+              ? "bg-warning/10 border-warning/30"
+              : "bg-danger/10 border-danger/30"
+          }`}
+        >
+          <AlertTriangle
+            size={18}
+            aria-hidden="true"
+            className={`shrink-0 mt-0.5 ${loadState.status === "stale" ? "text-warning" : "text-danger"}`}
+          />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-text-primary">
+              {loadState.status === "stale"
+                ? "Не удалось обновить календарь"
+                : "Не удалось загрузить календарь"}
+            </p>
+            <p className="text-xs text-text-secondary mt-1">
+              {loadState.status === "stale"
+                ? "Показаны ранее загруженные данные."
+                : "События недоступны. Проверьте подключение и повторите попытку."}
+            </p>
+            {calendarError && (
+              <p className="text-xs text-text-secondary mt-1.5">{calendarError}</p>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="primary"
+                size="xs"
+                icon={<RefreshCw size={12} aria-hidden="true" />}
+                onClick={() => void loadEvents()}
+              >
+                Повторить
+              </Button>
+              {calendarError && (
+                <Button
+                  type="button"
+                  size="xs"
+                  onClick={async () => {
+                    const { openUrl } = await import("@tauri-apps/plugin-opener");
+                    await openUrl(calendarApiEnableUrl);
+                  }}
+                >
+                  Открыть Google Calendar API
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      {loading && events.length === 0 && (
-        <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
-          Загрузка календаря...
+      {loadState.status === "loading" && events.length === 0 && (
+        <div role="status" className="flex-1 flex items-center justify-center gap-2 text-text-tertiary text-sm">
+          <Loader2 size={16} aria-hidden="true" className="animate-spin" />
+          Загрузка календаря…
+        </div>
+      )}
+
+      {loadState.status === "loading" && events.length > 0 && (
+        <div role="status" className="mx-6 my-2 flex items-center gap-2 text-xs text-text-tertiary">
+          <Loader2 size={13} aria-hidden="true" className="animate-spin" />
+          Обновление календаря…
         </div>
       )}
 
