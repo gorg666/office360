@@ -88,4 +88,5 @@ velo-*.tar.gz
 # AI tooling — keep secret-free project MCP trackable; ignore local overrides
 .cursor/mcp.local.json
 .mcp.local.json
+.mcp.json.bak-*
 **/.env.mcp*

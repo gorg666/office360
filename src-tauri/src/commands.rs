@@ -1,15 +1,25 @@
 use crate::imap::client as imap_client;
 use crate::imap::types::{
-    DeltaCheckRequest, DeltaCheckResult, ImapConfig, ImapFetchResult, ImapFolder,
-    ImapCapabilities, ImapFolderQuota, ImapFolderSearchResult, ImapFolderStatus,
-    ImapFolderSyncResult, ImapMessage,
+    DeltaCheckRequest, DeltaCheckResult, ImapCapabilities, ImapConfig, ImapFetchResult, ImapFolder,
+    ImapFolderQuota, ImapFolderSearchResult, ImapFolderStatus, ImapFolderSyncResult, ImapMessage,
 };
 use crate::smtp::client as smtp_client;
 use crate::smtp::types::{SmtpConfig, SmtpSendResult};
 use std::backtrace::Backtrace;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-async fn connect_imap_with_diagnostic(origin: &str, config: &ImapConfig) -> Result<imap_client::ImapSession, String> {
+fn redact_log_identifier(value: &str) -> &'static str {
+    if value.trim().is_empty() {
+        "[missing]"
+    } else {
+        "[redacted]"
+    }
+}
+
+async fn connect_imap_with_diagnostic(
+    origin: &str,
+    config: &ImapConfig,
+) -> Result<imap_client::ImapSession, String> {
     let ts_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
@@ -22,7 +32,7 @@ async fn connect_imap_with_diagnostic(origin: &str, config: &ImapConfig) -> Resu
         config.port,
         config.security,
         config.auth_method,
-        config.username
+        redact_log_identifier(&config.username)
     );
     let backtrace = Backtrace::capture();
     log::warn!("[reconnect-diagnostic] backend stack ({origin}): {backtrace}");
@@ -39,7 +49,7 @@ pub async fn imap_test_connection(config: ImapConfig) -> Result<String, String> 
         config.port,
         config.security,
         config.auth_method,
-        config.username
+        redact_log_identifier(&config.username)
     );
     let result = imap_client::test_connection(&config).await;
     match &result {
@@ -428,6 +438,21 @@ pub async fn smtp_send_email(
     raw_email: String,
 ) -> Result<SmtpSendResult, String> {
     smtp_client::send_raw_email(&config, &raw_email).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_log_identifier;
+
+    #[test]
+    fn redacts_present_log_identifier() {
+        assert_eq!(redact_log_identifier("user@example.test"), "[redacted]");
+    }
+
+    #[test]
+    fn marks_missing_log_identifier() {
+        assert_eq!(redact_log_identifier("  "), "[missing]");
+    }
 }
 
 #[tauri::command]
