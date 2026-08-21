@@ -2,8 +2,8 @@ vi.mock("@tauri-apps/plugin-http", () => ({
   fetch: globalThis.fetch.bind(globalThis),
 }));
 
-import { CalDAVProvider } from "./caldavProvider";
-import { getAccount } from "@/services/db/accounts";
+import { CalDAVProvider, isCalDavAuthFailure } from "./caldavProvider";
+import { getAccount, type DbAccount } from "@/services/db/accounts";
 import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
 
 const MOCK_ICAL_DATA =
@@ -45,18 +45,223 @@ vi.mock("@/services/db/accounts", () => ({
 }));
 
 vi.mock("@/services/oauth/oauthTokenManager", () => ({
+  OAUTH_TOKEN_REFRESH_BUFFER_MS: 5 * 60 * 1000,
   ensureFreshToken: vi.fn().mockResolvedValue("oauth-token"),
 }));
+
+const BASIC_ACCOUNT = {
+  id: "acc-1",
+  email: "user@example.com",
+  provider: "imap",
+  auth_method: "password",
+  oauth_provider: null,
+  caldav_url: "https://caldav.example.com",
+  caldav_username: "user@example.com",
+  caldav_password: "secret",
+} as DbAccount;
+
+function createYandexAccount(overrides: Partial<DbAccount> = {}): DbAccount {
+  return {
+    id: "acc-yandex",
+    email: "user@yandex.ru",
+    display_name: null,
+    avatar_url: null,
+    access_token: "oauth-token",
+    refresh_token: "refresh-token",
+    token_expires_at: Math.floor(Date.now() / 1000) + 3600,
+    history_id: null,
+    last_sync_at: null,
+    is_active: 1,
+    created_at: 0,
+    updated_at: 0,
+    provider: "imap",
+    imap_host: "imap.yandex.ru",
+    imap_port: 993,
+    imap_security: "ssl",
+    smtp_host: "smtp.yandex.ru",
+    smtp_port: 465,
+    smtp_security: "ssl",
+    auth_method: "oauth2",
+    imap_password: null,
+    oauth_provider: "yandex",
+    oauth_client_id: "client-id",
+    oauth_client_secret: null,
+    imap_username: null,
+    caldav_url: "https://caldav.yandex.ru/",
+    caldav_username: "user@yandex.ru",
+    caldav_password: null,
+    caldav_principal_url: null,
+    caldav_home_url: null,
+    calendar_provider: "caldav",
+    accept_invalid_certs: 0,
+    ...overrides,
+  };
+}
 
 describe("CalDAVProvider", () => {
   let provider: CalDAVProvider;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCreateCalendarObject.mockResolvedValue(new Response(null, { status: 201 }));
-    mockUpdateCalendarObject.mockResolvedValue(new Response(null, { status: 204 }));
-    mockDeleteCalendarObject.mockResolvedValue(new Response(null, { status: 204 }));
+    vi.mocked(getAccount).mockReset().mockResolvedValue({ ...BASIC_ACCOUNT });
+    vi.mocked(ensureFreshToken).mockReset().mockResolvedValue("oauth-token");
+    mockLogin.mockReset().mockResolvedValue(undefined);
+    mockFetchCalendars.mockReset();
+    mockFetchCalendarObjects.mockReset();
+    mockCreateCalendarObject.mockReset().mockResolvedValue(new Response(null, { status: 201 }));
+    mockUpdateCalendarObject.mockReset().mockResolvedValue(new Response(null, { status: 204 }));
+    mockDeleteCalendarObject.mockReset().mockResolvedValue(new Response(null, { status: 204 }));
     provider = new CalDAVProvider("acc-1");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  describe("session lifecycle", () => {
+    it("reuses one Yandex OAuth login across sequential provider operations", async () => {
+      const account = createYandexAccount();
+      vi.mocked(getAccount).mockResolvedValue(account);
+      vi.mocked(ensureFreshToken).mockImplementation(async (current) => current.access_token ?? "");
+      mockFetchCalendars.mockResolvedValue([]);
+      mockFetchCalendarObjects.mockResolvedValue([]);
+      const yandexProvider = new CalDAVProvider(account.id);
+
+      await yandexProvider.listCalendars();
+      await yandexProvider.fetchEvents(
+        "/cal/main/",
+        "2024-01-01T00:00:00Z",
+        "2024-01-31T23:59:59Z",
+      );
+
+      expect(ensureFreshToken).toHaveBeenCalledTimes(1);
+      expect(mockLogin).toHaveBeenCalledTimes(1);
+    });
+
+    it("single-flights concurrent Yandex OAuth session creation", async () => {
+      const account = createYandexAccount();
+      vi.mocked(getAccount).mockResolvedValue(account);
+      vi.mocked(ensureFreshToken).mockImplementation(async (current) => current.access_token ?? "");
+      mockLogin.mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      mockFetchCalendars.mockResolvedValue([]);
+      const yandexProvider = new CalDAVProvider(account.id);
+
+      await Promise.all(Array.from({ length: 5 }, () => yandexProvider.listCalendars()));
+
+      expect(ensureFreshToken).toHaveBeenCalledTimes(1);
+      expect(mockLogin).toHaveBeenCalledTimes(1);
+      expect(mockFetchCalendars).toHaveBeenCalledTimes(5);
+    });
+
+    it("clears failed creation so the next request can retry", async () => {
+      mockLogin.mockRejectedValueOnce(new Error("Network down"));
+      mockFetchCalendars.mockResolvedValue([]);
+      const retryingProvider = new CalDAVProvider("acc-1");
+
+      await expect(retryingProvider.listCalendars()).rejects.toThrow("Network down");
+      await expect(retryingProvider.listCalendars()).resolves.toEqual([]);
+
+      expect(mockLogin).toHaveBeenCalledTimes(2);
+    });
+
+    it("recreates an OAuth session when credential expiry enters the refresh margin", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-21T12:00:00Z"));
+      const account = createYandexAccount({
+        token_expires_at: Math.floor(Date.now() / 1000) + 6 * 60,
+      });
+      vi.mocked(getAccount).mockResolvedValue(account);
+      vi.mocked(ensureFreshToken).mockImplementation(async (current) => {
+        if ((current.token_expires_at ?? 0) * 1000 - Date.now() <= 5 * 60 * 1000) {
+          current.access_token = "refreshed-token";
+          current.token_expires_at = Math.floor(Date.now() / 1000) + 3600;
+        }
+        return current.access_token ?? "";
+      });
+      mockFetchCalendars.mockResolvedValue([]);
+      const yandexProvider = new CalDAVProvider(account.id);
+
+      await yandexProvider.listCalendars();
+      vi.advanceTimersByTime(2 * 60 * 1000);
+      await yandexProvider.listCalendars();
+
+      expect(ensureFreshToken).toHaveBeenCalledTimes(2);
+      expect(mockLogin).toHaveBeenCalledTimes(2);
+    });
+
+    it("invalidates, force-refreshes, and retries an auth failure once", async () => {
+      const account = createYandexAccount();
+      vi.mocked(getAccount).mockResolvedValue(account);
+      vi.mocked(ensureFreshToken).mockImplementation(async (current, options) => {
+        if (options?.forceRefresh) {
+          current.access_token = "refreshed-token";
+          current.token_expires_at = Math.floor(Date.now() / 1000) + 3600;
+        }
+        return current.access_token ?? "";
+      });
+      mockFetchCalendars.mockResolvedValue([]);
+      const yandexProvider = new CalDAVProvider(account.id);
+      await yandexProvider.listCalendars();
+
+      mockFetchCalendars
+        .mockRejectedValueOnce(new Error("Collection query failed: 401 Unauthorized"))
+        .mockResolvedValueOnce([{ url: "/cal/main/", displayName: "Main" }]);
+
+      await expect(yandexProvider.listCalendars()).resolves.toHaveLength(1);
+
+      expect(ensureFreshToken).toHaveBeenCalledTimes(2);
+      expect(ensureFreshToken).toHaveBeenLastCalledWith(account, { forceRefresh: true });
+      expect(mockLogin).toHaveBeenCalledTimes(2);
+      expect(mockFetchCalendars).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not invalidate the session for a discovery-like 404 or permission-only 403", async () => {
+      mockFetchCalendars.mockResolvedValue([]);
+      mockFetchCalendarObjects.mockRejectedValueOnce(
+        new Error("Collection query failed: 404 Not Found"),
+      );
+
+      await provider.listCalendars();
+      await expect(provider.fetchEvents(
+        "/cal/main/",
+        "2024-01-01T00:00:00Z",
+        "2024-01-31T23:59:59Z",
+      )).rejects.toThrow("404 Not Found");
+      mockCreateCalendarObject.mockResolvedValueOnce(new Response("Forbidden", {
+        status: 403,
+        statusText: "Forbidden",
+      }));
+      await expect(provider.createEvent("/cal/main/", {
+        summary: "Blocked",
+        startTime: "2024-03-15T09:00:00Z",
+        endTime: "2024-03-15T10:00:00Z",
+      })).rejects.toThrow("403");
+      await provider.listCalendars();
+
+      expect(mockLogin).toHaveBeenCalledTimes(1);
+      expect(isCalDavAuthFailure(new Error("Collection query failed: 404 Not Found"))).toBe(false);
+      expect(isCalDavAuthFailure(new Error("CalDAV create failed (403): Forbidden"))).toBe(false);
+      expect(isCalDavAuthFailure(new Error("CalDAV request failed (403): invalid token"))).toBe(true);
+    });
+
+    it("redacts session identifiers and credentials from diagnostics", async () => {
+      const account = createYandexAccount();
+      vi.mocked(getAccount).mockResolvedValue(account);
+      vi.mocked(ensureFreshToken).mockImplementation(async (current) => current.access_token ?? "");
+      mockFetchCalendars.mockResolvedValue([]);
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+
+      await new CalDAVProvider(account.id).listCalendars();
+
+      const diagnostics = JSON.stringify(info.mock.calls);
+      expect(diagnostics).toContain("[redacted]");
+      expect(diagnostics).not.toContain(account.id);
+      expect(diagnostics).not.toContain(account.email);
+      expect(diagnostics).not.toContain(account.access_token);
+      info.mockRestore();
+    });
   });
 
   describe("listCalendars", () => {

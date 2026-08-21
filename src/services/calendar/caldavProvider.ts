@@ -1,4 +1,3 @@
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { DAVClient, type DAVCalendar, type DAVObject } from "tsdav";
 import type {
   CalendarProvider,
@@ -11,24 +10,100 @@ import type {
   CalendarParticipationStatus,
 } from "./types";
 import { generateVEvent, parseVEvent, parseVEventsInRange, updateAttendeeParticipation, updateVEventFields } from "./icalHelper";
-import { getAccount } from "@/services/db/accounts";
-import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
+import { getAccount, type DbAccount } from "@/services/db/accounts";
+import { ensureFreshToken, OAUTH_TOKEN_REFRESH_BUFFER_MS } from "@/services/oauth/oauthTokenManager";
 import { isYandexOAuthCalendarAccount, YANDEX_CALDAV_URL } from "./yandex";
 import { clearAccountDiagnostic, upsertAccountDiagnostic } from "@/services/db/accountDiagnostics";
-import { createConnectionDiagnostic } from "@/services/diagnostics";
+import { createConnectionDiagnostic, redactLogIdentifier } from "@/services/diagnostics";
+import { calDavSessionFetch, isCalDavAuthFailure } from "./caldavAuthFailure";
+
+export { isCalDavAuthFailure } from "./caldavAuthFailure";
+
+type CalDavAuthKind = "basic" | "yandex_oauth";
+
+interface CalDavCredentialState {
+  authKind: CalDavAuthKind;
+  serverUrl: string;
+  username: string;
+  credentialValue: string;
+  expiresAtMs: number | null;
+}
+
+interface CalDavProviderSession {
+  client: DAVClient;
+  credential: CalDavCredentialState;
+  invalidated: boolean;
+}
+
+interface GetSessionOptions {
+  forceCredentialRefresh?: boolean;
+  reason?: string;
+}
 
 export class CalDAVProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "caldav";
-  private client: DAVClient | null = null;
+  private readonly sessionKey: string;
+  private session: CalDavProviderSession | null = null;
+  private sessionCreation: Promise<CalDavProviderSession> | null = null;
+  private recreationPending = false;
+  private forceCredentialRefreshRequired = false;
 
-  constructor(readonly accountId: string) {}
+  constructor(readonly accountId: string) {
+    this.sessionKey = `caldav:${accountId}`;
+  }
 
-  private async getClient(): Promise<DAVClient> {
+  private async getSession(options: GetSessionOptions = {}): Promise<CalDavProviderSession> {
+    if (this.sessionCreation) {
+      this.logSessionDiagnostic("session_creation_reused", { reason: options.reason ?? "concurrent_request" });
+      return this.sessionCreation;
+    }
+
     const account = await getAccount(this.accountId);
     if (!account) throw new Error("Account not found");
 
+    if (this.sessionCreation) {
+      this.logSessionDiagnostic("session_creation_reused", { reason: options.reason ?? "concurrent_request" });
+      return this.sessionCreation;
+    }
+
+    const forceCredentialRefresh =
+      options.forceCredentialRefresh === true || this.forceCredentialRefreshRequired;
+    if (!forceCredentialRefresh && this.session) {
+      const staleReason = getSessionStaleReason(this.session, account);
+      if (!staleReason) {
+        this.logSessionDiagnostic("session_cache_hit");
+        return this.session;
+      }
+      this.invalidateSession(this.session, staleReason);
+    }
+
+    const isRecreation = this.recreationPending;
+    this.logSessionDiagnostic("session_creation_started", {
+      reason: options.reason ?? (isRecreation ? "stale_or_invalidated" : "cache_miss"),
+      forceCredentialRefresh,
+    });
+
+    const creation = this.createSession(account, forceCredentialRefresh).then((session) => {
+      this.session = session;
+      this.recreationPending = false;
+      this.forceCredentialRefreshRequired = false;
+      if (isRecreation) this.logSessionDiagnostic("session_recreated");
+      return session;
+    });
+    this.sessionCreation = creation;
+
+    try {
+      return await creation;
+    } finally {
+      if (this.sessionCreation === creation) this.sessionCreation = null;
+    }
+  }
+
+  private async createSession(
+    account: DbAccount,
+    forceCredentialRefresh: boolean,
+  ): Promise<CalDavProviderSession> {
     const usesYandexOAuth = isYandexOAuthCalendarAccount(account);
-    if (this.client && !usesYandexOAuth) return this.client;
     const serverUrl = account.caldav_url ?? (usesYandexOAuth ? YANDEX_CALDAV_URL : null);
     const username = account.caldav_username ?? account.email;
     const password = account.caldav_password;
@@ -40,9 +115,22 @@ export class CalDAVProvider implements CalendarProvider {
     let client: DAVClient;
 
     if (usesYandexOAuth) {
-      const accessToken = await ensureFreshToken(account);
+      const accessToken = forceCredentialRefresh
+        ? await ensureFreshToken(account, { forceRefresh: true })
+        : await ensureFreshToken(account);
       const { loginYandexCalDavClient } = await import("./yandexCalDavAuth");
-      client = await loginYandexCalDavClient(serverUrl, accessToken);
+      client = await loginYandexCalDavClient(serverUrl, accessToken, calDavSessionFetch);
+      return {
+        client,
+        credential: {
+          authKind: "yandex_oauth",
+          serverUrl,
+          username,
+          credentialValue: accessToken,
+          expiresAtMs: account.token_expires_at ? account.token_expires_at * 1000 : null,
+        },
+        invalidated: false,
+      };
     } else {
       if (!password) {
         throw new Error("CalDAV credentials not configured");
@@ -53,20 +141,68 @@ export class CalDAVProvider implements CalendarProvider {
         credentials: { username, password },
         authMethod: "Basic",
         defaultAccountType: "caldav",
-        fetch: tauriFetch,
+        fetch: calDavSessionFetch,
       });
       await client.login();
+      return {
+        client,
+        credential: {
+          authKind: "basic",
+          serverUrl,
+          username,
+          credentialValue: password,
+          expiresAtMs: null,
+        },
+        invalidated: false,
+      };
     }
+  }
 
-    // OAuth access tokens expire. A Yandex DAVClient captures the token in its
-    // auth callback, so it must not outlive the token stored on the account.
-    if (!usesYandexOAuth) this.client = client;
-    return client;
+  private invalidateSession(session: CalDavProviderSession, reason: string): void {
+    if (session.invalidated) return;
+    session.invalidated = true;
+    if (this.session === session) this.session = null;
+    this.recreationPending = true;
+    if (reason === "auth_failure") this.forceCredentialRefreshRequired = true;
+    this.logSessionDiagnostic("session_invalidated", { reason });
+  }
+
+  private async withClient<T>(operation: string, run: (client: DAVClient) => Promise<T>): Promise<T> {
+    const session = await this.getSession({ reason: operation });
+    try {
+      return await run(session.client);
+    } catch (error) {
+      if (!isCalDavAuthFailure(error)) throw error;
+
+      this.invalidateSession(session, "auth_failure");
+      const retrySession = await this.getSession({
+        forceCredentialRefresh: true,
+        reason: `${operation}_auth_retry`,
+      });
+      try {
+        return await run(retrySession.client);
+      } catch (retryError) {
+        if (isCalDavAuthFailure(retryError)) {
+          this.invalidateSession(retrySession, "auth_failure");
+        }
+        throw retryError;
+      }
+    }
+  }
+
+  private logSessionDiagnostic(event: string, details: Record<string, unknown> = {}): void {
+    const redactedAccountId = redactLogIdentifier(this.sessionKey.slice("caldav:".length));
+    console.info("[calendar-session]", {
+      event,
+      provider: "caldav",
+      accountId: redactedAccountId,
+      sessionKey: `caldav:${redactedAccountId}`,
+      ...details,
+    });
   }
 
   async listCalendars(): Promise<CalendarInfo[]> {
-    const client = await this.getClient();
-    const calendars = await client.fetchCalendars();
+    const calendars = await this.withClient("list_calendars", (client) => client.fetchCalendars());
 
     return calendars.map((cal, index) => ({
       remoteId: cal.url,
@@ -77,15 +213,13 @@ export class CalDAVProvider implements CalendarProvider {
   }
 
   async fetchEvents(calendarRemoteId: string, timeMin: string, timeMax: string): Promise<CalendarEventData[]> {
-    const client = await this.getClient();
-
-    const objects = await client.fetchCalendarObjects({
+    const objects = await this.withClient("fetch_events", (client) => client.fetchCalendarObjects({
       calendar: { url: calendarRemoteId } as DAVCalendar,
       timeRange: {
         start: timeMin,
         end: timeMax,
       },
-    });
+    }));
 
     return objects.flatMap((obj) => {
       if (!obj.data) return [];
@@ -97,17 +231,18 @@ export class CalDAVProvider implements CalendarProvider {
   }
 
   async createEvent(calendarRemoteId: string, event: CreateEventInput): Promise<CalendarEventData> {
-    const client = await this.getClient();
     const uid = crypto.randomUUID();
     const icalData = generateVEvent(event, uid);
     const filename = `${uid}.ics`;
 
-    const response = await client.createCalendarObject({
-      calendar: { url: calendarRemoteId } as DAVCalendar,
-      filename,
-      iCalString: icalData,
+    await this.withClient("create_event", async (client) => {
+      const response = await client.createCalendarObject({
+        calendar: { url: calendarRemoteId } as DAVCalendar,
+        filename,
+        iCalString: icalData,
+      });
+      await assertDavResponseOk(response, "create event");
     });
-    await assertDavResponseOk(response, "create event");
 
     const parsed = parseVEvent(icalData, joinCalendarObjectUrl(calendarRemoteId, filename));
     return parsed;
@@ -119,30 +254,28 @@ export class CalDAVProvider implements CalendarProvider {
     event: UpdateEventInput,
     etag?: string,
   ): Promise<CalendarEventData> {
-    const client = await this.getClient();
+    return this.withClient("update_event", async (client) => {
+      // Fetch the existing object to get its current data
+      const objects = await client.fetchCalendarObjects({
+        calendar: { url: calendarRemoteId } as DAVCalendar,
+        objectUrls: [remoteEventId],
+      });
 
-    // Fetch the existing object to get its current data
-    const objects = await client.fetchCalendarObjects({
-      calendar: { url: calendarRemoteId } as DAVCalendar,
-      objectUrls: [remoteEventId],
+      const existing = objects[0];
+      if (!existing?.data) throw new Error("Event not found on server");
+
+      const icalData = updateVEventFields(existing.data, event);
+      const response = await client.updateCalendarObject({
+        calendarObject: {
+          url: remoteEventId,
+          data: icalData,
+          etag: etag ?? existing.etag ?? undefined,
+        } as DAVObject,
+      });
+      await assertDavResponseOk(response, "update event");
+
+      return parseVEvent(icalData, remoteEventId);
     });
-
-    const existing = objects[0];
-    if (!existing?.data) throw new Error("Event not found on server");
-
-    const icalData = updateVEventFields(existing.data, event);
-
-    const response = await client.updateCalendarObject({
-      calendarObject: {
-        url: remoteEventId,
-        data: icalData,
-        etag: etag ?? existing.etag ?? undefined,
-      } as DAVObject,
-    });
-    await assertDavResponseOk(response, "update event");
-
-    const result = parseVEvent(icalData, remoteEventId);
-    return result;
   }
 
   async respondToEvent(
@@ -152,35 +285,35 @@ export class CalDAVProvider implements CalendarProvider {
     status: CalendarParticipationStatus,
     etag?: string,
   ): Promise<void> {
-    const client = await this.getClient();
-    const objects = await client.fetchCalendarObjects({
-      calendar: { url: calendarRemoteId } as DAVCalendar,
-      objectUrls: [remoteEventId],
+    await this.withClient("respond_to_event", async (client) => {
+      const objects = await client.fetchCalendarObjects({
+        calendar: { url: calendarRemoteId } as DAVCalendar,
+        objectUrls: [remoteEventId],
+      });
+      const existing = objects[0];
+      if (!existing?.data) throw new Error("Событие не найдено на сервере");
+      const data = updateAttendeeParticipation(existing.data, attendeeEmail, status);
+      if (data === existing.data) throw new Error("Текущий аккаунт не найден среди участников");
+      const response = await client.updateCalendarObject({
+        calendarObject: { url: remoteEventId, data, etag: etag ?? existing.etag ?? undefined } as DAVObject,
+      });
+      await assertDavResponseOk(response, "respond to event");
     });
-    const existing = objects[0];
-    if (!existing?.data) throw new Error("Событие не найдено на сервере");
-    const data = updateAttendeeParticipation(existing.data, attendeeEmail, status);
-    if (data === existing.data) throw new Error("Текущий аккаунт не найден среди участников");
-    const response = await client.updateCalendarObject({
-      calendarObject: { url: remoteEventId, data, etag: etag ?? existing.etag ?? undefined } as DAVObject,
-    });
-    await assertDavResponseOk(response, "respond to event");
   }
 
   async deleteEvent(_calendarRemoteId: string, remoteEventId: string, etag?: string): Promise<void> {
-    const client = await this.getClient();
-
-    const response = await client.deleteCalendarObject({
-      calendarObject: {
-        url: remoteEventId,
-        etag: etag ?? undefined,
-      } as DAVObject,
+    await this.withClient("delete_event", async (client) => {
+      const response = await client.deleteCalendarObject({
+        calendarObject: {
+          url: remoteEventId,
+          etag: etag ?? undefined,
+        } as DAVObject,
+      });
+      await assertDavResponseOk(response, "delete event");
     });
-    await assertDavResponseOk(response, "delete event");
   }
 
   async syncEvents(calendarRemoteId: string, _syncToken?: string): Promise<CalendarSyncResult> {
-    const client = await this.getClient();
     const created: CalendarEventData[] = [];
 
     // Full fetch — tsdav's syncCalendars doesn't reliably expose per-object deltas,
@@ -191,13 +324,13 @@ export class CalDAVProvider implements CalendarProvider {
     const timeMax = new Date(now);
     timeMax.setFullYear(timeMax.getFullYear() + 1);
 
-    const objects = await client.fetchCalendarObjects({
+    const objects = await this.withClient("sync_events", (client) => client.fetchCalendarObjects({
       calendar: { url: calendarRemoteId } as DAVCalendar,
       timeRange: {
         start: timeMin.toISOString(),
         end: timeMax.toISOString(),
       },
-    });
+    }));
 
     for (const obj of objects) {
       if (obj.data) {
@@ -212,16 +345,13 @@ export class CalDAVProvider implements CalendarProvider {
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
     try {
-      const client = await this.getClient();
-      const calendars = await client.fetchCalendars();
+      const calendars = await this.withClient("test_connection", (client) => client.fetchCalendars());
       await clearAccountDiagnostic(this.accountId, "caldav", "test_connection").catch(() => {});
       return {
         success: true,
         message: `Connected — found ${calendars.length} calendar${calendars.length !== 1 ? "s" : ""}`,
       };
     } catch (err) {
-      // Reset client on failure so next attempt can retry
-      this.client = null;
       const diagnostic = createConnectionDiagnostic(err, {
         accountId: this.accountId,
         provider: "caldav",
@@ -232,6 +362,42 @@ export class CalDAVProvider implements CalendarProvider {
       return { success: false, message: diagnostic.userMessage };
     }
   }
+}
+
+function getSessionStaleReason(
+  session: CalDavProviderSession,
+  account: DbAccount,
+): string | null {
+  if (session.invalidated) return "invalidated";
+
+  const credential = session.credential;
+  const usesYandexOAuth = isYandexOAuthCalendarAccount(account);
+  const expectedAuthKind: CalDavAuthKind = usesYandexOAuth ? "yandex_oauth" : "basic";
+  const expectedServerUrl = account.caldav_url ?? (usesYandexOAuth ? YANDEX_CALDAV_URL : "");
+  const expectedUsername = account.caldav_username ?? account.email;
+  const expectedCredential = usesYandexOAuth ? account.access_token : account.caldav_password;
+  const expectedExpiresAtMs = usesYandexOAuth && account.token_expires_at
+    ? account.token_expires_at * 1000
+    : null;
+
+  if (
+    credential.authKind !== expectedAuthKind ||
+    credential.serverUrl !== expectedServerUrl ||
+    credential.username !== expectedUsername ||
+    credential.credentialValue !== (expectedCredential ?? "") ||
+    credential.expiresAtMs !== expectedExpiresAtMs
+  ) {
+    return "credential_changed";
+  }
+
+  if (
+    credential.expiresAtMs !== null &&
+    credential.expiresAtMs - Date.now() <= OAUTH_TOKEN_REFRESH_BUFFER_MS
+  ) {
+    return "credential_expired_or_expiring";
+  }
+
+  return null;
 }
 
 function extractCalendarColor(cal: DAVCalendar): string | null {

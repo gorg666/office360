@@ -9,7 +9,7 @@ import {
 } from "./yandexOAuthCredentials";
 
 /** Buffer before expiry to trigger a refresh (5 minutes) */
-const REFRESH_BUFFER_MS = 5 * 60 * 1000;
+export const OAUTH_TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
 export interface EnsureFreshTokenOptions {
   /** Bypass expiry check and refresh immediately (e.g. after AUTHENTICATIONFAILED). */
@@ -52,7 +52,7 @@ export async function ensureFreshToken(
   const expiresAt = (account.token_expires_at ?? 0) * 1000; // DB stores seconds
   const forceRefresh = options?.forceRefresh === true;
 
-  if (!forceRefresh && expiresAt - now > REFRESH_BUFFER_MS) {
+  if (!forceRefresh && expiresAt - now > OAUTH_TOKEN_REFRESH_BUFFER_MS) {
     return account.access_token;
   }
 

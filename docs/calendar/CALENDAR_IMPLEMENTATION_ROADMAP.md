@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A and CAL-101B completed; CAL-102 remains the next foundation ticket.
+Roadmap state: CAL-101A, CAL-101B and CAL-101C completed; CAL-102 remains the next foundation ticket.
 
 ## ID convention
 
@@ -63,8 +63,9 @@ CAL-101 Git/runtime gate
 
 - **CAL-101A — completed:** read-only Yandex CalDAV runtime chain verified; historical A2/CAL-001 not reproduced; sanitized response-level evidence recorded in `CALENDAR_RUNTIME_BASELINE.md`.
 - **CAL-101B — completed:** `CAL-BUG-101` closed with explicit `loading | fresh | stale | error` UI semantics shared by Google and CalDAV/Yandex, cached stale-data notice, no-cache error state, Retry and targeted A–D tests.
+- **CAL-101C — completed:** `CAL-BUG-103` closed with expiry-aware CalDAV/Yandex session reuse, provider/session single-flight creation, failed-creation recovery and one bounded auth invalidation/retry. Live read-only smoke confirmed one login/discovery chain across six session requests.
 - Empty cached ranges remain indistinguishable from a cache miss until a later persistence ticket introduces range-completeness metadata; CAL-101B deliberately treats an empty result as no usable cache and does not change the DB schema.
-- **Next:** CAL-101C final Calendar gate/review, then CAL-102 domain and timezone contracts.
+- **Next:** CAL-102 domain and timezone contracts. CAL-102 is not started by CAL-101C.
 
 ## CAL-102 — Calendar domain and timezone contracts
 

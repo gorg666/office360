@@ -14,13 +14,14 @@ function isCalDavUnauthorizedError(err: unknown): boolean {
 export async function loginYandexCalDavClient(
   serverUrl: string,
   accessToken: string,
+  fetchOverride: typeof tauriFetch = tauriFetch,
 ): Promise<DAVClient> {
   const { DAVClient } = await import("tsdav");
   const common = {
     serverUrl,
     credentials: { accessToken },
     defaultAccountType: "caldav" as const,
-    fetch: tauriFetch,
+    fetch: fetchOverride,
   };
 
   const oauthClient = new DAVClient({

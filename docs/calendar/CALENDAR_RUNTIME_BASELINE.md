@@ -58,9 +58,11 @@
 
 Native `connect_imap_with_diagnostic()` и `imap_test_connection()` передавали `config.username` в runtime log. Добавлен минимальный `redact_log_identifier()` с тестами; runtime smoke подтвердил `username=[redacted]`. Calendar/IMAP behavior не менялся.
 
-### CAL-BUG-103 — confirmed
+### CAL-BUG-103 — closed by CAL-101C
 
-`CalDAVProvider.getClient()` не cache-ит Yandex OAuth client: `listCalendars()` и каждый `fetchEvents()` создают client и повторяют login/discovery. Runtime remount показал параллельные initial calls и дополнительные credential/login/query sequences. Это усиливает latency и flakiness, но не вызвало текущий failure. Рекомендация: token-expiry-aware shared/session client с bounded re-login и single-flight creation.
+`CalDAVProvider` теперь владеет общей session на стабильный ключ `caldav + account.id`. Session повторно используется, пока credential snapshot остаётся актуальным и OAuth token не вошёл в существующий пятиминутный refresh buffer. Изменение credential, expiry или явная invalidation приводит к recreation; неуспешное создание очищает pending state.
+
+Создание session защищено single-flight как внутри provider, так и при конкурентном создании самого provider в `providerFactory`. Это устраняет обнаруженную runtime race, при которой параллельные initial operations могли получить два `CalDAVProvider` и выполнить два login/discovery. Явный `401` и auth-related `403` инвалидируют session и допускают один controlled retry через существующий credential refresh path. Permission-only `403`, network/application errors и допустимый initial DAV probe `404` не вызывают auth retry.
 
 ## Desktop smoke
 
@@ -84,6 +86,23 @@ Native `connect_imap_with_diagnostic()` и `imap_test_connection()` переда
 | Calendar load: fresh state | PASS | После успешных remote loads отсутствовали loading, stale, error и cached-data warning; это наблюдаемый эквивалент `CalendarLoadState = fresh` |
 | Stale/error automated coverage | PASS | Targeted cases A–D покрывают success, cache + failure, no-cache failure и Retry для Google/CalDAV |
 | Stale/error live forcing | NOT FORCED | Безопасного способа нет: вмешательство в live provider/credentials не оправдано при наличии автоматического покрытия |
+
+### CAL-101C session lifecycle validation
+
+Дата: 2026-08-21 (Asia/Bangkok). Проверка выполнена в `npm run tauri dev` с включёнными безопасными session diagnostics; значения credentials, account IDs, DAV URLs, calendar names и event data не логировались.
+
+| Проверка | Статус | Наблюдение |
+|---|---|---|
+| Calendar open / Month | PASS | Remote calendars и events загрузились без error/stale banner |
+| Week / Day | PASS | Оба time-grid view завершили remote load без error/stale banner |
+| Calendar list | PASS | Список remote calendars доступен |
+| Session requests / provider operations | PASS | 6 обращений к session lifecycle |
+| Session creation | PASS | 1 создание, следовательно 1 login/discovery chain |
+| Concurrent single-flight | PASS | 1 конкурентный caller присоединился к уже начатому созданию |
+| Subsequent reuse | PASS | 4 cache hits после создания |
+| Expiry/auth-failure forcing | NOT FORCED | Реальные credentials намеренно не инвалидировались; сценарии покрыты автоматическими тестами |
+
+Промежуточный smoke до защиты `providerFactory` показал 2 session creations и тем самым выявил конкурентное создание двух provider instances. После исправления fresh reload дал итоговые counts `creation=1`, `single-flight reuse=1`, `cache hit=4`. Повторные provider calls в одной валидной session больше не выполняют повторный login/discovery.
 
 ## Checks
 
