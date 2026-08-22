@@ -9,9 +9,10 @@ import type {
   UpdateEventInput,
   CalendarParticipationStatus,
   CalendarReadDiagnostics,
+  RecurringMutationContext,
 } from "./types";
 import type { CalendarProviderCapabilities } from "./domain";
-import { generateVEvent, parseVEvent, parseVEventsInRangeDetailed, updateAttendeeParticipation, updateVEventFields } from "./icalHelper";
+import { excludeVEventOccurrence, generateVEvent, parseVEvent, parseVEventsInRangeDetailed, updateAttendeeParticipation, updateVEventFields, updateVEventOccurrence } from "./icalHelper";
 import { getAccount, type DbAccount } from "@/services/db/accounts";
 import { ensureFreshToken, OAUTH_TOKEN_REFRESH_BUFFER_MS } from "@/services/oauth/oauthTokenManager";
 import { isYandexOAuthCalendarAccount, YANDEX_CALDAV_URL } from "./yandex";
@@ -70,8 +71,8 @@ export class CalDAVProvider implements CalendarProvider {
       recurrence: {
         read: "full",
         write: "partial",
-        updateScopes: ["series"],
-        deleteScopes: ["series"],
+        updateScopes: ["single", "series"],
+        deleteScopes: ["single", "series"],
       },
       attendees: { read: "partial", write: "partial" },
       rsvp: { local: "projection", remote: "direct" },
@@ -402,6 +403,7 @@ export class CalDAVProvider implements CalendarProvider {
     remoteEventId: string,
     event: UpdateEventInput,
     etag?: string,
+    recurrence?: RecurringMutationContext,
   ): Promise<CalendarEventData> {
     return this.withClient("update_event", async (client) => {
       // Fetch the existing object to get its current data
@@ -413,7 +415,9 @@ export class CalDAVProvider implements CalendarProvider {
       const existing = objects[0];
       if (!existing?.data) throw new Error("Event not found on server");
 
-      const icalData = updateVEventFields(existing.data, event);
+      const icalData = recurrence?.scope === "single" && recurrence.occurrence
+        ? updateVEventOccurrence(existing.data, event, recurrence.seriesUid, recurrence.occurrence.identity)
+        : updateVEventFields(existing.data, event);
       const response = await client.updateCalendarObject({
         calendarObject: {
           url: remoteEventId,
@@ -423,7 +427,10 @@ export class CalDAVProvider implements CalendarProvider {
       });
       await assertDavResponseOk(response, "update event");
 
-      return parseVEvent(icalData, remoteEventId);
+      const parsed = parseVEvent(icalData, remoteEventId);
+      return recurrence?.scope === "single" && recurrence.occurrence
+        ? { ...parsed, seriesUid: recurrence.seriesUid, occurrenceKey: recurrence.occurrence.key, isRecurrenceMaster: false }
+        : parsed;
     });
   }
 
@@ -450,8 +457,22 @@ export class CalDAVProvider implements CalendarProvider {
     });
   }
 
-  async deleteEvent(_calendarRemoteId: string, remoteEventId: string, etag?: string): Promise<void> {
+  async deleteEvent(calendarRemoteId: string, remoteEventId: string, etag?: string, recurrence?: RecurringMutationContext): Promise<void> {
     await this.withClient("delete_event", async (client) => {
+      if (recurrence?.scope === "single" && recurrence.occurrence) {
+        const objects = await client.fetchCalendarObjects({
+          calendar: { url: calendarRemoteId } as DAVCalendar,
+          objectUrls: [remoteEventId],
+        });
+        const existing = objects[0];
+        if (!existing?.data) throw new Error("Event not found on server");
+        const data = excludeVEventOccurrence(existing.data, recurrence.seriesUid, recurrence.occurrence.identity);
+        const response = await client.updateCalendarObject({
+          calendarObject: { url: remoteEventId, data, etag: etag ?? existing.etag ?? undefined } as DAVObject,
+        });
+        await assertDavResponseOk(response, "exclude recurring occurrence");
+        return;
+      }
       const response = await client.deleteCalendarObject({
         calendarObject: {
           url: remoteEventId,

@@ -251,6 +251,40 @@ describe("GoogleCalendarProvider", () => {
   });
 
   describe("updateEvent", () => {
+    it("patches one recurring instance directly", async () => {
+      mockClient.request.mockResolvedValue({
+        id: "instance-1", recurringEventId: "master-1", iCalUID: "series@example",
+        originalStartTime: { dateTime: "2026-03-15T14:00:00Z", timeZone: "America/New_York" },
+        start: { dateTime: "2026-03-15T15:00:00Z", timeZone: "America/New_York" },
+        end: { dateTime: "2026-03-15T16:00:00Z", timeZone: "America/New_York" },
+      });
+      await provider.updateEvent("cal-1", "instance-1", { summary: "Moved instance" }, '"instance-etag"', {
+        scope: "single", seriesUid: "series@example",
+        occurrence: { key: "series%40example|Z|America%2FNew_York|20260315T100000", identity: { kind: "timed-zoned", tzid: "America/New_York", wall: { year: 2026, month: 3, day: 15, hour: 10, minute: 0, second: 0 } } },
+      });
+      expect(mockClient.request).toHaveBeenCalledTimes(1);
+      expect(mockClient.request).toHaveBeenCalledWith(
+        `${CALENDAR_API_BASE}/calendars/cal-1/events/instance-1`,
+        expect.objectContaining({ method: "PATCH", headers: { "If-Match": '"instance-etag"' } }),
+      );
+    });
+
+    it("resolves an instance to its master and preserves EXDATE/RDATE when changing RRULE", async () => {
+      mockClient.request
+        .mockResolvedValueOnce({ id: "instance-1", recurringEventId: "master-1", start: {}, end: {} })
+        .mockResolvedValueOnce({ id: "master-1", etag: '"master-etag"', recurrence: ["RRULE:FREQ=WEEKLY", "EXDATE:20260315T100000Z", "RDATE:20260322T100000Z"], start: {}, end: {} })
+        .mockResolvedValueOnce({ id: "master-1", recurrence: [], start: { dateTime: "2026-03-01T10:00:00Z" }, end: { dateTime: "2026-03-01T11:00:00Z" } });
+
+      await provider.updateEvent("cal-1", "instance-1", { recurrenceRule: "FREQ=WEEKLY;COUNT=8" }, '"instance-etag"', {
+        scope: "series", seriesUid: "series@example",
+      });
+
+      expect(mockClient.request.mock.calls[2][0]).toBe(`${CALENDAR_API_BASE}/calendars/cal-1/events/master-1`);
+      expect(mockClient.request.mock.calls[2][1].headers).toEqual({ "If-Match": '"master-etag"' });
+      expect(JSON.parse(mockClient.request.mock.calls[2][1].body as string).recurrence).toEqual([
+        "RRULE:FREQ=WEEKLY;COUNT=8", "EXDATE:20260315T100000Z", "RDATE:20260322T100000Z",
+      ]);
+    });
     it("preserves timezone and advances the supplied sequence", async () => {
       mockClient.request.mockResolvedValue({
         id: "evt-1",
@@ -320,6 +354,19 @@ describe("GoogleCalendarProvider", () => {
   });
 
   describe("deleteEvent", () => {
+    it("resolves a recurring instance before deleting the whole series", async () => {
+      mockClient.request
+        .mockResolvedValueOnce({ id: "instance-1", recurringEventId: "master-1", start: {}, end: {} })
+        .mockResolvedValueOnce({ id: "master-1", etag: '"master-etag"', start: {}, end: {} })
+        .mockResolvedValueOnce(undefined);
+
+      await provider.deleteEvent("cal-1", "instance-1", '"instance-etag"', { scope: "series", seriesUid: "series@example" });
+
+      expect(mockClient.request).toHaveBeenNthCalledWith(3,
+        `${CALENDAR_API_BASE}/calendars/cal-1/events/master-1`,
+        { method: "DELETE", headers: { "If-Match": '"master-etag"' } },
+      );
+    });
     it("sends DELETE request with correct URL", async () => {
       mockClient.request.mockResolvedValue(undefined);
 

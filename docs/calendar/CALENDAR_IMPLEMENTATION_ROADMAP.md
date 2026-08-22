@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108, CAL-109 and CAL-110 completed. This document is the source of truth for Calendar ticket numbering.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108, CAL-109, CAL-110 and CAL-111 completed. This document is the source of truth for Calendar ticket numbering.
 
 **Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
 
@@ -31,8 +31,7 @@ CAL-101 gate  ->  CAL-102 time/occurrence  ->  CAL-103 codec
 CAL-106 participant identity  ->  CAL-107 Free/Busy foundation  ->  CAL-108 scheduling engine
                                                                 ->  CAL-109 Scheduling Assistant UI
                                                                 ->  CAL-110 remote Free/Busy adapters
-                                                                ->  CAL-111 participant picker
-CAL-112 Yandex/CalDAV readiness
+CAL-105 provider/write  ->  CAL-111 recurrence mutation backend  ->  CAL-112 recurring edit UX
 CAL-113 Mail inbound  ->  CAL-114 outbound iTIP/RSVP
 CAL-115 application service/UI state  ->  CAL-116 layout engine  ->  CAL-117 drag/resize
                                       ->  CAL-118 event editor
@@ -210,7 +209,7 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Основные файлы/модули:** provider adapters, `freeBusy/` port implementations, capability matrix.
 
-**Зависимости:** CAL-107 port; CAL-112 provider readiness.
+**Зависимости:** CAL-107 port; existing provider auth/discovery readiness.
 
 **Definition of Done:**
 
@@ -225,44 +224,32 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Acceptance (2026-08-22):** PASS. Google uses the official 50-item batch endpoint with per-participant failures, cancellation and privacy projection. Generic CalDAV is enabled only after RFC 6638 principal/outbox/auto-schedule discovery and posts VFREEBUSY to the outbox. Yandex discovery is read-only and remains unsupported. Account/provider-scoped 60-second cache and exact-request coalescing require no migration. Canonical contract: `CALENDAR_REMOTE_FREE_BUSY.md`.
 
-## CAL-111 — Participant picker and directory
+## CAL-111 (delivered) — Recurring event mutation semantics
 
-**Цель:** participant picker и directory-поиск поверх уже готовой identity-модели CAL-106.
+**Цель:** безопасные provider-neutral `single` / `series` / `this-and-future` mutation semantics до recurring edit UI.
 
-**Основные файлы/модули:** contacts DB/services, `AddressInput`-производный picker.
+**Основные файлы/модули:** `CalendarMutationService`, Google/CalDAV providers, `ical.js` codec, occurrence identity.
 
-**Зависимости:** CAL-106 identity; CAL-110 для отображения занятости в подсказках.
+**Зависимости:** CAL-102 occurrence identity, CAL-103 codec, CAL-104 reconciliation, CAL-105 typed writes/capabilities.
 
-**Definition of Done:**
+**Acceptance (2026-08-22):** explicit scope and canonical series/occurrence identity reach the provider. Google and CalDAV/Yandex support safe single/series update/delete; CalDAV single delete is EXDATE PUT rather than resource delete. Google series operations resolve the master and its ETag. `this-and-future` is truthfully unsupported. RRULE/RDATE/EXDATE/overrides, TZID and original RECURRENCE-ID are covered by fixtures. No migration and no live cloud mutation. Canonical contract: `CALENDAR_RECURRENCE_MUTATIONS.md`.
 
-- debounced multi-source directory search;
-- required/optional/resource роли в UI выбора;
-- дедупликация по нормализованной identity;
-- privacy-safe отображение статуса;
-- account isolation тесты.
+## CAL-112 — Recurring edit UX
 
-**Риски:** directory latency, коллизии identity.
+**Цель:** финальный prompt «только это / это и последующие / вся серия» и подключение Scheduling Assistant start/end к CAL-111 contract.
 
-**Примечание:** identity-часть прежнего раздела «Participant identity and picker» выполнена в CAL-106; здесь остаётся только picker/directory.
+**Зависимости:** CAL-111.
 
-## CAL-112 — Yandex/CalDAV production readiness
+**Definition of Done:** capability-driven scope choices; unsupported scopes disabled/explained; no implicit scope inference; single move keeps original identity; Month/Week/Day runtime acceptance without accidental remote writes.
 
+**Не входит:** backend split-series implementation, participant directory, room booking.
 
-**Цель:** обеспечить reproducible Yandex calendar auth/discovery/list/fetch/CRUD на живом account.
+### Pending backlog without a reassigned ticket number
 
-**Основные файлы/модули:** `yandex.ts`, `yandexCalDavAuth.ts`, `autoDiscovery.ts`, OAuth token manager, account setup/diagnostics.
+- Participant picker/directory over CAL-106 identity (debounced multi-source search, roles, dedupe, privacy and account isolation).
+- Yandex/CalDAV production readiness (reproducible auth/discovery/list/fetch/CRUD and provider diagnostics).
 
-**Зависимости:** CAL-101, CAL-105.
-
-**Definition of Done:**
-
-- scope/capability diagnostics without exposing tokens;
-- token refresh/re-auth flow;
-- list/fetch/create/update/delete smoke in Tauri;
-- provider-specific errors localized/actionable;
-- historical A2/CAL-001 closed with evidence.
-
-**Риски:** Yandex OAuth application configuration and undocumented/provider-specific CalDAV behavior.
+These scopes were previously labeled CAL-111/CAL-112 before the explicit owner handoff assigned those numbers to recurrence backend/UI. They stay pending and must receive new numbers before implementation; completed ticket history is unchanged.
 
 
 ## CAL-113 — Mail inbound calendar MIME ingestion

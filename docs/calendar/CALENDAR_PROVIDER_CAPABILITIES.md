@@ -18,8 +18,8 @@ Yandex использует тот же `CalDAVProvider`, что generic CalDAV,
 | Delete | `remote` | `remote` | `remote` |
 | Recurrence read | `full` | `full` | `full` |
 | Recurrence write | `partial` | `partial` | `partial` |
-| Update scopes | `single`, `series` | `series` | `series` |
-| Delete scopes | `single`, `series` | `series` | `series` |
+| Update scopes | `single`, `series` | `single`, `series` | `single`, `series` |
+| Delete scopes | `single`, `series` | `single`, `series` | `single`, `series` |
 | Attendee read | `partial` | `partial` | `partial` |
 | Attendee write | `partial` | `partial` | `partial` |
 | Local RSVP | provisional projection | provisional projection | provisional projection |
@@ -34,7 +34,7 @@ Yandex использует тот же `CalDAVProvider`, что generic CalDAV,
 | Reminders | `none` | `none` | `none` |
 | Conflict detection | `etag` when cached ETag exists | `etag` when cached ETag exists | `etag` when cached ETag exists |
 
-`partial` recurrence write means Office360 can update ordinary fields on a recurrence target while preserving the existing RRULE/EXDATE/RDATE/RECURRENCE-ID data. CAL-105 does not add recurrence-rule authoring or `this-and-future`. Attendee write is partial because basic create/codec preservation and RSVP exist, but there is no complete attendee editor/role model yet.
+`partial` recurrence write means Office360 supports explicit single/series update and delete, including series RRULE replacement, while preserving existing EXDATE/RDATE/RECURRENCE-ID data. `this-and-future` and recurring-series creation remain unsupported. Details: `CALENDAR_RECURRENCE_MUTATIONS.md`.
 
 `freeBusy` splits into `self` and `others` in `version: 3`. `self = local-derived` means CAL-107 computes the signed-in account's availability from synced cache/coverage. Google `others = remote` uses only the official privacy-limited batch endpoint. Generic CalDAV starts at `none` and changes to `remote` only after RFC 6638 scheduling discovery proves an outbox, user address and auto-schedule support. Yandex stays `none`: its web UI feature is not proof of public CalDAV scheduling support. Details: `CALENDAR_FREE_BUSY_MODEL.md` and `CALENDAR_REMOTE_FREE_BUSY.md`.
 
@@ -71,12 +71,12 @@ Raw provider response bodies are not passed to React. HTTP 409/412 map to `confl
 
 Every recurring update/delete command carries an explicit provider-neutral scope: `single`, `series`, or `this-and-future`. The service rejects a missing or undeclared scope before calling a provider.
 
-This is critical for CalDAV/Yandex: expanded occurrences share the series `.ics` resource URL. Their declared delete scope is therefore only `series`. A Calendar occurrence cannot silently call `deleteCalendarObject` and erase the entire resource. Google expanded instances have provider instance IDs, so `single` and `series` are declared; `this-and-future` remains unsupported for both adapters.
+This is critical for CalDAV/Yandex: expanded occurrences share the series `.ics` resource URL. A single delete updates that resource with EXDATE and never calls `deleteCalendarObject`; only an explicit series delete removes the resource. Google expanded instances use provider instance IDs for `single`, while series operations resolve the master ID. `this-and-future` remains unsupported for all adapters.
 
 ## Conflict and precondition behavior
 
 - Google update, delete and RSVP send `If-Match` when a cached ETag is supplied. A provider 409/412 becomes typed `conflict`.
-- CalDAV update/RSVP forward the cached or freshly fetched ETag to `updateCalendarObject`; delete forwards the cached ETag to `deleteCalendarObject`.
+- CalDAV update/RSVP and single-occurrence exclusion forward the cached or freshly fetched ETag to `updateCalendarObject`; series delete forwards the cached ETag to `deleteCalendarObject`.
 - CalDAV create uses the existing `tsdav.createCalendarObject` path and does not explicitly set `If-None-Match`; a duplicate/create race remains provider-defined.
 - If a legacy row has no ETag, the write is unconditional. The capability says `etag` because the normal remote cache carries ETags, not because every legacy write is guarded.
 
@@ -89,4 +89,4 @@ This is critical for CalDAV/Yandex: expanded occurrences share the series `.ics`
 
 ## Conformance coverage
 
-The shared provider conformance suite checks Google and CalDAV capability facts, zoned/all-day normalization and recurrence occurrence identity. Provider and mutation suites additionally cover TZID-preserving writes, exclusive all-day end, RRULE preservation, non-decreasing SEQUENCE input, ETag propagation, typed unsupported actions and series-only occurrence-delete rejection. Yandex reuses the tested CalDAV implementation and has separate read-only runtime acceptance.
+The shared provider conformance suite checks Google and CalDAV capability facts, zoned/all-day normalization and recurrence occurrence identity. Provider, mutation and codec suites cover single/series routing, original RECURRENCE-ID preservation after a move, typed EXDATE values, existing exception preservation, DST-zone writes, master resolution, ETag propagation, typed unsupported `this-and-future`, and whole-resource delete safety. Yandex reuses the tested CalDAV implementation and has separate read-only runtime acceptance.

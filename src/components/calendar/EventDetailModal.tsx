@@ -95,6 +95,8 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
         baseSequence: event.sequence,
         isRecurring: recurring,
         recurrenceScope,
+        seriesUid: event.series_uid ?? event.uid ?? undefined,
+        occurrenceKey: event.occurrence_key ?? undefined,
       }, {
         summary,
         description,
@@ -108,7 +110,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
     } catch (cause) {
       setError(errorMessage(cause, "Не удалось сохранить событие"));
     } finally { setBusyAction(null); }
-  }, [accountId, description, endTime, event.etag, event.is_all_day, event.sequence, location, onUpdated, recurrenceScope, recurring, remoteIds, startTime, summary]);
+  }, [accountId, description, endTime, event.etag, event.is_all_day, event.occurrence_key, event.sequence, event.series_uid, event.uid, location, onUpdated, recurrenceScope, recurring, remoteIds, startTime, summary]);
 
   const handleDelete = useCallback(async () => {
     setBusyAction("delete"); setError(null);
@@ -120,13 +122,15 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
         etag: event.etag ?? undefined,
         isRecurring: recurring,
         recurrenceScope,
+        seriesUid: event.series_uid ?? event.uid ?? undefined,
+        occurrenceKey: event.occurrence_key ?? undefined,
       });
       if (result.status !== "success") throw new Error(result.message);
       onUpdated();
     } catch (cause) {
       setError(errorMessage(cause, "Не удалось удалить событие"));
     } finally { setBusyAction(null); }
-  }, [accountId, event.etag, onUpdated, recurrenceScope, recurring, remoteIds]);
+  }, [accountId, event.etag, event.occurrence_key, event.series_uid, event.uid, onUpdated, recurrenceScope, recurring, remoteIds]);
 
   const handleRsvp = useCallback(async (status: CalendarParticipationStatus) => {
     if (!accountEmail) return;

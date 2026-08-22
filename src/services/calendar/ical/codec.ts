@@ -4,6 +4,7 @@ import { dedupeCalendarAttendees, normalizeParticipantEmail } from "../domain";
 import {
   instantSecondsToWallDateTime,
   type CalendarEventTime,
+  type OccurrenceIdentity,
   type WallDateTime,
 } from "../domain";
 import type { ICalendarTimeZoneDefinition } from "./timeZoneResolver";
@@ -143,6 +144,66 @@ export function updateICalendarEvent(source: string, changes: UpdateEventInput):
     .find((component) => !component.hasProperty("recurrence-id"));
   if (!master) return source;
 
+  applyEventChanges(master, changes);
+  if (changes.recurrenceRule !== undefined) {
+    master.removeAllProperties("rrule");
+    if (changes.recurrenceRule !== null) {
+      if (/\r|\n|^RRULE:/i.test(changes.recurrenceRule)) throw new Error("Invalid RRULE value");
+      master.addPropertyWithValue("rrule", ICAL.Recur.fromString(changes.recurrenceRule));
+    }
+  }
+  touchComponent(master, changes.sequence);
+  return calendar.toString();
+}
+
+export function updateICalendarOccurrence(
+  source: string,
+  changes: UpdateEventInput,
+  seriesUid: string,
+  identity: OccurrenceIdentity,
+): string {
+  const calendar = ICAL.Component.fromString(source);
+  const components = calendar.getAllSubcomponents("vevent");
+  const master = components.find((component) => !component.hasProperty("recurrence-id"));
+  if (!master || stringValue(master.getFirstPropertyValue("uid")) !== seriesUid) {
+    throw new Error("Recurring series identity does not match CalDAV resource");
+  }
+  let occurrence = components.find((component) => recurrencePropertyMatches(component.getFirstProperty("recurrence-id"), identity));
+  if (!occurrence) {
+    occurrence = new ICAL.Component(structuredClone(master.jCal));
+    occurrence.removeAllProperties("rrule");
+    occurrence.removeAllProperties("rdate");
+    occurrence.removeAllProperties("exdate");
+    occurrence.addProperty(identityProperty("recurrence-id", identity));
+    calendar.addSubcomponent(occurrence);
+  }
+  applyEventChanges(occurrence, changes);
+  touchComponent(occurrence, changes.sequence);
+  return calendar.toString();
+}
+
+export function excludeICalendarOccurrence(
+  source: string,
+  seriesUid: string,
+  identity: OccurrenceIdentity,
+): string {
+  const calendar = ICAL.Component.fromString(source);
+  const components = calendar.getAllSubcomponents("vevent");
+  const master = components.find((component) => !component.hasProperty("recurrence-id"));
+  if (!master || stringValue(master.getFirstPropertyValue("uid")) !== seriesUid) {
+    throw new Error("Recurring series identity does not match CalDAV resource");
+  }
+  const override = components.find((component) => recurrencePropertyMatches(component.getFirstProperty("recurrence-id"), identity));
+  if (override) calendar.removeSubcomponent(override);
+  const excluded = master.getAllProperties("exdate").some((property) =>
+    property.getValues().some((value) => recurrenceValueMatches(property, value, identity)),
+  );
+  if (!excluded) master.addProperty(identityProperty("exdate", identity));
+  touchComponent(master);
+  return calendar.toString();
+}
+
+function applyEventChanges(master: InstanceType<typeof ICAL.Component>, changes: UpdateEventInput): void {
   updateText(master, "summary", changes.summary);
   updateText(master, "description", changes.description);
   updateText(master, "location", changes.location);
@@ -179,13 +240,15 @@ export function updateICalendarEvent(source: string, changes: UpdateEventInput):
     property.setValue(participantUri(changes.organizer.participant));
     master.addProperty(property);
   }
-  const previousSequence = numericValue(master.getFirstPropertyValue("sequence"));
-  const nextSequence = changes.sequence === undefined
+}
+
+function touchComponent(component: InstanceType<typeof ICAL.Component>, requestedSequence?: number): void {
+  const previousSequence = numericValue(component.getFirstPropertyValue("sequence"));
+  const nextSequence = requestedSequence === undefined
     ? previousSequence + 1
-    : Math.max(previousSequence, changes.sequence);
-  master.updatePropertyWithValue("sequence", nextSequence);
-  master.updatePropertyWithValue("dtstamp", ICAL.Time.fromJSDate(new Date(), true));
-  return calendar.toString();
+    : Math.max(previousSequence, requestedSequence);
+  component.updatePropertyWithValue("sequence", nextSequence);
+  component.updatePropertyWithValue("dtstamp", ICAL.Time.fromJSDate(new Date(), true));
 }
 
 export function updateICalendarAttendee(
@@ -395,6 +458,52 @@ function replaceProperty(
 ): void {
   component.removeAllProperties(name);
   component.addProperty(property);
+}
+
+function identityProperty(name: "recurrence-id" | "exdate", identity: OccurrenceIdentity): InstanceType<typeof ICAL.Property> {
+  const property = new ICAL.Property(name);
+  if (identity.kind === "all-day") {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(identity.date);
+    if (!match) throw new Error("Invalid all-day occurrence identity");
+    property.resetType("date");
+    property.setValue(ICAL.Time.fromData({ year: Number(match[1]), month: Number(match[2]), day: Number(match[3]), isDate: true }));
+  } else if (identity.kind === "floating") {
+    property.setValue(ICAL.Time.fromData(identity.wall));
+  } else if (identity.tzid === "UTC") {
+    property.setValue(ICAL.Time.fromData(identity.wall, ICAL.Timezone.utcTimezone));
+  } else {
+    property.setParameter("tzid", identity.tzid);
+    property.setValue(ICAL.Time.fromData(identity.wall));
+  }
+  return property;
+}
+
+function recurrencePropertyMatches(
+  property: InstanceType<typeof ICAL.Property> | null,
+  identity: OccurrenceIdentity,
+): boolean {
+  return property ? property.getValues().some((value) => recurrenceValueMatches(property, value, identity)) : false;
+}
+
+function recurrenceValueMatches(
+  property: InstanceType<typeof ICAL.Property>,
+  value: unknown,
+  identity: OccurrenceIdentity,
+): boolean {
+  if (!(value instanceof ICAL.Time)) return false;
+  const expected = identityFingerprint(identity);
+  if (value.isDate) return expected === `D|${formatCalendarDate(value)}`;
+  const wall = formatDateTime(value).replace(/Z$/, "");
+  const isUtc = value.zone === ICAL.Timezone.utcTimezone || value.zone?.tzid === "UTC";
+  if (isUtc) return expected === `Z|UTC|${wall}`;
+  const tzid = stringValue(property.getFirstParameter("tzid"));
+  return expected === (tzid ? `Z|${tzid}|${wall}` : `F|${wall}`);
+}
+
+function identityFingerprint(identity: OccurrenceIdentity): string {
+  if (identity.kind === "all-day") return `D|${identity.date.replaceAll("-", "")}`;
+  const wall = `${pad(identity.wall.year, 4)}${pad(identity.wall.month)}${pad(identity.wall.day)}T${pad(identity.wall.hour)}${pad(identity.wall.minute)}${pad(identity.wall.second)}`;
+  return identity.kind === "floating" ? `F|${wall}` : `Z|${identity.tzid}|${wall}`;
 }
 
 function updateText(component: InstanceType<typeof ICAL.Component>, name: string, value: string | undefined): void {

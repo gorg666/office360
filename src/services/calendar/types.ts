@@ -1,4 +1,4 @@
-import type { CalendarAttendee, CalendarAttendeeInput, CalendarEventTime, CalendarOrganizer, CalendarProviderCapabilities, ParticipantRef } from "./domain";
+import type { CalendarAttendee, CalendarAttendeeInput, CalendarEventTime, CalendarOrganizer, CalendarProviderCapabilities, OccurrenceIdentity, ParticipantRef, RecurrenceWriteScope } from "./domain";
 
 export type CalendarProviderType = "google_api" | "caldav";
 
@@ -68,6 +68,17 @@ export interface UpdateEventInput {
   sequence?: number;
   attendees?: CalendarAttendeeInput[];
   organizer?: CalendarOrganizer;
+  /** RRULE value without the `RRULE:` prefix. Series mutations only. */
+  recurrenceRule?: string | null;
+}
+
+export interface RecurringMutationContext {
+  scope: RecurrenceWriteScope;
+  seriesUid: string;
+  occurrence?: {
+    key: string;
+    identity: OccurrenceIdentity;
+  };
 }
 
 export type CalendarParticipationStatus = "accepted" | "tentative" | "declined";
@@ -95,8 +106,8 @@ export interface CalendarProvider {
 
   fetchEvents(calendarRemoteId: string, timeMin: string, timeMax: string): Promise<CalendarEventData[]>;
   createEvent(calendarRemoteId: string, event: CreateEventInput): Promise<CalendarEventData>;
-  updateEvent(calendarRemoteId: string, remoteEventId: string, event: UpdateEventInput, etag?: string): Promise<CalendarEventData>;
-  deleteEvent(calendarRemoteId: string, remoteEventId: string, etag?: string): Promise<void>;
+  updateEvent(calendarRemoteId: string, remoteEventId: string, event: UpdateEventInput, etag?: string, recurrence?: RecurringMutationContext): Promise<CalendarEventData>;
+  deleteEvent(calendarRemoteId: string, remoteEventId: string, etag?: string, recurrence?: RecurringMutationContext): Promise<void>;
   respondToEvent(
     calendarRemoteId: string,
     remoteEventId: string,

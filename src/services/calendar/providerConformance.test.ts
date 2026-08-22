@@ -92,7 +92,7 @@ describe("Calendar provider semantic conformance", () => {
       events: { create: "remote", update: "remote", delete: "remote" },
       recurrence: {
         read: "full", write: "partial",
-        updateScopes: ["series"], deleteScopes: ["series"],
+        updateScopes: ["single", "series"], deleteScopes: ["single", "series"],
       },
       rsvp: { local: "projection", remote: "direct" },
       invitations: "none", freeBusy: { self: "local-derived", others: "none" }, conflictDetection: "etag",

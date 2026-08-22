@@ -490,6 +490,26 @@ BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VFREEBUSY\r\nFREEBUSY:20260822T100000Z/2
   });
 
   describe("updateEvent", () => {
+    it("writes one occurrence override without changing the series master", async () => {
+      const recurringData = [
+        "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", "UID:series-1", "SUMMARY:Master",
+        "DTSTART;TZID=Europe/Moscow:20260620T100000", "DTEND;TZID=Europe/Moscow:20260620T110000",
+        "RRULE:FREQ=WEEKLY;COUNT=4", "END:VEVENT", "END:VCALENDAR",
+      ].join("\r\n");
+      mockFetchCalendarObjects.mockResolvedValue([{ data: recurringData, url: "/series.ics", etag: '"etag"' }]);
+
+      await provider.updateEvent("/cal/", "/series.ics", { summary: "Only this" }, '"etag"', {
+        scope: "single", seriesUid: "series-1",
+        occurrence: { key: "series-1|Z|Europe%2FMoscow|20260627T100000", identity: { kind: "timed-zoned", tzid: "Europe/Moscow", wall: { year: 2026, month: 6, day: 27, hour: 10, minute: 0, second: 0 } } },
+      });
+
+      const written = mockUpdateCalendarObject.mock.calls[0][0].calendarObject.data as string;
+      expect(written.match(/SUMMARY:Master/g)).toHaveLength(1);
+      expect(written).toContain("RECURRENCE-ID;TZID=Europe/Moscow:20260627T100000");
+      expect(written).toContain("SUMMARY:Only this");
+      expect(written.match(/RRULE:/g)).toHaveLength(1);
+    });
+
     it("preserves recurrence rules while advancing sequence", async () => {
       const recurringData = [
         "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", "UID:series-1",
@@ -574,6 +594,21 @@ BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VFREEBUSY\r\nFREEBUSY:20260822T100000Z/2
   });
 
   describe("deleteEvent", () => {
+    it("excludes one occurrence with an ETag-protected resource update", async () => {
+      const recurring = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:series-1\r\nDTSTART;TZID=America/New_York:20260301T100000\r\nDTEND;TZID=America/New_York:20260301T110000\r\nRRULE:FREQ=WEEKLY;COUNT=4\r\nEND:VEVENT\r\nEND:VCALENDAR";
+      mockFetchCalendarObjects.mockResolvedValue([{ url: "/series.ics", etag: '"server-etag"', data: recurring }]);
+
+      await provider.deleteEvent("/cal/", "/series.ics", '"cached-etag"', {
+        scope: "single", seriesUid: "series-1",
+        occurrence: { key: "series-1|Z|America%2FNew_York|20260315T100000", identity: { kind: "timed-zoned", tzid: "America/New_York", wall: { year: 2026, month: 3, day: 15, hour: 10, minute: 0, second: 0 } } },
+      });
+
+      expect(mockDeleteCalendarObject).not.toHaveBeenCalled();
+      const calendarObject = mockUpdateCalendarObject.mock.calls[0][0].calendarObject;
+      expect(calendarObject.etag).toBe('"cached-etag"');
+      expect(calendarObject.data).toContain("EXDATE;TZID=America/New_York:20260315T100000");
+      expect(calendarObject.data).toContain("RRULE:FREQ=WEEKLY;COUNT=4");
+    });
     it("calls deleteCalendarObject with etag", async () => {
       await provider.deleteEvent("/cal/personal/", "/cal/personal/test-uid.ics", '"delete-etag"');
 

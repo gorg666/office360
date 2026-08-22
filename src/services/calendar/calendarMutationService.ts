@@ -2,6 +2,7 @@ import { classifyError } from "@/utils/networkErrors";
 import { getCalendarProvider } from "./providerFactory";
 import {
   supportsRecurrenceScope,
+  parseOccurrenceKey,
   type CalendarProviderCapabilities,
   type RecurrenceWriteScope,
 } from "./domain";
@@ -10,6 +11,7 @@ import type {
   CalendarParticipationStatus,
   CreateEventInput,
   UpdateEventInput,
+  RecurringMutationContext,
 } from "./types";
 
 export type CalendarWriteFailureStatus =
@@ -33,6 +35,8 @@ export interface CalendarMutationTarget {
   baseSequence?: number;
   isRecurring?: boolean;
   recurrenceScope?: RecurrenceWriteScope;
+  seriesUid?: string;
+  occurrenceKey?: string;
 }
 
 export class CalendarMutationService {
@@ -65,8 +69,11 @@ export class CalendarMutationService {
       if (provider.capabilities.events.update !== "remote") {
         return unsupported("Изменение событий не поддерживается этим календарём");
       }
-      const scopeFailure = recurrenceScopeFailure(provider.capabilities, "update", target);
-      if (scopeFailure) return scopeFailure;
+      const recurrence = recurringMutationContext(provider.capabilities, "update", target);
+      if (recurrence && "status" in recurrence) return recurrence;
+      if (event.recurrenceRule !== undefined && recurrence?.scope !== "series") {
+        return unsupported("Правило повторения можно изменить только для всей серии");
+      }
       const safeEvent = target.baseSequence === undefined
         ? event
         : { ...event, sequence: Math.max(event.sequence ?? 0, target.baseSequence + 1) };
@@ -75,6 +82,7 @@ export class CalendarMutationService {
         target.remoteEventId,
         safeEvent,
         target.etag,
+        recurrence ?? undefined,
       ));
     } catch (error) {
       return classifyWriteFailure(error);
@@ -87,12 +95,13 @@ export class CalendarMutationService {
       if (provider.capabilities.events.delete !== "remote") {
         return unsupported("Удаление событий не поддерживается этим календарём");
       }
-      const scopeFailure = recurrenceScopeFailure(provider.capabilities, "delete", target);
-      if (scopeFailure) return scopeFailure;
+      const recurrence = recurringMutationContext(provider.capabilities, "delete", target);
+      if (recurrence && "status" in recurrence) return recurrence;
       return runWrite(() => provider.deleteEvent(
         target.calendarRemoteId,
         target.remoteEventId,
         target.etag,
+        recurrence ?? undefined,
       ));
     } catch (error) {
       return classifyWriteFailure(error);
@@ -122,20 +131,32 @@ export class CalendarMutationService {
   }
 }
 
-function recurrenceScopeFailure(
+function recurringMutationContext(
   capabilities: CalendarProviderCapabilities,
   operation: "update" | "delete",
   target: CalendarMutationTarget,
-): CalendarWriteResult<never> | null {
+): CalendarWriteResult<never> | RecurringMutationContext | null {
   if (!target.isRecurring) return null;
-  if (!target.recurrenceScope) {
+  const scope = target.recurrenceScope;
+  if (!scope) {
     return unsupported("Для повторяющегося события требуется явная область изменения");
   }
-  if (!supportsRecurrenceScope(capabilities, operation, target.recurrenceScope)) {
+  if (!supportsRecurrenceScope(capabilities, operation, scope)) {
     const action = operation === "delete" ? "удаление" : "изменение";
     return unsupported(`Этот календарь не поддерживает ${action} выбранной части серии`);
   }
-  return null;
+  if (!target.seriesUid) return unsupported("Для повторяющейся серии отсутствует стабильный UID");
+  if (scope === "series") return { scope, seriesUid: target.seriesUid };
+  if (!target.occurrenceKey) return unsupported("Для отдельного повторения отсутствует occurrence identity");
+  try {
+    const occurrence = parseOccurrenceKey(target.occurrenceKey);
+    if (occurrence.seriesUid !== target.seriesUid) {
+      return unsupported("Occurrence identity не принадлежит выбранной серии");
+    }
+    return { scope, seriesUid: target.seriesUid, occurrence: { key: target.occurrenceKey, identity: occurrence.identity } };
+  } catch {
+    return unsupported("Occurrence identity повреждён или не поддерживается");
+  }
 }
 
 async function runWrite<T>(operation: () => Promise<T>): Promise<CalendarWriteResult<T>> {

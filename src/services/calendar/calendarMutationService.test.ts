@@ -11,8 +11,8 @@ const capabilities = {
   recurrence: {
     read: "full" as const,
     write: "partial" as const,
-    updateScopes: ["series"] as const,
-    deleteScopes: ["series"] as const,
+    updateScopes: ["single", "series"] as const,
+    deleteScopes: ["single", "series"] as const,
   },
   attendees: { read: "partial" as const, write: "partial" as const },
   rsvp: { local: "projection" as const, remote: "direct" as const },
@@ -34,13 +34,13 @@ function provider(): CalendarProvider {
 }
 
 describe("CalendarMutationService", () => {
-  it("blocks occurrence deletion before a series-only provider call", async () => {
+  it("blocks this-and-future before a provider call", async () => {
     const mockProvider = provider();
     vi.mocked(getCalendarProvider).mockResolvedValue(mockProvider);
 
     const result = await calendarMutationService.delete({
       accountId: "acc-1", calendarRemoteId: "cal", remoteEventId: "series.ics",
-      isRecurring: true, recurrenceScope: "single",
+      isRecurring: true, recurrenceScope: "this-and-future", seriesUid: "uid-1",
     });
 
     expect(result.status).toBe("unsupported");
@@ -54,11 +54,13 @@ describe("CalendarMutationService", () => {
 
     const result = await calendarMutationService.delete({
       accountId: "acc-1", calendarRemoteId: "cal", remoteEventId: "series.ics",
-      isRecurring: true, recurrenceScope: "series", etag: '"v1"',
+      isRecurring: true, recurrenceScope: "series", seriesUid: "uid-1", etag: '"v1"',
     });
 
     expect(result.status).toBe("success");
-    expect(mockProvider.deleteEvent).toHaveBeenCalledWith("cal", "series.ics", '"v1"');
+    expect(mockProvider.deleteEvent).toHaveBeenCalledWith("cal", "series.ics", '"v1"', {
+      scope: "series", seriesUid: "uid-1",
+    });
   });
 
   it("does not let an update decrease the cached sequence", async () => {
@@ -73,8 +75,42 @@ describe("CalendarMutationService", () => {
 
     expect(result.status).toBe("success");
     expect(mockProvider.updateEvent).toHaveBeenCalledWith(
-      "cal", "event", { summary: "Updated", sequence: 6 }, undefined,
+      "cal", "event", { summary: "Updated", sequence: 6 }, undefined, undefined,
     );
+  });
+
+  it("passes a decoded canonical occurrence identity to the provider", async () => {
+    const mockProvider = provider();
+    vi.mocked(getCalendarProvider).mockResolvedValue(mockProvider);
+    vi.mocked(mockProvider.updateEvent).mockResolvedValue({} as never);
+    const occurrenceKey = "uid-1|Z|America%2FNew_York|20261101T013000";
+
+    const result = await calendarMutationService.update({
+      accountId: "acc-1", calendarRemoteId: "cal", remoteEventId: "series.ics",
+      isRecurring: true, recurrenceScope: "single", seriesUid: "uid-1", occurrenceKey,
+    }, { summary: "Only this one" });
+
+    expect(result.status).toBe("success");
+    expect(mockProvider.updateEvent).toHaveBeenCalledWith("cal", "series.ics", { summary: "Only this one" }, undefined, {
+      scope: "single",
+      seriesUid: "uid-1",
+      occurrence: {
+        key: occurrenceKey,
+        identity: { kind: "timed-zoned", tzid: "America/New_York", wall: { year: 2026, month: 11, day: 1, hour: 1, minute: 30, second: 0 } },
+      },
+    });
+  });
+
+  it("rejects a mismatched occurrence identity before provider I/O", async () => {
+    const mockProvider = provider();
+    vi.mocked(getCalendarProvider).mockResolvedValue(mockProvider);
+    const result = await calendarMutationService.delete({
+      accountId: "acc-1", calendarRemoteId: "cal", remoteEventId: "series.ics",
+      isRecurring: true, recurrenceScope: "single", seriesUid: "uid-1",
+      occurrenceKey: "different-uid|D|20260101",
+    });
+    expect(result.status).toBe("unsupported");
+    expect(mockProvider.deleteEvent).not.toHaveBeenCalled();
   });
 
   it("returns typed unsupported without invoking a disabled action", async () => {

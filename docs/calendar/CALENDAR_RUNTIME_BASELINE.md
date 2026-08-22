@@ -286,3 +286,22 @@ Rust не менялся. Общий `cargo fmt --check` имеет сущест
 | Cloud mutations | NONE | Create, Save, Delete, RSVP и outbound Free/Busy request к Yandex не выполнялись |
 
 Автоматические проверки CAL-110: TypeScript PASS; targeted Calendar/provider/remote scheduling — 14 files / 173 tests (финальный remote subset: 4 files / 44 tests); full Vitest — 219 files / 2201 tests; `npm run test:calendar-tz` — 110/110 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,031.14 kB raw / 605.01 kB gzip); `cargo check` PASS с двумя прежними unused-variable warnings в `src/lib.rs:360`. Rust не менялся.
+
+### CAL-111 recurring event mutation scopes validation
+
+Дата: 2026-08-22 (Asia/Bangkok). Миграция не создавалась и не запускалась; cloud events, RSVP и invitations не изменялись. Live acceptance выполнена read-only на существующей локальной development-сессии Yandex Calendar.
+
+| Live smoke | Status | Observation |
+|---|---|---|
+| Month | PASS | Август 2026 загрузился без error/stale banner; существующие Yandex-события отобразились |
+| Week | PASS | 16–22 августа загрузилась без error/stale banner; существующее событие отобразилось |
+| Day | PASS | 22 августа загрузился без error/stale banner |
+| Existing event details | PASS | Три доступных события открылись read-only; detail UI не регрессировал |
+| Recurring fixture | NOT AVAILABLE | В текущем диапазоне не найдено существующее live recurring event; создавать или изменять cloud fixture запрещено |
+| Recurring render/details | AUTOMATED PASS | Scope selection, occurrence identity, provider capability guards и provider mutations покрыты targeted/full automated tests; live visual claim не делается |
+| `this-and-future` | UNSUPPORTED BY DESIGN | CalDAV/Yandex capability contract блокирует scope до provider call; silent fallback на series отсутствует |
+| Cloud mutations | NONE | Create, Save, Delete, RSVP и recurring update/delete не вызывались |
+
+Graphify incremental index обновлён после feature diff: 6,125 nodes / 15,435 edges / 377 communities. Recurrence mutation surface представлен 207 релевантными nodes; integrity audit: 0 missing endpoints, 0 self-loops, 0 duplicate edges. CLI/skill сообщает версию 0.9.33, а сохранение query memory предупреждает о более старом interpreter package 0.9.31; rebuild и integrity gate завершились успешно.
+
+Автоматические проверки CAL-111 до финального runtime/docs pass: TypeScript PASS; targeted Calendar recurrence/provider/UI — 14 files / 189 tests; full Vitest — 2217 tests; `npm run test:calendar-tz` — 119/119 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS; `cargo check` PASS с двумя прежними unrelated unused-variable warnings. После runtime/docs-only дополнения минимально повторены TypeScript, targeted 14 files / 189 tests и `cargo check`. Rust не менялся.

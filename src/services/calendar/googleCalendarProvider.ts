@@ -8,6 +8,7 @@ import type {
   UpdateEventInput,
   CalendarParticipationStatus,
   CalendarReadDiagnostics,
+  RecurringMutationContext,
 } from "./types";
 import {
   calendarDateToUnixSeconds,
@@ -56,12 +57,19 @@ export interface GoogleCalendarEvent {
   originalStartTime?: { dateTime?: string; date?: string; timeZone?: string };
   transparency?: string;
   sequence?: number;
+  recurrence?: string[];
 }
 
 interface GoogleEventListResponse {
   items?: GoogleCalendarEvent[];
   nextPageToken?: string;
   nextSyncToken?: string;
+}
+
+interface GoogleMutationTarget {
+  eventId: string;
+  etag?: string;
+  event?: GoogleCalendarEvent;
 }
 
 export class GoogleCalendarProvider implements CalendarProvider {
@@ -173,10 +181,12 @@ export class GoogleCalendarProvider implements CalendarProvider {
     remoteEventId: string,
     event: UpdateEventInput,
     etag?: string,
+    recurrence?: RecurringMutationContext,
   ): Promise<CalendarEventData> {
     const client = await this.getClient();
     const encodedCalId = encodeURIComponent(calendarRemoteId);
-    const encodedEventId = encodeURIComponent(remoteEventId);
+    const target = await resolveGoogleMutationTarget(client, encodedCalId, remoteEventId, etag, recurrence);
+    const encodedEventId = encodeURIComponent(target.eventId);
     const url = `${CALENDAR_API_BASE}/calendars/${encodedCalId}/events/${encodedEventId}`;
 
     const body: Record<string, unknown> = {};
@@ -199,23 +209,31 @@ export class GoogleCalendarProvider implements CalendarProvider {
     }
     if (event.transparency !== undefined) body.transparency = event.transparency;
     if (event.sequence !== undefined) body.sequence = event.sequence;
+    if (event.attendees !== undefined) body.attendees = event.attendees.map(mapDomainAttendeeToGoogle);
+    if (event.recurrenceRule !== undefined) {
+      const preserved = (target.event?.recurrence ?? []).filter((line) => !/^RRULE:/i.test(line));
+      body.recurrence = event.recurrenceRule === null
+        ? preserved
+        : [`RRULE:${sanitizeGoogleRecurrenceRule(event.recurrenceRule)}`, ...preserved];
+    }
 
     const updated = await client.request<GoogleCalendarEvent>(url, {
       method: "PATCH",
-      headers: etag ? { "If-Match": etag } : undefined,
+      headers: target.etag ? { "If-Match": target.etag } : undefined,
       body: JSON.stringify(body),
     });
     return mapGoogleEvent(updated);
   }
 
-  async deleteEvent(calendarRemoteId: string, remoteEventId: string, etag?: string): Promise<void> {
+  async deleteEvent(calendarRemoteId: string, remoteEventId: string, etag?: string, recurrence?: RecurringMutationContext): Promise<void> {
     const client = await this.getClient();
     const encodedCalId = encodeURIComponent(calendarRemoteId);
-    const encodedEventId = encodeURIComponent(remoteEventId);
+    const target = await resolveGoogleMutationTarget(client, encodedCalId, remoteEventId, etag, recurrence);
+    const encodedEventId = encodeURIComponent(target.eventId);
     const url = `${CALENDAR_API_BASE}/calendars/${encodedCalId}/events/${encodedEventId}`;
     await client.request(url, {
       method: "DELETE",
-      headers: etag ? { "If-Match": etag } : undefined,
+      headers: target.etag ? { "If-Match": target.etag } : undefined,
     });
   }
 
@@ -308,6 +326,26 @@ export class GoogleCalendarProvider implements CalendarProvider {
       return { success: false, message: err instanceof Error ? err.message : "Connection failed" };
     }
   }
+}
+
+async function resolveGoogleMutationTarget(
+  client: GmailClient,
+  encodedCalendarId: string,
+  remoteEventId: string,
+  etag: string | undefined,
+  recurrence: RecurringMutationContext | undefined,
+): Promise<GoogleMutationTarget> {
+  if (recurrence?.scope !== "series") return { eventId: remoteEventId, etag };
+  const base = `${CALENDAR_API_BASE}/calendars/${encodedCalendarId}/events`;
+  const supplied = await client.request<GoogleCalendarEvent>(`${base}/${encodeURIComponent(remoteEventId)}`);
+  if (!supplied.recurringEventId) return { eventId: supplied.id, etag: supplied.etag ?? etag, event: supplied };
+  const master = await client.request<GoogleCalendarEvent>(`${base}/${encodeURIComponent(supplied.recurringEventId)}`);
+  return { eventId: master.id, etag: master.etag, event: master };
+}
+
+function sanitizeGoogleRecurrenceRule(rule: string): string {
+  if (!rule || /\r|\n|^RRULE:/i.test(rule)) throw new Error("Invalid RRULE value");
+  return rule;
 }
 
 export function mapGoogleEvent(event: GoogleCalendarEvent): CalendarEventData {

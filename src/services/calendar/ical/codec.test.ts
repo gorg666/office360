@@ -9,6 +9,8 @@ import {
   parseVEventsInRangeDetailed,
   updateAttendeeParticipation,
   updateVEventFields,
+  updateVEventOccurrence,
+  excludeVEventOccurrence,
 } from "../icalHelper";
 import type { CalendarEventTime } from "../domain";
 
@@ -193,6 +195,89 @@ describe("ical.js codec boundary", () => {
       new Date("2026-04-02T00:00:00Z"),
     ).events;
     expect(roundTripped.map((event) => event.occurrenceKey)).toEqual(original.map((event) => event.occurrenceKey));
+  });
+
+  it("updates one zoned occurrence as an override without changing the master or sibling exceptions", () => {
+    const source = fixture("recurrence.ics");
+    const identity = { kind: "timed-zoned" as const, tzid: "America/New_York", wall: { year: 2026, month: 3, day: 22, hour: 10, minute: 0, second: 0 } };
+    const updated = updateVEventOccurrence(source, { summary: "Only March 22" }, "series-1", identity);
+    const decoded = decodeICalendar(updated);
+    const master = decoded.events.find((event) => !event.properties.some((property) => property.name === "RECURRENCE-ID"));
+    const occurrence = decoded.events.find((event) => event.properties.some((property) => property.name === "RECURRENCE-ID" && property.values[0] === "20260322T100000"));
+    expect(master?.properties.find((property) => property.name === "SUMMARY")?.values[0]).not.toBe("Only March 22");
+    expect(occurrence?.properties.find((property) => property.name === "SUMMARY")?.values[0]).toBe("Only March 22");
+    expect(updated).toContain("RRULE:FREQ=WEEKLY;COUNT=4");
+    expect(updated).toContain("RDATE;TZID=America/New_York:20260331T100000");
+    expect(updated).toContain("EXDATE;TZID=America/New_York:20260308T100000");
+    expect(updated).toContain("RECURRENCE-ID;TZID=America/New_York:20260315T100000");
+  });
+
+  it("moves one occurrence across timezone, duration and attendee changes while keeping original identity", () => {
+    const identity = { kind: "timed-zoned" as const, tzid: "America/New_York", wall: { year: 2026, month: 3, day: 22, hour: 10, minute: 0, second: 0 } };
+    const updated = updateVEventOccurrence(fixture("recurrence.ics"), {
+      time: {
+        kind: "timed-zoned",
+        start: { wall: { year: 2026, month: 3, day: 26, hour: 14, minute: 0, second: 0 }, tzid: "Australia/Lord_Howe", instant: 1_774_493_400 },
+        end: { wall: { year: 2026, month: 3, day: 26, hour: 15, minute: 30, second: 0 }, tzid: "Australia/Lord_Howe", instant: 1_774_498_800 },
+      },
+      attendees: [{ email: "new.attendee@example.com" }],
+    }, "series-1", identity);
+
+    expect(updated).toContain("RECURRENCE-ID;TZID=America/New_York:20260322T100000");
+    expect(updated).toContain("DTSTART;TZID=Australia/Lord_Howe:20260326T140000");
+    expect(updated).toContain("DTEND;TZID=Australia/Lord_Howe:20260326T153000");
+    expect(updated).toContain("ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CUTYPE=INDIVID");
+    expect(decodeICalendar(updated).events.flatMap((event) => event.properties)
+      .find((property) => property.name === "ATTENDEE")?.values).toContain("mailto:new.attendee@example.com");
+    expect(updated.match(/RRULE:/g)).toHaveLength(1);
+  });
+
+  it("deletes one moved occurrence by original RECURRENCE-ID using EXDATE", () => {
+    const source = fixture("recurrence.ics");
+    const identity = { kind: "timed-zoned" as const, tzid: "America/New_York", wall: { year: 2026, month: 3, day: 15, hour: 10, minute: 0, second: 0 } };
+    const updated = excludeVEventOccurrence(source, "series-1", identity);
+    expect(updated).not.toContain("RECURRENCE-ID;TZID=America/New_York:20260315T100000");
+    expect(updated).toContain("EXDATE;TZID=America/New_York:20260315T100000");
+    expect(updated).toContain("RRULE:FREQ=WEEKLY;COUNT=4");
+    expect(updated).toContain("RDATE;TZID=America/New_York:20260331T100000");
+  });
+
+  it.each([
+    ["first", { year: 2026, month: 3, day: 1, hour: 10, minute: 0, second: 0 }, "20260301T100000"],
+    ["middle", { year: 2026, month: 3, day: 22, hour: 10, minute: 0, second: 0 }, "20260322T100000"],
+    ["after DST", { year: 2026, month: 3, day: 29, hour: 10, minute: 0, second: 0 }, "20260329T100000"],
+  ])("excludes the %s occurrence without deleting the series", (_label, wall, expected) => {
+    const updated = excludeVEventOccurrence(fixture("recurrence.ics"), "series-1", {
+      kind: "timed-zoned", tzid: "America/New_York", wall,
+    });
+    expect(updated).toContain(`EXDATE;TZID=America/New_York:${expected}`);
+    expect(updated).toContain("RRULE:FREQ=WEEKLY;COUNT=4");
+  });
+
+  it("updates series time, duration and RRULE while preserving UID, RDATE, EXDATE and overrides", () => {
+    const updated = updateVEventFields(fixture("recurrence.ics"), {
+      recurrenceRule: "FREQ=WEEKLY;COUNT=8",
+      time: {
+        kind: "timed-zoned",
+        start: { wall: { year: 2026, month: 3, day: 1, hour: 9, minute: 0, second: 0 }, tzid: "America/New_York", instant: 1_772_372_400 },
+        end: { wall: { year: 2026, month: 3, day: 1, hour: 10, minute: 45, second: 0 }, tzid: "America/New_York", instant: 1_772_378_700 },
+      },
+    });
+    expect(updated).toContain("UID:series-1");
+    expect(updated).toContain("RRULE:FREQ=WEEKLY;COUNT=8");
+    expect(updated).toContain("DTSTART;TZID=America/New_York:20260301T090000");
+    expect(updated).toContain("DTEND;TZID=America/New_York:20260301T104500");
+    expect(updated).toContain("EXDATE;TZID=America/New_York:20260308T100000");
+    expect(updated).toContain("RDATE;TZID=America/New_York:20260331T100000");
+    expect(updated).toContain("RECURRENCE-ID;TZID=America/New_York:20260315T100000");
+  });
+
+  it.each([
+    [{ kind: "all-day" as const, date: "2026-03-22" }, "EXDATE;VALUE=DATE:20260322"],
+    [{ kind: "floating" as const, wall: { year: 2026, month: 3, day: 22, hour: 10, minute: 0, second: 0 } }, "EXDATE:20260322T100000"],
+  ])("preserves %s occurrence value type on exclusion", (identity, expected) => {
+    const source = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:typed-series\r\nDTSTART${identity.kind === "all-day" ? ";VALUE=DATE:20260301" : ":20260301T100000"}\r\nDTEND${identity.kind === "all-day" ? ";VALUE=DATE:20260302" : ":20260301T110000"}\r\nRRULE:FREQ=WEEKLY;COUNT=4\r\nEND:VEVENT\r\nEND:VCALENDAR`;
+    expect(excludeVEventOccurrence(source, "typed-series", identity)).toContain(expected);
   });
 
   it("parses REQUEST, REPLY and CANCEL iTIP metadata", () => {

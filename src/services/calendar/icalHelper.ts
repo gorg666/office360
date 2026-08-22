@@ -12,6 +12,8 @@ import {
   serializeNewICalendarEvent,
   updateICalendarAttendee,
   updateICalendarEvent,
+  updateICalendarOccurrence,
+  excludeICalendarOccurrence,
   type ICalendarPropertyData,
 } from "./ical/codec";
 import { resolveCalendarTimeZone } from "./ical/timeZoneResolver";
@@ -66,6 +68,23 @@ export { parseCalendarEventsInRangeDetailed as parseVEventsInRangeDetailed };
 
 export function updateVEventFields(icalData: string, event: UpdateEventInput): string {
   return updateICalendarEvent(icalData, event);
+}
+
+export function updateVEventOccurrence(
+  icalData: string,
+  event: UpdateEventInput,
+  seriesUid: string,
+  identity: import("./domain").OccurrenceIdentity,
+): string {
+  return updateICalendarOccurrence(icalData, event, seriesUid, identity);
+}
+
+export function excludeVEventOccurrence(
+  icalData: string,
+  seriesUid: string,
+  identity: import("./domain").OccurrenceIdentity,
+): string {
+  return excludeICalendarOccurrence(icalData, seriesUid, identity);
 }
 
 export function updateAttendeeParticipation(
