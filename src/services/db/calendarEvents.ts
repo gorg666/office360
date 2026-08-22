@@ -7,6 +7,7 @@ import {
   calendarDateFromUnixSecondsUtc,
   formatWallDateTime,
   instantSecondsToWallDateTime,
+  serializeCalendarReminderPolicy,
   type CalendarEventTime,
 } from "@/services/calendar/domain";
 
@@ -44,6 +45,7 @@ export interface DbCalendarEvent {
   origin: "remote" | "local_projection" | null;
   projection_key: string | null;
   projection_status: "pending" | "failed" | null;
+  reminders_json: string | null;
 }
 
 const LEGACY_NORMALIZATION_CACHE_LIMIT = 2_000;
@@ -76,6 +78,7 @@ export interface UpsertCalendarEventInput {
   origin?: "remote" | "local_projection";
   projectionKey?: string | null;
   projectionStatus?: "pending" | "failed" | null;
+  remindersJson?: string | null;
 }
 
 export async function upsertCalendarEvent(event: UpsertCalendarEventInput): Promise<void> {
@@ -87,8 +90,8 @@ async function upsertCalendarEventWithDb(db: Database, event: UpsertCalendarEven
   const id = crypto.randomUUID();
   const semantic = semanticColumns(event.time);
   await db.execute(
-    `INSERT INTO calendar_events (id, account_id, google_event_id, summary, description, location, start_time, end_time, is_all_day, status, organizer_email, attendees_json, html_link, calendar_id, remote_event_id, etag, ical_data, uid, time_kind, tzid, wall_start, wall_end, end_date_exclusive, series_uid, occurrence_key, is_recurrence_master, transp, sequence, origin, projection_key, projection_status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)
+    `INSERT INTO calendar_events (id, account_id, google_event_id, summary, description, location, start_time, end_time, is_all_day, status, organizer_email, attendees_json, html_link, calendar_id, remote_event_id, etag, ical_data, uid, time_kind, tzid, wall_start, wall_end, end_date_exclusive, series_uid, occurrence_key, is_recurrence_master, transp, sequence, origin, projection_key, projection_status, reminders_json)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
      ON CONFLICT(account_id, google_event_id) DO UPDATE SET
        summary = $4, description = $5, location = $6, start_time = $7, end_time = $8,
        is_all_day = $9, status = $10, organizer_email = $11, attendees_json = $12,
@@ -96,7 +99,8 @@ async function upsertCalendarEventWithDb(db: Database, event: UpsertCalendarEven
        ical_data = $17, uid = $18, time_kind = $19, tzid = $20, wall_start = $21,
        wall_end = $22, end_date_exclusive = $23, series_uid = $24, occurrence_key = $25,
        is_recurrence_master = $26, transp = $27, sequence = $28, origin = $29,
-       projection_key = $30, projection_status = $31, updated_at = unixepoch()`,
+       projection_key = $30, projection_status = $31, reminders_json = $32,
+       updated_at = unixepoch()`,
     [
       id, event.accountId, event.googleEventId, event.summary, event.description,
       event.location, event.startTime, event.endTime, event.isAllDay ? 1 : 0,
@@ -108,6 +112,7 @@ async function upsertCalendarEventWithDb(db: Database, event: UpsertCalendarEven
       event.occurrenceKey ?? null, event.isRecurrenceMaster ? 1 : 0,
       event.transparency ?? null, event.sequence ?? 0,
       event.origin ?? "remote", event.projectionKey ?? null, event.projectionStatus ?? null,
+      event.remindersJson ?? null,
     ],
   );
 }
@@ -289,6 +294,7 @@ export function calendarEventDataToUpsert(
     isRecurrenceMaster: event.isRecurrenceMaster,
     transparency: event.transparency,
     sequence: event.sequence,
+    remindersJson: serializeCalendarReminderPolicy(event.reminders),
     origin: "remote",
   };
 }
@@ -337,11 +343,22 @@ export function normalizeCalendarEventRow(row: DbCalendarEvent): DbCalendarEvent
     ?? (normalizedOrigin === "local_projection" ? row.google_event_id : null);
   const normalizedProjectionStatus = row.projection_status
     ?? (normalizedOrigin === "local_projection" ? "pending" : null);
+  let remindersJson = row.reminders_json;
+  if (!remindersJson && row.ical_data) {
+    try {
+      remindersJson = serializeCalendarReminderPolicy(
+        parseVEvent(row.ical_data, row.remote_event_id ?? row.google_event_id).reminders,
+      );
+    } catch {
+      // Legacy malformed ICS remains readable; reminder policy stays unknown until refresh.
+    }
+  }
   const base = {
     ...row,
     origin: normalizedOrigin,
     projection_key: normalizedProjectionKey,
     projection_status: normalizedProjectionStatus,
+    reminders_json: remindersJson,
   };
   if (row.time_kind) return base;
 

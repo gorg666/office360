@@ -183,6 +183,19 @@ describe("calendar invitations service", () => {
     expect(removeCalendarProjection).toHaveBeenCalledWith("acc-1", "invite:uid-1:");
   });
 
+  it("keeps Mail invitation VALARM payload in raw ICS without breaking semantic ingestion", async () => {
+    const withAlarm = ical.replace(
+      "END:VEVENT",
+      "BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT15M\r\nDESCRIPTION:Invite reminder\r\nEND:VALARM\r\nEND:VEVENT",
+    );
+    await upsertInvitationFromICalendar({
+      accountId: "acc-1", threadId: "thread-1", messageId: "msg-alarm", icalData: withAlarm, source: "body",
+    });
+    expect(upsertCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({
+      eventUid: "uid-1", summary: "Planning", rawIcal: withAlarm,
+    }));
+  });
+
   it("reuses one stable projection identity for repeated RSVP", async () => {
     const invitation = {
       id: "invite-repeat", account_id: "acc-1", thread_id: "thread-1", message_id: "msg-1",

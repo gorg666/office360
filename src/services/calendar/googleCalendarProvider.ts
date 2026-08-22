@@ -15,7 +15,9 @@ import {
   createOccurrenceKey,
   instantSecondsToWallDateTime,
   calendarOrganizerFromInput,
+  createCalendarReminder,
   dedupeCalendarAttendees,
+  normalizeCalendarReminderPolicy,
   normalizeParticipantEmail,
   serializeCalendarParticipants,
   parseCalendarDate,
@@ -58,6 +60,10 @@ export interface GoogleCalendarEvent {
   transparency?: string;
   sequence?: number;
   recurrence?: string[];
+  reminders?: {
+    useDefault?: boolean;
+    overrides?: { method?: string; minutes?: number }[];
+  };
 }
 
 interface GoogleEventListResponse {
@@ -75,7 +81,7 @@ interface GoogleMutationTarget {
 export class GoogleCalendarProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "google_api";
   readonly capabilities: CalendarProviderCapabilities = {
-    version: 3,
+    version: 4,
     read: { calendars: "full", events: "full" },
     events: { create: "remote", update: "remote", delete: "remote" },
     recurrence: {
@@ -91,7 +97,14 @@ export class GoogleCalendarProvider implements CalendarProvider {
     freeBusy: { self: "local-derived", others: "remote" },
     permissions: "none",
     sharedCalendars: "read",
-    reminders: "none",
+    reminders: {
+      read: "full",
+      write: "full",
+      multiple: true,
+      methods: ["notification", "email"],
+      defaults: "inherit",
+      maxCount: 5,
+    },
     conflictDetection: "etag",
   };
   readonly lastReadDiagnostics: CalendarReadDiagnostics = {
@@ -168,6 +181,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
     if (event.attendees !== undefined) body.attendees = event.attendees.map(mapDomainAttendeeToGoogle);
     if (event.transparency) body.transparency = event.transparency;
     if (event.sequence !== undefined) body.sequence = event.sequence;
+    if (event.reminders !== undefined) body.reminders = mapDomainRemindersToGoogle(event.reminders);
 
     const created = await client.request<GoogleCalendarEvent>(url, {
       method: "POST",
@@ -210,6 +224,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
     if (event.transparency !== undefined) body.transparency = event.transparency;
     if (event.sequence !== undefined) body.sequence = event.sequence;
     if (event.attendees !== undefined) body.attendees = event.attendees.map(mapDomainAttendeeToGoogle);
+    if (event.reminders !== undefined) body.reminders = mapDomainRemindersToGoogle(event.reminders);
     if (event.recurrenceRule !== undefined) {
       const preserved = (target.event?.recurrence ?? []).filter((line) => !/^RRULE:/i.test(line));
       body.recurrence = event.recurrenceRule === null
@@ -364,6 +379,7 @@ export function mapGoogleEvent(event: GoogleCalendarEvent): CalendarEventData {
     .filter((attendee) => !attendee.organizer || !organizer || normalizeParticipantEmail(attendee.email) !== organizer.participant.normalizedEmail)
     .map((attendee) => ({ ...attendee, status: attendee.responseStatus })));
   const participants = attendees.map((attendee) => attendee.participant);
+  const reminderProjection = mapGoogleReminders(event.reminders);
 
   return {
     remoteEventId: event.id,
@@ -389,6 +405,49 @@ export function mapGoogleEvent(event: GoogleCalendarEvent): CalendarEventData {
     transparency: event.transparency === "transparent" ? "transparent" : "opaque",
     sequence: event.sequence ?? 0,
     participants,
+    reminders: reminderProjection.policy,
+    ...(reminderProjection.diagnostics.length > 0 ? { reminderDiagnostics: reminderProjection.diagnostics } : {}),
+  };
+}
+
+export function mapGoogleReminders(input: GoogleCalendarEvent["reminders"]): {
+  policy: import("./domain").CalendarReminderPolicy;
+  diagnostics: import("./domain").CalendarReminderDiagnostic[];
+} {
+  if (!input || input.useDefault !== false) return { policy: { kind: "inherit" }, diagnostics: [] };
+  const diagnostics: import("./domain").CalendarReminderDiagnostic[] = [];
+  const reminders = (input.overrides ?? []).flatMap((override) => {
+    const method = override.method === "popup" ? "notification" : override.method === "email" ? "email" : null;
+    if (!method) {
+      diagnostics.push({ code: "unsupported-method", ...(override.method ? { action: override.method } : {}) });
+      return [];
+    }
+    if (!Number.isSafeInteger(override.minutes) || override.minutes! < 0 || override.minutes! > 40320) {
+      diagnostics.push({ code: "invalid-trigger", action: override.method });
+      return [];
+    }
+    return [createCalendarReminder(override.minutes!, "minutes", method)];
+  });
+  if (reminders.length > 5) diagnostics.push({ code: "too-many-reminders" });
+  return {
+    policy: normalizeCalendarReminderPolicy(reminders.length > 0 ? { kind: "custom", reminders: reminders.slice(0, 5) } : { kind: "none" }),
+    diagnostics,
+  };
+}
+
+export function mapDomainRemindersToGoogle(
+  input: import("./domain").CalendarReminderPolicy,
+): NonNullable<GoogleCalendarEvent["reminders"]> {
+  const policy = normalizeCalendarReminderPolicy(input);
+  if (policy.kind === "inherit") return { useDefault: true };
+  if (policy.kind === "none") return { useDefault: false, overrides: [] };
+  if (policy.reminders.length > 5) throw new Error("Google Calendar supports at most 5 reminder overrides");
+  return {
+    useDefault: false,
+    overrides: policy.reminders.map((reminder) => ({
+      method: reminder.method === "notification" ? "popup" : "email",
+      minutes: reminder.trigger.duration.seconds / 60,
+    })),
   };
 }
 

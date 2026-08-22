@@ -93,6 +93,7 @@ function makeDbEvent(): DbCalendarEvent {
     wall_end: "2027-01-15T11:00:00", end_date_exclusive: null, series_uid: null,
     occurrence_key: null, is_recurrence_master: 0, transp: null, sequence: 0,
     origin: "remote", projection_key: null, projection_status: null,
+    reminders_json: null,
   };
 }
 

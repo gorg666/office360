@@ -29,9 +29,11 @@ import {
   normalizeCalendarEventRow,
   clearCalendarEventNormalizationCache,
   reconcileCalendarEventsRange,
+  calendarEventDataToUpsert,
   type DbCalendarEvent,
 } from "./calendarEvents";
 import { createMockDb } from "@/test/mocks";
+import { parseVEvent } from "@/services/calendar/icalHelper";
 
 const mockDb = createMockDb();
 
@@ -68,6 +70,7 @@ const makeEvent = (overrides: Partial<DbCalendarEvent> = {}): DbCalendarEvent =>
   origin: "remote",
   projection_key: null,
   projection_status: null,
+  reminders_json: null,
   ...overrides,
 });
 
@@ -219,6 +222,7 @@ describe("calendarEvents service", () => {
       expect(sql).toContain("etag = $16");
       expect(sql).toContain("ical_data = $17");
       expect(sql).toContain("uid = $18");
+      expect(sql).toContain("reminders_json = $32");
       expect(sql).toContain("updated_at = unixepoch()");
       expect(params[3]).toBe("Updated standup");
       expect(params[6]).toBe(3000);
@@ -284,6 +288,41 @@ describe("calendarEvents service", () => {
       const second = normalizeCalendarEventRow({ ...legacy });
       expect(second).toBe(first);
     });
+
+    it("lazily derives CalDAV reminders without writing the legacy row", () => {
+      const legacy = makeEvent({
+        reminders_json: null,
+        ical_data: [
+          "BEGIN:VEVENT", "UID:legacy-reminder", "DTSTART:20260315T100000Z", "DTEND:20260315T110000Z",
+          "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT15M", "DESCRIPTION:Reminder", "END:VALARM", "END:VEVENT",
+        ].join("\r\n"),
+      });
+
+      const result = normalizeCalendarEventRow(legacy);
+      expect(JSON.parse(result.reminders_json!)).toEqual({
+        version: 1,
+        policy: { kind: "custom", reminders: [{ method: "notification", trigger: { kind: "before-start", duration: { seconds: 900 } } }] },
+      });
+      expect(mockDb.execute).not.toHaveBeenCalled();
+    });
+
+    it("keeps Google legacy reminder state unknown until normal refresh", () => {
+      const legacy = makeEvent({ reminders_json: null, ical_data: null });
+      expect(normalizeCalendarEventRow(legacy).reminders_json).toBeNull();
+      expect(mockDb.execute).not.toHaveBeenCalled();
+    });
+  });
+
+  it("persists the canonical reminder envelope on a normal provider sync projection", () => {
+    const event = parseVEvent([
+      "BEGIN:VEVENT", "UID:sync-reminder", "DTSTART:20260315T100000Z", "DTEND:20260315T110000Z",
+      "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT10M", "DESCRIPTION:Reminder", "END:VALARM", "END:VEVENT",
+    ].join("\r\n"));
+    const projected = calendarEventDataToUpsert("acc-1", "cal-1", event);
+    expect(JSON.parse(projected.remindersJson!)).toEqual({
+      version: 1,
+      policy: { kind: "custom", reminders: [{ method: "notification", trigger: { kind: "before-start", duration: { seconds: 600 } } }] },
+    });
   });
 
   describe("authoritative reconciliation", () => {
@@ -313,6 +352,7 @@ describe("calendarEvents service", () => {
       transparency: null,
       sequence: 0,
       participants: [],
+      reminders: { kind: "none" as const },
     });
 
     it("upserts current A,C,D then removes only missing remote identities", async () => {

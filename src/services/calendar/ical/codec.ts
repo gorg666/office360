@@ -1,6 +1,6 @@
 import ICAL from "ical.js";
 import type { CalendarParticipationStatus, CreateEventInput, UpdateEventInput } from "../types";
-import { dedupeCalendarAttendees, normalizeParticipantEmail } from "../domain";
+import { dedupeCalendarAttendees, normalizeCalendarReminderPolicy, normalizeParticipantEmail } from "../domain";
 import {
   instantSecondsToWallDateTime,
   type CalendarEventTime,
@@ -18,7 +18,13 @@ export interface ICalendarPropertyData {
 
 export interface ICalendarEventComponent {
   properties: ICalendarPropertyData[];
+  alarms: ICalendarAlarmComponent[];
+  alarmDiagnostics: import("../domain").CalendarReminderDiagnostic[];
   serialized: string;
+}
+
+export interface ICalendarAlarmComponent {
+  properties: ICalendarPropertyData[];
 }
 
 export interface DecodedICalendar {
@@ -135,6 +141,7 @@ export function serializeNewICalendarEvent(event: CreateEventInput | UpdateEvent
     property.setValue(participantUri(event.organizer.participant));
     component.addProperty(property);
   }
+  if (event.reminders !== undefined) applyReminderChanges(component, event.reminders);
   return calendar.toString();
 }
 
@@ -240,6 +247,7 @@ function applyEventChanges(master: InstanceType<typeof ICAL.Component>, changes:
     property.setValue(participantUri(changes.organizer.participant));
     master.addProperty(property);
   }
+  if (changes.reminders !== undefined) applyReminderChanges(master, changes.reminders);
 }
 
 function touchComponent(component: InstanceType<typeof ICAL.Component>, requestedSequence?: number): void {
@@ -285,10 +293,60 @@ function typeToICal(type: import("../domain").ParticipantType): string {
 }
 
 function decodeEvent(component: InstanceType<typeof ICAL.Component>): ICalendarEventComponent {
+  const alarms: ICalendarAlarmComponent[] = [];
+  const alarmDiagnostics: import("../domain").CalendarReminderDiagnostic[] = [];
+  for (const alarm of component.getAllSubcomponents("valarm")) {
+    try {
+      alarms.push({ properties: alarm.getAllProperties().map(decodeProperty) });
+    } catch {
+      alarmDiagnostics.push({ code: "invalid-trigger" });
+    }
+  }
   return {
     properties: component.getAllProperties().map(decodeProperty),
+    alarms,
+    alarmDiagnostics,
     serialized: component.toString(),
   };
+}
+
+function applyReminderChanges(
+  component: InstanceType<typeof ICAL.Component>,
+  input: import("../domain").CalendarReminderPolicy,
+): void {
+  const policy = normalizeCalendarReminderPolicy(input);
+  component.removeAllSubcomponents("valarm");
+  if (policy.kind === "inherit") {
+    throw new Error("Calendar default reminders cannot be represented by VALARM");
+  }
+  if (policy.kind === "none") return;
+
+  for (const reminder of policy.reminders) {
+    if (reminder.method !== "notification") {
+      throw new Error("CalDAV reminder method is not supported for writes");
+    }
+    const alarm = new ICAL.Component("valarm");
+    alarm.addPropertyWithValue("action", "DISPLAY");
+    alarm.addPropertyWithValue("description", "Calendar reminder");
+    const trigger = new ICAL.Property("trigger");
+    trigger.resetType("duration");
+    trigger.setValue(ICAL.Duration.fromString(formatNegativeDuration(reminder.trigger.duration.seconds)));
+    alarm.addProperty(trigger);
+    component.addSubcomponent(alarm);
+  }
+}
+
+function formatNegativeDuration(seconds: number): string {
+  if (seconds === 0) return "PT0M";
+  let remaining = seconds;
+  const days = Math.floor(remaining / 86400);
+  remaining %= 86400;
+  const hours = Math.floor(remaining / 3600);
+  remaining %= 3600;
+  const minutes = Math.floor(remaining / 60);
+  const datePart = days > 0 ? `${days}D` : "";
+  const timePart = hours > 0 || minutes > 0 ? `T${hours > 0 ? `${hours}H` : ""}${minutes > 0 ? `${minutes}M` : ""}` : "";
+  return `-P${datePart}${timePart}`;
 }
 
 function decodeProperty(property: InstanceType<typeof ICAL.Property>): ICalendarPropertyData {

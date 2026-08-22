@@ -35,7 +35,7 @@ CAL-105 provider/write  ->  CAL-111 recurrence mutation backend  ->  CAL-112 rec
 CAL-102/105/112  ->  CAL-113 Day/Week timed drag/resize (delivered)
                  ->  CAL-114 Month/all-day/conversion (delivered)
 CAL-115 application service/UI state  ->  CAL-116 layout engine  ->  CAL-117 create-by-selection / auto-scroll
-                                      ->  CAL-118 event editor
+CAL-102/103/104/105                   ->  CAL-118 provider-neutral reminder metadata (delivered)
 Outbound iTIP/RSVP  (pending backlog; previously outlined as CAL-114 before Month/all-day took that number)
 CAL-119 shared calendars/permissions
 CAL-120 reminders
@@ -374,24 +374,29 @@ Not a second timed-grid or date-grid mutation implementation. Not a second creat
 **Риски:** accidental mutation, touch pan vs create-selection.
 
 
-## CAL-118 — Full event editor: recurrence, reminders, privacy, timezone
+## CAL-118 — Provider-neutral event reminder metadata
 
 
-**Цель:** заменить basic modal полноценным Office360 event editor.
+**Статус:** delivered (2026-08-23).
 
-**Основные файлы/модули:** EventCreateModal/EventDetailModal replacement, reusable UI primitives, domain commands.
+**Цель:** добавить reminder metadata contract от provider до sync/cache и capability-driven editor controls без desktop notification engine.
 
-**Зависимости:** CAL-102, CAL-103, CAL-104, CAL-115.
+**Основные файлы/модули:** `domain/reminder.ts`, iCalendar codec/mapper, Google/CalDAV providers, migration v36, `ReminderEditor`.
+
+**Зависимости:** CAL-102, CAL-103, CAL-104, CAL-111–CAL-117.
 
 **Definition of Done:**
 
-- all-day, event timezone, recurrence presets/custom rule, instance/series scope;
-- reminders, availability/transparency, privacy/classification;
-- calendar selector, organizer/participants, validation and unsaved changes guard;
-- provider capability-based fields;
-- localization, keyboard/a11y and tests.
+- inherit / explicit none / custom policies;
+- multiple relative-to-start reminders with deterministic normalization;
+- Google defaults/overrides and CalDAV/Yandex VALARM mapping;
+- append-only nullable semantic projection with legacy lazy derivation;
+- create/edit capability-based controls including bounded custom duration;
+- all-day, recurrence, drag/resize/conversion and Free/Busy privacy regression coverage.
 
-**Риски:** oversized component; use compound sections/provider-decoupled state.
+**Acceptance:** PASS. Canonical reminder policies (`inherit`, explicit `none`, `custom`) now flow through the domain, provider normalization, sync cache and capability-driven create/edit controls. Google defaults and popup/email overrides map losslessly within provider limits; CalDAV/Yandex reads DISPLAY/EMAIL `VALARM` and writes supported DISPLAY alarms while preserving unrelated alarms on ordinary updates. Append-only migration v36 adds nullable `calendar_events.reminders_json`; existing rows remain `NULL`, CalDAV legacy rows derive lazily from cached iCalendar, and Google legacy state stays unknown until ordinary refresh. Local development Tauri smoke applied v36 and confirmed Month/Week/Day plus the custom reminder editor without a cloud mutation. Canonical contract: `CALENDAR_REMINDERS.md`.
+
+**Не входит:** Windows toast/background scheduling, snooze/dismiss, absolute/relative-to-end triggers, general full editor replacement. Canon: `CALENDAR_REMINDERS.md`.
 
 
 ## CAL-119 — Shared calendars, subscriptions and permissions

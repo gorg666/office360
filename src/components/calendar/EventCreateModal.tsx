@@ -1,12 +1,13 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
 import type { DbCalendar } from "@/services/db/calendars";
-import type { CalendarEventTime } from "@/services/calendar/domain";
+import type { CalendarEventTime, CalendarProviderCapabilities, CalendarReminderPolicy } from "@/services/calendar/domain";
 import { SchedulingAssistant, type PlanMeetingFn } from "./scheduling/SchedulingAssistant";
 import { buildEditorSchedulingParticipants } from "./scheduling/schedulingView";
 import { eventTimeFromFormFields } from "./createSelection";
+import { ReminderEditor } from "./ReminderEditor";
 
 interface EventCreateModalProps {
   calendars?: DbCalendar[];
@@ -17,6 +18,7 @@ interface EventCreateModalProps {
   timeZone?: string;
   planMeeting?: PlanMeetingFn;
   debounceMs?: number;
+  capabilities?: CalendarProviderCapabilities | null;
   onClose: () => void;
   onCreate: (event: EventCreateInput) => void | Promise<void>;
 }
@@ -31,6 +33,7 @@ export interface EventCreateInput {
   calendarId?: string;
   allDay?: boolean;
   time?: CalendarEventTime;
+  reminders?: CalendarReminderPolicy;
 }
 
 export function EventCreateModal({
@@ -42,6 +45,7 @@ export function EventCreateModal({
   timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
   planMeeting,
   debounceMs,
+  capabilities = null,
   onClose,
   onCreate,
 }: EventCreateModalProps) {
@@ -54,6 +58,11 @@ export function EventCreateModal({
   const [allDay, setAllDay] = useState(Boolean(initialValues?.allDay));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reminders, setReminders] = useState<CalendarReminderPolicy | null>(
+    initialValues?.reminders ?? (capabilities
+      ? (capabilities.reminders.defaults === "inherit" ? { kind: "inherit" } : { kind: "none" })
+      : null),
+  );
   const [calendarId, setCalendarId] = useState<string>(
     calendars?.find((c) => c.is_primary)?.id ?? calendars?.[0]?.id ?? "",
   );
@@ -65,6 +74,11 @@ export function EventCreateModal({
     }),
     [attendees, selfDisplayName, selfEmail],
   );
+
+  useEffect(() => {
+    if (reminders !== null || !capabilities) return;
+    setReminders(capabilities.reminders.defaults === "inherit" ? { kind: "inherit" } : { kind: "none" });
+  }, [capabilities, reminders]);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,13 +105,14 @@ export function EventCreateModal({
         calendarId: calendarId || undefined,
         allDay,
         time,
+        ...(reminders ? { reminders } : {}),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось создать событие.");
     } finally {
       setSubmitting(false);
     }
-  }, [summary, description, location, startTime, endTime, attendees, calendarId, allDay, timeZone, onCreate]);
+  }, [summary, description, location, startTime, endTime, attendees, calendarId, allDay, timeZone, reminders, onCreate]);
 
   return (
     <Modal isOpen={true} onClose={onClose} title="Create Event" width="w-full max-w-5xl" panelClassName="max-h-[90vh] overflow-hidden">
@@ -110,6 +125,8 @@ export function EventCreateModal({
           placeholder="Event title"
           autoFocus
         />
+
+        <ReminderEditor capabilities={capabilities} value={reminders} onChange={setReminders} />
 
         {calendars && calendars.length > 1 && (
           <div>

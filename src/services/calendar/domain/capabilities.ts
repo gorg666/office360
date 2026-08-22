@@ -5,9 +5,10 @@ export type CalendarRemoteMutationCapability = "unsupported" | "remote";
 
 export type FreeBusySelfCapability = "none" | "local-derived" | "remote";
 export type FreeBusyOthersCapability = "none" | "remote";
+export type CalendarReminderDefaultsCapability = "inherit" | "none";
 
 export interface CalendarProviderCapabilities {
-  readonly version: 3;
+  readonly version: 4;
   readonly read: { calendars: CalendarCapabilityLevel; events: CalendarCapabilityLevel };
   readonly events: {
     create: CalendarRemoteMutationCapability;
@@ -46,7 +47,14 @@ export interface CalendarProviderCapabilities {
   };
   readonly permissions: CalendarCapabilityLevel;
   readonly sharedCalendars: "none" | "read" | "manage";
-  readonly reminders: CalendarCapabilityLevel;
+  readonly reminders: {
+    readonly read: CalendarCapabilityLevel;
+    readonly write: CalendarCapabilityLevel;
+    readonly multiple: boolean;
+    readonly methods: readonly import("./reminder").CalendarReminderMethod[];
+    readonly defaults: CalendarReminderDefaultsCapability;
+    readonly maxCount: number | null;
+  };
   readonly conflictDetection: "etag" | "sequence" | "none";
 }
 

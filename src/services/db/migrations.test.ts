@@ -212,3 +212,15 @@ describe("calendar sync coverage migration", () => {
     expect(migration?.sql).toContain("idx_calendar_events_projection_key");
   });
 });
+
+describe("calendar reminder projection migration", () => {
+  const migration = MIGRATIONS.find((item) => item.version === 36);
+
+  it("only appends a nullable reminder envelope column", () => {
+    expect(migration).toBeDefined();
+    expect(migration?.sql).not.toMatch(/(?:^|;)\s*(?:DROP|DELETE|UPDATE|REPLACE|INSERT)\b/im);
+    expect(splitStatements(migration!.sql)).toEqual([
+      "ALTER TABLE calendar_events ADD COLUMN reminders_json TEXT",
+    ]);
+  });
+});

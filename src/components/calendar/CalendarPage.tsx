@@ -261,6 +261,7 @@ export function CalendarPage() {
         attendees: eventData.attendees.map((email) => ({ email })),
         isAllDay: eventData.allDay,
         time: eventData.time,
+        reminders: eventData.reminders,
       };
 
       const result = await calendarMutationService.create(activeAccountId, calendarRemoteId, input);
@@ -685,6 +686,7 @@ export function CalendarPage() {
           selfEmail={activeAccount?.email ?? null}
           selfDisplayName={activeAccount?.displayName ?? null}
           timeZone={displayTimeZone}
+          capabilities={providerCapabilities}
           onClose={() => { setShowCreate(false); setCreateInitialValues(undefined); }}
           onCreate={handleCreateEvent}
         />

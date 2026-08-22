@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { participantRefFromEmail } from "@/services/calendar/domain";
+import { participantRefFromEmail, type CalendarProviderCapabilities } from "@/services/calendar/domain";
 import { availability } from "@/services/calendar/scheduling/testFixtures";
 import type { CandidateSlot, GroupSchedulingResult } from "@/services/calendar/scheduling";
 import { EventCreateModal } from "./EventCreateModal";
@@ -20,6 +20,9 @@ const SCORE: CandidateSlot["score"] = {
     earliness: 0,
   },
 };
+const GOOGLE_CAPABILITIES = {
+  reminders: { read: "full", write: "full", multiple: true, methods: ["notification", "email"], defaults: "inherit", maxCount: 5 },
+} as CalendarProviderCapabilities;
 
 function result(): GroupSchedulingResult {
   const suggestion: CandidateSlot = {
@@ -164,5 +167,22 @@ describe("EventCreateModal scheduling assistant", () => {
       endTime: "2026-08-27T11:30",
       time: { kind: "timed-zoned" },
     });
+  });
+
+  it("uses the same provider-default reminder policy for a hydrated grid draft", async () => {
+    const onCreate = vi.fn();
+    render(
+      <EventCreateModal
+        capabilities={GOOGLE_CAPABILITIES}
+        timeZone="UTC"
+        initialValues={{ startTime: "2026-08-27", endTime: "2026-08-27", allDay: true }}
+        onClose={vi.fn()}
+        onCreate={onCreate}
+      />,
+    );
+    expect(screen.getByLabelText("Политика напоминаний")).toHaveValue("inherit");
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Grid with default" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ reminders: { kind: "inherit" } })));
   });
 });

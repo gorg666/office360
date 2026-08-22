@@ -1,6 +1,7 @@
 import { classifyError } from "@/utils/networkErrors";
 import { getCalendarProvider } from "./providerFactory";
 import {
+  normalizeCalendarReminderPolicy,
   supportsRecurrenceScope,
   parseOccurrenceKey,
   type CalendarProviderCapabilities,
@@ -54,6 +55,8 @@ export class CalendarMutationService {
       if (provider.capabilities.events.create !== "remote") {
         return unsupported("Создание событий не поддерживается этим календарём");
       }
+      const reminderFailure = validateReminderWrite(provider.capabilities, event.reminders);
+      if (reminderFailure) return reminderFailure;
       return runWrite(() => provider.createEvent(calendarRemoteId, event));
     } catch (error) {
       return classifyWriteFailure(error);
@@ -69,6 +72,8 @@ export class CalendarMutationService {
       if (provider.capabilities.events.update !== "remote") {
         return unsupported("Изменение событий не поддерживается этим календарём");
       }
+      const reminderFailure = validateReminderWrite(provider.capabilities, event.reminders);
+      if (reminderFailure) return reminderFailure;
       const recurrence = recurringMutationContext(provider.capabilities, "update", target);
       if (recurrence && "status" in recurrence) return recurrence;
       if (event.recurrenceRule !== undefined && recurrence?.scope !== "series") {
@@ -129,6 +134,38 @@ export class CalendarMutationService {
       return classifyWriteFailure(error);
     }
   }
+}
+
+function validateReminderWrite(
+  capabilities: CalendarProviderCapabilities,
+  reminders: CreateEventInput["reminders"],
+): CalendarWriteResult<never> | null {
+  if (reminders === undefined) return null;
+  const capability = capabilities.reminders;
+  if (capability.write === "none") {
+    return unsupported("Этот календарь не поддерживает изменение напоминаний");
+  }
+  if (reminders.kind === "inherit") {
+    return capability.defaults === "inherit"
+      ? null
+      : unsupported("Этот календарь не поддерживает напоминания по умолчанию");
+  }
+  if (reminders.kind === "none") return null;
+
+  const normalized = normalizeCalendarReminderPolicy(reminders);
+  if (normalized.kind !== "custom" || normalized.reminders.length === 0) {
+    return unsupported("Укажите хотя бы одно корректное напоминание");
+  }
+  if (!capability.multiple && normalized.reminders.length > 1) {
+    return unsupported("Этот календарь поддерживает только одно напоминание");
+  }
+  if (capability.maxCount !== null && normalized.reminders.length > capability.maxCount) {
+    return unsupported(`Этот календарь поддерживает не более ${capability.maxCount} напоминаний`);
+  }
+  if (normalized.reminders.some((reminder) => !capability.methods.includes(reminder.method))) {
+    return unsupported("Выбранный способ напоминания не поддерживается этим календарём");
+  }
+  return null;
 }
 
 function recurringMutationContext(

@@ -7,11 +7,14 @@ import {
   createOccurrenceKey,
   formatWallDateTime,
   instantSecondsToWallDateTime,
+  MAX_CALENDAR_REMINDERS,
   naiveDateToWallDateTime,
   parseCalendarDate,
   parseWallDateTime,
   calendarOrganizerFromInput,
+  createCalendarReminder,
   dedupeCalendarAttendees,
+  normalizeCalendarReminderPolicy,
   serializeCalendarParticipants,
   projectFloatingWallTime,
   wallDateTimeToNaiveDate,
@@ -122,6 +125,7 @@ function parseCalendarEventComponent(
   const transparency = transparencyValue === "opaque" || transparencyValue === "transparent"
     ? transparencyValue
     : null;
+  const reminderProjection = remindersFromComponent(component);
 
   return {
     remoteEventId: href ?? uid ?? crypto.randomUUID(),
@@ -147,12 +151,62 @@ function parseCalendarEventComponent(
     transparency,
     sequence: Number.isFinite(sequence) ? sequence : 0,
     participants,
+    reminders: reminderProjection.policy,
+    ...(reminderProjection.diagnostics.length > 0 ? { reminderDiagnostics: reminderProjection.diagnostics } : {}),
     ...((start.unsupportedTzid ?? end.unsupportedTzid) ? {
       timeZoneDiagnostic: {
         status: "unsupported-timezone" as const,
         originalTzid: (start.unsupportedTzid ?? end.unsupportedTzid)!,
       },
     } : {}),
+  };
+}
+
+function remindersFromComponent(component: ICalendarEventComponent): {
+  policy: import("./domain").CalendarReminderPolicy;
+  diagnostics: import("./domain").CalendarReminderDiagnostic[];
+} {
+  const diagnostics = [...component.alarmDiagnostics];
+  const reminders = component.alarms.flatMap((alarm) => {
+    const action = firstValue(alarm.properties, "ACTION")?.toUpperCase();
+    const method = action === "DISPLAY" ? "notification" : action === "EMAIL" ? "email" : null;
+    if (!method) {
+      diagnostics.push({ code: "unsupported-action", ...(action ? { action } : {}) });
+      return [];
+    }
+    const trigger = firstLine(alarm.properties, "TRIGGER");
+    if (!trigger) {
+      diagnostics.push({ code: "invalid-trigger", action });
+      return [];
+    }
+    if (trigger.valueType !== "DURATION") {
+      diagnostics.push({ code: "absolute-trigger", action });
+      return [];
+    }
+    const value = firstPropertyValue(trigger)?.trim() ?? "";
+    if (firstParameter(trigger, "RELATED")?.toUpperCase() === "END") {
+      diagnostics.push({ code: "invalid-trigger", action });
+      return [];
+    }
+    const beforeStart = value.startsWith("-");
+    const duration = parseICalDuration(beforeStart ? value.slice(1) : value);
+    if (duration === null || (!beforeStart && duration !== 0)) {
+      diagnostics.push({ code: "invalid-trigger", action });
+      return [];
+    }
+    try {
+      return [createCalendarReminder(duration / 60, "minutes", method)];
+    } catch {
+      diagnostics.push({ code: "invalid-trigger", action });
+      return [];
+    }
+  });
+  if (reminders.length > MAX_CALENDAR_REMINDERS) diagnostics.push({ code: "too-many-reminders" });
+  return {
+    policy: normalizeCalendarReminderPolicy(reminders.length > 0
+      ? { kind: "custom", reminders: reminders.slice(0, MAX_CALENDAR_REMINDERS) }
+      : { kind: "none" }),
+    diagnostics,
   };
 }
 

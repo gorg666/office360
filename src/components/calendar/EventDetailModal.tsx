@@ -9,7 +9,7 @@ import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import type { DbCalendar } from "@/services/db/calendars";
 import type { CalendarParticipationStatus } from "@/services/calendar/types";
 import { calendarMutationService } from "@/services/calendar/calendarMutationService";
-import { findCurrentAttendee, parseCalendarParticipants, type CalendarAttendee, type CalendarOrganizer, type CalendarProviderCapabilities, type RecurrenceWriteScope } from "@/services/calendar/domain";
+import { findCurrentAttendee, parseCalendarParticipants, parseCalendarReminderPolicy, type CalendarAttendee, type CalendarOrganizer, type CalendarProviderCapabilities, type CalendarReminderPolicy, type RecurrenceWriteScope } from "@/services/calendar/domain";
 import { useAccountStore } from "@/stores/accountStore";
 import { navigateToLabel } from "@/router/navigate";
 import { cefNavigate } from "@/services/cef";
@@ -18,6 +18,7 @@ import { RecurrenceScopeDialog } from "./recurrence/RecurrenceScopeDialog";
 import { canMutateRecurring, classifyRecurringEditTarget, recurrenceScopeChoices, writeFailureCopy } from "./recurrence/recurrenceEditScope";
 import { SchedulingAssistant, type PlanMeetingFn } from "./scheduling/SchedulingAssistant";
 import { buildEditorSchedulingParticipants } from "./scheduling/schedulingView";
+import { formatReminderPolicy, ReminderEditor } from "./ReminderEditor";
 
 interface EventDetailModalProps {
   event: DbCalendarEvent;
@@ -42,6 +43,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pendingIntent, setPendingIntent] = useState<"update" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reminders, setReminders] = useState<CalendarReminderPolicy | null>(() => parseCalendarReminderPolicy(event.reminders_json));
   const [providerCapabilities, setProviderCapabilities] = useState<CalendarProviderCapabilities | null>(null);
   const inFlightRef = useRef(false);
   const accounts = useAccountStore((state) => state.accounts);
@@ -114,6 +116,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
         startTime: new Date(startTime).toISOString(),
         endTime: new Date(endTime).toISOString(),
         isAllDay: event.is_all_day === 1,
+        ...(reminders ? { reminders } : {}),
       });
       if (result.status !== "success") {
         setPendingIntent(null);
@@ -129,7 +132,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
       inFlightRef.current = false;
       setBusyAction(null);
     }
-  }, [description, endTime, event.is_all_day, event.sequence, location, mutationTarget, onUpdated, startTime, summary]);
+  }, [description, endTime, event.is_all_day, event.sequence, location, mutationTarget, onUpdated, reminders, startTime, summary]);
 
   const commitDelete = useCallback(async (scope?: RecurrenceWriteScope) => {
     if (inFlightRef.current) return;
@@ -232,6 +235,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
             }}
           />
           <TextField label="Место" type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Добавить место" />
+          <ReminderEditor capabilities={providerCapabilities} value={reminders} onChange={setReminders} />
           <label className="block text-xs text-text-secondary">Описание
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={5} className="mt-1 w-full px-3 py-2 bg-bg-tertiary border border-border-primary rounded text-sm text-text-primary outline-none focus:border-accent resize-y" />
           </label>
@@ -276,6 +280,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
           {recurring && <Repeat2 size={15} className="text-text-tertiary" aria-label="Повторяющееся событие" />}
         </InfoRow>
         {event.location && <InfoRow icon={<MapPin size={17} />} label="Место"><span>{event.location}</span></InfoRow>}
+        {formatReminderPolicy(reminders) && <InfoRow icon={<Clock size={17} />} label="Напоминания"><span>{formatReminderPolicy(reminders)}</span></InfoRow>}
         {participantSet.organizer && <InfoRow icon={<User size={17} />} label="Организатор"><OrganizerChip organizer={participantSet.organizer} /></InfoRow>}
         {attendees.length > 0 && (
           <InfoRow icon={<User size={17} />} label="Участники">

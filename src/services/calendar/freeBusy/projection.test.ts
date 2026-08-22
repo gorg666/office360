@@ -89,6 +89,20 @@ describe("event -> busy projection", () => {
     const asOptional = projectEventsToBusyIntervals([event], { email: "other@example.test" }, UTC).intervals;
     expect(asOptional).toEqual(asRequired);
   });
+
+  it("does not expose or use reminder metadata in the privacy-minimal busy projection", () => {
+    const event = {
+      ...baseEventData(),
+      reminders: { kind: "custom" as const, reminders: [
+        { method: "notification" as const, trigger: { kind: "before-start" as const, duration: { seconds: 900 } } },
+      ] },
+      icalData: "BEGIN:VALARM\r\nDESCRIPTION:Private reminder\r\nEND:VALARM",
+    };
+    const withoutReminderMetadata = { ...event, reminders: { kind: "none" as const }, icalData: null };
+    expect(projectEventsToBusyIntervals([event], SELF, UTC)).toEqual(
+      projectEventsToBusyIntervals([withoutReminderMetadata], SELF, UTC),
+    );
+  });
 });
 
 describe("all-day busy projection uses the effective zone, not host midnight", () => {
@@ -202,5 +216,6 @@ function baseEventData(): CalendarEventData {
     },
     seriesUid: "uid-1", occurrenceKey: null, isRecurrenceMaster: false,
     transparency: "opaque", sequence: 0, participants: [],
+    reminders: { kind: "none" },
   };
 }

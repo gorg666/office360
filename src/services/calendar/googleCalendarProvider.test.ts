@@ -1,4 +1,4 @@
-import { GoogleCalendarProvider } from "./googleCalendarProvider";
+import { GoogleCalendarProvider, mapDomainRemindersToGoogle, mapGoogleEvent, mapGoogleReminders } from "./googleCalendarProvider";
 import { getGmailClient } from "@/services/gmail/tokenManager";
 
 vi.mock("@/services/gmail/tokenManager", () => ({
@@ -108,6 +108,34 @@ describe("GoogleCalendarProvider", () => {
 
       const calledUrl = mockClient.request.mock.calls[0][0] as string;
       expect(calledUrl).toContain("/calendars/user%40example.com/events?");
+    });
+
+    it("normalizes provider defaults, disabled reminders and multiple overrides", () => {
+      expect(mapGoogleReminders(undefined)).toEqual({ policy: { kind: "inherit" }, diagnostics: [] });
+      expect(mapGoogleReminders({ useDefault: true })).toEqual({ policy: { kind: "inherit" }, diagnostics: [] });
+      expect(mapGoogleReminders({ useDefault: false, overrides: [] })).toEqual({ policy: { kind: "none" }, diagnostics: [] });
+      expect(mapGoogleReminders({
+        useDefault: false,
+        overrides: [{ method: "popup", minutes: 10 }, { method: "email", minutes: 1440 }],
+      }).policy).toEqual({
+        kind: "custom",
+        reminders: [
+          { method: "email", trigger: { kind: "before-start", duration: { seconds: 86400 } } },
+          { method: "notification", trigger: { kind: "before-start", duration: { seconds: 600 } } },
+        ],
+      });
+    });
+
+    it("keeps malformed provider reminder metadata diagnostic and the event readable", () => {
+      const event = mapGoogleEvent({
+        id: "bad-reminder", start: { dateTime: "2026-03-15T10:00:00Z" }, end: { dateTime: "2026-03-15T11:00:00Z" },
+        reminders: { useDefault: false, overrides: [{ method: "sms", minutes: 5 }, { method: "popup", minutes: -1 }] },
+      });
+      expect(event.reminders).toEqual({ kind: "none" });
+      expect(event.reminderDiagnostics).toEqual([
+        { code: "unsupported-method", action: "sms" },
+        { code: "invalid-trigger", action: "popup" },
+      ]);
     });
 
     it("follows all event-list pages in order", async () => {
@@ -269,6 +297,31 @@ describe("GoogleCalendarProvider", () => {
       );
     });
 
+    it("writes explicit Google reminder policies without changing provider defaults implicitly", async () => {
+      mockClient.request.mockResolvedValue({
+        id: "evt-reminders", start: { dateTime: "2025-06-20T14:00:00Z" }, end: { dateTime: "2025-06-20T15:00:00Z" },
+        reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 10 }, { method: "email", minutes: 60 }] },
+      });
+      await provider.createEvent("cal-1", {
+        summary: "Reminders", startTime: "2025-06-20T14:00:00Z", endTime: "2025-06-20T15:00:00Z",
+        reminders: {
+          kind: "custom",
+          reminders: [
+            { method: "notification", trigger: { kind: "before-start", duration: { seconds: 600 } } },
+            { method: "email", trigger: { kind: "before-start", duration: { seconds: 3600 } } },
+          ],
+        },
+      });
+
+      const body = JSON.parse(mockClient.request.mock.calls[0][1].body as string);
+      expect(body.reminders).toEqual({
+        useDefault: false,
+        overrides: [{ method: "email", minutes: 60 }, { method: "popup", minutes: 10 }],
+      });
+      expect(mapDomainRemindersToGoogle({ kind: "inherit" })).toEqual({ useDefault: true });
+      expect(mapDomainRemindersToGoogle({ kind: "none" })).toEqual({ useDefault: false, overrides: [] });
+    });
+
     it("resolves an instance to its master and preserves EXDATE/RDATE when changing RRULE", async () => {
       mockClient.request
         .mockResolvedValueOnce({ id: "instance-1", recurringEventId: "master-1", start: {}, end: {} })
@@ -329,6 +382,7 @@ describe("GoogleCalendarProvider", () => {
       expect(body.summary).toBe("Updated Title");
       expect(body.description).toBeUndefined();
       expect(body.start).toBeUndefined();
+      expect(body.reminders).toBeUndefined();
 
       expect(result.remoteEventId).toBe("evt-1");
       expect(result.summary).toBe("Updated Title");

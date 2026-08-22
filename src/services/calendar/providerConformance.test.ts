@@ -73,9 +73,24 @@ describe("Calendar provider semantic conformance", () => {
     expect(normalizeParticipantEmail(" MAILTO:Person@Example.COM ")).toBe("person@example.com");
   });
 
+  it("normalizes equivalent Google and CalDAV reminder metadata to one contract", () => {
+    const google = mapGoogleEvent({
+      id: "google-reminders", start: { dateTime: "2026-03-15T10:00:00Z" }, end: { dateTime: "2026-03-15T11:00:00Z" },
+      reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 15 }, { method: "email", minutes: 1440 }] },
+    });
+    const caldav = parseVEvent([
+      "BEGIN:VEVENT", "UID:caldav-reminders", "DTSTART:20260315T100000Z", "DTEND:20260315T110000Z",
+      "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT15M", "DESCRIPTION:Popup", "END:VALARM",
+      "BEGIN:VALARM", "ACTION:EMAIL", "TRIGGER:-P1D", "DESCRIPTION:Email", "END:VALARM",
+      "END:VEVENT",
+    ].join("\r\n"));
+
+    expect(google.reminders).toEqual(caldav.reminders);
+  });
+
   it("declares actual provider capabilities explicitly", () => {
     expect(new GoogleCalendarProvider("account").capabilities).toMatchObject({
-      version: 3,
+      version: 4,
       read: { calendars: "full", events: "full" },
       events: { create: "remote", update: "remote", delete: "remote" },
       recurrence: {
@@ -85,9 +100,10 @@ describe("Calendar provider semantic conformance", () => {
       rsvp: { local: "projection", remote: "direct" },
       invitations: "none", freeBusy: { self: "local-derived", others: "remote" }, conflictDetection: "etag",
       sync: { mode: "sync-token", pagination: true, durability: "ephemeral" },
+      reminders: { read: "full", write: "full", multiple: true, methods: ["notification", "email"], defaults: "inherit", maxCount: 5 },
     });
     expect(new CalDAVProvider("account").capabilities).toMatchObject({
-      version: 3,
+      version: 4,
       read: { calendars: "full", events: "full" },
       events: { create: "remote", update: "remote", delete: "remote" },
       recurrence: {
@@ -97,6 +113,7 @@ describe("Calendar provider semantic conformance", () => {
       rsvp: { local: "projection", remote: "direct" },
       invitations: "none", freeBusy: { self: "local-derived", others: "none" }, conflictDetection: "etag",
       sync: { mode: "range-refresh", pagination: false, durability: "ephemeral" },
+      reminders: { read: "partial", write: "partial", multiple: true, methods: ["notification"], defaults: "none", maxCount: null },
     });
   });
 });

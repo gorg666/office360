@@ -5,7 +5,7 @@ import { getCalendarProvider } from "./providerFactory";
 vi.mock("./providerFactory", () => ({ getCalendarProvider: vi.fn() }));
 
 const capabilities = {
-  version: 3 as const,
+  version: 4 as const,
   read: { calendars: "full" as const, events: "full" as const },
   events: { create: "remote" as const, update: "remote" as const, delete: "remote" as const },
   recurrence: {
@@ -21,7 +21,10 @@ const capabilities = {
   freeBusy: { self: "local-derived" as const, others: "none" as const },
   permissions: "none" as const,
   sharedCalendars: "read" as const,
-  reminders: "none" as const,
+  reminders: {
+    read: "partial" as const, write: "partial" as const, multiple: true,
+    methods: ["notification"] as const, defaults: "none" as const, maxCount: null,
+  },
   conflictDetection: "etag" as const,
 };
 
@@ -126,6 +129,39 @@ describe("CalendarMutationService", () => {
 
     expect(result.status).toBe("unsupported");
     expect(mockProvider.createEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported reminder semantics before provider I/O", async () => {
+    const mockProvider = provider();
+    vi.mocked(getCalendarProvider).mockResolvedValue(mockProvider);
+
+    const result = await calendarMutationService.create("acc-1", "cal", {
+      summary: "Email reminder", startTime: "2026-01-01T10:00:00Z", endTime: "2026-01-01T11:00:00Z",
+      reminders: { kind: "custom", reminders: [{ method: "email", trigger: { kind: "before-start", duration: { seconds: 900 } } }] },
+    });
+
+    expect(result.status).toBe("unsupported");
+    expect(mockProvider.createEvent).not.toHaveBeenCalled();
+  });
+
+  it("passes supported multiple reminder semantics to the provider", async () => {
+    const mockProvider = provider();
+    vi.mocked(getCalendarProvider).mockResolvedValue(mockProvider);
+    vi.mocked(mockProvider.createEvent).mockResolvedValue({} as never);
+    const reminders = {
+      kind: "custom" as const,
+      reminders: [
+        { method: "notification" as const, trigger: { kind: "before-start" as const, duration: { seconds: 86400 } } },
+        { method: "notification" as const, trigger: { kind: "before-start" as const, duration: { seconds: 600 } } },
+      ],
+    };
+
+    const result = await calendarMutationService.create("acc-1", "cal", {
+      summary: "Supported", startTime: "2026-01-01T10:00:00Z", endTime: "2026-01-01T11:00:00Z", reminders,
+    });
+
+    expect(result.status).toBe("success");
+    expect(mockProvider.createEvent).toHaveBeenCalledWith("cal", expect.objectContaining({ reminders }));
   });
 
   it("classifies conflicts without exposing raw provider details", () => {

@@ -487,6 +487,25 @@ BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VFREEBUSY\r\nFREEBUSY:20260822T100000Z/2
         endTime: "2024-03-15T10:00:00Z",
       })).rejects.toThrow("CalDAV create event failed (403): Forbidden");
     });
+
+    it("writes multiple notification reminders as VALARM components", async () => {
+      vi.spyOn(crypto, "randomUUID").mockReturnValue("alarm-uuid" as `${string}-${string}-${string}-${string}-${string}`);
+      await provider.createEvent("/cal/personal/", {
+        summary: "Alarm event", startTime: "2024-03-15T09:00:00Z", endTime: "2024-03-15T10:00:00Z",
+        reminders: {
+          kind: "custom",
+          reminders: [
+            { method: "notification", trigger: { kind: "before-start", duration: { seconds: 86400 } } },
+            { method: "notification", trigger: { kind: "before-start", duration: { seconds: 900 } } },
+          ],
+        },
+      });
+
+      const written = mockCreateCalendarObject.mock.calls[0][0].iCalString as string;
+      expect(written.match(/BEGIN:VALARM/g)).toHaveLength(2);
+      expect(written).toContain("TRIGGER:-P1D");
+      expect(written).toContain("TRIGGER:-PT15M");
+    });
   });
 
   describe("updateEvent", () => {
@@ -582,6 +601,24 @@ BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VFREEBUSY\r\nFREEBUSY:20260822T100000Z/2
 
       expect(event.summary).toBe("Updated Event");
       expect(event.remoteEventId).toBe("/cal/personal/test-uid.ics");
+    });
+
+    it("replaces reminder alarms on explicit update and preserves them otherwise", async () => {
+      const source = MOCK_ICAL_DATA.replace(
+        "END:VEVENT",
+        "BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT30M\r\nDESCRIPTION:Old\r\nEND:VALARM\r\nEND:VEVENT",
+      );
+      mockFetchCalendarObjects.mockResolvedValue([{ data: source, url: "/cal/personal/test-uid.ics", etag: '"old-etag"' }]);
+      await provider.updateEvent("/cal/personal/", "/cal/personal/test-uid.ics", { summary: "Preserved" }, '"old-etag"');
+      expect(mockUpdateCalendarObject.mock.calls[0][0].calendarObject.data).toContain("TRIGGER:-PT30M");
+
+      mockFetchCalendarObjects.mockResolvedValue([{ data: source, url: "/cal/personal/test-uid.ics", etag: '"next-etag"' }]);
+      await provider.updateEvent("/cal/personal/", "/cal/personal/test-uid.ics", {
+        reminders: { kind: "custom", reminders: [{ method: "notification", trigger: { kind: "before-start", duration: { seconds: 600 } } }] },
+      }, '"next-etag"');
+      const replaced = mockUpdateCalendarObject.mock.calls[1][0].calendarObject.data as string;
+      expect(replaced).toContain("TRIGGER:-PT10M");
+      expect(replaced).not.toContain("TRIGGER:-PT30M");
     });
 
     it("throws when the existing event is not found", async () => {

@@ -133,6 +133,103 @@ describe("ical.js codec boundary", () => {
     expect(parseVEvent(source).summary).toBe(`Long, escaped; summary ${"x".repeat(90)}`);
   });
 
+  it("round-trips multiple relative DISPLAY alarms without losing their durations", () => {
+    const source = generateVEvent({
+      summary: "Reminder fixture",
+      startTime: "2026-03-15T10:00:00Z",
+      endTime: "2026-03-15T11:00:00Z",
+      reminders: {
+        kind: "custom",
+        reminders: [
+          { method: "notification", trigger: { kind: "before-start", duration: { seconds: 86400 } } },
+          { method: "notification", trigger: { kind: "before-start", duration: { seconds: 900 } } },
+        ],
+      },
+    }, "alarm-round-trip");
+
+    expect(source.match(/BEGIN:VALARM/g)).toHaveLength(2);
+    expect(source).toContain("TRIGGER:-P1D");
+    expect(source).toContain("TRIGGER:-PT15M");
+    expect(parseVEvent(source).reminders).toEqual({
+      kind: "custom",
+      reminders: [
+        { method: "notification", trigger: { kind: "before-start", duration: { seconds: 86400 } } },
+        { method: "notification", trigger: { kind: "before-start", duration: { seconds: 900 } } },
+      ],
+    });
+  });
+
+  it("isolates unsupported and absolute alarms from an otherwise readable event", () => {
+    const source = [
+      "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", "UID:alarm-invalid",
+      "DTSTART:20260315T100000Z", "DTEND:20260315T110000Z",
+      "BEGIN:VALARM", "ACTION:AUDIO", "TRIGGER:-PT5M", "END:VALARM",
+      "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER;VALUE=DATE-TIME:20260315T090000Z", "DESCRIPTION:Absolute", "END:VALARM",
+      "END:VEVENT", "END:VCALENDAR",
+    ].join("\r\n");
+
+    const event = parseVEvent(source);
+    expect(event.summary).toBeNull();
+    expect(event.reminders).toEqual({ kind: "none" });
+    expect(event.reminderDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "unsupported-action", action: "AUDIO" }),
+      expect.objectContaining({ code: "absolute-trigger" }),
+    ]));
+  });
+
+  it("preserves existing alarms when an unrelated field is updated", () => {
+    const source = [
+      "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", "UID:alarm-preserve", "SUMMARY:Before",
+      "DTSTART:20260315T100000Z", "DTEND:20260315T110000Z",
+      "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT30M", "DESCRIPTION:Keep me", "END:VALARM",
+      "END:VEVENT", "END:VCALENDAR",
+    ].join("\r\n");
+
+    const updated = updateVEventFields(source, { summary: "After" });
+    expect(updated).toContain("TRIGGER:-PT30M");
+    expect(parseVEvent(updated).reminders).toMatchObject({ kind: "custom" });
+  });
+
+  it("keeps master reminders on materialized recurrence instances and cloned overrides", () => {
+    const source = [
+      "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", "UID:alarm-series", "SUMMARY:Series",
+      "DTSTART;TZID=America/New_York:20260301T100000", "DTEND;TZID=America/New_York:20260301T110000",
+      "RRULE:FREQ=WEEKLY;COUNT=2",
+      "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT15M", "DESCRIPTION:Series reminder", "END:VALARM",
+      "END:VEVENT", "END:VCALENDAR",
+    ].join("\r\n");
+    const range = parseVEventsInRangeDetailed(
+      source, "/alarm-series.ics", new Date("2026-03-01T00:00:00Z"), new Date("2026-03-10T00:00:00Z"),
+    ).events;
+    expect(range).toHaveLength(2);
+    expect(range.every((event) => event.reminders.kind === "custom")).toBe(true);
+
+    const updated = updateVEventOccurrence(source, { summary: "Only second" }, "alarm-series", {
+      kind: "timed-zoned", tzid: "America/New_York", wall: { year: 2026, month: 3, day: 8, hour: 10, minute: 0, second: 0 },
+    });
+    const occurrence = decodeICalendar(updated).events.find((event) =>
+      event.properties.some((property) => property.name === "RECURRENCE-ID"));
+    expect(occurrence?.alarms).toHaveLength(1);
+  });
+
+  it("keeps relative reminder semantics host-zone independent for all-day, zoned and floating events", () => {
+    const cases = [
+      ["DTSTART;VALUE=DATE:20260825", "DTEND;VALUE=DATE:20260826"],
+      ["DTSTART;TZID=Australia/Lord_Howe:20261004T090000", "DTEND;TZID=Australia/Lord_Howe:20261004T100000"],
+      ["DTSTART:20260825T090000", "DTEND:20260825T100000"],
+    ];
+    for (const [start, end] of cases) {
+      const event = parseVEvent([
+        "BEGIN:VEVENT", "UID:reminder-time", start!, end!,
+        "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-P1D", "DESCRIPTION:Reminder", "END:VALARM", "END:VEVENT",
+      ].join("\r\n"));
+      expect(event.reminders).toEqual({
+        kind: "custom",
+        reminders: [{ method: "notification", trigger: { kind: "before-start", duration: { seconds: 86400 } } }],
+      });
+    }
+  });
+
   it("keeps readable siblings when an individual component is malformed", () => {
     const parsed = parseVEventsInRangeDetailed(
       fixture("malformed-neighbor.ics"),

@@ -28,6 +28,7 @@ function event(overrides: Partial<DbCalendarEvent> = {}): DbCalendarEvent {
     tzid: "UTC", wall_start: "2027-01-15T10:00:00", wall_end: "2027-01-15T11:00:00",
     end_date_exclusive: null, series_uid: null, occurrence_key: null,
     is_recurrence_master: 0, transp: null, sequence: 3, origin: "remote",
+    reminders_json: '{"version":1,"policy":{"kind":"custom","reminders":[{"method":"notification","trigger":{"kind":"before-start","duration":{"seconds":900}}}]}}',
     projection_key: null, projection_status: null, ...overrides,
   };
 }
@@ -55,6 +56,7 @@ describe("commitTimedGridMutation", () => {
       isRecurring: false,
     });
     expect(input.time?.kind).toBe("timed-zoned");
+    expect(input.reminders).toBeUndefined();
   });
 
   it("passes occurrence identity for a single-occurrence drag", async () => {

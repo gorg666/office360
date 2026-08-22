@@ -406,3 +406,22 @@ Graphify incremental index обновлён после feature diff: 6,414 nodes
 Автоматические проверки CAL-117 (feature): TypeScript `npx tsc --noEmit` PASS; targeted create-selection — 6 files / 54 tests PASS; CAL-113/114/recurrence/provider/sync regression — 18 files / 202 tests PASS; full Vitest — 238 files / 2357 tests PASS; `npm run test:calendar-tz` — 162/162 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,035.74 kB raw / 606.16 kB gzip; CalendarPage chunk 117.73 kB / 34.68 kB gzip); `cargo check` PASS с двумя прежними unused-variable warnings в `src/lib.rs:360`. Rust не менялся.
 
 CAL-117-FINAL re-run (docs-only, production code unchanged): `npx tsc --noEmit` PASS; targeted create-selection — 6 files / 54 tests PASS; `cargo check` PASS (те же 2 unused-variable warnings в `src/lib.rs:360`). Full battery не повторялся.
+
+### CAL-118 provider-neutral reminder metadata validation
+
+Дата: 2026-08-23 (Asia/Bangkok). Пользователь явно разрешил append-only migration v36 только для локальной development SQLite DB. Migration добавила nullable `calendar_events.reminders_json TEXT`; schema-only read подтвердил колонку `TEXT NULL` и `_migrations.max(version) = 36`. Existing rows не backfill/rewrite; reset, seed, delete, production/deploy и secrets не затрагивались.
+
+| Live smoke | Status | Observation |
+|---|---|---|
+| Tauri startup / migration v36 | PASS | Обычный development startup применил migration; fresh/existing/legacy автоматические migration checks PASS |
+| Month | PASS | Август 2026 и существующие Yandex events загрузились read-only |
+| Week | PASS | 23–29 августа загрузилась read-only |
+| Day | PASS | 23 августа загрузился read-only |
+| Create reminder policy | PASS | Открыта форма без submit; `Без напоминаний` переключена в custom mode |
+| Custom reminder controls | PASS | Видны время, метод, remove, custom value/unit/method и quick/custom add controls |
+| Existing live VALARM fixture | NOT CONFIRMED | Live event с alarm не идентифицирован; semantic/provider/codec round-trip покрыт automated tests |
+| Cloud mutations | NONE | Create, Save, Delete, RSVP и event update не вызывались; форма закрыта Escape |
+
+Graphify incremental index обновлён после feature diff: 6,469 nodes / 16,561 edges / 396 communities. Integrity audit (`graphify diagnose multigraph`): 0 missing endpoints, 0 dangling endpoints, 0 self-loops, 0 duplicate edges. `graphify-out/` gitignored.
+
+Автоматические проверки CAL-118: TypeScript `npx tsc --noEmit` PASS; targeted reminder/domain/provider/ICS/DB/UI/RSVP/Mail/privacy — 17 files / 235 tests PASS; migration v34/v35/v36 fresh/existing/legacy PASS; full Vitest — 240 files / 2390 tests PASS; `npm run test:calendar-tz` — 168/168 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,041.00 kB raw / 607.98 kB gzip; Calendar chunk 124.55 kB raw / 36.34 kB gzip); `cargo check` PASS с двумя прежними unrelated unused-variable warnings в `src/lib.rs:360`. Rust не менялся.

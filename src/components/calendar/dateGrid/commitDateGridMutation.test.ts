@@ -28,6 +28,7 @@ function event(overrides: Partial<DbCalendarEvent> = {}): DbCalendarEvent {
     tzid: "UTC", wall_start: "2027-01-15T14:30:00", wall_end: "2027-01-15T15:30:00",
     end_date_exclusive: null, series_uid: null, occurrence_key: null,
     is_recurrence_master: 0, transp: null, sequence: 3, origin: "remote",
+    reminders_json: '{"version":1,"policy":{"kind":"custom","reminders":[{"method":"notification","trigger":{"kind":"before-start","duration":{"seconds":900}}}]}}',
     projection_key: null, projection_status: null, ...overrides,
   };
 }
@@ -50,6 +51,7 @@ describe("commitDateGridMutation", () => {
     const [, input] = updateMock.mock.calls[0]!;
     expect(input.isAllDay).toBe(false);
     expect(input.time.kind).toBe("timed-zoned");
+    expect(input.reminders).toBeUndefined();
   });
 
   it("does not call the service when the draft is unchanged", async () => {
@@ -83,6 +85,7 @@ describe("commitDateGridMutation", () => {
       isRecurring: true,
     });
     expect(input.isAllDay).toBe(true);
+    expect(input.reminders).toBeUndefined();
   });
 
   it("writes all-day → timed with default duration", async () => {
@@ -106,5 +109,6 @@ describe("commitDateGridMutation", () => {
     expect(input.time.kind).toBe("timed-zoned");
     expect(input.time.start.wall).toMatchObject({ hour: 9, minute: 0 });
     expect(input.time.end.wall).toMatchObject({ hour: 10, minute: 0 });
+    expect(input.reminders).toBeUndefined();
   });
 });

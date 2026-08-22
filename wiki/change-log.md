@@ -1,5 +1,13 @@
 # Журнал изменений
 
+## 2026-08-23 — Calendar reminder metadata (CAL-118)
+
+- Добавлена provider-neutral модель `inherit` / `none` / `custom` с multiple relative reminders и minute/hour/day duration.
+- Google defaults/overrides и CalDAV/Yandex `VALARM` проходят через один semantic contract; unsupported alarms дают diagnostic и не ломают событие.
+- Append-only migration v36 добавляет nullable `calendar_events.reminders_json` без backfill; legacy CalDAV lazily derives из ICS, Google остаётся unknown до refresh.
+- Create/Edit UI capability-driven; drag/resize/recurrence/time conversions сохраняют provider reminder state, если пользователь его не менял.
+- Desktop toast scheduler, snooze/dismiss и app-closed delivery не добавлялись.
+
 ## 2026-08-22 — CAL-110 remote Free/Busy
 
 - Scheduling Assistant получает privacy-limited remote busy intervals через единый account/provider-scoped adapter boundary.

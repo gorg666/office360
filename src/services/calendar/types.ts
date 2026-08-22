@@ -1,4 +1,4 @@
-import type { CalendarAttendee, CalendarAttendeeInput, CalendarEventTime, CalendarOrganizer, CalendarProviderCapabilities, OccurrenceIdentity, ParticipantRef, RecurrenceWriteScope } from "./domain";
+import type { CalendarAttendee, CalendarAttendeeInput, CalendarEventTime, CalendarOrganizer, CalendarProviderCapabilities, CalendarReminderDiagnostic, CalendarReminderPolicy, OccurrenceIdentity, ParticipantRef, RecurrenceWriteScope } from "./domain";
 
 export type CalendarProviderType = "google_api" | "caldav";
 
@@ -34,6 +34,8 @@ export interface CalendarEventData {
   transparency: "opaque" | "transparent" | null;
   sequence: number;
   participants: ParticipantRef[];
+  reminders: CalendarReminderPolicy;
+  reminderDiagnostics?: CalendarReminderDiagnostic[];
   timeZoneDiagnostic?: {
     status: "unsupported-timezone";
     originalTzid: string;
@@ -53,6 +55,7 @@ export interface CreateEventInput {
   transparency?: "opaque" | "transparent";
   status?: string;
   sequence?: number;
+  reminders?: CalendarReminderPolicy;
 }
 
 export interface UpdateEventInput {
@@ -70,6 +73,7 @@ export interface UpdateEventInput {
   organizer?: CalendarOrganizer;
   /** RRULE value without the `RRULE:` prefix. Series mutations only. */
   recurrenceRule?: string | null;
+  reminders?: CalendarReminderPolicy;
 }
 
 export interface RecurringMutationContext {

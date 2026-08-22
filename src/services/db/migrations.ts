@@ -1159,6 +1159,11 @@ export const MIGRATIONS = [
         WHERE projection_key IS NOT NULL;
     `,
   },
+  {
+    version: 36,
+    description: "Calendar reminder semantic projection",
+    sql: `ALTER TABLE calendar_events ADD COLUMN reminders_json TEXT;`,
+  },
 ];
 
 /**

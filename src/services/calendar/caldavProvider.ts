@@ -65,7 +65,7 @@ export class CalDAVProvider implements CalendarProvider {
   private remoteFreeBusyCapability: "none" | "remote" = "none";
   get capabilities(): CalendarProviderCapabilities {
     return {
-      version: 3,
+      version: 4,
       read: { calendars: "full", events: "full" },
       events: { create: "remote", update: "remote", delete: "remote" },
       recurrence: {
@@ -81,7 +81,14 @@ export class CalDAVProvider implements CalendarProvider {
       freeBusy: { self: "local-derived", others: this.remoteFreeBusyCapability },
       permissions: "none",
       sharedCalendars: "read",
-      reminders: "none",
+      reminders: {
+        read: "partial",
+        write: "partial",
+        multiple: true,
+        methods: ["notification"],
+        defaults: "none",
+        maxCount: null,
+      },
       conflictDetection: "etag",
     };
   }
