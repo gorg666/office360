@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, type ReactNode } from "react";
+import { useMemo, useState, useCallback, useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, CircleHelp, Clock, Copy, ExternalLink, Mail, MapPin, Pencil, Repeat2, Trash2, User, X } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -8,8 +8,8 @@ import { TextField } from "@/components/ui/TextField";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import type { DbCalendar } from "@/services/db/calendars";
 import type { CalendarParticipationStatus } from "@/services/calendar/types";
-import { getCalendarProvider } from "@/services/calendar/providerFactory";
-import { deleteCalendarEvent as deleteCalendarEventDb } from "@/services/db/calendarEvents";
+import { calendarMutationService } from "@/services/calendar/calendarMutationService";
+import { supportsRecurrenceScope, type CalendarProviderCapabilities, type RecurrenceWriteScope } from "@/services/calendar/domain";
 import { useAccountStore } from "@/stores/accountStore";
 import { navigateToLabel } from "@/router/navigate";
 import { cefNavigate } from "@/services/cef";
@@ -40,6 +40,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, onClose,
   const [busyAction, setBusyAction] = useState<"save" | "delete" | "rsvp" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [providerCapabilities, setProviderCapabilities] = useState<CalendarProviderCapabilities | null>(null);
   const accounts = useAccountStore((state) => state.accounts);
   const accountEmail = accounts.find((account) => account.id === accountId)?.email ?? "";
   const calendar = calendars.find((item) => item.id === event.calendar_id);
@@ -47,6 +48,26 @@ export function EventDetailModal({ event, calendars, accountId, anchor, onClose,
   const meetingUrl = useMemo(() => findTelemostUrl(event.description), [event.description]);
   const recurring = event.is_recurrence_master === 1 || event.occurrence_key !== null;
   const selfAttendee = attendees.find((item) => item.email.toLowerCase() === accountEmail.toLowerCase());
+  const recurrenceScope: RecurrenceWriteScope | undefined = event.occurrence_key
+    ? "single"
+    : event.is_recurrence_master === 1
+      ? "series"
+      : undefined;
+  const canUpdate = providerCapabilities?.events.update === "remote" && (
+    !recurring || (recurrenceScope !== undefined && supportsRecurrenceScope(providerCapabilities, "update", recurrenceScope))
+  );
+  const canDelete = providerCapabilities?.events.delete === "remote" && (
+    !recurring || (recurrenceScope !== undefined && supportsRecurrenceScope(providerCapabilities, "delete", recurrenceScope))
+  );
+  const canRsvp = providerCapabilities?.rsvp.remote === "direct";
+
+  useEffect(() => {
+    let current = true;
+    void calendarMutationService.capabilities(accountId)
+      .then((capabilities) => { if (current) setProviderCapabilities(capabilities); })
+      .catch(() => { if (current) setProviderCapabilities(null); });
+    return () => { current = false; };
+  }, [accountId]);
 
   const remoteIds = useCallback(() => ({
     calendarRemoteId: calendar?.remote_id ?? "primary",
@@ -56,43 +77,58 @@ export function EventDetailModal({ event, calendars, accountId, anchor, onClose,
   const handleSave = useCallback(async () => {
     setBusyAction("save"); setError(null);
     try {
-      const provider = await getCalendarProvider(accountId);
       const ids = remoteIds();
-      await provider.updateEvent(ids.calendarRemoteId, ids.remoteEventId, {
+      const result = await calendarMutationService.update({
+        accountId,
+        ...ids,
+        etag: event.etag ?? undefined,
+        baseSequence: event.sequence,
+        isRecurring: recurring,
+        recurrenceScope,
+      }, {
         summary,
         description,
         location,
         startTime: recurring ? undefined : new Date(startTime).toISOString(),
         endTime: recurring ? undefined : new Date(endTime).toISOString(),
         isAllDay: event.is_all_day === 1,
-      }, event.etag ?? undefined);
+      });
+      if (result.status !== "success") throw new Error(result.message);
       onUpdated();
     } catch (cause) {
       setError(errorMessage(cause, "Не удалось сохранить событие"));
     } finally { setBusyAction(null); }
-  }, [accountId, description, endTime, event.etag, event.is_all_day, location, onUpdated, remoteIds, startTime, summary]);
+  }, [accountId, description, endTime, event.etag, event.is_all_day, event.sequence, location, onUpdated, recurrenceScope, recurring, remoteIds, startTime, summary]);
 
   const handleDelete = useCallback(async () => {
     setBusyAction("delete"); setError(null);
     try {
-      const provider = await getCalendarProvider(accountId);
       const ids = remoteIds();
-      await provider.deleteEvent(ids.calendarRemoteId, ids.remoteEventId, event.etag ?? undefined);
-      await deleteCalendarEventDb(event.id);
+      const result = await calendarMutationService.delete({
+        accountId,
+        ...ids,
+        etag: event.etag ?? undefined,
+        isRecurring: recurring,
+        recurrenceScope,
+      });
+      if (result.status !== "success") throw new Error(result.message);
       onUpdated();
     } catch (cause) {
       setError(errorMessage(cause, "Не удалось удалить событие"));
     } finally { setBusyAction(null); }
-  }, [accountId, event.etag, event.id, onUpdated, remoteIds]);
+  }, [accountId, event.etag, onUpdated, recurrenceScope, recurring, remoteIds]);
 
   const handleRsvp = useCallback(async (status: CalendarParticipationStatus) => {
     if (!accountEmail) return;
     setBusyAction("rsvp"); setError(null);
     try {
-      const provider = await getCalendarProvider(accountId);
-      if (!provider.respondToEvent) throw new Error("Ответы на приглашения не поддерживаются этим календарём");
       const ids = remoteIds();
-      await provider.respondToEvent(ids.calendarRemoteId, ids.remoteEventId, accountEmail, status, event.etag ?? undefined);
+      const result = await calendarMutationService.respond({
+        accountId,
+        ...ids,
+        etag: event.etag ?? undefined,
+      }, accountEmail, status);
+      if (result.status !== "success") throw new Error(result.message);
       onUpdated();
     } catch (cause) {
       setError(errorMessage(cause, "Не удалось отправить ответ организатору"));
@@ -110,7 +146,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, onClose,
     return (
       <Modal isOpen onClose={onClose} title="Изменить событие" width="w-full max-w-xl">
         <div className="p-5 space-y-4">
-          {recurring && <Notice>Изменения будут применены ко всей серии повторяющихся событий.</Notice>}
+          {recurring && <Notice>{recurrenceScope === "single" ? "Изменения будут применены только к этому повторению." : "Изменения будут применены ко всей серии повторяющихся событий."}</Notice>}
           <TextField label="Название" type="text" value={summary} onChange={(e) => setSummary(e.target.value)} autoFocus />
           <div className="grid grid-cols-2 gap-3">
             <TextField label="Начало" type="datetime-local" value={startTime} onChange={(e) => setStartTime(e.target.value)} disabled={recurring} />
@@ -169,7 +205,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, onClose,
         {error && <ErrorNotice>{error}</ErrorNotice>}
         <div className="flex items-center justify-between gap-3 pt-3 border-t border-border-primary">
           <div className="flex items-center gap-2">
-            {selfAttendee && (
+            {selfAttendee && canRsvp && (
               <select value={normalizeResponse(selfAttendee.responseStatus)} onChange={(e) => void handleRsvp(e.target.value as CalendarParticipationStatus)} disabled={busyAction !== null} className="px-3 py-2 rounded-md bg-bg-tertiary text-sm font-medium text-text-primary border border-border-primary outline-none">
                 <option value="accepted">Пойду</option><option value="tentative">Возможно</option><option value="declined">Не пойду</option>
               </select>
@@ -179,8 +215,8 @@ export function EventDetailModal({ event, calendars, accountId, anchor, onClose,
           </div>
           <div className="flex items-center gap-1">
             {event.organizer_email && <Button variant="secondary" size="md" icon={<Mail size={15} />} iconOnly aria-label="Написать организатору" onClick={() => void openUrl(`mailto:${event.organizer_email}`)} />}
-            {!confirmDelete ? <Button variant="ghost" size="md" icon={<Trash2 size={15} />} iconOnly aria-label="Удалить" onClick={() => setConfirmDelete(true)} /> : <><Button variant="danger" size="sm" onClick={handleDelete} disabled={busyAction !== null}>{busyAction === "delete" ? "Удаление…" : "Удалить"}</Button><Button variant="secondary" size="sm" onClick={() => setConfirmDelete(false)}>Отмена</Button></>}
-            <Button variant="secondary" size="md" icon={<Pencil size={15} />} iconOnly aria-label="Изменить" onClick={() => setEditing(true)} />
+            {canDelete && (!confirmDelete ? <Button variant="ghost" size="md" icon={<Trash2 size={15} />} iconOnly aria-label="Удалить" onClick={() => setConfirmDelete(true)} /> : <><Button variant="danger" size="sm" onClick={handleDelete} disabled={busyAction !== null}>{busyAction === "delete" ? "Удаление…" : "Удалить"}</Button><Button variant="secondary" size="sm" onClick={() => setConfirmDelete(false)}>Отмена</Button></>)}
+            {canUpdate && <Button variant="secondary" size="md" icon={<Pencil size={15} />} iconOnly aria-label="Изменить" onClick={() => setEditing(true)} />}
           </div>
         </div>
       </div>

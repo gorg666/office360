@@ -55,10 +55,7 @@ async function createCalendarProvider(accountId: string): Promise<CalendarProvid
   else if (account.provider === "gmail_api" || account.calendar_provider === "google_api") {
     provider = new GoogleCalendarProvider(accountId);
   }
-  // Default for Gmail accounts
-  else if (account.provider === "gmail_api") {
-    provider = new GoogleCalendarProvider(accountId);
-  } else {
+  else {
     throw new Error(`No calendar provider configured for account ${accountId}`);
   }
 

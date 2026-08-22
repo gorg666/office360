@@ -65,7 +65,19 @@ async function processQueue(): Promise<void> {
 
       const params = JSON.parse(op.params) as Record<string, unknown>;
       if (op.operation_type === "calendarRsvp") {
-        await executeCalendarQueuedAction(op.account_id, op.operation_type, params);
+        const result = await executeCalendarQueuedAction(op.account_id, op.operation_type, params);
+        if (result.status === "unsupported") {
+          await blockOperation(op.id, result.message, {
+            diagnosticCode: "calendar_write_unsupported",
+            userAction: "export_debug",
+            errorMessage: result.message,
+          });
+          emitOutboxChanged();
+          continue;
+        }
+        if (result.status !== "success") {
+          throw new Error(result.message);
+        }
       } else {
         await executeQueuedAction(op.account_id, op.operation_type, params);
       }

@@ -165,6 +165,25 @@ CAL-104 вводит единый cache-first orchestration path, range-level co
 
 Автоматические проверки: TypeScript PASS; targeted Calendar/provider/UI — 13 files / 163 tests; `npm run test:calendar-tz` — 45/45 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; full Vitest — 203 files / 2055 tests; migration v34+v35 verifier PASS; production build и `cargo check` PASS. Production main chunk: 2,015.17 kB raw / 600.56 kB gzip; прежнее предупреждение о chunk size остаётся. Rust-код не менялся; два существующих unused-variable warning не относятся к CAL-104.
 
+### CAL-105 provider/write readiness validation
+
+Дата: 2026-08-22 (Asia/Bangkok). Реальные Calendar write operations не выполнялись. Google/CalDAV create, update, delete, RSVP, recurrence scope и ETag behavior проверены mock/fixture tests; Yandex acceptance ограничена разрешённым read-only Tauri smoke.
+
+CAL-105 вводит capability contract v2 и единый `CalendarMutationService`. Create/update/delete/RSVP возвращают provider-neutral typed result; raw provider bodies не попадают в UI. React controls используют capabilities. CalDAV/Yandex `single` occurrence delete блокируется до provider call, потому что occurrence и series используют один `.ics` resource. Google/CalDAV ETag передаётся в conditional update/delete/RSVP там, где cache имеет ETag. После remote success UI вызывает только CAL-104 range reconciliation; manual event upsert/delete удалены.
+
+Mail RSVP queue не имеет remote calendar/resource identity, поэтому outbound RSVP остаётся terminal unsupported: provisional projection удаляется, item блокируется без retry. Provider-native invitation/iTIP, Free/Busy, ACL, reminders, durable Google sync-token storage и CalDAV delta sync не заявлены как поддерживаемые.
+
+| Runtime check | Status | Observation |
+| --- | --- | --- |
+| Provider capability resolution | PASS | Yandex/CalDAV profile resolved; Create control remained enabled; no method-presence fallback was used |
+| Month | PASS | Existing Yandex events rendered after refresh without error/stale banner |
+| Week | PASS | Week grid and existing event rendered after refresh without error/stale banner |
+| Day | PASS | Day grid completed refresh without error/stale banner |
+| Calendar list | PASS | Two Yandex collections were listed; visibility was not changed |
+| Cloud mutations | NOT PERFORMED | Create/update/delete/RSVP controls were not invoked |
+
+Автоматические проверки: TypeScript PASS; targeted Calendar/provider/queue/UI — 13 files / 215 tests; `npm run test:calendar-tz` — 45/45 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; full Vitest — 205 files / 2071 tests; production build и `cargo check` PASS. Production main chunk: 2,016.23 kB raw / 601.02 kB gzip; existing chunk/externalized-stream warnings remain. Rust code не менялся; два существующих unused-variable warning не относятся к CAL-105. Migration не требовалась и не запускалась.
+
 ## Checks
 
 Финальные build/test результаты фиксируются после удаления временной instrumentation и перечислены в итоговом CAL-101A отчёте. Общий `cargo fmt --check` имеет существующий repo-wide formatting debt; изменённый Rust-файл проверяется отдельно.

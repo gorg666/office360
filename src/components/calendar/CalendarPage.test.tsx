@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getCalendarsForAccount: vi.fn(),
   upsertCalendar: vi.fn(),
   getCalendarProvider: vi.fn(),
+  getCapabilities: vi.fn(),
 }));
 
 vi.mock("@/services/db/calendarEvents", () => ({
@@ -24,9 +25,15 @@ vi.mock("@/services/calendar/providerFactory", () => ({ getCalendarProvider: moc
 vi.mock("@/services/calendar/calendarSyncService", () => ({
   calendarSyncService: { loadRange: mocks.loadRange },
 }));
+vi.mock("@/services/calendar/calendarMutationService", () => ({
+  calendarMutationService: { capabilities: mocks.getCapabilities, create: vi.fn() },
+}));
 vi.mock("./CalendarToolbar", () => ({
-  CalendarToolbar: ({ onViewChange }: { onViewChange: (view: "week") => void }) => (
-    <div data-testid="calendar-toolbar"><button onClick={() => onViewChange("week")}>Week test</button></div>
+  CalendarToolbar: ({ onViewChange, canCreateEvent }: { onViewChange: (view: "week") => void; canCreateEvent?: boolean }) => (
+    <div data-testid="calendar-toolbar">
+      <button onClick={() => onViewChange("week")}>Week test</button>
+      <button disabled={!canCreateEvent}>Create test</button>
+    </div>
   ),
 }));
 
@@ -98,14 +105,26 @@ describe("CalendarPage load states", () => {
     mocks.getCalendarsForAccount.mockResolvedValue([dbCalendar]);
     mocks.upsertCalendarEvent.mockResolvedValue(undefined);
     mocks.upsertCalendar.mockResolvedValue("cal-1");
+    mocks.getCapabilities.mockResolvedValue({
+      events: { create: "remote", update: "remote", delete: "remote" },
+    });
     mocks.loadRange.mockResolvedValue(loadResult("fresh", [makeDbEvent("Свежее событие")]));
   });
 
   it("A: remote success replaces cache and clears error notices", async () => {
     render(<CalendarPage />);
     expect(await screen.findByText("Свежее событие")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create test" })).toBeEnabled());
     expect(screen.queryByText("Не удалось обновить календарь")).not.toBeInTheDocument();
     expect(screen.queryByText("Не удалось загрузить календарь")).not.toBeInTheDocument();
+  });
+
+  it("uses provider capabilities to gate event creation", async () => {
+    mocks.getCapabilities.mockResolvedValueOnce({
+      events: { create: "unsupported", update: "remote", delete: "remote" },
+    });
+    render(<CalendarPage />);
+    expect(await screen.findByRole("button", { name: "Create test" })).toBeDisabled();
   });
 
   it("B: provider failure keeps cached events visible and marks them stale", async () => {

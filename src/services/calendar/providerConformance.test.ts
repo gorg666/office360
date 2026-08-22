@@ -75,12 +75,28 @@ describe("Calendar provider semantic conformance", () => {
 
   it("declares actual provider capabilities explicitly", () => {
     expect(new GoogleCalendarProvider("account").capabilities).toMatchObject({
-      recurrence: { read: true, scopes: ["instance", "series"] }, freeBusy: "native",
-      sync: { mode: "sync-token", pagination: true },
+      version: 2,
+      read: { calendars: "full", events: "full" },
+      events: { create: "remote", update: "remote", delete: "remote" },
+      recurrence: {
+        read: "full", write: "partial",
+        updateScopes: ["single", "series"], deleteScopes: ["single", "series"],
+      },
+      rsvp: { local: "projection", remote: "direct" },
+      invitations: "none", freeBusy: "none", conflictDetection: "etag",
+      sync: { mode: "sync-token", pagination: true, durability: "ephemeral" },
     });
     expect(new CalDAVProvider("account").capabilities).toMatchObject({
-      recurrence: { read: true, scopes: ["series"] }, freeBusy: "none",
-      sync: { mode: "range-refresh", pagination: false },
+      version: 2,
+      read: { calendars: "full", events: "full" },
+      events: { create: "remote", update: "remote", delete: "remote" },
+      recurrence: {
+        read: "full", write: "partial",
+        updateScopes: ["series"], deleteScopes: ["series"],
+      },
+      rsvp: { local: "projection", remote: "direct" },
+      invitations: "none", freeBusy: "none", conflictDetection: "etag",
+      sync: { mode: "range-refresh", pagination: false, durability: "ephemeral" },
     });
   });
 });

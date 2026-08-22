@@ -32,7 +32,7 @@ vi.mock("../emailActions", () => ({
 }));
 
 vi.mock("../calendar/invitations", () => ({
-  executeCalendarQueuedAction: vi.fn(() => Promise.resolve()),
+  executeCalendarQueuedAction: vi.fn(() => Promise.resolve({ status: "success", value: undefined })),
 }));
 
 vi.mock("../db/accountDiagnostics", () => ({
@@ -167,6 +167,30 @@ describe("queueProcessor", () => {
     });
     expect(executeQueuedAction).not.toHaveBeenCalled();
     expect(deleteOperation).toHaveBeenCalledWith("op-1");
+  });
+
+  it("blocks typed unsupported calendar actions without retrying", async () => {
+    vi.mocked(getPendingOperations).mockResolvedValueOnce([
+      {
+        id: "op-unsupported", account_id: "acct-1", operation_type: "calendarRsvp",
+        resource_id: "invite-1", params: '{"invitationId":"invite-1"}', status: "pending",
+        retry_count: 0, max_retries: 10, next_retry_at: null, created_at: 1000, error_message: null,
+      },
+    ]);
+    vi.mocked(executeCalendarQueuedAction).mockResolvedValueOnce({
+      status: "unsupported",
+      message: "Удалённая доставка ответа пока не поддерживается.",
+    });
+
+    await triggerQueueFlush();
+
+    expect(blockOperation).toHaveBeenCalledWith(
+      "op-unsupported",
+      "Удалённая доставка ответа пока не поддерживается.",
+      expect.objectContaining({ diagnosticCode: "calendar_write_unsupported" }),
+    );
+    expect(incrementRetry).not.toHaveBeenCalled();
+    expect(deleteOperation).not.toHaveBeenCalled();
   });
 
   it("retries on retryable errors", async () => {

@@ -747,6 +747,9 @@ export function operationLabel(operationType: string): string {
 function actionsForOperation(op: PendingOperation, status: QueueOperationStatus): QueueUserAction[] {
   if (status === "cancelled" || status === "executing") return [];
   if (status === "blocked") {
+    if (op.diagnostic_code === "calendar_write_unsupported") {
+      return ["cancel", "export_debug"];
+    }
     const action = op.user_action === "reauth" || op.user_action === "edit_settings" || op.user_action === "export_debug" || op.user_action === "wait"
       ? op.user_action
       : "retry";

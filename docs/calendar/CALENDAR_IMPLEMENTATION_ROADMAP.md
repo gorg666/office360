@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-103 and CAL-104 completed; CAL-105 requires a separate explicit start.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-103, CAL-104 and CAL-105 completed; CAL-106 requires a separate explicit start.
 
 ## ID convention
 
@@ -129,9 +129,9 @@ CAL-101 Git/runtime gate
 
 **Acceptance:** PASS. Approved append-only v35 adds explicit local projection lifecycle and durable per-calendar range coverage without rewriting existing rows. `CalendarSyncService` owns cache-first bounded refresh, authoritative/degraded reconciliation, safe deletion ordering, offline state and diagnostics; `CalendarPage` keeps presentation state with generation guards. Google bounded fetch pagination, honest CalDAV `range-refresh` capability, RSVP projection cleanup, synced-empty semantics and bounded legacy normalization cache are covered. Canonical model: `CALENDAR_SYNC_CACHE_MODEL.md`.
 
-## CAL-105 — Provider/write readiness and durable delta sync
+## CAL-105 — Provider/write readiness
 
-**Цель:** завершить provider-specific write/conflict readiness и durable delta sync поверх CAL-104 service/cache boundary.
+**Цель:** завершить provider-specific write/conflict readiness поверх CAL-104 service/cache boundary и честно объявить текущий sync mode/durability.
 
 **Основные файлы/модули:** `providerFactory.ts`, `types.ts`, Google/CalDAV providers, new calendar sync manager/store, DB sync state.
 
@@ -140,12 +140,16 @@ CAL-101 Git/runtime gate
 **Definition of Done:**
 
 - typed capability matrix (CRUD, recurrence scope, RSVP, FreeBusy, ACL, reminders);
-- durable Google sync-token adoption/recovery; CalDAV ctag/sync-collection/fallback policy;
+- explicit Google sync-token and CalDAV range-refresh capability/durability facts;
 - provider write conflict/retry policy and truthful mutation capabilities;
 - offline/error/conflict states surfaced to UI;
 - provider contract and sync tests.
 
 **Риски:** provider divergence, rate limits, ETag conflicts.
+
+**Acceptance:** PASS. Capability contract v2 now covers read/CRUD, recurrence scopes, attendees, local/remote RSVP, invitation delivery, sync mode/durability, Free/Busy, ACL, shared calendars, reminders and conflict detection. React uses capabilities instead of method presence, while `CalendarMutationService` gates writes and returns safe typed results. Google and CalDAV/Yandex use ETag preconditions where a cached ETag exists; CalDAV/Yandex occurrence deletion is rejected before the shared series resource can be deleted. Successful writes reconcile only through the CAL-104 range-refresh owner. Canonical matrix: `CALENDAR_PROVIDER_CAPABILITIES.md`.
+
+Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas were not part of the approved CAL-105 implementation scope and remain explicit limitations for CAL-106/provider-readiness follow-up. No migration was needed.
 
 ## CAL-106 — Yandex/CalDAV production readiness
 

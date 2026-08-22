@@ -45,12 +45,23 @@ interface GetSessionOptions {
 export class CalDAVProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "caldav";
   readonly capabilities: CalendarProviderCapabilities = {
-    version: 1,
-    events: { create: true, update: true, delete: true },
-    recurrence: { read: true, write: false, scopes: ["series"] },
-    rsvp: "direct",
+    version: 2,
+    read: { calendars: "full", events: "full" },
+    events: { create: "remote", update: "remote", delete: "remote" },
+    recurrence: {
+      read: "full",
+      write: "partial",
+      updateScopes: ["series"],
+      deleteScopes: ["series"],
+    },
+    attendees: { read: "partial", write: "partial" },
+    rsvp: { local: "projection", remote: "direct" },
+    invitations: "none",
+    sync: { mode: "range-refresh", pagination: false, durability: "ephemeral" },
     freeBusy: "none",
-    sync: { mode: "range-refresh", pagination: false },
+    permissions: "none",
+    sharedCalendars: "read",
+    reminders: "none",
     conflictDetection: "etag",
   };
   private _lastReadDiagnostics: CalendarReadDiagnostics = emptyReadDiagnostics();

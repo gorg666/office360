@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
-import { calendarEventDataToUpsert, upsertCalendarEvent, type DbCalendarEvent } from "@/services/db/calendarEvents";
+import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { getCalendarsForAccount, upsertCalendar, type DbCalendar } from "@/services/db/calendars";
 import { getCalendarProvider } from "@/services/calendar/providerFactory";
 import { calendarSyncService } from "@/services/calendar/calendarSyncService";
+import { calendarMutationService } from "@/services/calendar/calendarMutationService";
+import type { CalendarProviderCapabilities } from "@/services/calendar/domain";
 import type { CalendarReadDiagnostics, CreateEventInput } from "@/services/calendar/types";
 import { CalendarToolbar, type CalendarView } from "./CalendarToolbar";
 import { MonthView } from "./MonthView";
@@ -39,6 +41,7 @@ export function CalendarPage() {
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [showCalendarList, setShowCalendarList] = useState(false);
   const [hasCalendar, setHasCalendar] = useState(true);
+  const [providerCapabilities, setProviderCapabilities] = useState<CalendarProviderCapabilities | null>(null);
   const reauthDoneRef = useRef(false);
   const loadGenerationRef = useRef(0);
   const calendarApiEnableUrl =
@@ -138,6 +141,16 @@ export function CalendarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccountId, currentDate, view]);
 
+  useEffect(() => {
+    let current = true;
+    setProviderCapabilities(null);
+    if (!activeAccountId) return () => { current = false; };
+    void calendarMutationService.capabilities(activeAccountId)
+      .then((capabilities) => { if (current) setProviderCapabilities(capabilities); })
+      .catch(() => { if (current) setProviderCapabilities(null); });
+    return () => { current = false; };
+  }, [activeAccountId]);
+
   const handlePrev = useCallback(() => {
     setCurrentDate((d) => {
       const next = new Date(d);
@@ -186,12 +199,10 @@ export function CalendarPage() {
 
       // Find the target calendar
       let calendarRemoteId: string | undefined;
-      let calendarDbId: string | undefined;
       if (eventData.calendarId) {
         const cal = availableCalendars.find((c) => c.id === eventData.calendarId);
         if (cal) {
           calendarRemoteId = cal.remote_id;
-          calendarDbId = cal.id;
         }
       }
 
@@ -200,7 +211,6 @@ export function CalendarPage() {
         const primary = availableCalendars.find((c) => c.is_primary) ?? availableCalendars[0];
         if (primary) {
           calendarRemoteId = primary.remote_id;
-          calendarDbId = primary.id;
         }
       }
 
@@ -220,17 +230,17 @@ export function CalendarPage() {
         attendees: eventData.attendees.map((email) => ({ email })),
       };
 
-      const created = await provider.createEvent(calendarRemoteId, input);
-
-      // Save to local DB
-      await upsertCalendarEvent(calendarEventDataToUpsert(activeAccountId, calendarDbId ?? null, created));
+      const result = await calendarMutationService.create(activeAccountId, calendarRemoteId, input);
+      if (result.status !== "success") throw new Error(result.message);
 
       setShowCreate(false);
       setCreateInitialValues(undefined);
       loadEvents();
     } catch (err) {
-      console.error("Failed to create event:", err);
-      throw err;
+      const safeMessage = err instanceof Error && /[А-Яа-яЁё]/.test(err.message)
+        ? err.message
+        : "Не удалось создать событие. Обновите календарь и повторите попытку.";
+      throw new Error(safeMessage);
     }
   }, [activeAccountId, calendars, loadEvents]);
 
@@ -296,6 +306,7 @@ export function CalendarPage() {
         onToday={handleToday}
         onViewChange={setView}
         onCreateEvent={() => { setCreateInitialValues(undefined); setShowCreate(true); }}
+        canCreateEvent={providerCapabilities?.events.create === "remote"}
         onToggleCalendarList={() => setShowCalendarList((v) => !v)}
         showCalendarListButton={calendars.length > 1}
       />

@@ -11,6 +11,7 @@ interface CalendarToolbarProps {
   onToday: () => void;
   onViewChange: (view: CalendarView) => void;
   onCreateEvent: () => void;
+  canCreateEvent?: boolean;
   onToggleCalendarList?: () => void;
   showCalendarListButton?: boolean;
 }
@@ -23,6 +24,7 @@ export function CalendarToolbar({
   onToday,
   onViewChange,
   onCreateEvent,
+  canCreateEvent = true,
   onToggleCalendarList,
   showCalendarListButton,
 }: CalendarToolbarProps) {
@@ -98,7 +100,9 @@ export function CalendarToolbar({
         <button
           type="button"
           onClick={onCreateEvent}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors"
+          disabled={!canCreateEvent}
+          title={!canCreateEvent ? (locale === "ru" ? "Создание событий недоступно" : "Event creation unavailable") : undefined}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50 rounded-md transition-colors"
         >
           <Plus size={14} />
           {locale === "ru" ? "Создать" : "Create"}

@@ -1,5 +1,13 @@
 # Журнал изменений
 
+## 2026-08-22 — Calendar provider/write capabilities
+
+- Calendar provider capability contract v2 now describes real Google, CalDAV and Yandex read/write, recurrence, RSVP, sync, Free/Busy, ACL, reminders and conflict behavior.
+- A typed Calendar mutation boundary gates unsupported operations and maps provider failures to safe UI results.
+- Google and CalDAV use cached ETags for conditional writes; CalDAV/Yandex occurrence deletion cannot erase the shared series resource.
+- Calendar write success reconciles through the CAL-104 range owner; ad-hoc local create/delete cache paths were removed.
+- Mail RSVP without a remote calendar/resource locator becomes terminal unsupported without an infinite queue retry.
+
 ## 2026-08-22 — Calendar sync/cache ownership
 
 - Calendar range loading and remote/cache reconciliation moved from `CalendarPage` into a dedicated service boundary.

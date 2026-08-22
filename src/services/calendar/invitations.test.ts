@@ -166,14 +166,15 @@ describe("calendar invitations service", () => {
     expect(updateInvitationRsvp).toHaveBeenCalledWith("invite-1", "accepted", "queued", "op-1");
   });
 
-  it("marks calendar RSVP queue attempts blocked until provider delivery exists", async () => {
-    await expect(executeCalendarQueuedAction("acc-1", "calendarRsvp", {
+  it("returns typed unsupported and marks Mail RSVP delivery blocked", async () => {
+    const result = await executeCalendarQueuedAction("acc-1", "calendarRsvp", {
       invitationId: "invite-1",
       rsvpStatus: "accepted",
       eventUid: "uid-1",
       recurrenceKey: "",
-    })).rejects.toThrow(/unsupported capability/i);
+    });
 
+    expect(result.status).toBe("unsupported");
     expect(updateInvitationQueueStatus).toHaveBeenCalledWith("invite-1", "blocked");
     expect(removeCalendarProjection).toHaveBeenCalledWith("acc-1", "invite:uid-1:");
   });

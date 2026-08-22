@@ -64,12 +64,23 @@ interface GoogleEventListResponse {
 export class GoogleCalendarProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "google_api";
   readonly capabilities: CalendarProviderCapabilities = {
-    version: 1,
-    events: { create: true, update: true, delete: true },
-    recurrence: { read: true, write: false, scopes: ["instance", "series"] },
-    rsvp: "direct",
-    freeBusy: "native",
-    sync: { mode: "sync-token", pagination: true },
+    version: 2,
+    read: { calendars: "full", events: "full" },
+    events: { create: "remote", update: "remote", delete: "remote" },
+    recurrence: {
+      read: "full",
+      write: "partial",
+      updateScopes: ["single", "series"],
+      deleteScopes: ["single", "series"],
+    },
+    attendees: { read: "partial", write: "partial" },
+    rsvp: { local: "projection", remote: "direct" },
+    invitations: "none",
+    sync: { mode: "sync-token", pagination: true, durability: "ephemeral" },
+    freeBusy: "none",
+    permissions: "none",
+    sharedCalendars: "read",
+    reminders: "none",
     conflictDetection: "etag",
   };
   readonly lastReadDiagnostics: CalendarReadDiagnostics = {
@@ -156,7 +167,12 @@ export class GoogleCalendarProvider implements CalendarProvider {
     return mapGoogleEvent(created);
   }
 
-  async updateEvent(calendarRemoteId: string, remoteEventId: string, event: UpdateEventInput): Promise<CalendarEventData> {
+  async updateEvent(
+    calendarRemoteId: string,
+    remoteEventId: string,
+    event: UpdateEventInput,
+    etag?: string,
+  ): Promise<CalendarEventData> {
     const client = await this.getClient();
     const encodedCalId = encodeURIComponent(calendarRemoteId);
     const encodedEventId = encodeURIComponent(remoteEventId);
@@ -185,17 +201,21 @@ export class GoogleCalendarProvider implements CalendarProvider {
 
     const updated = await client.request<GoogleCalendarEvent>(url, {
       method: "PATCH",
+      headers: etag ? { "If-Match": etag } : undefined,
       body: JSON.stringify(body),
     });
     return mapGoogleEvent(updated);
   }
 
-  async deleteEvent(calendarRemoteId: string, remoteEventId: string): Promise<void> {
+  async deleteEvent(calendarRemoteId: string, remoteEventId: string, etag?: string): Promise<void> {
     const client = await this.getClient();
     const encodedCalId = encodeURIComponent(calendarRemoteId);
     const encodedEventId = encodeURIComponent(remoteEventId);
     const url = `${CALENDAR_API_BASE}/calendars/${encodedCalId}/events/${encodedEventId}`;
-    await client.request(url, { method: "DELETE" });
+    await client.request(url, {
+      method: "DELETE",
+      headers: etag ? { "If-Match": etag } : undefined,
+    });
   }
 
   async respondToEvent(
@@ -203,6 +223,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
     remoteEventId: string,
     attendeeEmail: string,
     status: CalendarParticipationStatus,
+    etag?: string,
   ): Promise<void> {
     const client = await this.getClient();
     const base = `${CALENDAR_API_BASE}/calendars/${encodeURIComponent(calendarRemoteId)}/events/${encodeURIComponent(remoteEventId)}`;
@@ -212,7 +233,11 @@ export class GoogleCalendarProvider implements CalendarProvider {
         ? { ...attendee, responseStatus: status }
         : attendee,
     );
-    await client.request(`${base}?sendUpdates=all`, { method: "PATCH", body: JSON.stringify({ attendees }) });
+    await client.request(`${base}?sendUpdates=all`, {
+      method: "PATCH",
+      headers: etag ? { "If-Match": etag } : undefined,
+      body: JSON.stringify({ attendees }),
+    });
   }
 
   async syncEvents(calendarRemoteId: string, syncToken?: string): Promise<CalendarSyncResult> {

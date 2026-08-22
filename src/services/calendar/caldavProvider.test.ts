@@ -381,6 +381,51 @@ describe("CalDAVProvider", () => {
   });
 
   describe("updateEvent", () => {
+    it("preserves recurrence rules while advancing sequence", async () => {
+      const recurringData = [
+        "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", "UID:series-1",
+        "DTSTART;TZID=Europe/Moscow:20260620T100000",
+        "DTEND;TZID=Europe/Moscow:20260620T110000",
+        "RRULE:FREQ=WEEKLY;COUNT=4", "SEQUENCE:3", "SUMMARY:Old", "END:VEVENT", "END:VCALENDAR",
+      ].join("\r\n");
+      mockFetchCalendarObjects.mockResolvedValue([{
+        data: recurringData,
+        url: "/cal/personal/series-1.ics",
+        etag: '"series-etag"',
+      }]);
+
+      await provider.updateEvent(
+        "/cal/personal/",
+        "/cal/personal/series-1.ics",
+        { summary: "Updated", sequence: 4 },
+        '"series-etag"',
+      );
+
+      const written = mockUpdateCalendarObject.mock.calls[0][0].calendarObject.data as string;
+      expect(written).toContain("RRULE:FREQ=WEEKLY;COUNT=4");
+      expect(written).toContain("SEQUENCE:4");
+      expect(written).not.toContain("SEQUENCE:3");
+    });
+
+    it("does not decrease an existing sequence from a stale caller", async () => {
+      const source = [
+        "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", "UID:event-1",
+        "DTSTART:20260620T100000Z", "DTEND:20260620T110000Z",
+        "SEQUENCE:7", "SUMMARY:Old", "END:VEVENT", "END:VCALENDAR",
+      ].join("\r\n");
+      mockFetchCalendarObjects.mockResolvedValue([{
+        data: source, url: "/cal/personal/event-1.ics", etag: '"etag"',
+      }]);
+
+      await provider.updateEvent(
+        "/cal/personal/", "/cal/personal/event-1.ics", { summary: "Updated", sequence: 3 }, '"etag"',
+      );
+
+      const written = mockUpdateCalendarObject.mock.calls[0][0].calendarObject.data as string;
+      expect(written).toContain("SEQUENCE:7");
+      expect(written).not.toContain("SEQUENCE:3");
+    });
+
     it("fetches existing, merges updates, and calls updateCalendarObject", async () => {
       mockFetchCalendarObjects.mockResolvedValue([
         { data: MOCK_ICAL_DATA, url: "/cal/personal/test-uid.ics", etag: '"old-etag"' },

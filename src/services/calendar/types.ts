@@ -92,7 +92,7 @@ export interface CalendarProvider {
   createEvent(calendarRemoteId: string, event: CreateEventInput): Promise<CalendarEventData>;
   updateEvent(calendarRemoteId: string, remoteEventId: string, event: UpdateEventInput, etag?: string): Promise<CalendarEventData>;
   deleteEvent(calendarRemoteId: string, remoteEventId: string, etag?: string): Promise<void>;
-  respondToEvent?(
+  respondToEvent(
     calendarRemoteId: string,
     remoteEventId: string,
     attendeeEmail: string,

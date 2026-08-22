@@ -4,7 +4,7 @@
 
 ## Last updated
 
-2026-08-22 (Asia/Bangkok) — Calendar CAL-104 local validation complete; legacy hybrid checkpoint remains unchanged
+2026-08-22 (Asia/Bangkok) — Calendar CAL-105 local validation complete; legacy hybrid checkpoint remains unchanged
 
 ## Project
 
@@ -60,4 +60,6 @@ Remote GitHub: `gorg666/office360`
 - CAL-104: PASS locally. A single cache-first sync service now owns provider fetch, coverage accounting, authoritative/degraded reconciliation, cache reload and safe UI status. Google bounded fetch consumes every page; generic CalDAV advertises range-refresh. Stable local RSVP projections and stale request fencing are covered.
 - Migration v35: append-only and applied only to local development DB. Runtime schema/version and aggregate-only verification PASS: version 35, 3 semantic event columns, 10 coverage columns, 6 complete coverage rows, 3 remote events. No production/deploy/seed/reset/delete/backfill/cloud event mutation.
 - CAL-104 verification: TypeScript PASS; targeted Calendar/provider/UI 163/163; four-host-TZ matrix 45/45 per zone; full Vitest 203 files / 2055 tests; v34+v35 fresh/existing migration verifier PASS; production build and cargo check PASS; read-only Yandex Month/Week/Day/calendar-list/switch/refresh Tauri smoke PASS. Only one Calendar account was available live; account/range race fencing is automated.
-- Next Calendar step: provider/write readiness and durable delta sync only by explicit instruction; do not start automatically.
+- CAL-105: PASS locally. Capability v2 truthfully declares Google/CalDAV/Yandex CRUD, recurrence scopes, attendee/RSVP, sync durability, Free/Busy/ACL/reminders and ETag behavior. Typed mutation service blocks unsupported scopes, protects CalDAV occurrence delete, sanitizes write results and reconciles successful writes through CAL-104. Mail RSVP without remote locator is terminal unsupported without retry. No migration or real cloud mutation.
+- CAL-105 verification: TypeScript PASS; targeted 13 files / 215 tests; four-host-TZ matrix 45/45 per zone; full Vitest 205 files / 2071 tests; production build and cargo check PASS; read-only Yandex Month/Week/Day/two-calendar-list/capability-resolution Tauri smoke PASS.
+- Next Calendar step after CAL-105 acceptance: CAL-106 only by explicit instruction; do not start automatically.

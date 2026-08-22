@@ -151,6 +151,29 @@ describe("GoogleCalendarProvider", () => {
   });
 
   describe("createEvent", () => {
+    it("preserves a timed-zoned domain timezone in the write body", async () => {
+      mockClient.request.mockResolvedValue({
+        id: "zoned-evt",
+        start: { dateTime: "2026-03-15T14:00:00Z", timeZone: "America/New_York" },
+        end: { dateTime: "2026-03-15T15:00:00Z", timeZone: "America/New_York" },
+      });
+
+      await provider.createEvent("cal-1", {
+        summary: "Zoned",
+        startTime: "2026-03-15T14:00:00Z",
+        endTime: "2026-03-15T15:00:00Z",
+        time: {
+          kind: "timed-zoned",
+          start: { wall: { year: 2026, month: 3, day: 15, hour: 10, minute: 0, second: 0 }, tzid: "America/New_York", instant: 1_773_582_000 },
+          end: { wall: { year: 2026, month: 3, day: 15, hour: 11, minute: 0, second: 0 }, tzid: "America/New_York", instant: 1_773_585_600 },
+        },
+      });
+
+      const body = JSON.parse(mockClient.request.mock.calls[0][1].body as string);
+      expect(body.start.timeZone).toBe("America/New_York");
+      expect(body.end.timeZone).toBe("America/New_York");
+    });
+
     it("sends POST with correct body and returns mapped event", async () => {
       const createdEvent = {
         id: "new-evt",
@@ -228,6 +251,29 @@ describe("GoogleCalendarProvider", () => {
   });
 
   describe("updateEvent", () => {
+    it("preserves timezone and advances the supplied sequence", async () => {
+      mockClient.request.mockResolvedValue({
+        id: "evt-1",
+        sequence: 5,
+        start: { dateTime: "2026-10-25T09:00:00Z", timeZone: "Europe/Moscow" },
+        end: { dateTime: "2026-10-25T10:00:00Z", timeZone: "Europe/Moscow" },
+      });
+
+      await provider.updateEvent("cal-1", "evt-1", {
+        sequence: 5,
+        time: {
+          kind: "timed-zoned",
+          start: { wall: { year: 2026, month: 10, day: 25, hour: 12, minute: 0, second: 0 }, tzid: "Europe/Moscow", instant: 1_793_610_000 },
+          end: { wall: { year: 2026, month: 10, day: 25, hour: 13, minute: 0, second: 0 }, tzid: "Europe/Moscow", instant: 1_793_613_600 },
+        },
+      });
+
+      const body = JSON.parse(mockClient.request.mock.calls[0][1].body as string);
+      expect(body.sequence).toBe(5);
+      expect(body.start.timeZone).toBe("Europe/Moscow");
+      expect(body.end.timeZone).toBe("Europe/Moscow");
+    });
+
     it("sends PATCH with partial body", async () => {
       mockClient.request.mockResolvedValue({
         id: "evt-1",
@@ -238,11 +284,12 @@ describe("GoogleCalendarProvider", () => {
 
       const result = await provider.updateEvent("cal-1", "evt-1", {
         summary: "Updated Title",
-      });
+      }, '"etag-old"');
 
       const [url, options] = mockClient.request.mock.calls[0];
       expect(url).toBe(`${CALENDAR_API_BASE}/calendars/cal-1/events/evt-1`);
       expect(options.method).toBe("PATCH");
+      expect(options.headers).toEqual({ "If-Match": '"etag-old"' });
 
       const body = JSON.parse(options.body as string);
       expect(body.summary).toBe("Updated Title");
@@ -276,11 +323,12 @@ describe("GoogleCalendarProvider", () => {
     it("sends DELETE request with correct URL", async () => {
       mockClient.request.mockResolvedValue(undefined);
 
-      await provider.deleteEvent("cal-1", "evt-1");
+      await provider.deleteEvent("cal-1", "evt-1", '"etag-delete"');
 
       const [url, options] = mockClient.request.mock.calls[0];
       expect(url).toBe(`${CALENDAR_API_BASE}/calendars/cal-1/events/evt-1`);
       expect(options.method).toBe("DELETE");
+      expect(options.headers).toEqual({ "If-Match": '"etag-delete"' });
     });
 
     it("encodes calendar and event IDs", async () => {
@@ -290,6 +338,23 @@ describe("GoogleCalendarProvider", () => {
 
       const calledUrl = mockClient.request.mock.calls[0][0] as string;
       expect(calledUrl).toContain("/calendars/user%40example.com/events/evt%2Fspecial");
+    });
+  });
+
+  describe("respondToEvent", () => {
+    it("uses If-Match for a remote RSVP update", async () => {
+      mockClient.request
+        .mockResolvedValueOnce({ attendees: [{ email: "self@example.com", responseStatus: "needsAction" }] })
+        .mockResolvedValueOnce(undefined);
+
+      await provider.respondToEvent("cal-1", "evt-1", "self@example.com", "accepted", '"rsvp-etag"');
+
+      expect(mockClient.request).toHaveBeenNthCalledWith(2,
+        `${CALENDAR_API_BASE}/calendars/cal-1/events/evt-1?sendUpdates=all`,
+        expect.objectContaining({ method: "PATCH", headers: { "If-Match": '"rsvp-etag"' } }),
+      );
+      const body = JSON.parse(mockClient.request.mock.calls[1][1].body as string);
+      expect(body.attendees[0].responseStatus).toBe("accepted");
     });
   });
 

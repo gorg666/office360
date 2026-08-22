@@ -15,6 +15,7 @@ import {
 } from "@/services/db/calendarEvents";
 import { parseICalendarInvite } from "./icalHelper";
 import type { EmailProvider } from "@/services/email/types";
+import type { CalendarWriteResult } from "./calendarMutationService";
 
 export type InvitationPayloadSource = "body" | "attachment";
 
@@ -177,14 +178,15 @@ export async function executeCalendarQueuedAction(
   accountId: string,
   operationType: string,
   params: Record<string, unknown>,
-): Promise<void> {
-  void accountId;
+): Promise<CalendarWriteResult<void>> {
   if (operationType !== "calendarRsvp") {
-    throw new Error(`Unsupported calendar queue operation: ${operationType}`);
+    return { status: "unsupported", message: "Эта операция календаря не поддерживается очередью." };
   }
 
   const invitationId = typeof params.invitationId === "string" ? params.invitationId : null;
-  if (!invitationId) throw new Error("calendarRsvp requires invitationId");
+  if (!invitationId) {
+    return { status: "provider-error", message: "Не удалось определить приглашение календаря." };
+  }
 
   const eventUid = typeof params.eventUid === "string" ? params.eventUid : null;
   const recurrenceKey = typeof params.recurrenceKey === "string" ? params.recurrenceKey : "";
@@ -193,7 +195,10 @@ export async function executeCalendarQueuedAction(
   }
   await updateInvitationQueueStatus(invitationId, "blocked");
   emitInvitationChanged();
-  throw new Error("unsupported capability: remote calendar RSVP delivery is not implemented yet");
+  return {
+    status: "unsupported",
+    message: "Удалённая доставка ответа на почтовое приглашение пока не поддерживается.",
+  };
 }
 
 async function projectInvitationToCalendarEvent(

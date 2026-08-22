@@ -141,7 +141,10 @@ export function updateICalendarEvent(source: string, changes: UpdateEventInput):
     master.updatePropertyWithValue("status", changes.status.toUpperCase());
   }
   const previousSequence = numericValue(master.getFirstPropertyValue("sequence"));
-  master.updatePropertyWithValue("sequence", changes.sequence ?? previousSequence + 1);
+  const nextSequence = changes.sequence === undefined
+    ? previousSequence + 1
+    : Math.max(previousSequence, changes.sequence);
+  master.updatePropertyWithValue("sequence", nextSequence);
   master.updatePropertyWithValue("dtstamp", ICAL.Time.fromJSDate(new Date(), true));
   return calendar.toString();
 }
