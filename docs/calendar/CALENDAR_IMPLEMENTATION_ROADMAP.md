@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107 and CAL-108 completed. This document is the source of truth for Calendar ticket numbering.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108 and CAL-109 completed. This document is the source of truth for Calendar ticket numbering.
 
 **Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
 
@@ -192,27 +192,17 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Не входило:** визуальный Scheduling Assistant, remote Free/Busy adapters, participant picker, настройки рабочего времени, room booking.
 
-## CAL-109 — Scheduling Assistant UI
+## CAL-109 (delivered) — Scheduling Assistant UI
 
 **Цель:** визуальный Scheduling Assistant уровня Яндекс 360 поверх готового CAL-108 engine.
 
-**Основные файлы/модули:** новые Scheduling UI компоненты, `EventCreateModal`/editor integration.
+**Основные файлы/модули:** `src/components/calendar/scheduling/`, `EventCreateModal`, `EventDetailModal` (режим редактирования), `CalendarPage`.
 
-**Зависимости:** CAL-108; layout-примитивы из CAL-116 переиспользуются при наличии.
+**Зависимости:** CAL-108.
 
-**Definition of Done:**
+**Acceptance (2026-08-22):** PASS. Assistant встроен в create/edit event. UI — thin consumer `planMeeting` / `GroupSchedulingResult`. Required/optional, busy/tentative/unknown, group row, suggestions и синхронизация start/end работают без повторного расчёта занятости в React. Unknown/unsupported не рисуются как free. Канон UI: `CALENDAR_SCHEDULING_ASSISTANT_UI.md`.
 
-- participant rows с busy/tentative/unknown блоками и легендой;
-- timeline range navigation и выбранный слот;
-- suggested slots list с объяснением, почему слот хуже;
-- optional/required визуально различимы;
-- unknown/unsupported участники показаны честно, а не как свободные;
-- рабочее время отображается отдельно от занятости;
-- a11y/keyboard и локализация.
-
-**Риски:** сложность плотного timeline, соблазн показать `unknown` как свободное время.
-
-**Примечание:** заменяет прежний раздел «Scheduling assistant and suggested time», engine-часть которого выполнена в CAL-108.
+**Не входило:** remote Free/Busy adapters, новый participant picker backend, room booking, drag/resize сетки календаря.
 
 ## CAL-110 — Remote Free/Busy provider adapters
 

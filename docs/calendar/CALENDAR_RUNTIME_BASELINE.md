@@ -223,4 +223,38 @@ Free/Busy UI отсутствует по условиям тикета, поэт
 
 Автоматические проверки CAL-107: TypeScript PASS; targeted Free/Busy — 3 files / 40 tests; full Vitest — 209 files / 2120 tests; `npm run test:calendar-tz` — 61/61 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe` (матрица расширена проекцией Free/Busy); production build PASS; `cargo check` PASS с двумя прежними unrelated warnings. Rust не менялся.
 
-Финальные build/test результаты фиксируются после удаления временной instrumentation и перечислены в итоговом CAL-101A отчёте. Общий `cargo fmt --check` имеет существующий repo-wide formatting debt; изменённый Rust-файл проверяется отдельно.
+### CAL-108 Scheduling Assistant engine
+
+Дата: 2026-08-22 (Asia/Bangkok). Миграция не создавалась. Engine stateless над CAL-107: `src/services/calendar/scheduling/`. Runtime UI в CAL-108 не подключался; `planMeeting` вызывается только из CAL-109.
+
+Канон: `docs/calendar/CALENDAR_SCHEDULING_ASSISTANT_MODEL.md`.
+
+### CAL-109 Scheduling Assistant UI validation
+
+Дата: 2026-08-22 (Asia/Bangkok). Миграция не создавалась и не запускалась; cloud events не изменялись; outbound invites не отправлялись.
+
+**Runtime surface.** Assistant встроен в `EventCreateModal` и в режим редактирования `EventDetailModal` (скрыт для recurring). UI — thin consumer `planMeeting` / `GroupSchedulingResult`. Month/Week/Day не импортируют scheduling UI.
+
+| Проверка | Статус | Наблюдение |
+|---|---|---|
+| Create/Edit entry | PASS | Create modal всегда показывает assistant; edit — после «Изменить», не для recurring |
+| Unknown remote | EXPECTED | Другие участники CAL-107 `unsupported` → «Нет данных о занятости», не free |
+| Privacy | PASS | `publicBusyIntervals` снимает title; UI пишет «Занят» |
+| Month / Week / Day | NOT RE-RUN live | Автотесты CalendarPage; live Tauri не запускался (см. ниже) |
+
+| Проверка | Статус |
+|---|---|
+| TypeScript `npx tsc --noEmit` | PASS |
+| Targeted Scheduling UI + engine + FreeBusy | PASS |
+| Participant / CalendarPage / EventDetailModal | PASS |
+| `npm run test:calendar-tz` | PASS 110/110 × `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe` |
+| Full Vitest | PASS 216 files / 2185 tests |
+| `npm run build` | PASS |
+| `cargo check` | FAIL / blocked: `cef-runtime\chrome_100_percent.pak` os error 32 (файл занят другим процессом; Rust не менялся) |
+| Tauri visual smoke | NOT RE-RUN: тот же file lock; unsigned `tauri dev` historically blocked allowlist'ом (CAL-106/107) |
+
+Канон UI: `docs/calendar/CALENDAR_SCHEDULING_ASSISTANT_UI.md`.
+
+Working-hours UI: **PARTIAL** — полосы и подписи только из engine (`workingHoursApplied` / `outsideWorkingHoursParticipants`); фиктивные 09–18 не рисуются.
+
+Rust не менялся. Общий `cargo fmt --check` имеет существующий repo-wide formatting debt.

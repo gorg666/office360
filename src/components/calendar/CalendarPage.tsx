@@ -456,6 +456,9 @@ export function CalendarPage() {
         <EventCreateModal
           calendars={calendars}
           initialValues={createInitialValues}
+          accountId={activeAccountId}
+          selfEmail={activeAccount?.email ?? null}
+          selfDisplayName={activeAccount?.displayName ?? null}
           onClose={() => { setShowCreate(false); setCreateInitialValues(undefined); }}
           onCreate={handleCreateEvent}
         />

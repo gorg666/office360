@@ -1,12 +1,20 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
 import type { DbCalendar } from "@/services/db/calendars";
+import { SchedulingAssistant, type PlanMeetingFn } from "./scheduling/SchedulingAssistant";
+import { buildEditorSchedulingParticipants } from "./scheduling/schedulingView";
 
 interface EventCreateModalProps {
   calendars?: DbCalendar[];
   initialValues?: Partial<EventCreateInput>;
+  accountId?: string | null;
+  selfEmail?: string | null;
+  selfDisplayName?: string | null;
+  timeZone?: string;
+  planMeeting?: PlanMeetingFn;
+  debounceMs?: number;
   onClose: () => void;
   onCreate: (event: EventCreateInput) => void | Promise<void>;
 }
@@ -21,7 +29,18 @@ export interface EventCreateInput {
   calendarId?: string;
 }
 
-export function EventCreateModal({ calendars, initialValues, onClose, onCreate }: EventCreateModalProps) {
+export function EventCreateModal({
+  calendars,
+  initialValues,
+  accountId,
+  selfEmail,
+  selfDisplayName,
+  timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
+  planMeeting,
+  debounceMs,
+  onClose,
+  onCreate,
+}: EventCreateModalProps) {
   const [summary, setSummary] = useState(initialValues?.summary ?? "");
   const [description, setDescription] = useState(initialValues?.description ?? "");
   const [location, setLocation] = useState(initialValues?.location ?? "");
@@ -32,6 +51,14 @@ export function EventCreateModal({ calendars, initialValues, onClose, onCreate }
   const [error, setError] = useState<string | null>(null);
   const [calendarId, setCalendarId] = useState<string>(
     calendars?.find((c) => c.is_primary)?.id ?? calendars?.[0]?.id ?? "",
+  );
+  const schedulingParticipants = useMemo(
+    () => buildEditorSchedulingParticipants({
+      selfEmail,
+      selfDisplayName,
+      attendeeEmails: parseAttendees(attendees),
+    }),
+    [attendees, selfDisplayName, selfEmail],
   );
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
@@ -69,8 +96,8 @@ export function EventCreateModal({ calendars, initialValues, onClose, onCreate }
   }, [summary, description, location, startTime, endTime, attendees, calendarId, onCreate]);
 
   return (
-    <Modal isOpen={true} onClose={onClose} title="Create Event" width="w-full max-w-md">
-      <form onSubmit={handleSubmit} className="p-4 space-y-3">
+    <Modal isOpen={true} onClose={onClose} title="Create Event" width="w-full max-w-5xl" panelClassName="max-h-[90vh] overflow-hidden">
+      <form onSubmit={handleSubmit} className="max-h-[calc(90vh-3.5rem)] space-y-3 overflow-y-auto p-4">
         <TextField
           label="Title"
           type="text"
@@ -128,6 +155,20 @@ export function EventCreateModal({ calendars, initialValues, onClose, onCreate }
           value={attendees}
           onChange={(e) => setAttendees(e.target.value)}
           placeholder="name@example.com, colleague@example.com"
+        />
+
+        <SchedulingAssistant
+          accountId={accountId}
+          timeZone={timeZone}
+          startTime={startTime}
+          endTime={endTime}
+          participants={schedulingParticipants}
+          planMeeting={planMeeting}
+          debounceMs={debounceMs}
+          onSelectRange={(nextStart, nextEnd) => {
+            setStartTime(nextStart);
+            setEndTime(nextEnd);
+          }}
         />
 
         <div>

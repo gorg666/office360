@@ -14,17 +14,22 @@ import { useAccountStore } from "@/stores/accountStore";
 import { navigateToLabel } from "@/router/navigate";
 import { cefNavigate } from "@/services/cef";
 import { allDayStartDate } from "./eventTimeProjection";
+import { SchedulingAssistant, type PlanMeetingFn } from "./scheduling/SchedulingAssistant";
+import { buildEditorSchedulingParticipants } from "./scheduling/schedulingView";
 
 interface EventDetailModalProps {
   event: DbCalendarEvent;
   calendars: DbCalendar[];
   accountId: string;
   anchor?: { x: number; y: number } | null;
+  timeZone?: string;
+  planMeeting?: PlanMeetingFn;
+  debounceMs?: number;
   onClose: () => void;
   onUpdated: () => void;
 }
 
-export function EventDetailModal({ event, calendars, accountId, anchor, onClose, onUpdated }: EventDetailModalProps) {
+export function EventDetailModal({ event, calendars, accountId, anchor, timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone, planMeeting, debounceMs, onClose, onUpdated }: EventDetailModalProps) {
   const [editing, setEditing] = useState(false);
   const [summary, setSummary] = useState(event.summary ?? "");
   const [description, setDescription] = useState(event.description ?? "");
@@ -36,10 +41,20 @@ export function EventDetailModal({ event, calendars, accountId, anchor, onClose,
   const [error, setError] = useState<string | null>(null);
   const [providerCapabilities, setProviderCapabilities] = useState<CalendarProviderCapabilities | null>(null);
   const accounts = useAccountStore((state) => state.accounts);
-  const accountEmail = accounts.find((account) => account.id === accountId)?.email ?? "";
+  const account = accounts.find((item) => item.id === accountId);
+  const accountEmail = account?.email ?? "";
+  const accountDisplayName = account?.displayName ?? null;
   const calendar = calendars.find((item) => item.id === event.calendar_id);
   const participantSet = useMemo(() => parseCalendarParticipants(event.attendees_json, event.organizer_email), [event.attendees_json, event.organizer_email]);
   const attendees = participantSet.attendees;
+  const schedulingParticipants = useMemo(
+    () => buildEditorSchedulingParticipants({
+      selfEmail: accountEmail,
+      selfDisplayName: accountDisplayName,
+      attendees,
+    }),
+    [accountDisplayName, accountEmail, attendees],
+  );
   const meetingUrl = useMemo(() => findTelemostUrl(event.description), [event.description]);
   const recurring = event.is_recurrence_master === 1 || event.occurrence_key !== null;
   const selfAttendee = findCurrentAttendee(attendees, { accountId, email: accountEmail });
@@ -139,14 +154,29 @@ export function EventDetailModal({ event, calendars, accountId, anchor, onClose,
 
   if (editing) {
     return (
-      <Modal isOpen onClose={onClose} title="Изменить событие" width="w-full max-w-xl">
-        <div className="p-5 space-y-4">
+      <Modal isOpen onClose={onClose} title="Изменить событие" width="w-full max-w-5xl" panelClassName="max-h-[90vh] overflow-hidden">
+        <div className="max-h-[calc(90vh-3.5rem)] space-y-4 overflow-y-auto p-5">
           {recurring && <Notice>{recurrenceScope === "single" ? "Изменения будут применены только к этому повторению." : "Изменения будут применены ко всей серии повторяющихся событий."}</Notice>}
           <TextField label="Название" type="text" value={summary} onChange={(e) => setSummary(e.target.value)} autoFocus />
           <div className="grid grid-cols-2 gap-3">
             <TextField label="Начало" type="datetime-local" value={startTime} onChange={(e) => setStartTime(e.target.value)} disabled={recurring} />
             <TextField label="Окончание" type="datetime-local" value={endTime} onChange={(e) => setEndTime(e.target.value)} disabled={recurring} />
           </div>
+          {!recurring && (
+            <SchedulingAssistant
+              accountId={accountId}
+              timeZone={timeZone}
+              startTime={startTime}
+              endTime={endTime}
+              participants={schedulingParticipants}
+              planMeeting={planMeeting}
+              debounceMs={debounceMs}
+              onSelectRange={(nextStart, nextEnd) => {
+                setStartTime(nextStart);
+                setEndTime(nextEnd);
+              }}
+            />
+          )}
           <TextField label="Место" type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Добавить место" />
           <label className="block text-xs text-text-secondary">Описание
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={5} className="mt-1 w-full px-3 py-2 bg-bg-tertiary border border-border-primary rounded text-sm text-text-primary outline-none focus:border-accent resize-y" />
