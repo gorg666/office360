@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B and CAL-101C completed; CAL-102 remains the next foundation ticket.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C and CAL-102 completed; CAL-103 requires a separate explicit start.
 
 ## ID convention
 
@@ -65,7 +65,7 @@ CAL-101 Git/runtime gate
 - **CAL-101B — completed:** `CAL-BUG-101` closed with explicit `loading | fresh | stale | error` UI semantics shared by Google and CalDAV/Yandex, cached stale-data notice, no-cache error state, Retry and targeted A–D tests.
 - **CAL-101C — completed:** `CAL-BUG-103` closed with expiry-aware CalDAV/Yandex session reuse, provider/session single-flight creation, failed-creation recovery and one bounded auth invalidation/retry. Live read-only smoke confirmed one login/discovery chain across six session requests.
 - Empty cached ranges remain indistinguishable from a cache miss until a later persistence ticket introduces range-completeness metadata; CAL-101B deliberately treats an empty result as no usable cache and does not change the DB schema.
-- **Next:** CAL-102 domain and timezone contracts. CAL-102 is not started by CAL-101C.
+- **Next:** CAL-103 may start only by explicit instruction; it is not started by CAL-102.
 
 ## CAL-102 — Calendar domain and timezone contracts
 
@@ -77,13 +77,17 @@ CAL-101 Git/runtime gate
 
 **Definition of Done:**
 
-- typed contracts for event/master/occurrence, attendee roles, availability/privacy;
-- IANA TZID + wall-time + UTC/exclusive all-day rules documented;
-- DST/all-day unit fixtures;
-- mapping plan for existing DB/provider types;
-- no migration yet unless separately approved.
+- provider-neutral timed-zoned/floating/all-day and occurrence identity contracts;
+- IANA TZID + wall-time + exclusive all-day rules documented and TZ-pinned;
+- Google/CalDAV mapping conformance and wall-clock recurrence fixtures;
+- minimal participant identity and explicit provider capabilities;
+- approved append-only v34 with lazy legacy compatibility.
 
 **Риски:** backward compatibility with existing epoch/raw iCal records.
+
+**Implementation (2026-08-22):** минимальный provider-neutral `domain/` различает timed-zoned, floating и all-day values; IANA resolver централизует DST gap/overlap policy; wall-clock recurrence формирует стабильный `occurrenceKey` для RRULE/EXDATE/RECURRENCE-ID/RDATE. Google и CalDAV проходят единый mapping contract, а `fetchEvents`/`syncEvents` используют один expansion path. Append-only migration v34 сохраняет TZID/wall/date/series/occurrence/TRANSP/SEQUENCE; legacy rows выводят semantics лениво без массового backfill. Канон: `CALENDAR_TIME_MODEL.md`.
+
+**Acceptance:** PASS. Four-host-TZ matrix, provider conformance, 2014-test full Vitest, production build, cargo check, in-memory SQLite fresh/existing/legacy/new-row smoke, and read-only Tauri Yandex Month/Week/Day/calendar-list smoke passed. Local development DB applied v34 with all ten semantic columns; subsequent normal sync populated semantic fields. No cloud mutations were performed.
 
 ## CAL-103 — Normalize Calendar persistence and sync state
 

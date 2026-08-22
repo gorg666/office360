@@ -104,6 +104,25 @@ Native `connect_imap_with_diagnostic()` и `imap_test_connection()` переда
 
 Промежуточный smoke до защиты `providerFactory` показал 2 session creations и тем самым выявил конкурентное создание двух provider instances. После исправления fresh reload дал итоговые counts `creation=1`, `single-flight reuse=1`, `cache hit=4`. Повторные provider calls в одной валидной session больше не выполняют повторный login/discovery.
 
+### CAL-102 time semantics and migration validation
+
+Дата: 2026-08-22 (Asia/Bangkok). Migration gate владельцем подтверждён. Запущен `npm run tauri dev`; v34 применена только к локальной development SQLite DB. Production, deploy, seed/reset и cloud event mutations не выполнялись.
+
+| Проверка | Статус | Наблюдение |
+|---|---|---|
+| Migration v34 | PASS | `_migrations.version=34`; присутствуют все 10 additive semantic columns |
+| Fresh/existing SQLite | PASS | Отдельный in-memory smoke подтвердил fresh schema, сохранность existing row, legacy defaults и semantic new-row round-trip |
+| Legacy compatibility | PASS | Migration не обновляет строки; repository lazy projection покрыта тестом. До normal sync local DB содержала 3 legacy rows |
+| New semantic write | PASS | После обычного read-only Yandex Month sync те же 3 cache rows имели `time_kind`; никаких массовых backfill/update в migration нет |
+| Month | PASS | Yandex events отобразились; remote refresh завершился без stale/error banner |
+| Week | PASS | Time grid и существующее timed event отобразились; remote refresh path не показал ошибку |
+| Day | PASS | Day grid загрузился, loading state завершился без stale/error banner |
+| Calendar list | PASS | Remote calendar list раскрылся и показал две доступные коллекции |
+| All-day live fixture | NOT AVAILABLE | Реальный cloud event не создавался; exclusive-date rendering/filtering покрыты provider conformance и UI projection tests |
+| Google live account | NOT AVAILABLE | Google mapping/read/write contracts покрыты provider tests; shared UI regression покрыт full Vitest |
+
+TZ-pinned matrix запускалась отдельным Vitest process при `TZ=UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`: в каждом процессе 25/25 domain/time tests passed. Full Vitest: 200 files, 2014 tests passed. Production build и `cargo check` passed; два существующих unused-variable Rust warnings не связаны с CAL-102.
+
 ## Checks
 
 Финальные build/test результаты фиксируются после удаления временной instrumentation и перечислены в итоговом CAL-101A отчёте. Общий `cargo fmt --check` имеет существующий repo-wide formatting debt; изменённый Rust-файл проверяется отдельно.

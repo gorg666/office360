@@ -9,6 +9,7 @@ import type {
   UpdateEventInput,
   CalendarParticipationStatus,
 } from "./types";
+import type { CalendarProviderCapabilities } from "./domain";
 import { generateVEvent, parseVEvent, parseVEventsInRange, updateAttendeeParticipation, updateVEventFields } from "./icalHelper";
 import { getAccount, type DbAccount } from "@/services/db/accounts";
 import { ensureFreshToken, OAUTH_TOKEN_REFRESH_BUFFER_MS } from "@/services/oauth/oauthTokenManager";
@@ -42,6 +43,15 @@ interface GetSessionOptions {
 
 export class CalDAVProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "caldav";
+  readonly capabilities: CalendarProviderCapabilities = {
+    version: 1,
+    events: { create: true, update: true, delete: true },
+    recurrence: { read: true, write: false, scopes: ["series"] },
+    rsvp: "direct",
+    freeBusy: "none",
+    sync: { mode: "full", pagination: false },
+    conflictDetection: "etag",
+  };
   private readonly sessionKey: string;
   private session: CalDavProviderSession | null = null;
   private sessionCreation: Promise<CalDavProviderSession> | null = null;
@@ -333,11 +343,11 @@ export class CalDAVProvider implements CalendarProvider {
     }));
 
     for (const obj of objects) {
-      if (obj.data) {
-        const event = parseVEvent(obj.data, obj.url);
-        event.etag = obj.etag ?? null;
-        created.push(event);
-      }
+      if (!obj.data) continue;
+      created.push(...parseVEventsInRange(obj.data, obj.url, timeMin, timeMax).map((event) => ({
+        ...event,
+        etag: obj.etag ?? null,
+      })));
     }
 
     return { created, updated: [], deletedRemoteIds: [], newSyncToken: null, newCtag: null };

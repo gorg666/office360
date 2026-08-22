@@ -522,5 +522,11 @@ async function upsertCalendarEventFromProvider(
     etag: event.etag,
     icalData: event.icalData,
     uid: event.uid,
+    time: event.time,
+    seriesUid: event.seriesUid,
+    occurrenceKey: event.occurrenceKey,
+    isRecurrenceMaster: event.isRecurrenceMaster,
+    transparency: event.transparency,
+    sequence: event.sequence,
   });
 }

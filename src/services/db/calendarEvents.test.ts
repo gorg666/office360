@@ -19,6 +19,7 @@ import {
   getEventByRemoteId,
   deleteEventByRemoteId,
   deleteCalendarEvent,
+  normalizeCalendarEventRow,
   type DbCalendarEvent,
 } from "./calendarEvents";
 import { createMockDb } from "@/test/mocks";
@@ -45,6 +46,16 @@ const makeEvent = (overrides: Partial<DbCalendarEvent> = {}): DbCalendarEvent =>
   etag: null,
   ical_data: null,
   uid: null,
+  time_kind: "timed-zoned",
+  tzid: "UTC",
+  wall_start: "1970-01-01T00:16:40",
+  wall_end: "1970-01-01T00:33:20",
+  end_date_exclusive: null,
+  series_uid: null,
+  occurrence_key: null,
+  is_recurrence_master: 0,
+  transp: null,
+  sequence: 0,
   ...overrides,
 });
 
@@ -144,6 +155,28 @@ describe("calendarEvents service", () => {
       expect(params[17]).toBeNull(); // uid
     });
 
+    it("stores new semantic fields on write", async () => {
+      await upsertCalendarEvent({
+        accountId: "acc-1", googleEventId: "semantic-1", summary: "Zoned",
+        description: null, location: null, startTime: 1773558000, endTime: 1773561600,
+        isAllDay: false, status: "confirmed", organizerEmail: null,
+        attendeesJson: null, htmlLink: null, uid: "series-1",
+        time: {
+          kind: "timed-zoned",
+          start: { wall: { year: 2026, month: 3, day: 15, hour: 10, minute: 0, second: 0 }, tzid: "Europe/Moscow", instant: 1773558000 },
+          end: { wall: { year: 2026, month: 3, day: 15, hour: 11, minute: 0, second: 0 }, tzid: "Europe/Moscow", instant: 1773561600 },
+        },
+        seriesUid: "series-1", occurrenceKey: "series-1::occurrence", isRecurrenceMaster: true,
+        transparency: "transparent", sequence: 7,
+      });
+
+      const [, params] = mockDb.execute.mock.calls[0] as [string, unknown[]];
+      expect(params.slice(18)).toEqual([
+        "timed-zoned", "Europe/Moscow", "2026-03-15T10:00:00", "2026-03-15T11:00:00",
+        null, "series-1", "series-1::occurrence", 1, "transparent", 7,
+      ]);
+    });
+
     it("updates existing event on conflict (same account_id + google_event_id)", async () => {
       await upsertCalendarEvent({
         accountId: "acc-1",
@@ -201,6 +234,28 @@ describe("calendarEvents service", () => {
       const result = await getCalendarEventsInRange("acc-1", 5000, 6000);
 
       expect(result).toEqual([]);
+    });
+  });
+
+  describe("legacy semantic projection", () => {
+    it("derives semantic fields lazily without writing the legacy row", () => {
+      const legacy = makeEvent({
+        time_kind: null, tzid: null, wall_start: null, wall_end: null,
+        end_date_exclusive: null, series_uid: null, occurrence_key: null,
+        ical_data: [
+          "BEGIN:VEVENT", "UID:legacy-series",
+          "DTSTART;TZID=Europe/Moscow:20260315T100000",
+          "DTEND;TZID=Europe/Moscow:20260315T110000", "RRULE:FREQ=WEEKLY;COUNT=2", "END:VEVENT",
+        ].join("\r\n"),
+      });
+
+      const result = normalizeCalendarEventRow(legacy);
+      expect(result).toMatchObject({
+        time_kind: "timed-zoned", tzid: "Europe/Moscow",
+        wall_start: "2026-03-15T10:00:00", series_uid: "legacy-series",
+        is_recurrence_master: 1,
+      });
+      expect(mockDb.execute).not.toHaveBeenCalled();
     });
   });
 

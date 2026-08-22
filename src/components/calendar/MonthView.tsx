@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { EventCard } from "./EventCard";
 import { useUIStore } from "@/stores/uiStore";
+import { eventOccursOnDate } from "./eventTimeProjection";
 
 interface MonthViewProps {
   currentDate: Date;
@@ -35,9 +36,8 @@ export function MonthView({ currentDate, events, onEventClick }: MonthViewProps)
   const eventsByDay = useMemo(() => {
     const map = new Map<number, DbCalendarEvent[]>();
     for (let d = 1; d <= totalDays; d++) {
-      const dayStart = new Date(year, month, d).getTime() / 1000;
-      const dayEnd = new Date(year, month, d + 1).getTime() / 1000;
-      const dayEvents = events.filter((e) => e.start_time < dayEnd && e.end_time > dayStart);
+      const day = new Date(year, month, d);
+      const dayEvents = events.filter((event) => eventOccursOnDate(event, day));
       if (dayEvents.length > 0) map.set(d, dayEvents);
     }
     return map;

@@ -202,10 +202,15 @@ describe("parseVEvent", () => {
 
     expect(result.isAllDay).toBe(true);
     expect(result.summary).toBe("Conference");
-    const expectedStart = Math.floor(new Date(2025, 6, 1).getTime() / 1000);
-    const expectedEnd = Math.floor(new Date(2025, 6, 3).getTime() / 1000);
+    const expectedStart = Date.UTC(2025, 6, 1) / 1000;
+    const expectedEnd = Date.UTC(2025, 6, 3) / 1000;
     expect(result.startTime).toBe(expectedStart);
     expect(result.endTime).toBe(expectedEnd);
+    expect(result.time).toEqual({
+      kind: "all-day",
+      startDate: "2025-07-01",
+      endDateExclusive: "2025-07-03",
+    });
   });
 
   it("parses description and location", () => {

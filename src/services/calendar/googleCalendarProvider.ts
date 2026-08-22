@@ -8,6 +8,16 @@ import type {
   UpdateEventInput,
   CalendarParticipationStatus,
 } from "./types";
+import {
+  calendarDateToUnixSeconds,
+  createOccurrenceKey,
+  instantSecondsToWallDateTime,
+  participantRefFromEmail,
+  parseCalendarDate,
+  type CalendarEventTime,
+  type CalendarProviderCapabilities,
+  type OccurrenceIdentity,
+} from "./domain";
 import { getGmailClient } from "@/services/gmail/tokenManager";
 import type { GmailClient } from "@/services/gmail/client";
 
@@ -25,7 +35,7 @@ interface GoogleCalendarListResponse {
   items?: GoogleCalendarListItem[];
 }
 
-interface GoogleCalendarEvent {
+export interface GoogleCalendarEvent {
   id: string;
   summary?: string;
   description?: string;
@@ -38,6 +48,10 @@ interface GoogleCalendarEvent {
   htmlLink?: string;
   iCalUID?: string;
   etag?: string;
+  recurringEventId?: string;
+  originalStartTime?: { dateTime?: string; date?: string; timeZone?: string };
+  transparency?: string;
+  sequence?: number;
 }
 
 interface GoogleEventListResponse {
@@ -48,6 +62,15 @@ interface GoogleEventListResponse {
 
 export class GoogleCalendarProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "google_api";
+  readonly capabilities: CalendarProviderCapabilities = {
+    version: 1,
+    events: { create: true, update: true, delete: true },
+    recurrence: { read: true, write: false, scopes: ["instance", "series"] },
+    rsvp: "direct",
+    freeBusy: "native",
+    sync: { mode: "sync-token", pagination: true },
+    conflictDetection: "etag",
+  };
 
   constructor(readonly accountId: string) {}
 
@@ -86,7 +109,6 @@ export class GoogleCalendarProvider implements CalendarProvider {
 
   async createEvent(calendarRemoteId: string, event: CreateEventInput): Promise<CalendarEventData> {
     const client = await this.getClient();
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const encodedId = encodeURIComponent(calendarRemoteId);
     const url = `${CALENDAR_API_BASE}/calendars/${encodedId}/events`;
 
@@ -96,17 +118,23 @@ export class GoogleCalendarProvider implements CalendarProvider {
       location: event.location,
     };
 
-    if (event.isAllDay) {
+    if (event.time) {
+      const timeBody = mapDomainTimeToGoogle(event.time);
+      body.start = timeBody.start;
+      body.end = timeBody.end;
+    } else if (event.isAllDay) {
       body.start = { date: event.startTime.split("T")[0] };
       body.end = { date: event.endTime.split("T")[0] };
     } else {
-      body.start = { dateTime: new Date(event.startTime).toISOString(), timeZone: tz };
-      body.end = { dateTime: new Date(event.endTime).toISOString(), timeZone: tz };
+      body.start = { dateTime: new Date(event.startTime).toISOString(), timeZone: "UTC" };
+      body.end = { dateTime: new Date(event.endTime).toISOString(), timeZone: "UTC" };
     }
 
     if (event.attendees) {
       body.attendees = event.attendees;
     }
+    if (event.transparency) body.transparency = event.transparency;
+    if (event.sequence !== undefined) body.sequence = event.sequence;
 
     const created = await client.request<GoogleCalendarEvent>(url, {
       method: "POST",
@@ -117,7 +145,6 @@ export class GoogleCalendarProvider implements CalendarProvider {
 
   async updateEvent(calendarRemoteId: string, remoteEventId: string, event: UpdateEventInput): Promise<CalendarEventData> {
     const client = await this.getClient();
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const encodedCalId = encodeURIComponent(calendarRemoteId);
     const encodedEventId = encodeURIComponent(remoteEventId);
     const url = `${CALENDAR_API_BASE}/calendars/${encodedCalId}/events/${encodedEventId}`;
@@ -127,15 +154,21 @@ export class GoogleCalendarProvider implements CalendarProvider {
     if (event.description !== undefined) body.description = event.description;
     if (event.location !== undefined) body.location = event.location;
 
-    if (event.startTime && event.endTime) {
+    if (event.time) {
+      const timeBody = mapDomainTimeToGoogle(event.time);
+      body.start = timeBody.start;
+      body.end = timeBody.end;
+    } else if (event.startTime && event.endTime) {
       if (event.isAllDay) {
         body.start = { date: event.startTime.split("T")[0] };
         body.end = { date: event.endTime.split("T")[0] };
       } else {
-        body.start = { dateTime: new Date(event.startTime).toISOString(), timeZone: tz };
-        body.end = { dateTime: new Date(event.endTime).toISOString(), timeZone: tz };
+        body.start = { dateTime: new Date(event.startTime).toISOString(), timeZone: "UTC" };
+        body.end = { dateTime: new Date(event.endTime).toISOString(), timeZone: "UTC" };
       }
     }
+    if (event.transparency !== undefined) body.transparency = event.transparency;
+    if (event.sequence !== undefined) body.sequence = event.sequence;
 
     const updated = await client.request<GoogleCalendarEvent>(url, {
       method: "PATCH",
@@ -238,14 +271,19 @@ export class GoogleCalendarProvider implements CalendarProvider {
   }
 }
 
-function mapGoogleEvent(event: GoogleCalendarEvent): CalendarEventData {
-  const isAllDay = !!event.start.date;
-  const startTime = event.start.dateTime
-    ? Math.floor(new Date(event.start.dateTime).getTime() / 1000)
-    : Math.floor(new Date(event.start.date + "T00:00:00").getTime() / 1000);
-  const endTime = event.end.dateTime
-    ? Math.floor(new Date(event.end.dateTime).getTime() / 1000)
-    : Math.floor(new Date(event.end.date + "T23:59:59").getTime() / 1000);
+export function mapGoogleEvent(event: GoogleCalendarEvent): CalendarEventData {
+  const time = mapGoogleTime(event.start, event.end);
+  const startTime = time.kind === "all-day" ? calendarDateToUnixSeconds(time.startDate) : time.start.instant;
+  const endTime = time.kind === "all-day" ? calendarDateToUnixSeconds(time.endDateExclusive) : time.end.instant;
+  const seriesUid = event.iCalUID ?? event.recurringEventId ?? event.id;
+  const occurrenceIdentity = event.originalStartTime
+    ? googleTimeIdentity(event.originalStartTime)
+    : null;
+  const occurrenceKey = event.recurringEventId && occurrenceIdentity
+    ? createOccurrenceKey(seriesUid, occurrenceIdentity)
+    : null;
+  const participants = (event.attendees ?? []).map((attendee) =>
+    participantRefFromEmail(attendee.email, attendee.displayName));
 
   return {
     remoteEventId: event.id,
@@ -256,11 +294,67 @@ function mapGoogleEvent(event: GoogleCalendarEvent): CalendarEventData {
     location: event.location ?? null,
     startTime,
     endTime,
-    isAllDay,
+    isAllDay: time.kind === "all-day",
     status: event.status ?? "confirmed",
     organizerEmail: event.organizer?.email ?? null,
     attendeesJson: event.attendees ? JSON.stringify(event.attendees) : null,
     htmlLink: event.htmlLink ?? null,
     icalData: null,
+    time,
+    seriesUid,
+    occurrenceKey,
+    isRecurrenceMaster: false,
+    transparency: event.transparency === "transparent" ? "transparent" : "opaque",
+    sequence: event.sequence ?? 0,
+    participants,
   };
+}
+
+type GoogleEventTime = Exclude<CalendarEventTime, { kind: "floating" }>;
+
+function mapGoogleTime(
+  start: GoogleCalendarEvent["start"],
+  end: GoogleCalendarEvent["end"],
+): GoogleEventTime {
+  if (start.date) {
+    if (!end.date) throw new Error("Google all-day event is missing exclusive end date");
+    return { kind: "all-day", startDate: parseIsoCalendarDate(start.date), endDateExclusive: parseIsoCalendarDate(end.date) };
+  }
+  if (!start.dateTime || !end.dateTime) throw new Error("Google timed event is missing dateTime");
+  const startInstant = Math.floor(new Date(start.dateTime).getTime() / 1000);
+  const endInstant = Math.floor(new Date(end.dateTime).getTime() / 1000);
+  const startTzid = start.timeZone ?? "UTC";
+  const endTzid = end.timeZone ?? startTzid;
+  return {
+    kind: "timed-zoned",
+    start: { wall: instantSecondsToWallDateTime(startInstant, startTzid), tzid: startTzid, instant: startInstant },
+    end: { wall: instantSecondsToWallDateTime(endInstant, endTzid), tzid: endTzid, instant: endInstant },
+  };
+}
+
+function googleTimeIdentity(value: NonNullable<GoogleCalendarEvent["originalStartTime"]>): OccurrenceIdentity | null {
+  if (value.date) return { kind: "all-day", date: parseIsoCalendarDate(value.date) };
+  if (!value.dateTime) return null;
+  const instant = Math.floor(new Date(value.dateTime).getTime() / 1000);
+  const tzid = value.timeZone ?? "UTC";
+  return { kind: "timed-zoned", wall: instantSecondsToWallDateTime(instant, tzid), tzid };
+}
+
+function mapDomainTimeToGoogle(time: CalendarEventTime): { start: Record<string, string>; end: Record<string, string> } {
+  if (time.kind === "all-day") {
+    return { start: { date: time.startDate }, end: { date: time.endDateExclusive } };
+  }
+  if (time.kind === "floating") {
+    throw new Error("Google Calendar write requires an explicit event timezone for floating time");
+  }
+  return {
+    start: { dateTime: new Date(time.start.instant * 1000).toISOString(), timeZone: time.start.tzid },
+    end: { dateTime: new Date(time.end.instant * 1000).toISOString(), timeZone: time.end.tzid },
+  };
+}
+
+function parseIsoCalendarDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) throw new Error(`Invalid Google calendar date: ${value}`);
+  return parseCalendarDate(`${match[1]}${match[2]}${match[3]}`);
 }

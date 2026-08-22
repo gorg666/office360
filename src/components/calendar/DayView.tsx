@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { useUIStore } from "@/stores/uiStore";
+import { eventOccursOnDate } from "./eventTimeProjection";
 
 interface DayViewProps {
   currentDate: Date;
@@ -24,7 +25,7 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
 
     for (const e of events) {
       if (e.is_all_day) {
-        allDay.push(e);
+        if (eventOccursOnDate(e, dayStart)) allDay.push(e);
       } else {
         for (const hour of HOURS) {
           const hStart = dayTs + hour * 3600;

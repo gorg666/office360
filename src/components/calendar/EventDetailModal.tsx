@@ -13,6 +13,7 @@ import { deleteCalendarEvent as deleteCalendarEventDb } from "@/services/db/cale
 import { useAccountStore } from "@/stores/accountStore";
 import { navigateToLabel } from "@/router/navigate";
 import { cefNavigate } from "@/services/cef";
+import { allDayStartDate } from "./eventTimeProjection";
 
 interface EventDetailModalProps {
   event: DbCalendarEvent;
@@ -44,7 +45,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, onClose,
   const calendar = calendars.find((item) => item.id === event.calendar_id);
   const attendees = useMemo(() => parseAttendees(event.attendees_json), [event.attendees_json]);
   const meetingUrl = useMemo(() => findTelemostUrl(event.description), [event.description]);
-  const recurring = /(?:^|\r?\n)RRULE:/i.test(event.ical_data ?? "");
+  const recurring = event.is_recurrence_master === 1 || event.occurrence_key !== null;
   const selfAttendee = attendees.find((item) => item.email.toLowerCase() === accountEmail.toLowerCase());
 
   const remoteIds = useCallback(() => ({
@@ -215,7 +216,10 @@ function errorMessage(cause: unknown, fallback: string): string { return cause i
 
 function formatEventRange(event: DbCalendarEvent): string {
   const start = new Date(event.start_time * 1000); const end = new Date(event.end_time * 1000);
-  if (event.is_all_day === 1) return start.toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  if (event.is_all_day === 1) {
+    const [year, month, day] = allDayStartDate(event).split("-").map(Number);
+    return new Date(year!, month! - 1, day!).toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  }
   const date = start.toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" });
   const startClock = start.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
   const endClock = end.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });

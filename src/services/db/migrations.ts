@@ -1109,6 +1109,25 @@ export const MIGRATIONS = [
     description: "Repair OAuth granted scopes column after branch migration collision",
     sql: `ALTER TABLE accounts ADD COLUMN oauth_granted_scopes TEXT;`,
   },
+  {
+    version: 34,
+    description: "Calendar time semantics and occurrence identity",
+    sql: `
+      ALTER TABLE calendar_events ADD COLUMN time_kind TEXT;
+      ALTER TABLE calendar_events ADD COLUMN tzid TEXT;
+      ALTER TABLE calendar_events ADD COLUMN wall_start TEXT;
+      ALTER TABLE calendar_events ADD COLUMN wall_end TEXT;
+      ALTER TABLE calendar_events ADD COLUMN end_date_exclusive TEXT;
+      ALTER TABLE calendar_events ADD COLUMN series_uid TEXT;
+      ALTER TABLE calendar_events ADD COLUMN occurrence_key TEXT;
+      ALTER TABLE calendar_events ADD COLUMN is_recurrence_master INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE calendar_events ADD COLUMN transp TEXT;
+      ALTER TABLE calendar_events ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0;
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_events_series_uid ON calendar_events(account_id, series_uid);
+      CREATE INDEX IF NOT EXISTS idx_calendar_events_occurrence_key ON calendar_events(account_id, occurrence_key);
+    `,
+  },
 ];
 
 /**

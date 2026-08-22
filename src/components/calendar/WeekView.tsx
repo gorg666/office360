@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { useUIStore } from "@/stores/uiStore";
+import { eventOccursOnDate } from "./eventTimeProjection";
 
 interface WeekViewProps {
   currentDate: Date;
@@ -40,8 +41,7 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
 
       for (const e of events) {
         if (e.is_all_day) {
-          const dayEnd = dayTs + 86400;
-          if (e.start_time < dayEnd && e.end_time > dayTs) {
+          if (eventOccursOnDate(e, day)) {
             const list = adMap.get(dayKey);
             if (list) list.push(e);
             else adMap.set(dayKey, [e]);

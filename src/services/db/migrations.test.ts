@@ -158,3 +158,41 @@ describe("full address book migration", () => {
     expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS contact_list_members");
   });
 });
+
+describe("calendar semantic time migration", () => {
+  const migration = MIGRATIONS.find((item) => item.version === 34);
+
+  it("is append-only and adds the semantic columns and indexes", () => {
+    expect(migration).toBeDefined();
+    expect(migration?.sql).not.toMatch(/\b(?:DROP|DELETE|UPDATE|REPLACE)\b/i);
+    expect(migration?.sql.match(/ALTER TABLE calendar_events ADD COLUMN/g)).toHaveLength(10);
+
+    for (const column of [
+      "time_kind",
+      "tzid",
+      "wall_start",
+      "wall_end",
+      "end_date_exclusive",
+      "series_uid",
+      "occurrence_key",
+      "is_recurrence_master",
+      "transp",
+      "sequence",
+    ]) {
+      expect(migration?.sql).toContain(`ADD COLUMN ${column}`);
+    }
+
+    expect(migration?.sql).toContain("idx_calendar_events_series_uid");
+    expect(migration?.sql).toContain("idx_calendar_events_occurrence_key");
+  });
+
+  it("uses nullable fields and constant defaults so fresh and existing rows remain valid", () => {
+    const statements = splitStatements(migration!.sql);
+    expect(statements).toHaveLength(12);
+    expect(migration?.sql).toContain("ADD COLUMN is_recurrence_master INTEGER NOT NULL DEFAULT 0");
+    expect(migration?.sql).toContain("ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0");
+    for (const nullable of ["time_kind", "tzid", "wall_start", "wall_end", "end_date_exclusive", "series_uid", "occurrence_key", "transp"]) {
+      expect(migration?.sql).toMatch(new RegExp(`ADD COLUMN ${nullable} TEXT;`));
+    }
+  });
+});
