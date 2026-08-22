@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
@@ -6,7 +6,7 @@ import { getCalendarsForAccount, upsertCalendar, type DbCalendar } from "@/servi
 import { getCalendarProvider } from "@/services/calendar/providerFactory";
 import { calendarSyncService } from "@/services/calendar/calendarSyncService";
 import { calendarMutationService } from "@/services/calendar/calendarMutationService";
-import type { CalendarProviderCapabilities } from "@/services/calendar/domain";
+import { parseCalendarAccess, type CalendarProviderCapabilities } from "@/services/calendar/domain";
 import type { CalendarReadDiagnostics, CreateEventInput } from "@/services/calendar/types";
 import { CalendarToolbar, type CalendarView } from "./CalendarToolbar";
 import { MonthView } from "./MonthView";
@@ -77,6 +77,15 @@ export function CalendarPage() {
   const timedGestureRef = useRef<PendingGridMutation | null>(null);
   const calendarApiEnableUrl =
     "https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com";
+  const writableCalendars = useMemo(
+    () => calendars.filter((calendar) => parseCalendarAccess(calendar.access_json).permissions.canCreate),
+    [calendars],
+  );
+  const canCreateEvent = providerCapabilities?.events.create === "remote" && writableCalendars.length > 0;
+  const canUpdateEvent = useCallback((event: DbCalendarEvent) => {
+    const calendar = calendars.find((candidate) => candidate.id === event.calendar_id);
+    return parseCalendarAccess(calendar?.access_json).permissions.canUpdate;
+  }, [calendars]);
 
   const getRange = useCallback((): { start: Date; end: Date } => {
     const d = new Date(currentDate);
@@ -222,11 +231,14 @@ export function CalendarPage() {
             displayName: cal.displayName,
             color: cal.color,
             isPrimary: cal.isPrimary,
+            access: cal.access,
+            observedAt: Math.floor(Date.now() / 1000),
           });
         }
         availableCalendars = await getCalendarsForAccount(activeAccountId);
         setCalendars(availableCalendars);
       }
+      availableCalendars = availableCalendars.filter((calendar) => parseCalendarAccess(calendar.access_json).permissions.canCreate);
 
       // Find the target calendar
       let calendarRemoteId: string | undefined;
@@ -505,7 +517,7 @@ export function CalendarPage() {
         onToday={handleToday}
         onViewChange={setView}
         onCreateEvent={() => { setCreateInitialValues(undefined); setShowCreate(true); }}
-        canCreateEvent={providerCapabilities?.events.create === "remote"}
+        canCreateEvent={canCreateEvent}
         onToggleCalendarList={() => setShowCalendarList((v) => !v)}
         showCalendarListButton={calendars.length > 1}
       />
@@ -646,7 +658,8 @@ export function CalendarPage() {
               pendingEventIds={pendingEventIds}
               visualOverrides={visualOverrides}
               onDateCommit={handleDateCommit}
-              onCreateDraft={handleGridCreate}
+              onCreateDraft={canCreateEvent ? handleGridCreate : undefined}
+              canUpdateEvent={canUpdateEvent}
             />
           )}
           {view === "week" && (
@@ -659,7 +672,8 @@ export function CalendarPage() {
               visualOverrides={visualOverrides}
               onTimedCommit={handleTimedCommit}
               onDateCommit={handleDateCommit}
-              onCreateDraft={handleGridCreate}
+              onCreateDraft={canCreateEvent ? handleGridCreate : undefined}
+              canUpdateEvent={canUpdateEvent}
             />
           )}
           {view === "day" && (
@@ -672,7 +686,8 @@ export function CalendarPage() {
               visualOverrides={visualOverrides}
               onTimedCommit={handleTimedCommit}
               onDateCommit={handleDateCommit}
-              onCreateDraft={handleGridCreate}
+              onCreateDraft={canCreateEvent ? handleGridCreate : undefined}
+              canUpdateEvent={canUpdateEvent}
             />
           )}
         </div>
@@ -680,7 +695,7 @@ export function CalendarPage() {
 
       {showCreate && (
         <EventCreateModal
-          calendars={calendars}
+          calendars={writableCalendars}
           initialValues={createInitialValues}
           accountId={activeAccountId}
           selfEmail={activeAccount?.email ?? null}

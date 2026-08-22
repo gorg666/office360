@@ -17,6 +17,10 @@ function makeCalendar(overrides: Partial<DbCalendar> = {}): DbCalendar {
     ctag: null,
     created_at: 1700000000,
     updated_at: 1700000000,
+    access_json: null,
+    access_observed_at: null,
+    provider_presence: null,
+    provider_seen_at: null,
     ...overrides,
   };
 }

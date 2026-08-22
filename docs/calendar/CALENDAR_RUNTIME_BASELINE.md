@@ -425,3 +425,21 @@ CAL-117-FINAL re-run (docs-only, production code unchanged): `npx tsc --noEmit` 
 Graphify incremental index обновлён после feature diff: 6,469 nodes / 16,561 edges / 396 communities. Integrity audit (`graphify diagnose multigraph`): 0 missing endpoints, 0 dangling endpoints, 0 self-loops, 0 duplicate edges. `graphify-out/` gitignored.
 
 Автоматические проверки CAL-118: TypeScript `npx tsc --noEmit` PASS; targeted reminder/domain/provider/ICS/DB/UI/RSVP/Mail/privacy — 17 files / 235 tests PASS; migration v34/v35/v36 fresh/existing/legacy PASS; full Vitest — 240 files / 2390 tests PASS; `npm run test:calendar-tz` — 168/168 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,041.00 kB raw / 607.98 kB gzip; Calendar chunk 124.55 kB raw / 36.34 kB gzip); `cargo check` PASS с двумя прежними unrelated unused-variable warnings в `src/lib.rs:360`. Rust не менялся.
+
+### CAL-119 shared calendar access validation
+
+Дата: 2026-08-23 (Asia/Bangkok). Пользователь явно разрешил append-only migration v37 только для локальной development SQLite DB. Migration добавила nullable `calendars.access_json`, `access_observed_at`, `provider_presence`, `provider_seen_at` и индекс `(account_id, provider_presence)`; в SQL migration нет `DROP`, `DELETE`, `UPDATE`, backfill или schema rewrite.
+
+| Runtime check | Status | Observation |
+|---|---|---|
+| Tauri startup / migration v37 | PASS | `npm run tauri -- dev` собрал и запустил `office360.exe`; `_migrations.max(version) = 37` |
+| Development schema | PASS | Все четыре колонки имеют ожидаемые типы и остаются nullable; `idx_calendars_account_presence` присутствует |
+| Legacy compatibility | PASS | Из 4 локальных calendar rows 2 сохранили `NULL` access/presence metadata; startup backfill не выполнялся |
+| Normal provider discovery | PASS | 2 rows получили versioned access metadata и `provider_presence='present'` через обычный успешный discovery; removed rows: 0 |
+| Removed-calendar reconciliation | AUTOMATED PASS | Отсутствующие remote IDs помечаются `removed`, локальная calendar/event cache не удаляется |
+| Month / Week / Day visual navigation | BLOCKED BY WINDOWS CAPTURE | Runtime window `Office360` существует, но Computer Use отказался захватывать monitor (`GetCursorPos 0x80070005`, затем `CreateForMonitor 0x80070057`); после одной recovery-попытки UI input прекращён, клики не заявляются |
+| Cloud mutations | NONE | Create, Save, Delete, RSVP, ACL/subscription writes и event drag/resize не вызывались |
+
+Graphify incremental index после feature/docs diff: 6,519 nodes / 16,711 edges / 401 communities. Integrity audit: 0 missing endpoints, 0 dangling endpoints, 0 self-loops, 0 exact duplicate edges. Community labels stale относительно текущих communities; это не влияет на graph integrity и runtime.
+
+Автоматические проверки CAL-119: TypeScript `npx tsc --noEmit` PASS; targeted access/provider/DB/mutation/sync/privacy — 13 files / 188 tests PASS; migration v34/v35/v36/v37 fresh/existing/legacy PASS; full Vitest — 241 files / 2409 tests PASS; `npm run test:calendar-tz` — 168/168 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,047.06 kB raw / 609.64 kB gzip; Calendar chunk 126.92 kB raw / 37.04 kB gzip); `cargo check` PASS с двумя прежними unrelated unused-variable warnings в `src/lib.rs:360`. Rust не менялся.

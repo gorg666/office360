@@ -18,6 +18,7 @@ interface DayViewProps {
   onTimedCommit?: (event: DbCalendarEvent, draft: TimedDraft, anchor: { x: number; y: number }) => void;
   onDateCommit?: (event: DbCalendarEvent, draft: DateGridDraft, anchor: { x: number; y: number }) => void;
   onCreateDraft?: (draft: GridCreateDraft) => void;
+  canUpdateEvent?: (event: DbCalendarEvent) => boolean;
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -32,6 +33,7 @@ export function DayView({
   onTimedCommit,
   onDateCommit,
   onCreateDraft,
+  canUpdateEvent = () => true,
 }: DayViewProps) {
   const locale = useUIStore((state) => state.locale);
   const intlLocale = locale === "ru" ? "ru-RU" : "en-US";
@@ -81,6 +83,7 @@ export function DayView({
           eventsByDay={allDayByDay}
           conversionHighlight={conversionHighlight}
           onCreateDraft={onCreateDraft}
+          canUpdateEvent={canUpdateEvent}
         />
       ) : (allDayByDay.get(calendarDateFromLocalDate(dayStart)) ?? []).length > 0 ? (
         <div className="px-6 py-2 border-b border-border-secondary space-y-1">
@@ -123,6 +126,7 @@ export function DayView({
               onConvertToAllDay={onDateCommit}
               onConvertPreview={setConversionHighlight}
               onCreateDraft={onCreateDraft}
+              canUpdateEvent={canUpdateEvent}
             />
           </div>
         </div>

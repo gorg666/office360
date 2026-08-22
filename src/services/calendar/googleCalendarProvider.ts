@@ -19,6 +19,7 @@ import {
   dedupeCalendarAttendees,
   normalizeCalendarReminderPolicy,
   normalizeParticipantEmail,
+  googleCalendarAccess,
   serializeCalendarParticipants,
   parseCalendarDate,
   type CalendarEventTime,
@@ -40,6 +41,7 @@ interface GoogleCalendarListItem {
 
 interface GoogleCalendarListResponse {
   items?: GoogleCalendarListItem[];
+  nextPageToken?: string;
 }
 
 export interface GoogleCalendarEvent {
@@ -81,7 +83,7 @@ interface GoogleMutationTarget {
 export class GoogleCalendarProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "google_api";
   readonly capabilities: CalendarProviderCapabilities = {
-    version: 4,
+    version: 5,
     read: { calendars: "full", events: "full" },
     events: { create: "remote", update: "remote", delete: "remote" },
     recurrence: {
@@ -97,6 +99,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
     freeBusy: { self: "local-derived", others: "remote" },
     permissions: "none",
     sharedCalendars: "read",
+    calendarAccess: { discovery: "full", ownership: "partial", effectivePermissions: "full", aclRead: "none", aclWrite: "none" },
     reminders: {
       read: "full",
       write: "full",
@@ -120,14 +123,23 @@ export class GoogleCalendarProvider implements CalendarProvider {
 
   async listCalendars(): Promise<CalendarInfo[]> {
     const client = await this.getClient();
-    const response = await client.request<GoogleCalendarListResponse>(
-      `${CALENDAR_API_BASE}/users/me/calendarList`,
-    );
-    return (response.items ?? []).map((cal) => ({
+    const items: GoogleCalendarListItem[] = [];
+    let pageToken: string | undefined;
+    do {
+      const params = new URLSearchParams({ maxResults: "250" });
+      if (pageToken) params.set("pageToken", pageToken);
+      const response = await client.request<GoogleCalendarListResponse>(
+        `${CALENDAR_API_BASE}/users/me/calendarList?${params}`,
+      );
+      items.push(...(response.items ?? []));
+      pageToken = response.nextPageToken;
+    } while (pageToken);
+    return items.map((cal) => ({
       remoteId: cal.id,
       displayName: cal.summary,
       color: cal.backgroundColor ?? null,
       isPrimary: !!cal.primary,
+      access: googleCalendarAccess(cal.accessRole, !!cal.primary),
     }));
   }
 

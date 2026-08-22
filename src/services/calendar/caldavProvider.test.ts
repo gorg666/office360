@@ -382,9 +382,9 @@ BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VFREEBUSY\r\nFREEBUSY:20260822T100000Z/2
 
       const calendars = await provider.listCalendars();
 
-      expect(calendars).toEqual([
-        { remoteId: "/cal/personal/", displayName: "Personal", color: null, isPrimary: true },
-        { remoteId: "/cal/work/", displayName: "Work", color: "#ff0000", isPrimary: false },
+      expect(calendars).toMatchObject([
+        { remoteId: "/cal/personal/", displayName: "Personal", color: null, isPrimary: true, access: { role: "unknown" } },
+        { remoteId: "/cal/work/", displayName: "Work", color: "#ff0000", isPrimary: false, access: { role: "unknown" } },
       ]);
     });
 
@@ -398,6 +398,22 @@ BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VFREEBUSY\r\nFREEBUSY:20260822T100000Z/2
 
       expect(calendars[0]!.displayName).toBe("Calendar 1");
       expect(calendars[1]!.displayName).toBe("Calendar 2");
+    });
+
+    it("normalizes owner, read-write, read-only and free-busy DAV privileges", async () => {
+      mockFetchCalendars.mockResolvedValue([
+        { url: "/owner/", displayName: "Owner", projectedProps: { owner: { href: "/principal/" }, currentUserPrivilegeSet: { privilege: [{ read: {} }, { write: {} }, { writeAcl: {} }] } } },
+        { url: "/writer/", displayName: "Writer", projectedProps: { currentUserPrivilegeSet: { privilege: [{ read: {} }, { bind: {} }, { writeContent: {} }, { unbind: {} }] } } },
+        { url: "/reader/", displayName: "Reader", projectedProps: { currentUserPrivilegeSet: { privilege: { read: {} } } } },
+        { url: "/busy/", displayName: "Busy", projectedProps: { currentUserPrivilegeSet: { privilege: { readFreeBusy: {} } } } },
+      ]);
+
+      const calendars = await provider.listCalendars();
+
+      expect(calendars.map((calendar) => calendar.access.role)).toEqual(["owner", "editor", "viewer", "free-busy-only"]);
+      expect(mockFetchCalendars).toHaveBeenCalledWith(expect.objectContaining({
+        projectedProps: expect.objectContaining({ owner: true, currentUserPrivilegeSet: true }),
+      }));
     });
   });
 
@@ -767,8 +783,8 @@ BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VFREEBUSY\r\nFREEBUSY:20260822T100000Z/2
 
       const calendars = await freshProvider.listCalendars();
 
-      expect(calendars).toEqual([
-        { remoteId: "/cal/personal/", displayName: "Personal", color: null, isPrimary: true },
+      expect(calendars).toMatchObject([
+        { remoteId: "/cal/personal/", displayName: "Personal", color: null, isPrimary: true, access: { role: "unknown" } },
       ]);
       expect(mockLogin).toHaveBeenCalledTimes(2);
     });

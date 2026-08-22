@@ -1,4 +1,4 @@
-import type { CalendarAttendee, CalendarAttendeeInput, CalendarEventTime, CalendarOrganizer, CalendarProviderCapabilities, CalendarReminderDiagnostic, CalendarReminderPolicy, OccurrenceIdentity, ParticipantRef, RecurrenceWriteScope } from "./domain";
+import type { CalendarAccess, CalendarAttendee, CalendarAttendeeInput, CalendarEventTime, CalendarOrganizer, CalendarProviderCapabilities, CalendarReminderDiagnostic, CalendarReminderPolicy, OccurrenceIdentity, ParticipantRef, RecurrenceWriteScope } from "./domain";
 
 export type CalendarProviderType = "google_api" | "caldav";
 
@@ -7,6 +7,7 @@ export interface CalendarInfo {
   displayName: string;
   color: string | null;
   isPrimary: boolean;
+  access: CalendarAccess;
 }
 
 export interface CalendarEventData {

@@ -11,7 +11,7 @@ import type {
   CalendarReadDiagnostics,
   RecurringMutationContext,
 } from "./types";
-import type { CalendarProviderCapabilities } from "./domain";
+import { collectDavPrivilegeNames, davCalendarAccess, type CalendarProviderCapabilities } from "./domain";
 import { excludeVEventOccurrence, generateVEvent, parseVEvent, parseVEventsInRangeDetailed, updateAttendeeParticipation, updateVEventFields, updateVEventOccurrence } from "./icalHelper";
 import { getAccount, type DbAccount } from "@/services/db/accounts";
 import { ensureFreshToken, OAUTH_TOKEN_REFRESH_BUFFER_MS } from "@/services/oauth/oauthTokenManager";
@@ -65,7 +65,7 @@ export class CalDAVProvider implements CalendarProvider {
   private remoteFreeBusyCapability: "none" | "remote" = "none";
   get capabilities(): CalendarProviderCapabilities {
     return {
-      version: 4,
+      version: 5,
       read: { calendars: "full", events: "full" },
       events: { create: "remote", update: "remote", delete: "remote" },
       recurrence: {
@@ -81,6 +81,7 @@ export class CalDAVProvider implements CalendarProvider {
       freeBusy: { self: "local-derived", others: this.remoteFreeBusyCapability },
       permissions: "none",
       sharedCalendars: "read",
+      calendarAccess: { discovery: "full", ownership: "partial", effectivePermissions: "partial", aclRead: "partial", aclWrite: "none" },
       reminders: {
         read: "partial",
         write: "partial",
@@ -365,13 +366,35 @@ export class CalDAVProvider implements CalendarProvider {
   }
 
   async listCalendars(): Promise<CalendarInfo[]> {
-    const calendars = await this.withClient("list_calendars", (client) => client.fetchCalendars());
+    const { calendars, principalUrl, rootUrl } = await this.withClient("list_calendars", async (client) => ({
+      calendars: await client.fetchCalendars({
+        props: {
+          "d:displayname": {}, "d:resourcetype": {}, "d:sync-token": {}, "d:owner": {},
+          "d:current-user-privilege-set": {}, "d:supported-privilege-set": {},
+          "c:calendar-description": {}, "c:calendar-timezone": {}, "c:supported-calendar-component-set": {},
+          "cs:getctag": {}, "ca:calendar-color": {},
+        },
+        projectedProps: {
+          displayName: true, resourceType: true, syncToken: true, owner: true,
+          currentUserPrivilegeSet: true, supportedPrivilegeSet: true,
+          calendarDescription: true, calendarTimezone: true, components: true, ctag: true, calendarColor: true,
+        },
+      }),
+      principalUrl: client.account?.principalUrl,
+      rootUrl: client.account?.rootUrl,
+    }));
 
     return calendars.map((cal, index) => ({
       remoteId: cal.url,
       displayName: typeof cal.displayName === "string" ? cal.displayName : `Calendar ${index + 1}`,
       color: extractCalendarColor(cal) ?? null,
       isPrimary: index === 0,
+      access: davCalendarAccess({
+        privileges: collectDavPrivilegeNames(cal.projectedProps?.currentUserPrivilegeSet),
+        ownerHref: resolveDavHref(cal.projectedProps?.owner, rootUrl),
+        currentPrincipalHref: principalUrl,
+        primary: index === 0,
+      }),
     }));
   }
 

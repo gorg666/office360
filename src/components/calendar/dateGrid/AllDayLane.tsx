@@ -22,6 +22,7 @@ interface AllDayLaneProps {
   eventsByDay: ReadonlyMap<string, DbCalendarEvent[]>;
   conversionHighlight?: CalendarDate | null;
   onCreateDraft?: (draft: GridCreateDraft) => void;
+  canUpdateEvent?: (event: DbCalendarEvent) => boolean;
 }
 
 interface AllDayGesture {
@@ -44,6 +45,7 @@ export function AllDayLane({
   eventsByDay,
   conversionHighlight = null,
   onCreateDraft,
+  canUpdateEvent = () => true,
 }: AllDayLaneProps) {
   const suppressClickRef = useRef(false);
   const gestureRef = useRef<AllDayGesture | null>(null);
@@ -150,7 +152,7 @@ export function AllDayLane({
             onClick={(mouseEvent) => handleEmptyCellClick(date, mouseEvent)}
           >
             {allDay.map((event) => {
-              const interactive = canDragDateEvent(event, capabilities) && !pendingEventIds.has(event.id);
+              const interactive = canUpdateEvent(event) && canDragDateEvent(event, capabilities) && !pendingEventIds.has(event.id);
               const live = gesture?.event.id === event.id && gesture.dragging;
               const title = event.summary ?? (locale === "ru" ? "Событие" : "Event");
               return (

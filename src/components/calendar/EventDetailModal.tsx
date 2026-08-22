@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
-import type { DbCalendar } from "@/services/db/calendars";
+import { accessForCalendar, type DbCalendar } from "@/services/db/calendars";
 import type { CalendarParticipationStatus } from "@/services/calendar/types";
 import { calendarMutationService } from "@/services/calendar/calendarMutationService";
 import { findCurrentAttendee, parseCalendarParticipants, parseCalendarReminderPolicy, type CalendarAttendee, type CalendarOrganizer, type CalendarProviderCapabilities, type CalendarReminderPolicy, type RecurrenceWriteScope } from "@/services/calendar/domain";
@@ -51,6 +51,8 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
   const accountEmail = account?.email ?? "";
   const accountDisplayName = account?.displayName ?? null;
   const calendar = calendars.find((item) => item.id === event.calendar_id);
+  const calendarAccess = accessForCalendar(calendar);
+  const canSeeDetails = calendarAccess.permissions.canSeeEventDetails;
   const participantSet = useMemo(() => parseCalendarParticipants(event.attendees_json, event.organizer_email), [event.attendees_json, event.organizer_email]);
   const attendees = participantSet.attendees;
   const schedulingParticipants = useMemo(
@@ -73,9 +75,9 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
     () => recurrenceScopeChoices(providerCapabilities, "delete", editTarget),
     [editTarget, providerCapabilities],
   );
-  const canUpdate = canMutateRecurring(providerCapabilities, "update", editTarget);
-  const canDelete = canMutateRecurring(providerCapabilities, "delete", editTarget);
-  const canRsvp = providerCapabilities?.rsvp.remote === "direct";
+  const canUpdate = calendarAccess.permissions.canUpdate && canMutateRecurring(providerCapabilities, "update", editTarget);
+  const canDelete = calendarAccess.permissions.canDelete && canMutateRecurring(providerCapabilities, "delete", editTarget);
+  const canRsvp = canSeeDetails && providerCapabilities?.rsvp.remote === "direct";
   const scopeChoices = pendingIntent === "delete" ? deleteChoices : updateChoices;
 
   useEffect(() => {
@@ -262,27 +264,27 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
       <section
         role="dialog"
         aria-modal="false"
-        aria-label={event.summary ?? "Событие"}
+        aria-label={canSeeDetails ? (event.summary ?? "Событие") : "Занято"}
         className="fixed w-[min(42rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-border-primary bg-bg-primary shadow-2xl"
         style={{ left: panelLeft, top: panelTop, maxHeight: "calc(100vh - 24px)" }}
         onMouseDown={(mouseEvent) => mouseEvent.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-border-primary px-5 py-3">
-          <h2 className="truncate text-base font-semibold text-text-primary">{event.summary ?? "Событие"}</h2>
+          <h2 className="truncate text-base font-semibold text-text-primary">{canSeeDetails ? (event.summary ?? "Событие") : "Занято"}</h2>
           <button type="button" className="rounded p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary" onClick={onClose} aria-label="Закрыть"><X size={17} /></button>
         </header>
         <div className="max-h-[calc(100vh-80px)] overflow-y-auto">
       <div className="p-5 space-y-4">
-        {event.description && <div className="text-sm leading-5 text-text-secondary"><LinkifiedText text={event.description} /></div>}
+        {canSeeDetails && event.description && <div className="text-sm leading-5 text-text-secondary"><LinkifiedText text={event.description} /></div>}
 
         <InfoRow icon={<Clock size={17} />} label="Время и дата">
           <span className="text-text-primary font-medium">{formatEventRange(event)}</span>
           {recurring && <Repeat2 size={15} className="text-text-tertiary" aria-label="Повторяющееся событие" />}
         </InfoRow>
-        {event.location && <InfoRow icon={<MapPin size={17} />} label="Место"><span>{event.location}</span></InfoRow>}
-        {formatReminderPolicy(reminders) && <InfoRow icon={<Clock size={17} />} label="Напоминания"><span>{formatReminderPolicy(reminders)}</span></InfoRow>}
-        {participantSet.organizer && <InfoRow icon={<User size={17} />} label="Организатор"><OrganizerChip organizer={participantSet.organizer} /></InfoRow>}
-        {attendees.length > 0 && (
+        {canSeeDetails && event.location && <InfoRow icon={<MapPin size={17} />} label="Место"><span>{event.location}</span></InfoRow>}
+        {canSeeDetails && formatReminderPolicy(reminders) && <InfoRow icon={<Clock size={17} />} label="Напоминания"><span>{formatReminderPolicy(reminders)}</span></InfoRow>}
+        {canSeeDetails && participantSet.organizer && <InfoRow icon={<User size={17} />} label="Организатор"><OrganizerChip organizer={participantSet.organizer} /></InfoRow>}
+        {canSeeDetails && attendees.length > 0 && (
           <InfoRow icon={<User size={17} />} label="Участники">
             <div className="flex flex-wrap gap-2">{attendees.map((attendee) => <PersonChip key={attendee.participant.normalizedEmail ?? attendee.participant.value} attendee={attendee} />)}</div>
           </InfoRow>
@@ -297,11 +299,11 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
                 <option value="accepted">Пойду</option><option value="tentative">Возможно</option><option value="declined">Не пойду</option>
               </select>
             )}
-            {meetingUrl && <Button variant="primary" size="md" icon={<ExternalLink size={15} />} onClick={openMeeting}>Открыть в Телемосте</Button>}
-            {meetingUrl && <Button variant="secondary" size="md" icon={<Copy size={15} />} onClick={() => void navigator.clipboard.writeText(meetingUrl)}>Копировать ссылку</Button>}
+            {canSeeDetails && meetingUrl && <Button variant="primary" size="md" icon={<ExternalLink size={15} />} onClick={openMeeting}>Открыть в Телемосте</Button>}
+            {canSeeDetails && meetingUrl && <Button variant="secondary" size="md" icon={<Copy size={15} />} onClick={() => void navigator.clipboard.writeText(meetingUrl)}>Копировать ссылку</Button>}
           </div>
           <div className="flex items-center gap-1">
-            {event.organizer_email && <Button variant="secondary" size="md" icon={<Mail size={15} />} iconOnly aria-label="Написать организатору" onClick={() => void openUrl(`mailto:${event.organizer_email}`)} />}
+            {canSeeDetails && event.organizer_email && <Button variant="secondary" size="md" icon={<Mail size={15} />} iconOnly aria-label="Написать организатору" onClick={() => void openUrl(`mailto:${event.organizer_email}`)} />}
             {canDelete && (recurring
               ? <Button variant="ghost" size="md" icon={<Trash2 size={15} />} iconOnly aria-label="Удалить" onClick={requestDelete} disabled={busyAction !== null} />
               : (!confirmDelete

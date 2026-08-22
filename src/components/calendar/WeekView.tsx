@@ -18,6 +18,7 @@ interface WeekViewProps {
   onTimedCommit?: (event: DbCalendarEvent, draft: TimedDraft, anchor: { x: number; y: number }) => void;
   onDateCommit?: (event: DbCalendarEvent, draft: DateGridDraft, anchor: { x: number; y: number }) => void;
   onCreateDraft?: (draft: GridCreateDraft) => void;
+  canUpdateEvent?: (event: DbCalendarEvent) => boolean;
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -36,6 +37,7 @@ export function WeekView({
   onTimedCommit,
   onDateCommit,
   onCreateDraft,
+  canUpdateEvent = () => true,
 }: WeekViewProps) {
   const locale = useUIStore((state) => state.locale);
   const weekStart = new Date(currentDate);
@@ -106,6 +108,7 @@ export function WeekView({
           eventsByDay={allDayByDay}
           conversionHighlight={conversionHighlight}
           onCreateDraft={onCreateDraft}
+          canUpdateEvent={canUpdateEvent}
         />
       ) : (
         <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
@@ -162,6 +165,7 @@ export function WeekView({
               onConvertToAllDay={onDateCommit}
               onConvertPreview={setConversionHighlight}
               onCreateDraft={onCreateDraft}
+              canUpdateEvent={canUpdateEvent}
             />
           </div>
         </div>

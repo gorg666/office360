@@ -37,7 +37,7 @@ CAL-102/105/112  ->  CAL-113 Day/Week timed drag/resize (delivered)
 CAL-115 application service/UI state  ->  CAL-116 layout engine  ->  CAL-117 create-by-selection / auto-scroll
 CAL-102/103/104/105                   ->  CAL-118 provider-neutral reminder metadata (delivered)
 Outbound iTIP/RSVP  (pending backlog; previously outlined as CAL-114 before Month/all-day took that number)
-CAL-119 shared calendars/permissions
+CAL-119 shared calendars/permissions (delivered: read-only discovery/enforcement/reconciliation)
 CAL-120 reminders
 CAL-121 search/performance/a11y
 CAL-122 end-to-end parity release gate
@@ -401,6 +401,8 @@ Not a second timed-grid or date-grid mutation implementation. Not a second creat
 
 ## CAL-119 — Shared calendars, subscriptions and permissions
 
+**Status:** delivered in the approved read-only cloud scope (2026-08-23). Canonical contract: `CALENDAR_SHARED_ACCESS.md`.
+
 
 **Цель:** поддержать provider calendars beyond visibility toggles.
 
@@ -416,6 +418,8 @@ Not a second timed-grid or date-grid mutation implementation. Not a second creat
 - provider mismatch states and tests.
 
 **Риски:** provider ACL incompatibility, stale permissions, accidental writes.
+
+**Acceptance:** provider-neutral owner/editor/contributor/viewer/free-busy-only model; paginated Google CalendarList roles; CalDAV/Yandex WebDAV privilege projection; append-only v37 persistence with lazy legacy compatibility; non-destructive removed-calendar reconciliation; per-calendar CRUD/drag/resize enforcement; permission-revocation refresh without write retry; free-busy-only detail privacy. Cloud ACL, subscription, provider ordering and provider color mutations remain explicitly outside the approved scope.
 
 
 ## CAL-120 — Event reminders and notification actions

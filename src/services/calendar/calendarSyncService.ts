@@ -5,12 +5,14 @@ import {
 } from "@/services/db/calendarEvents";
 import {
   getCalendarsForAccount,
+  markMissingProviderCalendarsRemoved,
   upsertCalendar,
   type DbCalendar,
 } from "@/services/db/calendars";
 import { getCalendarRangeCoverage } from "@/services/db/calendarSyncCoverage";
 import { getCalendarProvider, hasCalendarSupport } from "./providerFactory";
 import type { CalendarProvider, CalendarReadDiagnostics } from "./types";
+import { eventReadableCalendars } from "./calendarAccessService";
 
 export type CalendarRangeLoadStatus = "fresh" | "fresh-with-warnings" | "stale" | "error";
 export type CalendarLoadErrorCategory = "calendar-api-disabled" | "permission" | "other" | null;
@@ -41,6 +43,7 @@ interface CalendarSyncDependencies {
   getCalendarProvider: typeof getCalendarProvider;
   getCalendarsForAccount: typeof getCalendarsForAccount;
   upsertCalendar: typeof upsertCalendar;
+  markMissingProviderCalendarsRemoved: typeof markMissingProviderCalendarsRemoved;
   getCalendarEventsInRangeMulti: typeof getCalendarEventsInRangeMulti;
   getCalendarRangeCoverage: typeof getCalendarRangeCoverage;
   reconcileCalendarEventsRange: typeof reconcileCalendarEventsRange;
@@ -51,6 +54,7 @@ const defaultDependencies: CalendarSyncDependencies = {
   getCalendarProvider,
   getCalendarsForAccount,
   upsertCalendar,
+  markMissingProviderCalendarsRemoved,
   getCalendarEventsInRangeMulti,
   getCalendarRangeCoverage,
   reconcileCalendarEventsRange,
@@ -70,7 +74,7 @@ export class CalendarSyncService {
 
     try {
       calendars = await this.dependencies.getCalendarsForAccount(request.accountId);
-      visibleCalendars = calendars.filter((calendar) => calendar.is_visible === 1);
+      visibleCalendars = eventReadableCalendars(calendars).filter((calendar) => calendar.is_visible === 1);
       const calendarIds = visibleCalendars.map((calendar) => calendar.id);
       cache = await this.dependencies.getCalendarEventsInRangeMulti(
         request.accountId,
@@ -100,7 +104,7 @@ export class CalendarSyncService {
       const provider = await this.dependencies.getCalendarProvider(request.accountId);
       await this.discoverCalendars(request.accountId, provider);
       calendars = await this.dependencies.getCalendarsForAccount(request.accountId);
-      visibleCalendars = calendars.filter((calendar) => calendar.is_visible === 1);
+      visibleCalendars = eventReadableCalendars(calendars).filter((calendar) => calendar.is_visible === 1);
       const diagnostics = emptyDiagnostics();
 
       for (const calendar of visibleCalendars) {
@@ -174,6 +178,7 @@ export class CalendarSyncService {
 
   private async discoverCalendars(accountId: string, provider: CalendarProvider): Promise<void> {
     const remoteCalendars = await provider.listCalendars();
+    const observedAt = Math.floor(Date.now() / 1000);
     for (const calendar of remoteCalendars) {
       await this.dependencies.upsertCalendar({
         accountId,
@@ -182,8 +187,15 @@ export class CalendarSyncService {
         displayName: calendar.displayName,
         color: calendar.color,
         isPrimary: calendar.isPrimary,
+        access: calendar.access,
+        observedAt,
       });
     }
+    await this.dependencies.markMissingProviderCalendarsRemoved(
+      accountId,
+      provider.type,
+      remoteCalendars.map((calendar) => calendar.remoteId),
+    );
   }
 }
 

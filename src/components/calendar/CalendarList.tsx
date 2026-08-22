@@ -1,4 +1,4 @@
-import type { DbCalendar } from "@/services/db/calendars";
+import { accessForCalendar, type DbCalendar } from "@/services/db/calendars";
 
 interface CalendarListProps {
   calendars: DbCalendar[];
@@ -12,7 +12,14 @@ export function CalendarList({ calendars, onVisibilityChange }: CalendarListProp
         Calendars
       </h3>
       <div className="space-y-1">
-        {calendars.map((cal) => (
+        {calendars.map((cal) => {
+          const access = accessForCalendar(cal);
+          const accessLabel = cal.is_primary || access.ownership === "primary" ? "Primary"
+            : access.ownership === "owned" ? "Owner"
+              : access.role === "unknown" ? "Unavailable"
+                : access.permissions.canCreate ? "Shared"
+                  : access.role === "free-busy-only" ? "Free/busy" : "Read-only";
+          return (
           <label
             key={cal.id}
             className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-bg-hover cursor-pointer transition-colors"
@@ -40,11 +47,10 @@ export function CalendarList({ calendars, onVisibilityChange }: CalendarListProp
             <span className="text-sm text-text-primary truncate">
               {cal.display_name ?? "Calendar"}
             </span>
-            {!!cal.is_primary && (
-              <span className="text-[0.6rem] text-text-tertiary ml-auto shrink-0">Primary</span>
-            )}
+            <span className="text-[0.6rem] text-text-tertiary ml-auto shrink-0">{accessLabel}</span>
           </label>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

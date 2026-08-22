@@ -224,3 +224,16 @@ describe("calendar reminder projection migration", () => {
     ]);
   });
 });
+
+describe("calendar access metadata migration", () => {
+  const migration = MIGRATIONS.find((item) => item.version === 37);
+
+  it("only appends nullable access and provider-presence metadata", () => {
+    expect(migration).toBeDefined();
+    expect(migration?.sql).not.toMatch(/(?:^|;)\s*(?:DROP|DELETE|UPDATE|REPLACE|INSERT)\b/im);
+    expect(splitStatements(migration!.sql)).toHaveLength(5);
+    expect(migration?.sql.match(/ALTER TABLE calendars ADD COLUMN/g)).toHaveLength(4);
+    expect(migration?.sql).toContain("CHECK (provider_presence IN ('present', 'removed'))");
+    expect(migration?.sql).toContain("idx_calendars_account_presence");
+  });
+});

@@ -1164,6 +1164,20 @@ export const MIGRATIONS = [
     description: "Calendar reminder semantic projection",
     sql: `ALTER TABLE calendar_events ADD COLUMN reminders_json TEXT;`,
   },
+  {
+    version: 37,
+    description: "Calendar access and provider presence metadata",
+    sql: `
+      ALTER TABLE calendars ADD COLUMN access_json TEXT;
+      ALTER TABLE calendars ADD COLUMN access_observed_at INTEGER;
+      ALTER TABLE calendars ADD COLUMN provider_presence TEXT
+        CHECK (provider_presence IN ('present', 'removed'));
+      ALTER TABLE calendars ADD COLUMN provider_seen_at INTEGER;
+
+      CREATE INDEX IF NOT EXISTS idx_calendars_account_presence
+        ON calendars(account_id, provider_presence);
+    `,
+  },
 ];
 
 /**

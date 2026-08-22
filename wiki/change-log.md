@@ -1,5 +1,12 @@
 # Журнал изменений
 
+## 2026-08-23 — Shared calendar access (CAL-119)
+
+- Добавлен provider-neutral `CalendarAccess`: ownership, effective role и независимые read/write/free-busy permissions.
+- Google CalendarList и CalDAV/Yandex privileges нормализуются в один contract; writes, drag/resize и detail privacy теперь gated per calendar.
+- Append-only v37 сохраняет access/presence metadata; отсутствующие provider calendars помечаются removed без удаления локальных данных.
+- Cloud ACL/subscription mutations не выполнялись.
+
 ## 2026-08-23 — Calendar reminder metadata (CAL-118)
 
 - Добавлена provider-neutral модель `inherit` / `none` / `custom` с multiple relative reminders и minute/hour/day duration.

@@ -29,6 +29,7 @@ interface MonthViewProps {
   visualOverrides?: Readonly<Record<string, TimedVisualOverride>>;
   onDateCommit?: (event: DbCalendarEvent, draft: DateGridDraft, anchor: { x: number; y: number }) => void;
   onCreateDraft?: (draft: GridCreateDraft) => void;
+  canUpdateEvent?: (event: DbCalendarEvent) => boolean;
 }
 
 const DAY_NAMES = {
@@ -54,6 +55,7 @@ export function MonthView({
   visualOverrides,
   onDateCommit,
   onCreateDraft,
+  canUpdateEvent = () => true,
 }: MonthViewProps) {
   const locale = useUIStore((state) => state.locale);
   const year = currentDate.getFullYear();
@@ -207,6 +209,7 @@ export function MonthView({
               <div className="space-y-0.5">
                 {dayEvents.slice(0, 3).map((event) => {
                   const interactive = Boolean(onDateCommit)
+                    && canUpdateEvent(event)
                     && canDragDateEvent(event, capabilities)
                     && !pending.has(event.id);
                   const live = gesture?.event.id === event.id && gesture.dragging;

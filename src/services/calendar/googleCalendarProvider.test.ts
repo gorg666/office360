@@ -38,11 +38,11 @@ describe("GoogleCalendarProvider", () => {
       const result = await provider.listCalendars();
 
       expect(mockClient.request).toHaveBeenCalledWith(
-        `${CALENDAR_API_BASE}/users/me/calendarList`,
+        `${CALENDAR_API_BASE}/users/me/calendarList?maxResults=250`,
       );
-      expect(result).toEqual([
-        { remoteId: "primary", displayName: "My Calendar", color: "#0000ff", isPrimary: true },
-        { remoteId: "work@example.com", displayName: "Work", color: null, isPrimary: false },
+      expect(result).toMatchObject([
+        { remoteId: "primary", displayName: "My Calendar", color: "#0000ff", isPrimary: true, access: { role: "owner", ownership: "primary" } },
+        { remoteId: "work@example.com", displayName: "Work", color: null, isPrimary: false, access: { role: "owner", ownership: "owned" } },
       ]);
     });
 
@@ -52,6 +52,28 @@ describe("GoogleCalendarProvider", () => {
       const result = await provider.listCalendars();
 
       expect(result).toEqual([]);
+    });
+
+    it("normalizes effective access roles across all CalendarList pages", async () => {
+      mockClient.request
+        .mockResolvedValueOnce({
+          items: [
+            { id: "owner", summary: "Owner", accessRole: "owner" },
+            { id: "writer", summary: "Writer", accessRole: "writer" },
+          ],
+          nextPageToken: "page-2",
+        })
+        .mockResolvedValueOnce({
+          items: [
+            { id: "reader", summary: "Reader", accessRole: "reader" },
+            { id: "busy", summary: "Busy", accessRole: "freeBusyReader" },
+          ],
+        });
+
+      const result = await provider.listCalendars();
+
+      expect(result.map((calendar) => calendar.access.role)).toEqual(["owner", "editor", "viewer", "free-busy-only"]);
+      expect(mockClient.request).toHaveBeenLastCalledWith(expect.stringContaining("pageToken=page-2"));
     });
   });
 

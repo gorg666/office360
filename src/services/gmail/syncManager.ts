@@ -8,7 +8,7 @@ import { imapInitialSync, imapDeltaSync, isConnectionError } from "../imap/imapS
 import { clearAllFolderSyncStates } from "../db/folderSyncState";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { hasCalendarSupport, getCalendarProvider } from "../calendar/providerFactory";
-import { getVisibleCalendars, upsertCalendar, updateCalendarSyncToken } from "../db/calendars";
+import { accessForCalendar, getVisibleCalendars, markMissingProviderCalendarsRemoved, upsertCalendar, updateCalendarSyncToken } from "../db/calendars";
 import { upsertCalendarEvent, deleteEventByRemoteId } from "../db/calendarEvents";
 import { clearAccountDiagnostic, upsertAccountDiagnostic } from "../db/accountDiagnostics";
 import { createConnectionDiagnostic } from "../diagnostics";
@@ -302,11 +302,21 @@ async function syncCalendarForAccount(accountId: string): Promise<void> {
         displayName: cal.displayName,
         color: cal.color,
         isPrimary: cal.isPrimary,
+        access: cal.access,
+        observedAt: Math.floor(Date.now() / 1000),
       });
     }
+    await markMissingProviderCalendarsRemoved(
+      accountId,
+      provider.type,
+      calendarInfos.map((calendar) => calendar.remoteId),
+    );
 
     // Sync events for each visible calendar
-    const visibleCals = await getVisibleCalendars(accountId);
+    const visibleCals = (await getVisibleCalendars(accountId)).filter((calendar) => {
+      const permissions = accessForCalendar(calendar).permissions;
+      return permissions.canRead && permissions.canSeeEventDetails;
+    });
     for (const cal of visibleCals) {
       try {
         const syncResult = await provider.syncEvents(cal.remote_id, cal.sync_token ?? undefined);

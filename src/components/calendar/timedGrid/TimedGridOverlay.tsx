@@ -60,6 +60,7 @@ interface TimedGridOverlayProps {
   onConvertToAllDay?: (event: DbCalendarEvent, draft: DateGridDraft, anchor: { x: number; y: number }) => void;
   onConvertPreview?: (date: CalendarDate | null) => void;
   onCreateDraft?: (draft: GridCreateDraft) => void;
+  canUpdateEvent?: (event: DbCalendarEvent) => boolean;
 }
 
 interface GestureState {
@@ -103,6 +104,7 @@ export function TimedGridOverlay({
   onConvertToAllDay,
   onConvertPreview,
   onCreateDraft,
+  canUpdateEvent = () => true,
 }: TimedGridOverlayProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<GestureState | null>(null);
@@ -401,7 +403,7 @@ export function TimedGridOverlay({
       {columns.map(({ dayStart, dayEvents, packById }, dayIndex) => (
         <div key={dayIndex} className="relative min-w-0" data-testid={`timed-day-column-${dayIndex}`}>
           {dayEvents.map((event) => {
-            const interactive = canDragResizeTimedEvent(event, capabilities) && !pendingEventIds.has(event.id);
+            const interactive = canUpdateEvent(event) && canDragResizeTimedEvent(event, capabilities) && !pendingEventIds.has(event.id);
             const packing = packById.get(event.id);
             const live = preview?.event.id === event.id;
             const axis = eventAxisMinutes(event, dayStart);

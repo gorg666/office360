@@ -1,11 +1,20 @@
 import type { CalendarProvider } from "./types";
 import { calendarMutationService, classifyWriteFailure } from "./calendarMutationService";
 import { getCalendarProvider } from "./providerFactory";
+import { getCalendarByRemoteId } from "@/services/db/calendars";
+import { refreshCalendarAccess } from "./calendarAccessService";
+
+const { mockAccessForCalendar } = vi.hoisted(() => ({ mockAccessForCalendar: vi.fn() }));
 
 vi.mock("./providerFactory", () => ({ getCalendarProvider: vi.fn() }));
+vi.mock("@/services/db/calendars", () => ({
+  getCalendarByRemoteId: vi.fn(),
+  accessForCalendar: mockAccessForCalendar,
+}));
+vi.mock("./calendarAccessService", () => ({ refreshCalendarAccess: vi.fn() }));
 
 const capabilities = {
-  version: 4 as const,
+  version: 5 as const,
   read: { calendars: "full" as const, events: "full" as const },
   events: { create: "remote" as const, update: "remote" as const, delete: "remote" as const },
   recurrence: {
@@ -21,6 +30,7 @@ const capabilities = {
   freeBusy: { self: "local-derived" as const, others: "none" as const },
   permissions: "none" as const,
   sharedCalendars: "read" as const,
+  calendarAccess: { discovery: "full" as const, ownership: "partial" as const, effectivePermissions: "partial" as const, aclRead: "partial" as const, aclWrite: "none" as const },
   reminders: {
     read: "partial" as const, write: "partial" as const, multiple: true,
     methods: ["notification"] as const, defaults: "none" as const, maxCount: null,
@@ -37,6 +47,34 @@ function provider(): CalendarProvider {
 }
 
 describe("CalendarMutationService", () => {
+  beforeEach(() => {
+    vi.mocked(getCalendarByRemoteId).mockResolvedValue({ access_json: "writable" } as never);
+    mockAccessForCalendar.mockReturnValue({ permissions: { canCreate: true, canUpdate: true, canDelete: true } });
+    vi.mocked(refreshCalendarAccess).mockResolvedValue([]);
+  });
+
+  it("blocks a read-only calendar before provider I/O", async () => {
+    const mockProvider = provider();
+    vi.mocked(getCalendarProvider).mockResolvedValue(mockProvider);
+    mockAccessForCalendar.mockReturnValue({ permissions: { canCreate: false, canUpdate: false, canDelete: false } });
+
+    const result = await calendarMutationService.create("acc-1", "readonly", { summary: "No", startTime: "2026-01-01T10:00:00Z", endTime: "2026-01-01T11:00:00Z" });
+
+    expect(result.status).toBe("read-only");
+    expect(mockProvider.createEvent).not.toHaveBeenCalled();
+  });
+
+  it("refreshes access once after a provider permission denial without retrying the write", async () => {
+    const mockProvider = provider();
+    vi.mocked(getCalendarProvider).mockResolvedValue(mockProvider);
+    vi.mocked(mockProvider.deleteEvent).mockRejectedValue(new Error("403 permission denied"));
+
+    const result = await calendarMutationService.delete({ accountId: "acc-1", calendarRemoteId: "cal", remoteEventId: "event" });
+
+    expect(result.status).toBe("permission-denied");
+    expect(mockProvider.deleteEvent).toHaveBeenCalledTimes(1);
+    expect(refreshCalendarAccess).toHaveBeenCalledTimes(1);
+  });
   it("blocks this-and-future before a provider call", async () => {
     const mockProvider = provider();
     vi.mocked(getCalendarProvider).mockResolvedValue(mockProvider);

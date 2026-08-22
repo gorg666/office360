@@ -1,5 +1,7 @@
 import { classifyError } from "@/utils/networkErrors";
 import { getCalendarProvider } from "./providerFactory";
+import { accessForCalendar, getCalendarByRemoteId } from "@/services/db/calendars";
+import { refreshCalendarAccess } from "./calendarAccessService";
 import {
   normalizeCalendarReminderPolicy,
   supportsRecurrenceScope,
@@ -14,10 +16,13 @@ import type {
   UpdateEventInput,
   RecurringMutationContext,
 } from "./types";
+import type { CalendarProvider } from "./types";
 
 export type CalendarWriteFailureStatus =
   | "unsupported"
   | "permission-denied"
+  | "read-only"
+  | "calendar-unavailable"
   | "auth-required"
   | "conflict"
   | "network-error"
@@ -55,9 +60,11 @@ export class CalendarMutationService {
       if (provider.capabilities.events.create !== "remote") {
         return unsupported("Создание событий не поддерживается этим календарём");
       }
+      const permissionFailure = await requireCalendarPermission(accountId, calendarRemoteId, "canCreate");
+      if (permissionFailure) return permissionFailure;
       const reminderFailure = validateReminderWrite(provider.capabilities, event.reminders);
       if (reminderFailure) return reminderFailure;
-      return runWrite(() => provider.createEvent(calendarRemoteId, event));
+      return runCalendarWrite(accountId, provider, () => provider.createEvent(calendarRemoteId, event));
     } catch (error) {
       return classifyWriteFailure(error);
     }
@@ -72,6 +79,8 @@ export class CalendarMutationService {
       if (provider.capabilities.events.update !== "remote") {
         return unsupported("Изменение событий не поддерживается этим календарём");
       }
+      const permissionFailure = await requireCalendarPermission(target.accountId, target.calendarRemoteId, "canUpdate");
+      if (permissionFailure) return permissionFailure;
       const reminderFailure = validateReminderWrite(provider.capabilities, event.reminders);
       if (reminderFailure) return reminderFailure;
       const recurrence = recurringMutationContext(provider.capabilities, "update", target);
@@ -82,7 +91,7 @@ export class CalendarMutationService {
       const safeEvent = target.baseSequence === undefined
         ? event
         : { ...event, sequence: Math.max(event.sequence ?? 0, target.baseSequence + 1) };
-      return runWrite(() => provider.updateEvent(
+      return runCalendarWrite(target.accountId, provider, () => provider.updateEvent(
         target.calendarRemoteId,
         target.remoteEventId,
         safeEvent,
@@ -100,9 +109,11 @@ export class CalendarMutationService {
       if (provider.capabilities.events.delete !== "remote") {
         return unsupported("Удаление событий не поддерживается этим календарём");
       }
+      const permissionFailure = await requireCalendarPermission(target.accountId, target.calendarRemoteId, "canDelete");
+      if (permissionFailure) return permissionFailure;
       const recurrence = recurringMutationContext(provider.capabilities, "delete", target);
       if (recurrence && "status" in recurrence) return recurrence;
-      return runWrite(() => provider.deleteEvent(
+      return runCalendarWrite(target.accountId, provider, () => provider.deleteEvent(
         target.calendarRemoteId,
         target.remoteEventId,
         target.etag,
@@ -202,6 +213,36 @@ async function runWrite<T>(operation: () => Promise<T>): Promise<CalendarWriteRe
   } catch (error) {
     return classifyWriteFailure(error);
   }
+}
+
+type WritePermission = "canCreate" | "canUpdate" | "canDelete";
+
+async function requireCalendarPermission(
+  accountId: string,
+  calendarRemoteId: string,
+  permission: WritePermission,
+): Promise<CalendarWriteResult<never> | null> {
+  const calendar = await getCalendarByRemoteId(accountId, calendarRemoteId);
+  if (!calendar) {
+    return { status: "calendar-unavailable", message: "Календарь больше недоступен. Обновите список календарей." };
+  }
+  if (!accessForCalendar(calendar).permissions[permission]) {
+    return { status: "read-only", message: "Этот календарь доступен только для чтения." };
+  }
+  return null;
+}
+
+async function runCalendarWrite<T>(
+  accountId: string,
+  provider: CalendarProvider,
+  operation: () => Promise<T>,
+): Promise<CalendarWriteResult<T>> {
+  const result = await runWrite(operation);
+  if (result.status === "permission-denied") {
+    // Reconcile effective permissions once, without retrying a non-idempotent write.
+    await refreshCalendarAccess(accountId, provider).catch(() => undefined);
+  }
+  return result;
 }
 
 export function classifyWriteFailure(error: unknown): CalendarWriteResult<never> {

@@ -1,7 +1,7 @@
 # Calendar provider capabilities and write paths
 
 Дата: 2026-08-23 (Asia/Bangkok)
-Контракт: `src/services/calendar/domain/capabilities.ts` (`version: 4`)
+Контракт: `src/services/calendar/domain/capabilities.ts` (`version: 5`)
 
 Этот документ фиксирует только реально подключённые runtime-paths. Capability не означает, что provider API теоретически умеет функцию: она означает, что Office360 имеет работающий adapter и service boundary для этой функции.
 
@@ -29,7 +29,9 @@ Yandex использует тот же `CalDAVProvider`, что generic CalDAV,
 | Sync durability | `ephemeral` | `ephemeral` | `ephemeral` |
 | Free/Busy (self) | `local-derived` | `local-derived` | `local-derived` |
 | Free/Busy (others) | `remote` | `none` → `remote` after RFC 6638 discovery | `none` |
-| Permissions / ACL | `none` | `none` | `none` |
+| Effective calendar access | `full` | `partial` | `partial` |
+| Ownership | `partial` | `partial` | `partial` |
+| ACL read / write | `none` / `none` | `partial` / `none` | `partial` / `none` |
 | Shared calendars | `read` | `read` | `read` |
 | Reminder read/write | `full` / `full` | `partial` / `partial` | `partial` / `partial` |
 | Reminder methods | notification, email | notification write; DISPLAY/EMAIL read | notification write; DISPLAY/EMAIL read |
@@ -44,6 +46,8 @@ Yandex использует тот же `CalDAVProvider`, что generic CalDAV,
 `rsvp.remote = direct` means the adapter performs a remote provider/API mutation. Google uses its attendee update path; CalDAV updates the remote resource. CAL-105 did not perform live mutations, so organizer delivery side effects were not confirmed for CalDAV/Yandex. General invitation and outbound iTIP delivery therefore remain `none`.
 
 `version: 4` adds structured reminder facts. Google supports provider defaults, explicit none and up to five popup/email overrides. CalDAV/Yandex can read multiple DISPLAY/EMAIL `VALARM` values, but Office360 only writes DISPLAY/notification alarms; RFC EMAIL support alone is not evidence of provider delivery. Mutation service validation rejects unsupported defaults, methods, multiplicity and counts before provider I/O. Details: `CALENDAR_REMINDERS.md`.
+
+`version: 5` adds per-calendar access discovery facts. Google CalendarList effective roles are full; ownership is partial because CalendarList is not a complete owner/ACL directory. CalDAV/Yandex privilege discovery is partial because servers may omit or incompletely implement WebDAV ACL properties. ACL mutations remain unsupported. Details: `CALENDAR_SHARED_ACCESS.md`.
 
 ## Runtime ownership
 
@@ -64,6 +68,8 @@ There is no new optimistic Calendar write path. Provider failure therefore canno
 - `success`;
 - `unsupported`;
 - `permission-denied`;
+- `read-only`;
+- `calendar-unavailable`;
 - `auth-required`;
 - `conflict`;
 - `network-error`;

@@ -8,7 +8,7 @@ export type FreeBusyOthersCapability = "none" | "remote";
 export type CalendarReminderDefaultsCapability = "inherit" | "none";
 
 export interface CalendarProviderCapabilities {
-  readonly version: 4;
+  readonly version: 5;
   readonly read: { calendars: CalendarCapabilityLevel; events: CalendarCapabilityLevel };
   readonly events: {
     create: CalendarRemoteMutationCapability;
@@ -47,6 +47,13 @@ export interface CalendarProviderCapabilities {
   };
   readonly permissions: CalendarCapabilityLevel;
   readonly sharedCalendars: "none" | "read" | "manage";
+  readonly calendarAccess: {
+    readonly discovery: CalendarCapabilityLevel;
+    readonly ownership: CalendarCapabilityLevel;
+    readonly effectivePermissions: CalendarCapabilityLevel;
+    readonly aclRead: CalendarCapabilityLevel;
+    readonly aclWrite: CalendarCapabilityLevel;
+  };
   readonly reminders: {
     readonly read: CalendarCapabilityLevel;
     readonly write: CalendarCapabilityLevel;

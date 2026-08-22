@@ -6,6 +6,7 @@ import { calendarMutationService } from "@/services/calendar/calendarMutationSer
 import { CalendarPage } from "./CalendarPage";
 import type { GridCreateDraft } from "./createSelection";
 import type { EventCreateInput } from "./EventCreateModal";
+import { googleCalendarAccess, serializeCalendarAccess } from "@/services/calendar/domain";
 
 const mocks = vi.hoisted(() => ({
   loadRange: vi.fn(),
@@ -80,6 +81,8 @@ const dbCalendar = {
   id: "cal-1", account_id: "account-1", provider: "caldav", remote_id: "remote-cal-1",
   display_name: "Рабочий", color: "#4285f4", is_primary: 1, is_visible: 1,
   sync_token: null, ctag: null, created_at: 1, updated_at: 1,
+  access_json: serializeCalendarAccess(googleCalendarAccess("owner")), access_observed_at: 1,
+  provider_presence: "present" as const, provider_seen_at: 1,
 };
 
 function makeDbEvent(): DbCalendarEvent {

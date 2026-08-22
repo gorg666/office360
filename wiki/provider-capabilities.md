@@ -54,7 +54,7 @@ src/services/email/types.ts
 
 ## Calendar capabilities
 
-Calendar использует отдельный provider-neutral contract v4 в `src/services/calendar/domain/capabilities.ts`. Google и CalDAV/Yandex явно объявляют read/CRUD, recurrence scopes, attendee/RSVP, invitation delivery, sync durability, Free/Busy, ACL, shared-calendar, reminder и conflict facts. Полная матрица и write-path ownership: `docs/calendar/CALENDAR_PROVIDER_CAPABILITIES.md`.
+Calendar использует отдельный provider-neutral contract v5 в `src/services/calendar/domain/capabilities.ts`. Google и CalDAV/Yandex явно объявляют read/CRUD, recurrence scopes, attendee/RSVP, invitation delivery, sync durability, Free/Busy, per-calendar access discovery, ACL, shared-calendar, reminder и conflict facts. Полная матрица и write-path ownership: `docs/calendar/CALENDAR_PROVIDER_CAPABILITIES.md`; shared access semantics: `docs/calendar/CALENDAR_SHARED_ACCESS.md`.
 
 UI не определяет Calendar features по наличию методов provider. Все create/update/delete/RSVP команды проходят через `CalendarMutationService`; unsupported scope возвращается typed result до remote call. В частности, CalDAV/Yandex occurrence нельзя удалить как отдельный `.ics` resource: adapter объявляет только series scope.
 

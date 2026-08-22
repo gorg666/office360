@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CalendarSyncService } from "./calendarSyncService";
+import { googleCalendarAccess, serializeCalendarAccess } from "./domain";
 
 const calendar = {
   id: "cal-1", account_id: "acc-1", provider: "caldav", remote_id: "remote-cal",
@@ -23,6 +24,7 @@ function dependencies() {
       getCalendarProvider: vi.fn().mockResolvedValue(provider),
       getCalendarsForAccount: vi.fn().mockResolvedValue([calendar]),
       upsertCalendar: vi.fn().mockResolvedValue("cal-1"),
+      markMissingProviderCalendarsRemoved: vi.fn().mockResolvedValue(undefined),
       getCalendarEventsInRangeMulti: vi.fn().mockResolvedValue([]),
       getCalendarRangeCoverage: vi.fn().mockResolvedValue({ state: "never-synced", lastSuccessfulSync: null }),
       reconcileCalendarEventsRange: vi.fn().mockResolvedValue(undefined),
@@ -47,6 +49,22 @@ describe("CalendarSyncService", () => {
     const result = await new CalendarSyncService(deps as never).loadRange(range);
     expect(result).toMatchObject({ status: "fresh", coverage: "complete", events: [] });
     expect(deps.reconcileCalendarEventsRange).toHaveBeenCalledWith(expect.objectContaining({ events: [] }));
+    expect(deps.markMissingProviderCalendarsRemoved).toHaveBeenCalledWith("acc-1", "caldav", []);
+  });
+
+  it("does not fetch or cache event details from a free-busy-only calendar", async () => {
+    const { deps, provider } = dependencies();
+    deps.getCalendarsForAccount.mockResolvedValue([{
+      ...calendar,
+      access_json: serializeCalendarAccess(googleCalendarAccess("freeBusyReader")),
+    }]);
+    deps.getCalendarRangeCoverage.mockResolvedValue({ state: "complete", lastSuccessfulSync: 300 });
+
+    const result = await new CalendarSyncService(deps as never).loadRange(range);
+
+    expect(result.status).toBe("fresh");
+    expect(provider.fetchEvents).not.toHaveBeenCalled();
+    expect(deps.reconcileCalendarEventsRange).not.toHaveBeenCalled();
   });
 
   it("keeps missing cached events on a partial parser response", async () => {

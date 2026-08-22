@@ -4,7 +4,7 @@ import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { calendarMutationService } from "@/services/calendar/calendarMutationService";
 import { useAccountStore } from "@/stores/accountStore";
 import { availability } from "@/services/calendar/scheduling/testFixtures";
-import { participantRefFromEmail, serializeCalendarParticipants, calendarOrganizerFromInput, dedupeCalendarAttendees } from "@/services/calendar/domain";
+import { participantRefFromEmail, serializeCalendarParticipants, serializeCalendarAccess, googleCalendarAccess, calendarOrganizerFromInput, dedupeCalendarAttendees } from "@/services/calendar/domain";
 import type { CandidateSlot, GroupSchedulingResult } from "@/services/calendar/scheduling";
 import { EventDetailModal } from "./EventDetailModal";
 
@@ -23,6 +23,8 @@ const calendar = {
   id: "cal-1", account_id: "account-1", provider: "caldav", remote_id: "/cal/",
   display_name: "Рабочий", color: "#4285f4", is_primary: 1, is_visible: 1,
   sync_token: null, ctag: null, created_at: 1, updated_at: 1,
+  access_json: serializeCalendarAccess(googleCalendarAccess("owner")), access_observed_at: 1,
+  provider_presence: "present" as const, provider_seen_at: 1,
 };
 
 const fullCapabilities = {
@@ -329,5 +331,27 @@ describe("EventDetailModal participant envelope still renders with recurrence he
     />);
     expect(await screen.findByText("Владелец")).toBeInTheDocument();
     expect(screen.getByText("Обязательный")).toBeInTheDocument();
+  });
+});
+
+describe("EventDetailModal calendar access privacy", () => {
+  it("renders only busy geometry for a free-busy-only calendar", async () => {
+    const busyCalendar = {
+      ...calendar,
+      access_json: serializeCalendarAccess(googleCalendarAccess("freeBusyReader")),
+    };
+    render(<EventDetailModal
+      event={event({ summary: "Secret title", description: "Secret body", location: "Secret room" })}
+      calendars={[busyCalendar]}
+      accountId="account-1"
+      onClose={vi.fn()}
+      onUpdated={vi.fn()}
+    />);
+
+    expect(await screen.findByRole("dialog", { name: "Занято" })).toBeInTheDocument();
+    expect(screen.queryByText("Secret title")).not.toBeInTheDocument();
+    expect(screen.queryByText("Secret body")).not.toBeInTheDocument();
+    expect(screen.queryByText("Secret room")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Изменить" })).not.toBeInTheDocument();
   });
 });
