@@ -18,6 +18,7 @@ import {
   hitTestCalendarDate,
   type DateGridDraft,
 } from "./dateGrid";
+import { allDayClickDraft, canCreateCalendarEvent, formatCreateAriaLabel, type GridCreateDraft } from "./createSelection";
 
 interface MonthViewProps {
   currentDate: Date;
@@ -27,6 +28,7 @@ interface MonthViewProps {
   pendingEventIds?: ReadonlySet<string>;
   visualOverrides?: Readonly<Record<string, TimedVisualOverride>>;
   onDateCommit?: (event: DbCalendarEvent, draft: DateGridDraft, anchor: { x: number; y: number }) => void;
+  onCreateDraft?: (draft: GridCreateDraft) => void;
 }
 
 const DAY_NAMES = {
@@ -51,6 +53,7 @@ export function MonthView({
   pendingEventIds,
   visualOverrides,
   onDateCommit,
+  onCreateDraft,
 }: MonthViewProps) {
   const locale = useUIStore((state) => state.locale);
   const year = currentDate.getFullYear();
@@ -143,6 +146,15 @@ export function MonthView({
   const preview = previewDraft ? applyDateGridDraft(gesture!.event, previewDraft) : null;
   const previewText = preview?.ok ? dateGridPreviewLabel(preview.time, locale) : null;
   const previewDate = gesture?.dropDate ?? null;
+  const canCreate = Boolean(onCreateDraft) && canCreateCalendarEvent(capabilities);
+
+  function handleEmptyCellClick(date: CalendarDate, mouseEvent: React.MouseEvent<HTMLElement>) {
+    if (!canCreate || !onCreateDraft) return;
+    if (!(mouseEvent.target instanceof Element)) return;
+    if (mouseEvent.target.closest("[data-testid='month-overflow']")) return;
+    if (mouseEvent.target.closest("button") && !mouseEvent.target.closest("[data-testid='month-create-day']")) return;
+    onCreateDraft(allDayClickDraft(date));
+  }
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden" data-testid="month-view">
@@ -167,13 +179,31 @@ export function MonthView({
               data-testid={`month-cell-${cell.key}`}
               className={`border-b border-r border-border-secondary p-1 min-h-[80px] ${
                 cell.inMonth ? "" : "bg-bg-tertiary/30"
-              } ${isTarget ? "bg-accent/10" : ""}`}
+              } ${isTarget ? "bg-accent/10" : ""} ${canCreate ? "cursor-cell" : ""}`}
+              onClick={(mouseEvent) => handleEmptyCellClick(cell.key, mouseEvent)}
             >
-              <div className={`text-xs font-medium mb-0.5 w-6 h-6 flex items-center justify-center rounded-full ${
-                isToday ? "bg-accent text-white" : cell.inMonth ? "text-text-secondary" : "text-text-tertiary"
-              }`}>
-                {cell.date.getDate()}
-              </div>
+              {canCreate ? (
+                <button
+                  type="button"
+                  data-testid="month-create-day"
+                  aria-label={formatCreateAriaLabel(allDayClickDraft(cell.key), locale)}
+                  className={`text-xs font-medium mb-0.5 w-6 h-6 flex items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${
+                    isToday ? "bg-accent text-white" : cell.inMonth ? "text-text-secondary" : "text-text-tertiary"
+                  }`}
+                  onClick={(mouseEvent) => {
+                    mouseEvent.stopPropagation();
+                    onCreateDraft?.(allDayClickDraft(cell.key));
+                  }}
+                >
+                  {cell.date.getDate()}
+                </button>
+              ) : (
+                <div className={`text-xs font-medium mb-0.5 w-6 h-6 flex items-center justify-center rounded-full ${
+                  isToday ? "bg-accent text-white" : cell.inMonth ? "text-text-secondary" : "text-text-tertiary"
+                }`}>
+                  {cell.date.getDate()}
+                </div>
+              )}
               <div className="space-y-0.5">
                 {dayEvents.slice(0, 3).map((event) => {
                   const interactive = Boolean(onDateCommit)
@@ -197,6 +227,7 @@ export function MonthView({
                       onPointerUp={end}
                       onPointerCancel={cancel}
                       onClick={(mouseEvent) => {
+                        mouseEvent.stopPropagation();
                         if (suppressClickRef.current) {
                           suppressClickRef.current = false;
                           return;
@@ -207,9 +238,14 @@ export function MonthView({
                   );
                 })}
                 {dayEvents.length > 3 && (
-                  <div className="text-[0.625rem] text-text-tertiary pl-1">
+                  <button
+                    type="button"
+                    data-testid="month-overflow"
+                    className="text-[0.625rem] text-text-tertiary pl-1"
+                    onClick={(mouseEvent) => mouseEvent.stopPropagation()}
+                  >
                     +{dayEvents.length - 3} {locale === "ru" ? "ещё" : "more"}
-                  </div>
+                  </button>
                 )}
                 {isTarget ? (
                   <div

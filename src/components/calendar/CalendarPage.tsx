@@ -34,6 +34,7 @@ import {
   overrideFromDateGrid,
   type DateGridDraft,
 } from "./dateGrid";
+import { toEventCreateInput, type GridCreateDraft } from "./createSelection";
 import { Button } from "@/components/ui/Button";
 import type { RecurrenceWriteScope } from "@/services/calendar/domain";
 
@@ -258,6 +259,8 @@ export function CalendarPage() {
         startTime: eventData.startTime,
         endTime: eventData.endTime,
         attendees: eventData.attendees.map((email) => ({ email })),
+        isAllDay: eventData.allDay,
+        time: eventData.time,
       };
 
       const result = await calendarMutationService.create(activeAccountId, calendarRemoteId, input);
@@ -273,6 +276,21 @@ export function CalendarPage() {
       throw new Error(safeMessage);
     }
   }, [activeAccountId, calendars, loadEvents]);
+
+  const displayTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  const handleGridCreate = useCallback((draft: GridCreateDraft) => {
+    if (providerCapabilities?.events.create !== "remote") return;
+    const values = toEventCreateInput(draft, displayTimeZone);
+    setCreateInitialValues({
+      startTime: values.startTime,
+      endTime: values.endTime,
+      allDay: values.allDay,
+      time: values.time,
+      attendees: values.attendees,
+    });
+    setShowCreate(true);
+  }, [displayTimeZone, providerCapabilities]);
 
   const handleEventClick = useCallback((event: DbCalendarEvent, anchor: { x: number; y: number }) => {
     if (timedInFlightRef.current.has(event.id)) return;
@@ -627,6 +645,7 @@ export function CalendarPage() {
               pendingEventIds={pendingEventIds}
               visualOverrides={visualOverrides}
               onDateCommit={handleDateCommit}
+              onCreateDraft={handleGridCreate}
             />
           )}
           {view === "week" && (
@@ -639,6 +658,7 @@ export function CalendarPage() {
               visualOverrides={visualOverrides}
               onTimedCommit={handleTimedCommit}
               onDateCommit={handleDateCommit}
+              onCreateDraft={handleGridCreate}
             />
           )}
           {view === "day" && (
@@ -651,6 +671,7 @@ export function CalendarPage() {
               visualOverrides={visualOverrides}
               onTimedCommit={handleTimedCommit}
               onDateCommit={handleDateCommit}
+              onCreateDraft={handleGridCreate}
             />
           )}
         </div>
@@ -663,6 +684,7 @@ export function CalendarPage() {
           accountId={activeAccountId}
           selfEmail={activeAccount?.email ?? null}
           selfDisplayName={activeAccount?.displayName ?? null}
+          timeZone={displayTimeZone}
           onClose={() => { setShowCreate(false); setCreateInitialValues(undefined); }}
           onCreate={handleCreateEvent}
         />

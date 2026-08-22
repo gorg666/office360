@@ -97,5 +97,5 @@ Month applies `visualOverrides` before `eventsByDay`, multi-day spans, and overf
 2. Month span delta is relative to the grabbed cell, not always the series start day.
 3. No keyboard drag/resize handles; Event Edit is the accessibility equivalent for move and resize.
 4. Month auto-scroll is not implemented; Week edge auto-scroll is not implemented.
-5. Create-by-empty-slot selection remains CAL-117.
+5. Create-by-empty-slot selection shipped under CAL-117 (`CALENDAR_CREATE_BY_SELECTION.md`). All-day create is click-only; multi-day all-day drag-selection is not implemented.
 6. Live Tauri / cloud writes are not part of this ticket’s proof.

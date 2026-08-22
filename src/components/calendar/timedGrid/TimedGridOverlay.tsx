@@ -1,9 +1,11 @@
 import { useMemo, useRef, useState } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
-import type { CalendarProviderCapabilities } from "@/services/calendar/domain";
-import { MINUTES_PER_DAY } from "./constants";
+import type { CalendarDate, CalendarProviderCapabilities } from "@/services/calendar/domain";
+import { calendarDateFromLocalDate } from "@/services/calendar/domain";
+import { MINUTES_PER_DAY, SNAP_MINUTES } from "./constants";
 import { canDragResizeTimedEvent } from "./canDragResize";
 import {
+  clampMinutes,
   eventAxisMinutes,
   hitTestDayIndex,
   minutesToY,
@@ -26,8 +28,16 @@ import {
 } from "./timedEventMutation";
 import { formatEventAriaLabel } from "../dateGrid/preview";
 import { hitTestAllDayDrop } from "../dateGrid/hitTest";
-import type { CalendarDate } from "@/services/calendar/domain";
 import type { DateGridDraft } from "../dateGrid/dateShift";
+import { DEFAULT_TIMED_DURATION_MINUTES } from "../dateGrid/constants";
+import {
+  canCreateCalendarEvent,
+  formatCreateAriaLabel,
+  formatTimedRangeLabel,
+  timedClickDraft,
+  timedDragDraft,
+  type GridCreateDraft,
+} from "../createSelection";
 
 export interface TimedVisualOverride {
   start_time: number;
@@ -49,6 +59,7 @@ interface TimedGridOverlayProps {
   onGestureCommit: (event: DbCalendarEvent, draft: TimedDraft, anchor: { x: number; y: number }) => void;
   onConvertToAllDay?: (event: DbCalendarEvent, draft: DateGridDraft, anchor: { x: number; y: number }) => void;
   onConvertPreview?: (date: CalendarDate | null) => void;
+  onCreateDraft?: (draft: GridCreateDraft) => void;
 }
 
 interface GestureState {
@@ -66,6 +77,19 @@ interface GestureState {
   convertDate: CalendarDate | null;
 }
 
+interface CreateGesture {
+  originX: number;
+  originY: number;
+  originDayIndex: number;
+  originMinutes: number;
+  currentMinutes: number;
+  dragging: boolean;
+}
+
+function isExistingTimedEventTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest("[data-testid^='timed-event-']"));
+}
+
 export function TimedGridOverlay({
   days,
   hourHeightPx,
@@ -78,11 +102,17 @@ export function TimedGridOverlay({
   onGestureCommit,
   onConvertToAllDay,
   onConvertPreview,
+  onCreateDraft,
 }: TimedGridOverlayProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<GestureState | null>(null);
+  const createRef = useRef<CreateGesture | null>(null);
   const suppressClickRef = useRef(false);
   const [gesture, setGesture] = useState<GestureState | null>(null);
+  const [createGesture, setCreateGesture] = useState<CreateGesture | null>(null);
+  const [focusDayIndex, setFocusDayIndex] = useState(0);
+  const [focusMinutes, setFocusMinutes] = useState(9 * 60);
+  const canCreate = Boolean(onCreateDraft) && canCreateCalendarEvent(capabilities);
 
   const dayStarts = useMemo(
     () => days.map((day) => {
@@ -166,6 +196,7 @@ export function TimedGridOverlay({
     pointerEvent: React.PointerEvent<HTMLElement>,
   ) {
     if (pointerEvent.button !== 0) return;
+    if (createRef.current) return;
     const point = resolvePoint(pointerEvent.clientX, pointerEvent.clientY);
     if (!point) return;
     const startWeek = (event.start_time - weekStartUnix) / 60;
@@ -241,6 +272,94 @@ export function TimedGridOverlay({
     onConvertPreview?.(null);
   }
 
+  function resolveCreatePoint(clientX: number, clientY: number, lockedDayIndex?: number) {
+    const rect = overlayRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const dayIndex = lockedDayIndex ?? hitTestDayIndex(clientX - rect.left, rect.width, days.length);
+    const minutesOnDay = clampMinutes(yToMinutes(clientY - rect.top, hourHeightPx), 0, MINUTES_PER_DAY);
+    return { dayIndex, minutesOnDay };
+  }
+
+  function beginCreate(pointerEvent: React.PointerEvent<HTMLElement>) {
+    if (!canCreate || pointerEvent.button !== 0) return;
+    if (gestureRef.current || createRef.current) return;
+    if (isExistingTimedEventTarget(pointerEvent.target)) return;
+    const point = resolveCreatePoint(pointerEvent.clientX, pointerEvent.clientY);
+    if (!point) return;
+    const next: CreateGesture = {
+      originX: pointerEvent.clientX,
+      originY: pointerEvent.clientY,
+      originDayIndex: point.dayIndex,
+      originMinutes: point.minutesOnDay,
+      currentMinutes: point.minutesOnDay,
+      dragging: false,
+    };
+    createRef.current = next;
+    setCreateGesture(next);
+  }
+
+  function trackCreate(pointerEvent: React.PointerEvent<HTMLElement>) {
+    const state = createRef.current;
+    if (!state) return;
+    const dx = pointerEvent.clientX - state.originX;
+    const dy = pointerEvent.clientY - state.originY;
+    if (!state.dragging && !pointerExceedsDragThreshold(dx, dy)) return;
+    const point = resolveCreatePoint(pointerEvent.clientX, pointerEvent.clientY, state.originDayIndex);
+    if (!point) return;
+    const next = { ...state, dragging: true, currentMinutes: point.minutesOnDay };
+    createRef.current = next;
+    setCreateGesture(next);
+    if (!state.dragging) overlayRef.current?.setPointerCapture(pointerEvent.pointerId);
+  }
+
+  function endCreate() {
+    const state = createRef.current;
+    createRef.current = null;
+    setCreateGesture(null);
+    if (!state || !onCreateDraft) return;
+    const date = calendarDateFromLocalDate(days[state.originDayIndex] ?? days[0]!);
+    onCreateDraft(
+      state.dragging
+        ? timedDragDraft(date, state.originMinutes, state.currentMinutes)
+        : timedClickDraft(date, state.originMinutes),
+    );
+  }
+
+  function cancelCreate() {
+    createRef.current = null;
+    setCreateGesture(null);
+  }
+
+  function handleCreateKey(keyboardEvent: React.KeyboardEvent<HTMLElement>) {
+    if (!canCreate || !onCreateDraft) return;
+    const lastDay = Math.max(0, days.length - 1);
+    if (keyboardEvent.key === "ArrowDown") {
+      keyboardEvent.preventDefault();
+      setFocusMinutes((current) => clampMinutes(current + SNAP_MINUTES, 0, MINUTES_PER_DAY - DEFAULT_TIMED_DURATION_MINUTES));
+      return;
+    }
+    if (keyboardEvent.key === "ArrowUp") {
+      keyboardEvent.preventDefault();
+      setFocusMinutes((current) => clampMinutes(current - SNAP_MINUTES, 0, MINUTES_PER_DAY - DEFAULT_TIMED_DURATION_MINUTES));
+      return;
+    }
+    if (keyboardEvent.key === "ArrowRight") {
+      keyboardEvent.preventDefault();
+      setFocusDayIndex((current) => Math.min(lastDay, current + 1));
+      return;
+    }
+    if (keyboardEvent.key === "ArrowLeft") {
+      keyboardEvent.preventDefault();
+      setFocusDayIndex((current) => Math.max(0, current - 1));
+      return;
+    }
+    if (keyboardEvent.key === "Enter" || keyboardEvent.key === " ") {
+      keyboardEvent.preventDefault();
+      const date = calendarDateFromLocalDate(days[focusDayIndex] ?? days[0]!);
+      onCreateDraft(timedClickDraft(date, focusMinutes));
+    }
+  }
+
   function handleClick(event: DbCalendarEvent, mouseEvent: React.MouseEvent<HTMLElement>) {
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
@@ -256,13 +375,28 @@ export function TimedGridOverlay({
     ? (locale === "ru" ? "Весь день" : "All day")
     : appliedPreview?.ok ? previewLabel(appliedPreview.time) : null;
   const previewSegments = preview && !converting ? weekRangeSegments(preview.previewStart, preview.previewEnd) : [];
+  const createDate = days[createGesture?.originDayIndex ?? focusDayIndex] ?? days[0];
+  const createPreviewDraft = createGesture?.dragging && createDate
+    ? timedDragDraft(calendarDateFromLocalDate(createDate), createGesture.originMinutes, createGesture.currentMinutes)
+    : null;
+  const keyboardDraft = canCreate && days[focusDayIndex]
+    ? timedClickDraft(calendarDateFromLocalDate(days[focusDayIndex]!), focusMinutes)
+    : null;
 
   return (
     <div
       ref={overlayRef}
       data-testid="timed-grid-overlay"
-      className="absolute inset-0 grid"
+      role={canCreate ? "grid" : undefined}
+      tabIndex={canCreate ? 0 : undefined}
+      aria-label={keyboardDraft ? formatCreateAriaLabel(keyboardDraft, locale) : undefined}
+      className={`absolute inset-0 grid ${canCreate ? "cursor-cell" : ""}`}
       style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))`, height }}
+      onPointerDown={beginCreate}
+      onPointerMove={trackCreate}
+      onPointerUp={endCreate}
+      onPointerCancel={cancelCreate}
+      onKeyDown={handleCreateKey}
     >
       {columns.map(({ dayStart, dayEvents, packById }, dayIndex) => (
         <div key={dayIndex} className="relative min-w-0" data-testid={`timed-day-column-${dayIndex}`}>
@@ -298,6 +432,7 @@ export function TimedGridOverlay({
                   aria-label={formatEventAriaLabel(event, locale)}
                   className={`absolute inset-0 truncate px-1 pt-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${interactive ? "cursor-grab" : "cursor-pointer"} ${live ? "cursor-grabbing" : ""}`}
                   onPointerDown={(pointerEvent) => {
+                    pointerEvent.stopPropagation();
                     if (!interactive) return;
                     beginGesture(event, "move", pointerEvent);
                   }}
@@ -362,6 +497,25 @@ export function TimedGridOverlay({
         >
           {preview.event.summary}
           {previewTimeText ? <span className="ml-1 opacity-80">{previewTimeText}</span> : null}
+        </div>
+      ) : null}
+      {createPreviewDraft && createPreviewDraft.kind === "timed" ? (
+        <div
+          data-testid="timed-create-preview"
+          className="pointer-events-none absolute z-20 rounded bg-accent/30 text-[0.625rem] text-accent ring-1 ring-accent"
+          style={{
+            left: `${((createGesture?.originDayIndex ?? 0) / days.length) * 100}%`,
+            width: `${100 / days.length}%`,
+            top: minutesToY(createPreviewDraft.startMinutes, hourHeightPx),
+            height: Math.max(
+              minutesToY(createPreviewDraft.endMinutes - createPreviewDraft.startMinutes, hourHeightPx),
+              16,
+            ),
+          }}
+        >
+          <span className="block truncate px-1 pt-1">
+            {formatTimedRangeLabel(createPreviewDraft.startMinutes, createPreviewDraft.endMinutes)}
+          </span>
         </div>
       ) : null}
     </div>

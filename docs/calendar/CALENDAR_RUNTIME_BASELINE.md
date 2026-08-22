@@ -364,3 +364,25 @@ Graphify incremental index обновлён после feature diff: 6,274 nodes
 Graphify incremental index обновлён после feature diff: 6,367 nodes / 16,244 edges / 389 communities. Date-grid / Month / AllDayLane surface: 77 релевантных nodes. Integrity audit на `graph.json`: 0 missing endpoints, 0 dangling endpoints, 0 self-loops, 0 duplicate edges. `graphify-out/` gitignored. Community labels stale vs 389 communities (LLM `graphify label` not required for this ticket).
 
 Автоматические проверки CAL-114: TypeScript `npx tsc --noEmit` PASS; targeted Month/all-day/conversion/a11y — 8 files PASS; CAL-113/111/112 + sync regression — 12 files / 86 tests PASS; provider mutation regression — 4 files / 77 tests PASS; full Vitest — 236 files / 2326 tests PASS; `npm run test:calendar-tz` — 149/149 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,035.74 kB raw / 606.16 kB gzip); `cargo check` PASS с двумя прежними unused-variable warnings в `src/lib.rs:360`. Rust не менялся.
+
+### CAL-117 create-by-grid-selection validation
+
+Дата: 2026-08-23 (Asia/Bangkok). Миграция не создавалась и не запускалась; cloud events, RSVP и invitations не изменялись. Live Tauri-сессии на момент закрытия тикета не было; реальный Yandex write не выполнялся.
+
+| Live smoke | Status | Observation |
+|---|---|---|
+| Day / Week click-to-create | AUTOMATED PASS | Overlay click snaps to 15 min and opens 60-minute draft via `EventCreateModal` |
+| Day / Week drag-to-create | AUTOMATED PASS | Preview `timed-create-preview`; reverse drag; min duration 15 min; Week locked to origin column |
+| Month empty-cell create | AUTOMATED PASS | All-day draft on `data-calendar-date`, including spillover cells |
+| All-day row create | AUTOMATED PASS | Click-only single-day all-day draft; multi-day all-day selection not in CAL-117 |
+| Existing event click / drag / resize | AUTOMATED PASS | CAL-113/114 regression suites unchanged |
+| Read-only | AUTOMATED PASS | `events.create !== remote`: no modal |
+| Cancel | AUTOMATED PASS | Modal close does not call `calendarMutationService.create` |
+| Keyboard | AUTOMATED PASS | Overlay slot + Month day-number + toolbar; no keyboard drag-selection |
+| Cloud mutations | NONE | Grid create не вызывался на реальном Yandex event |
+
+Канон: `docs/calendar/CALENDAR_CREATE_BY_SELECTION.md`.
+
+Graphify incremental index обновлён после feature diff: 6,414 nodes / 16,423 edges / 397 communities. Integrity audit (`graphify diagnose multigraph`): 0 missing endpoints, 0 dangling endpoints, 0 self-loops, 0 duplicate edges. `graphify-out/` gitignored. Community labels stale vs 397 communities (LLM `graphify label` not required for this ticket).
+
+Автоматические проверки CAL-117: TypeScript `npx tsc --noEmit` PASS; targeted create-selection — 6 files / 54 tests PASS; CAL-113/114/recurrence/provider/sync regression — 18 files / 202 tests PASS; full Vitest — 238 files / 2357 tests PASS; `npm run test:calendar-tz` — 162/162 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,035.74 kB raw / 606.16 kB gzip; CalendarPage chunk 117.73 kB / 34.68 kB gzip); `cargo check` PASS с двумя прежними unused-variable warnings в `src/lib.rs:360`. Rust не менялся.

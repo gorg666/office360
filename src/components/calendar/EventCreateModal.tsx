@@ -3,8 +3,10 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
 import type { DbCalendar } from "@/services/db/calendars";
+import type { CalendarEventTime } from "@/services/calendar/domain";
 import { SchedulingAssistant, type PlanMeetingFn } from "./scheduling/SchedulingAssistant";
 import { buildEditorSchedulingParticipants } from "./scheduling/schedulingView";
+import { eventTimeFromFormFields } from "./createSelection";
 
 interface EventCreateModalProps {
   calendars?: DbCalendar[];
@@ -27,6 +29,8 @@ export interface EventCreateInput {
   endTime: string;
   attendees: string[];
   calendarId?: string;
+  allDay?: boolean;
+  time?: CalendarEventTime;
 }
 
 export function EventCreateModal({
@@ -47,6 +51,7 @@ export function EventCreateModal({
   const [startTime, setStartTime] = useState(initialValues?.startTime ?? getDefaultStart());
   const [endTime, setEndTime] = useState(initialValues?.endTime ?? getDefaultEnd());
   const [attendees, setAttendees] = useState((initialValues?.attendees ?? []).join(", "));
+  const [allDay, setAllDay] = useState(Boolean(initialValues?.allDay));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [calendarId, setCalendarId] = useState<string>(
@@ -65,14 +70,11 @@ export function EventCreateModal({
     e.preventDefault();
     if (!summary.trim()) return;
 
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
-      setError("Проверьте дату и время события.");
-      return;
-    }
-    if (end <= start) {
-      setError("Время окончания должно быть позже времени начала.");
+    const time = eventTimeFromFormFields({ allDay, startTime, endTime, timeZone });
+    if (!time) {
+      setError(allDay
+        ? "Проверьте даты события."
+        : "Время окончания должно быть позже времени начала.");
       return;
     }
 
@@ -87,13 +89,15 @@ export function EventCreateModal({
         endTime,
         attendees: parseAttendees(attendees),
         calendarId: calendarId || undefined,
+        allDay,
+        time,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось создать событие.");
     } finally {
       setSubmitting(false);
     }
-  }, [summary, description, location, startTime, endTime, attendees, calendarId, onCreate]);
+  }, [summary, description, location, startTime, endTime, attendees, calendarId, allDay, timeZone, onCreate]);
 
   return (
     <Modal isOpen={true} onClose={onClose} title="Create Event" width="w-full max-w-5xl" panelClassName="max-h-[90vh] overflow-hidden">
@@ -126,16 +130,36 @@ export function EventCreateModal({
           </div>
         )}
 
+        <label className="flex items-center gap-2 text-sm text-text-secondary">
+          <input
+            type="checkbox"
+            data-testid="event-all-day"
+            checked={allDay}
+            onChange={(event) => {
+              const next = event.target.checked;
+              setAllDay(next);
+              if (next) {
+                setStartTime(datePart(startTime));
+                setEndTime(datePart(endTime));
+              } else {
+                setStartTime(toDatetimeLocal(startTime, "09:00"));
+                setEndTime(toDatetimeLocal(endTime, "10:00"));
+              }
+            }}
+          />
+          All day
+        </label>
+
         <div className="grid grid-cols-2 gap-3">
           <TextField
             label="Start"
-            type="datetime-local"
+            type={allDay ? "date" : "datetime-local"}
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
           />
           <TextField
             label="End"
-            type="datetime-local"
+            type={allDay ? "date" : "datetime-local"}
             value={endTime}
             onChange={(e) => setEndTime(e.target.value)}
           />
@@ -157,19 +181,21 @@ export function EventCreateModal({
           placeholder="name@example.com, colleague@example.com"
         />
 
-        <SchedulingAssistant
-          accountId={accountId}
-          timeZone={timeZone}
-          startTime={startTime}
-          endTime={endTime}
-          participants={schedulingParticipants}
-          planMeeting={planMeeting}
-          debounceMs={debounceMs}
-          onSelectRange={(nextStart, nextEnd) => {
-            setStartTime(nextStart);
-            setEndTime(nextEnd);
-          }}
-        />
+        {!allDay ? (
+          <SchedulingAssistant
+            accountId={accountId}
+            timeZone={timeZone}
+            startTime={startTime}
+            endTime={endTime}
+            participants={schedulingParticipants}
+            planMeeting={planMeeting}
+            debounceMs={debounceMs}
+            onSelectRange={(nextStart, nextEnd) => {
+              setStartTime(nextStart);
+              setEndTime(nextEnd);
+            }}
+          />
+        ) : null}
 
         <div>
           <label className="text-xs text-text-secondary block mb-1">Description</label>
@@ -232,4 +258,13 @@ function getDefaultEnd(): string {
 function toLocalISOString(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function datePart(value: string): string {
+  return value.slice(0, 10);
+}
+
+function toDatetimeLocal(value: string, fallbackTime: string): string {
+  if (value.includes("T")) return value;
+  return `${datePart(value)}T${fallbackTime}`;
 }

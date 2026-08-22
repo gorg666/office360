@@ -6,6 +6,7 @@ import { useUIStore } from "@/stores/uiStore";
 import { eventOccursOnDate } from "./eventTimeProjection";
 import { DAY_HOUR_HEIGHT_PX, TimedGridOverlay, type TimedDraft, type TimedVisualOverride } from "./timedGrid";
 import { AllDayLane, type DateGridDraft } from "./dateGrid";
+import type { GridCreateDraft } from "./createSelection";
 
 interface DayViewProps {
   currentDate: Date;
@@ -16,6 +17,7 @@ interface DayViewProps {
   visualOverrides?: Readonly<Record<string, TimedVisualOverride>>;
   onTimedCommit?: (event: DbCalendarEvent, draft: TimedDraft, anchor: { x: number; y: number }) => void;
   onDateCommit?: (event: DbCalendarEvent, draft: DateGridDraft, anchor: { x: number; y: number }) => void;
+  onCreateDraft?: (draft: GridCreateDraft) => void;
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -29,6 +31,7 @@ export function DayView({
   visualOverrides,
   onTimedCommit,
   onDateCommit,
+  onCreateDraft,
 }: DayViewProps) {
   const locale = useUIStore((state) => state.locale);
   const intlLocale = locale === "ru" ? "ru-RU" : "en-US";
@@ -77,6 +80,7 @@ export function DayView({
           onDateCommit={onDateCommit}
           eventsByDay={allDayByDay}
           conversionHighlight={conversionHighlight}
+          onCreateDraft={onCreateDraft}
         />
       ) : (allDayByDay.get(calendarDateFromLocalDate(dayStart)) ?? []).length > 0 ? (
         <div className="px-6 py-2 border-b border-border-secondary space-y-1">
@@ -118,6 +122,7 @@ export function DayView({
               onGestureCommit={onTimedCommit ?? (() => {})}
               onConvertToAllDay={onDateCommit}
               onConvertPreview={setConversionHighlight}
+              onCreateDraft={onCreateDraft}
             />
           </div>
         </div>

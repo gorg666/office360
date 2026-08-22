@@ -6,6 +6,7 @@ import { useUIStore } from "@/stores/uiStore";
 import { eventOccursOnDate } from "./eventTimeProjection";
 import { TimedGridOverlay, WEEK_HOUR_HEIGHT_PX, type TimedDraft, type TimedVisualOverride } from "./timedGrid";
 import { AllDayLane, type DateGridDraft } from "./dateGrid";
+import type { GridCreateDraft } from "./createSelection";
 
 interface WeekViewProps {
   currentDate: Date;
@@ -16,6 +17,7 @@ interface WeekViewProps {
   visualOverrides?: Readonly<Record<string, TimedVisualOverride>>;
   onTimedCommit?: (event: DbCalendarEvent, draft: TimedDraft, anchor: { x: number; y: number }) => void;
   onDateCommit?: (event: DbCalendarEvent, draft: DateGridDraft, anchor: { x: number; y: number }) => void;
+  onCreateDraft?: (draft: GridCreateDraft) => void;
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -33,6 +35,7 @@ export function WeekView({
   visualOverrides,
   onTimedCommit,
   onDateCommit,
+  onCreateDraft,
 }: WeekViewProps) {
   const locale = useUIStore((state) => state.locale);
   const weekStart = new Date(currentDate);
@@ -102,6 +105,7 @@ export function WeekView({
           onDateCommit={onDateCommit}
           eventsByDay={allDayByDay}
           conversionHighlight={conversionHighlight}
+          onCreateDraft={onCreateDraft}
         />
       ) : (
         <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
@@ -157,6 +161,7 @@ export function WeekView({
               onGestureCommit={onTimedCommit ?? (() => {})}
               onConvertToAllDay={onDateCommit}
               onConvertPreview={setConversionHighlight}
+              onCreateDraft={onCreateDraft}
             />
           </div>
         </div>

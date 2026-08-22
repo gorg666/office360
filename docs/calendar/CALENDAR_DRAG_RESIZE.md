@@ -14,7 +14,7 @@ Timed events in Day and Week are positioned by `TimedGridOverlay` on the existin
 | Click / tiny move | Opens event details. Does not mutate. |
 | Recurring occurrence drop/resize | Existing CAL-112 scope dialog (`Только это событие` / `Всю серию`). No write until Save. Cancel restores the original position. |
 
-Month drag/drop, all-day row drag, timed ↔ all-day conversion, and keyboard Event Edit shipped under **CAL-114** (`CALENDAR_MONTH_ALLDAY_INTERACTIONS.md`). Create-by-empty-slot selection and auto-scroll remain CAL-117.
+Month drag/drop, all-day row drag, timed ↔ all-day conversion, and keyboard Event Edit shipped under **CAL-114** (`CALENDAR_MONTH_ALLDAY_INTERACTIONS.md`). Create-by-empty-slot selection shipped under **CAL-117** (`CALENDAR_CREATE_BY_SELECTION.md`). Edge auto-scroll is still not implemented.
 
 ## Snap
 
@@ -92,8 +92,8 @@ Event blocks remain keyboard-activatable buttons (click/details). Resize handles
 
 ## Known limitations
 
-1. Create-by-empty-slot selection is not implemented (CAL-117).
-2. Edge auto-scroll is not implemented (CAL-117; Month auto-scroll is not required).
+1. Create-by-empty-slot selection shipped under CAL-117 (`CALENDAR_CREATE_BY_SELECTION.md`).
+2. Edge auto-scroll is not implemented (Month auto-scroll is not required).
 3. No keyboard resize handle; Event Edit is the accessibility equivalent (CAL-114).
 4. Touch is not a CAL-113/114 acceptance target.
 5. Live Tauri / cloud writes are not part of this ticket’s proof; automated mutation tests are the write path evidence.

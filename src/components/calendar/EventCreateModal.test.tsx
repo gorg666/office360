@@ -119,4 +119,50 @@ describe("EventCreateModal scheduling assistant", () => {
       "ivan@example.test",
     ]);
   });
+
+  it("hydrates an all-day grid draft and does not save on Cancel", () => {
+    const onCreate = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <EventCreateModal
+        timeZone="UTC"
+        initialValues={{
+          startTime: "2026-08-27",
+          endTime: "2026-08-27",
+          allDay: true,
+          time: { kind: "all-day", startDate: "2026-08-27", endDateExclusive: "2026-08-28" },
+        }}
+        onClose={onClose}
+        onCreate={onCreate}
+      />,
+    );
+    expect((screen.getByTestId("event-all-day") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("Start") as HTMLInputElement).value).toBe("2026-08-27");
+    expect(screen.queryByTestId("scheduling-empty")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+
+  it("rebuilds timed-zoned time from form fields on Create", async () => {
+    const onCreate = vi.fn();
+    render(
+      <EventCreateModal
+        timeZone="Europe/Moscow"
+        initialValues={{ startTime: "2026-08-27T10:30", endTime: "2026-08-27T11:30" }}
+        onClose={vi.fn()}
+        onCreate={onCreate}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Grid draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+    expect(onCreate.mock.calls[0]![0]).toMatchObject({
+      summary: "Grid draft",
+      allDay: false,
+      startTime: "2026-08-27T10:30",
+      endTime: "2026-08-27T11:30",
+      time: { kind: "timed-zoned" },
+    });
+  });
 });

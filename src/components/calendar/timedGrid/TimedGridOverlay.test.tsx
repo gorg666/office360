@@ -270,3 +270,211 @@ describe("TimedGridOverlay", () => {
     expect(onConvert).not.toHaveBeenCalled();
   });
 });
+
+function overlayY(minutes: number, hourHeightPx = WEEK_HOUR_HEIGHT_PX): number {
+  return (minutes / 60) * hourHeightPx;
+}
+
+describe("TimedGridOverlay create selection", () => {
+  const day = new Date(2027, 0, 15);
+  const nextDay = new Date(2027, 0, 16);
+
+  beforeEach(() => {
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    HTMLElement.prototype.releasePointerCapture = vi.fn();
+  });
+
+  it("opens a 10:30 click draft with the 60-minute default duration", () => {
+    const onCreate = vi.fn();
+    render(<TimedGridOverlay
+      days={[day]}
+      hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      events={[]}
+      capabilities={capabilities}
+      pendingEventIds={new Set()}
+      locale="ru"
+      onEventClick={vi.fn()}
+      onGestureCommit={vi.fn()}
+      onCreateDraft={onCreate}
+    />);
+    const overlay = mockOverlayRect(400);
+    fireEvent.pointerDown(overlay, { button: 0, pointerId: 1, clientX: 20, clientY: overlayY(10 * 60 + 30) });
+    fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 20, clientY: overlayY(10 * 60 + 30) });
+    expect(onCreate).toHaveBeenCalledTimes(1);
+    expect(onCreate.mock.calls[0]![0]).toEqual({
+      kind: "timed",
+      date: "2027-01-15",
+      startMinutes: 630,
+      endMinutes: 690,
+    });
+  });
+
+  it("previews and commits a 10:00–11:30 drag, including reverse", () => {
+    const onCreate = vi.fn();
+    render(<TimedGridOverlay
+      days={[day]}
+      hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      events={[]}
+      capabilities={capabilities}
+      pendingEventIds={new Set()}
+      locale="ru"
+      onEventClick={vi.fn()}
+      onGestureCommit={vi.fn()}
+      onCreateDraft={onCreate}
+    />);
+    const overlay = mockOverlayRect(400);
+    fireEvent.pointerDown(overlay, { button: 0, pointerId: 1, clientX: 20, clientY: overlayY(10 * 60) });
+    fireEvent.pointerMove(overlay, { pointerId: 1, clientX: 20, clientY: overlayY(11 * 60 + 30) });
+    expect(screen.getByTestId("timed-create-preview")).toHaveTextContent("10:00–11:30");
+    fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 20, clientY: overlayY(11 * 60 + 30) });
+    expect(onCreate.mock.calls[0]![0]).toMatchObject({ startMinutes: 600, endMinutes: 690 });
+
+    onCreate.mockClear();
+    fireEvent.pointerDown(overlay, { button: 0, pointerId: 1, clientX: 20, clientY: overlayY(11 * 60 + 30) });
+    fireEvent.pointerMove(overlay, { pointerId: 1, clientX: 20, clientY: overlayY(10 * 60) });
+    fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 20, clientY: overlayY(10 * 60) });
+    expect(onCreate.mock.calls[0]![0]).toMatchObject({ startMinutes: 600, endMinutes: 690 });
+  });
+
+  it("clamps a short drag to the 15-minute minimum instead of creating a zero-length event", () => {
+    const onCreate = vi.fn();
+    render(<TimedGridOverlay
+      days={[day]}
+      hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      events={[]}
+      capabilities={capabilities}
+      pendingEventIds={new Set()}
+      locale="ru"
+      onEventClick={vi.fn()}
+      onGestureCommit={vi.fn()}
+      onCreateDraft={onCreate}
+    />);
+    const overlay = mockOverlayRect(400);
+    fireEvent.pointerDown(overlay, { button: 0, pointerId: 1, clientX: 20, clientY: overlayY(10 * 60) });
+    fireEvent.pointerMove(overlay, { pointerId: 1, clientX: 20, clientY: overlayY(10 * 60) + 8 });
+    fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 20, clientY: overlayY(10 * 60) + 8 });
+    const draft = onCreate.mock.calls[0]![0] as { startMinutes: number; endMinutes: number };
+    expect(draft.endMinutes - draft.startMinutes).toBe(15);
+  });
+
+  it("keeps a Week drag inside the origin day column", () => {
+    const onCreate = vi.fn();
+    render(<TimedGridOverlay
+      days={[day, nextDay]}
+      hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      events={[]}
+      capabilities={capabilities}
+      pendingEventIds={new Set()}
+      locale="ru"
+      onEventClick={vi.fn()}
+      onGestureCommit={vi.fn()}
+      onCreateDraft={onCreate}
+    />);
+    const overlay = mockOverlayRect(400);
+    fireEvent.pointerDown(overlay, { button: 0, pointerId: 1, clientX: 20, clientY: overlayY(14 * 60) });
+    fireEvent.pointerMove(overlay, { pointerId: 1, clientX: 300, clientY: overlayY(15 * 60) });
+    fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 300, clientY: overlayY(15 * 60) });
+    expect(onCreate.mock.calls[0]![0]).toEqual({
+      kind: "timed",
+      date: "2027-01-15",
+      startMinutes: 14 * 60,
+      endMinutes: 15 * 60,
+    });
+  });
+
+  it("creates on the clicked Week day, not the host date", () => {
+    const onCreate = vi.fn();
+    render(<TimedGridOverlay
+      days={[day, nextDay]}
+      hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      events={[]}
+      capabilities={capabilities}
+      pendingEventIds={new Set()}
+      locale="ru"
+      onEventClick={vi.fn()}
+      onGestureCommit={vi.fn()}
+      onCreateDraft={onCreate}
+    />);
+    const overlay = mockOverlayRect(400);
+    fireEvent.pointerDown(overlay, { button: 0, pointerId: 1, clientX: 300, clientY: overlayY(14 * 60) });
+    fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 300, clientY: overlayY(14 * 60) });
+    expect(onCreate.mock.calls[0]![0]).toMatchObject({
+      kind: "timed",
+      date: "2027-01-16",
+      startMinutes: 14 * 60,
+      endMinutes: 15 * 60,
+    });
+  });
+
+  it("does not start create from an existing event click or drag", () => {
+    const onCreate = vi.fn();
+    const onEventClick = vi.fn();
+    const onCommit = vi.fn();
+    render(<TimedGridOverlay
+      days={[day]}
+      hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      events={[event()]}
+      capabilities={capabilities}
+      pendingEventIds={new Set()}
+      locale="ru"
+      onEventClick={onEventClick}
+      onGestureCommit={onCommit}
+      onCreateDraft={onCreate}
+    />);
+    mockOverlayRect(400);
+    const button = screen.getByRole("button", { name: /Standup/ });
+    fireEvent.pointerDown(button, { button: 0, pointerId: 1, clientX: 20, clientY: overlayY(10 * 60 + 30) });
+    fireEvent.pointerUp(button, { pointerId: 1, clientX: 20, clientY: overlayY(10 * 60 + 30) });
+    fireEvent.click(button);
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+
+    drag(button, { x: 20, y: overlayY(10 * 60 + 30) }, { x: 20, y: overlayY(12 * 60) });
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(onCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not create when the calendar cannot write events", () => {
+    const onCreate = vi.fn();
+    render(<TimedGridOverlay
+      days={[day]}
+      hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      events={[]}
+      capabilities={{ ...capabilities, events: { create: "unsupported", update: "remote", delete: "remote" } }}
+      pendingEventIds={new Set()}
+      locale="ru"
+      onEventClick={vi.fn()}
+      onGestureCommit={vi.fn()}
+      onCreateDraft={onCreate}
+    />);
+    const overlay = mockOverlayRect(400);
+    fireEvent.pointerDown(overlay, { button: 0, pointerId: 1, clientX: 20, clientY: overlayY(10 * 60) });
+    fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 20, clientY: overlayY(10 * 60) });
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+
+  it("opens a click draft from keyboard Enter on the focused slot", () => {
+    const onCreate = vi.fn();
+    render(<TimedGridOverlay
+      days={[day]}
+      hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      events={[]}
+      capabilities={capabilities}
+      pendingEventIds={new Set()}
+      locale="ru"
+      onEventClick={vi.fn()}
+      onGestureCommit={vi.fn()}
+      onCreateDraft={onCreate}
+    />);
+    const overlay = mockOverlayRect(400);
+    overlay.focus();
+    fireEvent.keyDown(overlay, { key: "Enter" });
+    expect(onCreate).toHaveBeenCalledTimes(1);
+    expect(onCreate.mock.calls[0]![0]).toMatchObject({
+      kind: "timed",
+      date: "2027-01-15",
+      startMinutes: 9 * 60,
+      endMinutes: 10 * 60,
+    });
+  });
+});

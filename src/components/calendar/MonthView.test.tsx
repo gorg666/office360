@@ -207,3 +207,72 @@ describe("MonthView date drag", () => {
     expect(button).not.toHaveAttribute("tabIndex", "-1");
   });
 });
+
+describe("MonthView create selection", () => {
+  const august = new Date(2026, 7, 1);
+
+  it("creates an all-day draft from an empty in-month cell", () => {
+    const onCreate = vi.fn();
+    render(<MonthView
+      currentDate={august}
+      events={[]}
+      capabilities={capabilities}
+      onEventClick={vi.fn()}
+      onCreateDraft={onCreate}
+    />);
+    fireEvent.click(screen.getByTestId("month-cell-2026-08-27"));
+    expect(onCreate).toHaveBeenCalledWith({
+      kind: "all-day",
+      startDate: "2026-08-27",
+      endDateExclusive: "2026-08-28",
+    });
+  });
+
+  it("uses the spillover cell date, not the visible month number", () => {
+    const onCreate = vi.fn();
+    render(<MonthView
+      currentDate={august}
+      events={[]}
+      capabilities={capabilities}
+      onEventClick={vi.fn()}
+      onCreateDraft={onCreate}
+    />);
+    fireEvent.click(screen.getByTestId("month-cell-2026-07-26"));
+    expect(onCreate.mock.calls[0]![0]).toMatchObject({ startDate: "2026-07-26" });
+  });
+
+  it("does not create from an event card or overflow control", () => {
+    const onCreate = vi.fn();
+    const onEventClick = vi.fn();
+    const crowded = Array.from({ length: 4 }, (_, index) => event({
+      id: `event-${index + 1}`,
+      summary: `Item ${index + 1}`,
+      start_time: localUnix(2026, 8, 24, 9 + index),
+      end_time: localUnix(2026, 8, 24, 10 + index),
+    }));
+    render(<MonthView
+      currentDate={august}
+      events={[event(), ...crowded]}
+      capabilities={capabilities}
+      onEventClick={onEventClick}
+      onCreateDraft={onCreate}
+    />);
+    fireEvent.click(screen.getByRole("button", { name: /Standup/ }));
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("month-overflow"));
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+
+  it("does not create when the calendar is read-only for create", () => {
+    const onCreate = vi.fn();
+    render(<MonthView
+      currentDate={august}
+      events={[]}
+      capabilities={{ ...capabilities, events: { create: "unsupported", update: "remote", delete: "remote" } }}
+      onEventClick={vi.fn()}
+      onCreateDraft={onCreate}
+    />);
+    fireEvent.click(screen.getByTestId("month-cell-2026-08-27"));
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+});

@@ -161,4 +161,45 @@ describe("AllDayLane", () => {
     fireEvent.pointerUp(button, { pointerId: 1, clientX: to.x, clientY: to.y });
     expect(onDateCommit).not.toHaveBeenCalled();
   });
+
+  it("creates a single-day all-day draft from an empty cell", () => {
+    const onCreate = vi.fn();
+    render(<AllDayLane
+      days={days}
+      capabilities={capabilities}
+      pendingEventIds={new Set()}
+      locale="ru"
+      hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      onEventClick={vi.fn()}
+      onDateCommit={vi.fn()}
+      eventsByDay={new Map()}
+      onCreateDraft={onCreate}
+    />);
+    fireEvent.click(screen.getByTestId("allday-drop-2026-08-19"));
+    expect(onCreate).toHaveBeenCalledWith({
+      kind: "all-day",
+      startDate: "2026-08-19",
+      endDateExclusive: "2026-08-20",
+    });
+  });
+
+  it("does not create from an existing all-day event click", () => {
+    const onCreate = vi.fn();
+    const onEventClick = vi.fn();
+    const event = allDayEvent();
+    render(<AllDayLane
+      days={days}
+      capabilities={capabilities}
+      pendingEventIds={new Set()}
+      locale="ru"
+      hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      onEventClick={onEventClick}
+      onDateCommit={vi.fn()}
+      eventsByDay={new Map([["2026-08-16", [event]]])}
+      onCreateDraft={onCreate}
+    />);
+    fireEvent.click(screen.getByTestId("allday-event-event-1"));
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+    expect(onCreate).not.toHaveBeenCalled();
+  });
 });

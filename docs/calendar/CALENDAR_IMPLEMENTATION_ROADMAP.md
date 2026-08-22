@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108, CAL-109, CAL-110, CAL-111, CAL-112, CAL-113 and CAL-114 (Month/all-day interactions) completed. This document is the source of truth for Calendar ticket numbering.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108, CAL-109, CAL-110, CAL-111, CAL-112, CAL-113, CAL-114 (Month/all-day interactions) and CAL-117 (create-by-selection) completed. This document is the source of truth for Calendar ticket numbering.
 
 **Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
 
@@ -347,22 +347,31 @@ Formerly outlined under CAL-114 before Month/all-day took that number. Not start
 ## CAL-117 — Create-by-selection and remaining drag polish
 
 
-**Цель:** закрыть gaps after CAL-113/114: create-by-empty-slot selection and optional auto-scroll. Month, all-day, timed ↔ all-day, and keyboard Event Edit shipped under **CAL-114**.
+**Цель:** закрыть gaps after CAL-113/114: create-by-empty-slot selection through the existing `EventCreateModal`. Optional auto-scroll remains out of scope.
 
-Not a second timed-grid or date-grid mutation implementation.
+Not a second timed-grid or date-grid mutation implementation. Not a second create modal.
 
-**Основные файлы/модули:** Month/Week/Day empty-slot selection, optional Week auto-scroll, layout engine.
+**Основные файлы/модули:** `createSelection/`, `TimedGridOverlay`, Month/Week/Day/AllDayLane empty-slot handlers, `EventCreateModal` all-day fields, `CalendarPage.handleGridCreate`.
 
-**Зависимости:** CAL-113, CAL-114, CAL-115, CAL-116.
+**Зависимости:** CAL-113, CAL-114, CAL-102.
+
+**Status:** PASS (2026-08-23). Canonical: `docs/calendar/CALENDAR_CREATE_BY_SELECTION.md`.
 
 **Definition of Done:**
 
-- create-by-empty-slot selection;
-- optional Week/Day edge auto-scroll (Month auto-scroll not required);
-- remaining keyboard announcements if Event Edit is insufficient for a later a11y pass;
-- pointer/touch/keyboard tests and Tauri smoke.
+- Day/Week click and drag create;
+- Month empty-cell all-day create (including spillover dates);
+- All-day row click create (multi-day all-day selection deferred);
+- snap / 60-minute click duration / 15-minute min drag;
+- existing event click/drag/resize unchanged;
+- read-only create disabled;
+- Cancel does not mutate;
+- keyboard equivalent (overlay slot + Month day number + toolbar);
+- TZ matrix includes `createSelection/draft.test.ts`.
 
-**Риски:** accidental mutation, touch behavior.
+**Remaining polish (not blocking CAL-117):** Week/Day edge auto-scroll; keyboard drag-selection; multi-day all-day create selection.
+
+**Риски:** accidental mutation, touch pan vs create-selection.
 
 
 ## CAL-118 — Full event editor: recurrence, reminders, privacy, timezone

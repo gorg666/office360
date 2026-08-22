@@ -9,6 +9,7 @@ import { canDragDateEvent } from "./canDragDateEvent";
 import { applyDateGridDraft, calendarDateDiffDays, type DateGridDraft } from "./dateShift";
 import { dateGridPreviewLabel, formatEventAriaLabel } from "./preview";
 import { hitTestAllDayDrop, hitTestTimedOverlay } from "./hitTest";
+import { allDayClickDraft, canCreateCalendarEvent, formatCreateAriaLabel, type GridCreateDraft } from "../createSelection";
 
 interface AllDayLaneProps {
   days: Date[];
@@ -20,6 +21,7 @@ interface AllDayLaneProps {
   onDateCommit: (event: DbCalendarEvent, draft: DateGridDraft, anchor: { x: number; y: number }) => void;
   eventsByDay: ReadonlyMap<string, DbCalendarEvent[]>;
   conversionHighlight?: CalendarDate | null;
+  onCreateDraft?: (draft: GridCreateDraft) => void;
 }
 
 interface AllDayGesture {
@@ -41,6 +43,7 @@ export function AllDayLane({
   onDateCommit,
   eventsByDay,
   conversionHighlight = null,
+  onCreateDraft,
 }: AllDayLaneProps) {
   const suppressClickRef = useRef(false);
   const gestureRef = useRef<AllDayGesture | null>(null);
@@ -115,6 +118,13 @@ export function AllDayLane({
   const previewShiftDate = gesture?.draft?.type === "shift" && gesture.draft.deltaDays !== 0 && preview?.ok && preview.time.kind === "all-day"
     ? preview.time.startDate
     : previewDate;
+  const canCreate = Boolean(onCreateDraft) && canCreateCalendarEvent(capabilities);
+
+  function handleEmptyCellClick(date: CalendarDate, mouseEvent: React.MouseEvent<HTMLElement>) {
+    if (!canCreate || !onCreateDraft) return;
+    if (mouseEvent.target instanceof Element && mouseEvent.target.closest("[data-testid^='allday-event-']")) return;
+    onCreateDraft(allDayClickDraft(date));
+  }
 
   return (
     <div
@@ -136,7 +146,8 @@ export function AllDayLane({
             data-calendar-date={date}
             data-allday-drop={date}
             data-testid={`allday-drop-${date}`}
-            className={`border-r border-border-secondary px-1 py-1 space-y-0.5 ${showGhost ? "bg-accent/10" : ""}`}
+            className={`border-r border-border-secondary px-1 py-1 space-y-0.5 ${showGhost ? "bg-accent/10" : ""} ${canCreate ? "cursor-cell" : ""}`}
+            onClick={(mouseEvent) => handleEmptyCellClick(date, mouseEvent)}
           >
             {allDay.map((event) => {
               const interactive = canDragDateEvent(event, capabilities) && !pendingEventIds.has(event.id);
@@ -162,6 +173,7 @@ export function AllDayLane({
                   onPointerUp={end}
                   onPointerCancel={cancel}
                   onClick={(mouseEvent) => {
+                    mouseEvent.stopPropagation();
                     if (suppressClickRef.current) {
                       suppressClickRef.current = false;
                       return;
@@ -187,6 +199,18 @@ export function AllDayLane({
                   )
                   : null}
               </div>
+            ) : null}
+            {canCreate ? (
+              <button
+                type="button"
+                data-testid={`allday-create-${date}`}
+                className="sr-only"
+                aria-label={formatCreateAriaLabel(allDayClickDraft(date), locale)}
+                onClick={(mouseEvent) => {
+                  mouseEvent.stopPropagation();
+                  onCreateDraft?.(allDayClickDraft(date));
+                }}
+              />
             ) : null}
           </div>
         );
