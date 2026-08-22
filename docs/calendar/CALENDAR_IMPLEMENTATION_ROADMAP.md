@@ -1,15 +1,18 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-103, CAL-104, CAL-105, the approved participant-domain CAL-106 and the approved Free/Busy-foundation CAL-107 completed.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107 and CAL-108 completed. This document is the source of truth for Calendar ticket numbering.
 
-**Numbering divergence.** Delivered ticket IDs no longer line up with the original section titles below: the delivered CAL-106 was the participant domain (not «Yandex/CalDAV production readiness») and the delivered CAL-107 is the Free/Busy foundation (not «Mail inbound calendar MIME ingestion»). Acceptance notes are attached to the delivered work; the unbuilt sections keep their original scope and need renumbering before they are started.
+**Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
 
 ## ID convention
 
+
 Existing QA history already uses `CAL-001` for the Yandex Calendar runtime failure. Чтобы не создать два разных `CAL-001`, новый implementation roadmap начинается с **CAL-101**. Historical bug `CAL-001` должен быть закрыт или перенесён в этот roadmap как acceptance dependency, а не переиспользован молча.
 
+
 ## Delivery principles
+
 
 - Branch only after dirty-worktree cleanup and baseline approval.
 - Domain/time/privacy contracts precede rich UI.
@@ -19,31 +22,28 @@ Existing QA history already uses `CAL-001` for the Yandex Calendar runtime failu
 - No ticket claims Yandex support without a live provider smoke.
 - Provider contracts, DB migrations and recurrence/timezone changes should not be developed in overlapping write branches.
 
+
 ## Dependency outline
 
 ```text
-CAL-101 Git/runtime gate
-  → CAL-102 domain + timezone contracts
-    ├─ CAL-103 iCalendar codec
-    └─ CAL-104 normalized DB + sync state
-      → CAL-105 provider capabilities/sync
-        ├─ CAL-106 Yandex/CalDAV runtime
-        ├─ CAL-107 Mail inbound
-        │   → CAL-108 outbound iTIP/RSVP
-        └─ CAL-109 event application service
-            → CAL-110 time-grid layout
-              → CAL-111 drag/resize
-            → CAL-112 editor/recurrence/reminders/privacy
-            → CAL-113 participant identity/picker
-              → CAL-114 FreeBusy service
-                → CAL-115 scheduling assistant
-        → CAL-116 shared calendars/permissions
-        → CAL-117 reminder delivery
-  → CAL-118 search/performance/a11y
-  → CAL-119 end-to-end parity release gate
+CAL-101 gate  ->  CAL-102 time/occurrence  ->  CAL-103 codec
+                                          ->  CAL-104 persistence/sync  ->  CAL-105 provider/write
+CAL-106 participant identity  ->  CAL-107 Free/Busy foundation  ->  CAL-108 scheduling engine
+                                                                ->  CAL-109 Scheduling Assistant UI
+                                                                ->  CAL-110 remote Free/Busy adapters
+                                                                ->  CAL-111 participant picker
+CAL-112 Yandex/CalDAV readiness
+CAL-113 Mail inbound  ->  CAL-114 outbound iTIP/RSVP
+CAL-115 application service/UI state  ->  CAL-116 layout engine  ->  CAL-117 drag/resize
+                                      ->  CAL-118 event editor
+CAL-119 shared calendars/permissions
+CAL-120 reminders
+CAL-121 search/performance/a11y
+CAL-122 end-to-end parity release gate
 ```
 
 ## CAL-101 — Approve clean baseline and reproduce Calendar runtime
+
 
 **Цель:** создать безопасную отправную точку и закрыть неопределённость historical `A2/CAL-001`.
 
@@ -69,7 +69,9 @@ CAL-101 Git/runtime gate
 - Empty cached ranges remain indistinguishable from a cache miss until a later persistence ticket introduces range-completeness metadata; CAL-101B deliberately treats an empty result as no usable cache and does not change the DB schema.
 - **Next:** CAL-103 may start only by explicit instruction; it is not started by CAL-102.
 
+
 ## CAL-102 — Calendar domain and timezone contracts
+
 
 **Цель:** определить стабильные модели timed/floating/all-day events, recurrence masters/occurrences, privacy и participant roles.
 
@@ -91,7 +93,9 @@ CAL-101 Git/runtime gate
 
 **Acceptance:** PASS. Four-host-TZ matrix, provider conformance, 2025-test full Vitest, production build, cargo check, in-memory SQLite fresh/existing/legacy/new-row smoke, and read-only Tauri Yandex Month/Week/Day/calendar-list smoke passed. Local development DB applied v34 with all ten semantic columns; subsequent normal sync populated semantic fields. CAL-102F additionally isolated malformed objects/components with safe degraded-read diagnostics and made recurrence range lookback duration-aware. No cloud mutations were performed.
 
+
 ## CAL-103 — Standards-oriented iCalendar codec
+
 
 **Цель:** заменить regex helpers как authoritative semantic parser/serializer, сохранив compatibility.
 
@@ -111,7 +115,9 @@ CAL-101 Git/runtime gate
 
 **Acceptance:** PASS. `ical.js` 2.2.1 (MPL-2.0) is isolated in `src/services/calendar/ical/codec.ts`; handwritten production parsing/serialization was removed. CAL-102 time/occurrence semantics, malformed isolation, Mail invitations, CalDAV/Yandex paths, Google conformance, legacy lazy reads, recurrence metadata, VTIMEZONE preservation, and provider-neutral unknown-TZID diagnostics are covered. The four-host-TZ command now includes codec tests. Details and limitations: `CALENDAR_ICAL_CODEC.md`.
 
+
 ## CAL-104 — Normalize Calendar persistence and sync state
+
 
 **Цель:** добавить additive schema для attendees, recurrence exceptions, reminders, permissions/subscriptions, working hours, FreeBusy cache and pending ops.
 
@@ -131,7 +137,9 @@ CAL-101 Git/runtime gate
 
 **Acceptance:** PASS. Approved append-only v35 adds explicit local projection lifecycle and durable per-calendar range coverage without rewriting existing rows. `CalendarSyncService` owns cache-first bounded refresh, authoritative/degraded reconciliation, safe deletion ordering, offline state and diagnostics; `CalendarPage` keeps presentation state with generation guards. Google bounded fetch pagination, honest CalDAV `range-refresh` capability, RSVP projection cleanup, synced-empty semantics and bounded legacy normalization cache are covered. Canonical model: `CALENDAR_SYNC_CACHE_MODEL.md`.
 
+
 ## CAL-105 — Provider/write readiness
+
 
 **Цель:** завершить provider-specific write/conflict readiness поверх CAL-104 service/cache boundary и честно объявить текущий sync mode/durability.
 
@@ -153,9 +161,100 @@ CAL-101 Git/runtime gate
 
 Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas were not part of the approved CAL-105 implementation scope and remain explicit limitations for CAL-106/provider-readiness follow-up. No migration was needed.
 
-## CAL-106 — Yandex/CalDAV production readiness
 
-**Participant-domain acceptance (2026-08-22):** implementation and automated verification PASS; live Week/Day smoke outstanding. The owner-approved CAL-106 scope established provider-neutral participant identity, organizer/attendee separation, roles, response status, RSVP, CUTYPE/resource semantics, delegation, deterministic duplicate merge, Google/CalDAV conformance and legacy JSON compatibility. It required no migration: the existing event-scoped JSON column stores a versioned canonical envelope without backfill or N+1 reads. Month, event details, organizer and optional-attendee rendering were confirmed live; Week and Day live views remain unverified — see `CALENDAR_RUNTIME_BASELINE.md`. Canon: `CALENDAR_PARTICIPANT_MODEL.md`.
+## CAL-106 (delivered) — Participant identity and attendee model
+
+**Participant-domain acceptance (2026-08-22):** PASS. The owner-approved CAL-106 scope established provider-neutral participant identity, organizer/attendee separation, roles, response status, RSVP, CUTYPE/resource semantics, delegation, deterministic duplicate merge, Google/CalDAV conformance and legacy JSON compatibility. It required no migration: the existing event-scoped JSON column stores a versioned canonical envelope without backfill or N+1 reads. Month/Week/Day, event details, organizer and optional-attendee rendering were confirmed live — see `CALENDAR_RUNTIME_BASELINE.md`. Canon: `CALENDAR_PARTICIPANT_MODEL.md`.
+
+## CAL-107 (delivered) — Provider-neutral Free/Busy foundation
+
+
+**Цель:** ответить «кто / на какой интервал / в какой timezone / занят или свободен / почему / насколько можно доверять», не строя Scheduling Assistant.
+
+**Основные файлы/модули:** `src/services/calendar/freeBusy/`, `domain/capabilities.ts` (`version: 3`).
+
+**Зависимости:** CAL-102 time foundation, CAL-104 coverage metadata, CAL-106 `ParticipantRef`.
+
+**Acceptance (2026-08-22):** PASS. Availability state и reliability разделены; `unknown`, `partial`, `unsupported`, `permission-denied` и `error` структурно не сводятся к `free`. Проекция событий учитывает `TRANSP`, `STATUS:CANCELLED`, tentative, declined-самого-себя и unconfirmed local projections; recurrence/EXDATE/RDATE/RECURRENCE-ID берутся из уже нормализованных occurrences. Занятость собирается по всем календарям аккаунта независимо от UI-видимости. Local-derived adapter реализован для текущего аккаунта; остальные identity честно возвращают `unsupported`. Миграция не потребовалась. Канон: `CALENDAR_FREE_BUSY_MODEL.md`.
+
+**Не входило:** Scheduling Assistant UI, group slot recommendation, working hours, remote Google/Yandex Free/Busy, participant picker, room booking, permissions/ACL.
+
+
+## CAL-108 (delivered) — Scheduling Assistant foundation and group availability engine
+
+**Цель:** provider-neutral групповой scheduling engine: групповой timeline, классификация слотов, поиск кандидатов и детерминированный ranking поверх CAL-107.
+
+**Основные файлы/модули:** `src/services/calendar/scheduling/`.
+
+**Зависимости:** CAL-106 `ParticipantRef`, CAL-107 `FreeBusyService`.
+
+**Acceptance (2026-08-22):** PASS. Engine потребляет только `ParticipantAvailability` и никогда не пересчитывает события. Required/optional разделены: optional конфликт ухудшает ranking, но не отменяет слот. `unknown`, `unsupported`, `permission-denied` и `error` структурно не сводятся к `free` — такой слот не может стать `confirmed`. Tentative отличается от hard busy отдельной policy. Working hours — независимый constraint с собственной причиной недоступности, применяется только когда данные предоставлены. Multi-day и DST-переходы обрабатываются через CAL-102 resolver, без host timezone. Канон: `CALENDAR_SCHEDULING_ASSISTANT_MODEL.md`.
+
+**Не входило:** визуальный Scheduling Assistant, remote Free/Busy adapters, participant picker, настройки рабочего времени, room booking.
+
+## CAL-109 — Scheduling Assistant UI
+
+**Цель:** визуальный Scheduling Assistant уровня Яндекс 360 поверх готового CAL-108 engine.
+
+**Основные файлы/модули:** новые Scheduling UI компоненты, `EventCreateModal`/editor integration.
+
+**Зависимости:** CAL-108; layout-примитивы из CAL-116 переиспользуются при наличии.
+
+**Definition of Done:**
+
+- participant rows с busy/tentative/unknown блоками и легендой;
+- timeline range navigation и выбранный слот;
+- suggested slots list с объяснением, почему слот хуже;
+- optional/required визуально различимы;
+- unknown/unsupported участники показаны честно, а не как свободные;
+- рабочее время отображается отдельно от занятости;
+- a11y/keyboard и локализация.
+
+**Риски:** сложность плотного timeline, соблазн показать `unknown` как свободное время.
+
+**Примечание:** заменяет прежний раздел «Scheduling assistant and suggested time», engine-часть которого выполнена в CAL-108.
+
+## CAL-110 — Remote Free/Busy provider adapters
+
+**Цель:** реальные remote Free/Busy adapters, чтобы занятость других участников перестала быть `unsupported`.
+
+**Основные файлы/модули:** provider adapters, `freeBusy/` port implementations, capability matrix.
+
+**Зависимости:** CAL-107 port; CAL-112 provider readiness.
+
+**Definition of Done:**
+
+- Google `freeBusy.query` adapter;
+- CalDAV/Yandex RFC 6638 free-busy `REPORT` adapter либо документированное отсутствие поддержки;
+- capability `freeBusy.others` переводится в `remote` только при рабочем adapter;
+- `permission-denied` и `error` не сводятся к `unsupported` или к свободному времени;
+- opaque intervals без event details; batching, rate-limit, отмена;
+- privacy/ACL тесты и live corporate smoke, где возможно.
+
+**Риски:** provider support, авторизация, утечка через inference.
+
+## CAL-111 — Participant picker and directory
+
+**Цель:** participant picker и directory-поиск поверх уже готовой identity-модели CAL-106.
+
+**Основные файлы/модули:** contacts DB/services, `AddressInput`-производный picker.
+
+**Зависимости:** CAL-106 identity; CAL-110 для отображения занятости в подсказках.
+
+**Definition of Done:**
+
+- debounced multi-source directory search;
+- required/optional/resource роли в UI выбора;
+- дедупликация по нормализованной identity;
+- privacy-safe отображение статуса;
+- account isolation тесты.
+
+**Риски:** directory latency, коллизии identity.
+
+**Примечание:** identity-часть прежнего раздела «Participant identity and picker» выполнена в CAL-106; здесь остаётся только picker/directory.
+
+## CAL-112 — Yandex/CalDAV production readiness
+
 
 **Цель:** обеспечить reproducible Yandex calendar auth/discovery/list/fetch/CRUD на живом account.
 
@@ -173,19 +272,9 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Риски:** Yandex OAuth application configuration and undocumented/provider-specific CalDAV behavior.
 
-## CAL-107 (delivered) — Provider-neutral Free/Busy foundation
 
-**Цель:** ответить «кто / на какой интервал / в какой timezone / занят или свободен / почему / насколько можно доверять», не строя Scheduling Assistant.
+## CAL-113 — Mail inbound calendar MIME ingestion
 
-**Основные файлы/модули:** `src/services/calendar/freeBusy/`, `domain/capabilities.ts` (`version: 3`).
-
-**Зависимости:** CAL-102 time foundation, CAL-104 coverage metadata, CAL-106 `ParticipantRef`.
-
-**Acceptance (2026-08-22):** PASS. Availability state и reliability разделены; `unknown`, `partial`, `unsupported`, `permission-denied` и `error` структурно не сводятся к `free`. Проекция событий учитывает `TRANSP`, `STATUS:CANCELLED`, tentative, declined-самого-себя и unconfirmed local projections; recurrence/EXDATE/RDATE/RECURRENCE-ID берутся из уже нормализованных occurrences. Занятость собирается по всем календарям аккаунта независимо от UI-видимости. Local-derived adapter реализован для текущего аккаунта; остальные identity честно возвращают `unsupported`. Миграция не потребовалась. Канон: `CALENDAR_FREE_BUSY_MODEL.md`.
-
-**Не входило:** Scheduling Assistant UI, group slot recommendation, working hours, remote Google/Yandex Free/Busy, participant picker, room booking, permissions/ACL.
-
-## CAL-107 (original scope, not started) — Mail inbound calendar MIME ingestion
 
 **Цель:** reliably ingest calendar parts during mail sync, not only when a thread is opened.
 
@@ -203,13 +292,15 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Риски:** provider attachment lazy-fetch cost, malformed MIME, duplicate events.
 
-## CAL-108 — Outbound invitations, updates, cancellations and RSVP
+
+## CAL-114 — Outbound invitations, updates, cancellations and RSVP
+
 
 **Цель:** объединить direct provider and iMIP delivery with truthful queue states.
 
 **Основные файлы/модули:** invitations service, Calendar provider capabilities, email builder, composer/send orchestrator, pending operations/Outbox/Sent.
 
-**Зависимости:** CAL-103, CAL-105, CAL-107.
+**Зависимости:** CAL-103, CAL-105, CAL-113.
 
 **Definition of Done:**
 
@@ -221,7 +312,9 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Риски:** duplicate invitations, incorrect sequence semantics, mail deliverability.
 
-## CAL-109 — Calendar application service and UI state
+
+## CAL-115 — Calendar application service and UI state
+
 
 **Цель:** отделить CalendarPage from provider/DB orchestration and establish optimistic/offline commands.
 
@@ -239,13 +332,15 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Риски:** duplicate fetches, stale account closures, large rerender surface.
 
-## CAL-110 — Accessible Month/Week/Day layout engine
+
+## CAL-116 — Accessible Month/Week/Day layout engine
+
 
 **Цель:** заменить hourly bucket prototype единым calendar layout engine.
 
 **Основные файлы/модули:** MonthView, WeekView, DayView, EventCard, new layout utilities/components.
 
-**Зависимости:** CAL-102, CAL-109; library spike decision.
+**Зависимости:** CAL-102, CAL-115; library spike decision.
 
 **Definition of Done:**
 
@@ -258,13 +353,15 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Риски:** accessibility, layout complexity, bundle size.
 
-## CAL-111 — Event drag, resize and selection
+
+## CAL-117 — Event drag, resize and selection
+
 
 **Цель:** добавить safe drag/resize/create-by-selection поверх нового layout.
 
 **Основные файлы/модули:** layout engine, DnD provider/hooks, mutation service, event editor.
 
-**Зависимости:** CAL-109, CAL-110.
+**Зависимости:** CAL-115, CAL-116.
 
 **Definition of Done:**
 
@@ -277,13 +374,15 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Риски:** accidental mutation, DST boundary drag, recurring scope, touch behavior.
 
-## CAL-112 — Full event editor: recurrence, reminders, privacy, timezone
+
+## CAL-118 — Full event editor: recurrence, reminders, privacy, timezone
+
 
 **Цель:** заменить basic modal полноценным Office360 event editor.
 
 **Основные файлы/модули:** EventCreateModal/EventDetailModal replacement, reusable UI primitives, domain commands.
 
-**Зависимости:** CAL-102, CAL-103, CAL-104, CAL-109.
+**Зависимости:** CAL-102, CAL-103, CAL-104, CAL-115.
 
 **Definition of Done:**
 
@@ -295,61 +394,9 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Риски:** oversized component; use compound sections/provider-decoupled state.
 
-## CAL-113 — Participant identity and picker
 
-**Цель:** объединить local/recent/CardDAV/LDAP/provider directory identities and attendee roles.
+## CAL-119 — Shared calendars, subscriptions and permissions
 
-**Основные файлы/модули:** contacts DB/services, AddressInput-derived picker, calendar attendees repositories.
-
-**Зависимости:** CAL-102, CAL-104.
-
-**Definition of Done:**
-
-- debounced multi-source directory search;
-- stable account/org/provider identity + normalized email fallback;
-- required/optional/resource roles and duplicate prevention;
-- status/avatar/display name with privacy-safe data;
-- account isolation tests.
-
-**Риски:** global contact email uniqueness, directory latency, identity collisions.
-
-## CAL-114 — Privacy-safe FreeBusy service
-
-**Цель:** получить занятость участников без раскрытия event details.
-
-**Основные файлы/модули:** provider contracts/adapters, new FreeBusy service/cache, permissions and attendee identity.
-
-**Зависимости:** CAL-104, CAL-105, CAL-113, privacy decisions.
-
-**Definition of Done:**
-
-- opaque busy interval contract and short-lived scoped cache;
-- provider implementations/fallback status (`busy`, `free`, `unknown`, permission denied);
-- no summary/location in busy-only records/logs;
-- batching/rate-limit/cancellation behavior;
-- privacy/ACL tests and live corporate smoke where supported.
-
-**Риски:** provider support, authorization, inference/privacy leakage.
-
-## CAL-115 — Scheduling assistant and suggested time
-
-**Цель:** визуализировать participant schedules and recommend common free slots.
-
-**Основные файлы/модули:** new scheduling UI, working-hours repository, solver, FreeBusy service.
-
-**Зависимости:** CAL-110, CAL-113, CAL-114.
-
-**Definition of Done:**
-
-- attendee lanes with per-person timezone/working hours;
-- required attendees as hard constraints, optional attendees as score;
-- duration/buffer/resource constraints;
-- suggested slots with reason/explanation and stale/unknown states;
-- performance, a11y, zone/DST and privacy tests.
-
-**Риски:** combinatorial UX, false certainty from unknown availability.
-
-## CAL-116 — Shared calendars, subscriptions and permissions
 
 **Цель:** поддержать provider calendars beyond visibility toggles.
 
@@ -366,13 +413,15 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Риски:** provider ACL incompatibility, stale permissions, accidental writes.
 
-## CAL-117 — Event reminders and notification actions
+
+## CAL-120 — Event reminders and notification actions
+
 
 **Цель:** добавить reliable in-app/desktop reminders.
 
 **Основные файлы/модули:** reminder DB/service, backgroundCheckers, notificationManager, deep-link navigation.
 
-**Зависимости:** CAL-104, CAL-109, CAL-112.
+**Зависимости:** CAL-104, CAL-115, CAL-118.
 
 **Definition of Done:**
 
@@ -385,13 +434,15 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Риски:** missed/duplicate notifications, OS permission differences.
 
-## CAL-118 — Calendar search, performance and accessibility hardening
+
+## CAL-121 — Calendar search, performance and accessibility hardening
+
 
 **Цель:** подготовить product-scale data/UI after core features stabilize.
 
 **Основные файлы/модули:** DB indexes/search, Calendar store/selectors, layout/scheduling UI, command palette.
 
-**Зависимости:** CAL-109–CAL-117 as applicable.
+**Зависимости:** CAL-115–CAL-120 as applicable.
 
 **Definition of Done:**
 
@@ -404,7 +455,9 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Риски:** indexing sensitive fields, premature virtualization, bundle growth.
 
-## CAL-119 — End-to-end parity release gate
+
+## CAL-122 — End-to-end parity release gate
+
 
 **Цель:** собрать provider, Mail, time, privacy and UI flows into verified release candidate.
 
@@ -423,7 +476,9 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Риски:** provider test accounts, platform-specific notifications, unresolved product parity decisions.
 
-## Recommended first implementation ticket
+
+## Historical note — first implementation ticket
+
 
 **CAL-101 — Approve clean baseline and reproduce Calendar runtime.**
 

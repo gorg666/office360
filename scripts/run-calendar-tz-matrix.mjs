@@ -8,6 +8,10 @@ const testFiles = [
   "src/services/calendar/icalTimeMapping.test.ts",
   "src/services/calendar/ical/codec.test.ts",
   "src/services/calendar/freeBusy/projection.test.ts",
+  "src/services/calendar/scheduling/timeline.test.ts",
+  "src/services/calendar/scheduling/slots.test.ts",
+  "src/services/calendar/scheduling/workingHours.test.ts",
+  "src/services/calendar/scheduling/schedulingAssistantService.test.ts",
 ];
 
 for (const zone of zones) {
