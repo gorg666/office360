@@ -16,6 +16,8 @@ import {
 import { parseICalendarInvite } from "./icalHelper";
 import type { EmailProvider } from "@/services/email/types";
 import type { CalendarWriteResult } from "./calendarMutationService";
+import { getAccountIdentity } from "@/services/db/accounts";
+import { findCurrentAttendee, parseCalendarParticipants, serializeCalendarParticipants, withAttendeeStatus, type AttendanceStatus } from "./domain";
 
 export type InvitationPayloadSource = "body" | "attachment";
 
@@ -169,7 +171,18 @@ export async function respondToCalendarInvitation(
     } satisfies CalendarRsvpQueueParams,
   );
 
-  await updateInvitationRsvp(invitationId, rsvpStatus, "queued", queuedOperationId);
+  const identity = await getAccountIdentity(accountId);
+  const participants = parseCalendarParticipants(invitation.attendees_json, invitation.organizer_email);
+  const current = identity ? findCurrentAttendee(participants.attendees, identity) : null;
+  const attendeesJson = current ? serializeCalendarParticipants({
+    ...participants,
+    attendees: withAttendeeStatus(participants.attendees, current.participant, rsvpStatus.replace("_", "-") as AttendanceStatus),
+  }) : invitation.attendees_json;
+  if (attendeesJson !== invitation.attendees_json) {
+    await updateInvitationRsvp(invitationId, rsvpStatus, "queued", queuedOperationId, attendeesJson);
+  } else {
+    await updateInvitationRsvp(invitationId, rsvpStatus, "queued", queuedOperationId);
+  }
   emitInvitationChanged();
   return { queuedOperationId };
 }

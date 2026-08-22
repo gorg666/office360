@@ -1,5 +1,6 @@
 import { generateVEvent, parseICalendarInvite, parseVEvent, parseVEventsInRange, updateAttendeeParticipation, updateVEventFields } from "./icalHelper";
 import type { CreateEventInput } from "./types";
+import { parseCalendarParticipants } from "./domain";
 
 beforeEach(() => {
   crypto.randomUUID = vi.fn(() => "test-uuid-1234") as () => `${string}-${string}-${string}-${string}-${string}`;
@@ -101,8 +102,10 @@ describe("generateVEvent", () => {
 
     const result = generateVEvent(event);
 
-    expect(result).toContain("ATTENDEE;RSVP=TRUE:mailto:alice@example.com");
-    expect(result).toContain("ATTENDEE;RSVP=TRUE:mailto:bob@example.com");
+    const parsed = parseVEvent(result);
+    const attendees = parseCalendarParticipants(parsed.attendeesJson).attendees;
+    expect(attendees.map((value) => value.participant.value)).toEqual(["alice@example.com", "bob@example.com"]);
+    expect(attendees.every((value) => value.rsvpRequested)).toBe(true);
   });
 
   it("escapes special characters in text fields", () => {
@@ -246,18 +249,10 @@ describe("parseVEvent", () => {
     const result = parseVEvent(ical);
 
     expect(result.attendeesJson).not.toBeNull();
-    const attendees = JSON.parse(result.attendeesJson!);
+    const attendees = parseCalendarParticipants(result.attendeesJson).attendees;
     expect(attendees).toHaveLength(2);
-    expect(attendees[0]).toEqual({
-      email: "alice@example.com",
-      displayName: "Alice Smith",
-      responseStatus: "accepted",
-    });
-    expect(attendees[1]).toEqual({
-      email: "bob@example.com",
-      displayName: "Bob",
-      responseStatus: "tentative",
-    });
+    expect(attendees[0]).toMatchObject({ participant: { value: "alice@example.com", displayName: "Alice Smith" }, status: "accepted" });
+    expect(attendees[1]).toMatchObject({ participant: { value: "bob@example.com", displayName: "Bob" }, status: "tentative" });
   });
 
   it("parses organizer email", () => {
@@ -451,12 +446,12 @@ describe("parseVEvent", () => {
     ].join("\r\n");
 
     const result = parseVEvent(ical);
-    const attendees = JSON.parse(result.attendeesJson!);
+    const attendees = parseCalendarParticipants(result.attendeesJson).attendees;
 
     expect(attendees).toHaveLength(1);
-    expect(attendees[0].email).toBe("plain@example.com");
-    expect(attendees[0].displayName).toBeUndefined();
-    expect(attendees[0].responseStatus).toBeUndefined();
+    expect(attendees[0]?.participant.value).toBe("plain@example.com");
+    expect(attendees[0]?.participant.displayName).toBeUndefined();
+    expect(attendees[0]?.status).toBe("needs-action");
   });
 });
 
@@ -649,10 +644,10 @@ describe("round-trip: generateVEvent -> parseVEvent", () => {
     const ical = generateVEvent(input, "att-rt");
     const parsed = parseVEvent(ical);
 
-    const attendees = JSON.parse(parsed.attendeesJson!);
+    const attendees = parseCalendarParticipants(parsed.attendeesJson).attendees;
     expect(attendees).toHaveLength(2);
-    expect(attendees[0].email).toBe("dev@example.com");
-    expect(attendees[1].email).toBe("pm@example.com");
+    expect(attendees[0]?.participant.value).toBe("dev@example.com");
+    expect(attendees[1]?.participant.value).toBe("pm@example.com");
   });
 
   it("preserves special characters through round-trip", () => {

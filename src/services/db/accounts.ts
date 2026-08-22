@@ -106,6 +106,11 @@ export async function getAccount(id: string): Promise<DbAccount | null> {
   return account ? decryptAccountTokens(account) : null;
 }
 
+/** Safe identity-only lookup for domain matching; does not select credential columns. */
+export async function getAccountIdentity(id: string): Promise<{ id: string; email: string } | null> {
+  return selectFirstBy<{ id: string; email: string }>("SELECT id, email FROM accounts WHERE id = $1", [id]);
+}
+
 export async function getAccountByEmail(
   email: string,
 ): Promise<DbAccount | null> {

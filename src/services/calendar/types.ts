@@ -1,4 +1,4 @@
-import type { CalendarEventTime, CalendarProviderCapabilities, ParticipantRef } from "./domain";
+import type { CalendarAttendee, CalendarAttendeeInput, CalendarEventTime, CalendarOrganizer, CalendarProviderCapabilities, ParticipantRef } from "./domain";
 
 export type CalendarProviderType = "google_api" | "caldav";
 
@@ -23,6 +23,8 @@ export interface CalendarEventData {
   status: string;
   organizerEmail: string | null;
   attendeesJson: string | null;
+  organizer: CalendarOrganizer | null;
+  attendees: CalendarAttendee[];
   htmlLink: string | null;
   icalData: string | null;
   time: CalendarEventTime;
@@ -45,7 +47,8 @@ export interface CreateEventInput {
   startTime: string; // ISO 8601
   endTime: string;   // ISO 8601
   isAllDay?: boolean;
-  attendees?: { email: string }[];
+  attendees?: CalendarAttendeeInput[];
+  organizer?: CalendarOrganizer;
   time?: CalendarEventTime;
   transparency?: "opaque" | "transparent";
   status?: string;
@@ -63,6 +66,8 @@ export interface UpdateEventInput {
   transparency?: "opaque" | "transparent";
   status?: string;
   sequence?: number;
+  attendees?: CalendarAttendeeInput[];
+  organizer?: CalendarOrganizer;
 }
 
 export type CalendarParticipationStatus = "accepted" | "tentative" | "declined";

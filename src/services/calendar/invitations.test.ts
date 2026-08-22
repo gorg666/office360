@@ -46,6 +46,10 @@ vi.mock("@/services/db/calendarEvents", () => ({
   upsertCalendarEvent: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock("@/services/db/accounts", () => ({
+  getAccountIdentity: vi.fn(() => Promise.resolve({ id: "account-1", email: "self@example.com" })),
+}));
+
 import {
   detectInvitationsInMessage,
   executeCalendarQueuedAction,

@@ -186,4 +186,25 @@ Mail RSVP queue не имеет remote calendar/resource identity, поэтом�
 
 ## Checks
 
+### CAL-106 participant-domain validation
+
+Дата: 2026-08-22 (Asia/Bangkok). Participant identity, organizer, required/optional roles, five response states, RSVP flag, individual/group/room/resource types, delegation and deterministic duplicate merge are centralized in the Calendar domain. Google and CalDAV use the same event attendee contract. Existing attendee JSON arrays are read lazily, while normal provider writes persist a versioned envelope in the existing column; no migration or backfill is used and the range load remains query-per-range rather than query-per-attendee.
+
+No real invitations, events or RSVP mutations were performed for this ticket.
+
+| Проверка | Статус | Наблюдение |
+|---|---|---|
+| Tauri startup | PASS | Подтверждено в сессии 2026-08-22 до прерывания Computer Use |
+| Month | PASS | Yandex read-only refresh завершился без stale/error banner |
+| Event details | PASS | Существующее Yandex-событие открылось, участники отрисованы |
+| Organizer (визуально) | PASS | Организатор отображён отдельно от списка участников |
+| Optional attendee (визуально) | PASS | Роль «необязательно» отображена в чипе участника |
+| Week | **NOT COMPLETED** | Пользователь остановил Computer Use; в последующей сессии dev-сборка Tauri не разрешается allowlist'ом автоматизации (окно не является установленным приложением) |
+| Day | **NOT COMPLETED** | То же ограничение |
+| Mail live invitation | NOT AVAILABLE | Fixture без внешней мутации отсутствует; автоматическая регрессия PASS |
+
+Week/Day остаются незакрытыми именно как **live** проверки. Изменения CAL-106 не затрагивают `WeekView.tsx` и `DayView.tsx`; затронут общий путь разбора участников и `EventDetailModal`. Поэтому поведение, которое подтверждал бы этот smoke, покрыто автоматически: `EventDetailModal.test.tsx` рендерит канонический envelope (организатор, роль «необязательно»), разрешает текущего пользователя как участника с предвыбранным ответом, и проверяет, что legacy-массив и повреждённый JSON не ломают карточку события. Это не заменяет live-подтверждение и не записывается как PASS.
+
+Автоматические проверки CAL-106: TypeScript PASS; targeted Calendar/participant/invitation/UI — 9 files / 78 tests; full Vitest — 206 files / 2080 tests; `npm run test:calendar-tz` — 45/45 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS; `cargo check` PASS с двумя прежними unrelated warnings. Rust не менялся. Migration не требовалась и не запускалась.
+
 Финальные build/test результаты фиксируются после удаления временной instrumentation и перечислены в итоговом CAL-101A отчёте. Общий `cargo fmt --check` имеет существующий repo-wide formatting debt; изменённый Rust-файл проверяется отдельно.

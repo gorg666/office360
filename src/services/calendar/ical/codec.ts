@@ -1,5 +1,6 @@
 import ICAL from "ical.js";
 import type { CalendarParticipationStatus, CreateEventInput, UpdateEventInput } from "../types";
+import { dedupeCalendarAttendees, normalizeParticipantEmail } from "../domain";
 import {
   instantSecondsToWallDateTime,
   type CalendarEventTime,
@@ -112,12 +113,26 @@ export function serializeNewICalendarEvent(event: CreateEventInput | UpdateEvent
   if (event.status) component.addPropertyWithValue("status", event.status.toUpperCase());
 
   if ("attendees" in event && event.attendees) {
-    for (const attendee of event.attendees) {
+    for (const attendee of dedupeCalendarAttendees(event.attendees)) {
       const property = new ICAL.Property("attendee");
-      property.setParameter("rsvp", "TRUE");
-      property.setValue(`mailto:${attendee.email}`);
+      if (attendee.participant.displayName) property.setParameter("cn", attendee.participant.displayName);
+      property.setParameter("role", roleToICal(attendee.role));
+      property.setParameter("partstat", statusToICal(attendee.status));
+      property.setParameter("cutype", typeToICal(attendee.participantType));
+      property.setParameter("rsvp", attendee.rsvpRequested === false ? "FALSE" : "TRUE");
+      if (attendee.sentBy) property.setParameter("sent-by", participantUri(attendee.sentBy));
+      if (attendee.delegatedTo.length > 0) property.setParameter("delegated-to", attendee.delegatedTo.map(participantUri));
+      if (attendee.delegatedFrom.length > 0) property.setParameter("delegated-from", attendee.delegatedFrom.map(participantUri));
+      property.setValue(participantUri(attendee.participant));
       component.addProperty(property);
     }
+  }
+  if (event.organizer) {
+    const property = new ICAL.Property("organizer");
+    if (event.organizer.participant.displayName) property.setParameter("cn", event.organizer.participant.displayName);
+    if (event.organizer.sentBy) property.setParameter("sent-by", participantUri(event.organizer.sentBy));
+    property.setValue(participantUri(event.organizer.participant));
+    component.addProperty(property);
   }
   return calendar.toString();
 }
@@ -140,6 +155,30 @@ export function updateICalendarEvent(source: string, changes: UpdateEventInput):
   if (changes.status !== undefined) {
     master.updatePropertyWithValue("status", changes.status.toUpperCase());
   }
+  if (changes.attendees !== undefined) {
+    master.removeAllProperties("attendee");
+    for (const attendee of dedupeCalendarAttendees(changes.attendees)) {
+      const property = new ICAL.Property("attendee");
+      if (attendee.participant.displayName) property.setParameter("cn", attendee.participant.displayName);
+      property.setParameter("role", roleToICal(attendee.role));
+      property.setParameter("partstat", statusToICal(attendee.status));
+      property.setParameter("cutype", typeToICal(attendee.participantType));
+      if (attendee.rsvpRequested !== null) property.setParameter("rsvp", attendee.rsvpRequested ? "TRUE" : "FALSE");
+      if (attendee.sentBy) property.setParameter("sent-by", participantUri(attendee.sentBy));
+      if (attendee.delegatedTo.length) property.setParameter("delegated-to", attendee.delegatedTo.map(participantUri));
+      if (attendee.delegatedFrom.length) property.setParameter("delegated-from", attendee.delegatedFrom.map(participantUri));
+      property.setValue(participantUri(attendee.participant));
+      master.addProperty(property);
+    }
+  }
+  if (changes.organizer !== undefined) {
+    master.removeAllProperties("organizer");
+    const property = new ICAL.Property("organizer");
+    if (changes.organizer.participant.displayName) property.setParameter("cn", changes.organizer.participant.displayName);
+    if (changes.organizer.sentBy) property.setParameter("sent-by", participantUri(changes.organizer.sentBy));
+    property.setValue(participantUri(changes.organizer.participant));
+    master.addProperty(property);
+  }
   const previousSequence = numericValue(master.getFirstPropertyValue("sequence"));
   const nextSequence = changes.sequence === undefined
     ? previousSequence + 1
@@ -155,11 +194,11 @@ export function updateICalendarAttendee(
   status: CalendarParticipationStatus,
 ): string {
   const calendar = ICAL.Component.fromString(source);
-  const normalizedEmail = attendeeEmail.trim().toLowerCase();
+  const normalizedEmail = normalizeParticipantEmail(attendeeEmail);
   for (const component of calendar.getAllSubcomponents("vevent")) {
     const attendee = component.getAllProperties("attendee").find((property) => {
       const value = stringValue(property.getFirstValue()) ?? "";
-      return value.replace(/^mailto:/i, "").trim().toLowerCase() === normalizedEmail;
+      return normalizeParticipantEmail(value) === normalizedEmail;
     });
     if (!attendee) continue;
     attendee.setParameter("partstat", status.toUpperCase());
@@ -167,6 +206,19 @@ export function updateICalendarAttendee(
     break;
   }
   return calendar.toString();
+}
+
+function participantUri(participant: import("../domain").ParticipantRef): string {
+  return participant.normalizedEmail ? `mailto:${participant.value}` : participant.value;
+}
+function roleToICal(role: import("../domain").AttendanceRole): string {
+  return ({ required: "REQ-PARTICIPANT", optional: "OPT-PARTICIPANT", "non-participant": "NON-PARTICIPANT", chair: "CHAIR", unknown: "REQ-PARTICIPANT" })[role];
+}
+function statusToICal(status: import("../domain").AttendanceStatus): string {
+  return status === "unknown" ? "NEEDS-ACTION" : status.toUpperCase();
+}
+function typeToICal(type: import("../domain").ParticipantType): string {
+  return (type === "unknown" ? "INDIVIDUAL" : type).toUpperCase();
 }
 
 function decodeEvent(component: InstanceType<typeof ICAL.Component>): ICalendarEventComponent {

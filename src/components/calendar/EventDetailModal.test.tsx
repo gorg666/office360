@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { useAccountStore } from "@/stores/accountStore";
+import { calendarOrganizerFromInput, dedupeCalendarAttendees, serializeCalendarParticipants } from "@/services/calendar/domain";
 import { EventDetailModal } from "./EventDetailModal";
 
 const mocks = vi.hoisted(() => ({ capabilities: vi.fn() }));
@@ -77,5 +78,64 @@ describe("EventDetailModal provider capabilities", () => {
 
     expect(await screen.findByRole("button", { name: "Изменить" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Удалить" })).toBeInTheDocument();
+  });
+});
+
+const canonicalEnvelope = serializeCalendarParticipants({
+  organizer: calendarOrganizerFromInput({ email: "owner@example.com", displayName: "Владелец календаря" }),
+  attendees: dedupeCalendarAttendees([
+    { email: "req@example.com", displayName: "Обязательный", responseStatus: "accepted" },
+    { email: "opt@example.com", displayName: "Необязательный", optional: true, responseStatus: "tentative" },
+    { email: "self@example.com", displayName: "Я", responseStatus: "declined" },
+  ]),
+});
+
+describe("EventDetailModal participant rendering", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAccountStore.setState({
+      activeAccountId: "account-1",
+      accounts: [{ id: "account-1", email: "self@example.com", displayName: "Self", avatarUrl: null, isActive: true, provider: "caldav" }],
+    });
+    mocks.capabilities.mockResolvedValue(seriesOnlyCapabilities);
+  });
+
+  it("renders the canonical organizer and attendee roles", async () => {
+    render(<EventDetailModal
+      event={event({ attendees_json: canonicalEnvelope, organizer_email: "owner@example.com" })}
+      calendars={[calendar]} accountId="account-1" onClose={vi.fn()} onUpdated={vi.fn()}
+    />);
+
+    expect(await screen.findByText("Владелец календаря")).toBeInTheDocument();
+    expect(screen.getByText("Обязательный")).toBeInTheDocument();
+    expect(screen.getByText("Необязательный")).toBeInTheDocument();
+    expect(screen.getByText("(необязательно)")).toBeInTheDocument();
+  });
+
+  it("resolves the current account attendee and preselects its response", async () => {
+    render(<EventDetailModal
+      event={event({ attendees_json: canonicalEnvelope, organizer_email: "owner@example.com" })}
+      calendars={[calendar]} accountId="account-1" onClose={vi.fn()} onUpdated={vi.fn()}
+    />);
+
+    await waitFor(() => expect(screen.getByRole("combobox")).toHaveValue("declined"));
+  });
+
+  it("still renders legacy attendee arrays and malformed JSON without losing the event", async () => {
+    const legacy = '[{"email":"legacy@example.com","displayName":"Старый формат","responseStatus":"accepted"}]';
+    const { unmount } = render(<EventDetailModal
+      event={event({ attendees_json: legacy, organizer_email: "owner@example.com" })}
+      calendars={[calendar]} accountId="account-1" onClose={vi.fn()} onUpdated={vi.fn()}
+    />);
+    expect(await screen.findByText("Старый формат")).toBeInTheDocument();
+    expect(screen.getByText("owner@example.com")).toBeInTheDocument();
+    unmount();
+
+    render(<EventDetailModal
+      event={event({ attendees_json: "{not json", organizer_email: "owner@example.com" })}
+      calendars={[calendar]} accountId="account-1" onClose={vi.fn()} onUpdated={vi.fn()}
+    />);
+    expect(await screen.findByText("Weekly")).toBeInTheDocument();
+    expect(screen.getByText("owner@example.com")).toBeInTheDocument();
   });
 });

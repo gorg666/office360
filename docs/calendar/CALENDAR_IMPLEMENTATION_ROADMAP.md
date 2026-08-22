@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-103, CAL-104 and CAL-105 completed; CAL-106 requires a separate explicit start.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-103, CAL-104 and CAL-105 completed; the approved participant-domain CAL-106 is implemented and automatically verified, with live Week/Day smoke still outstanding.
 
 ## ID convention
 
@@ -152,6 +152,8 @@ CAL-101 Git/runtime gate
 Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas were not part of the approved CAL-105 implementation scope and remain explicit limitations for CAL-106/provider-readiness follow-up. No migration was needed.
 
 ## CAL-106 — Yandex/CalDAV production readiness
+
+**Participant-domain acceptance (2026-08-22):** implementation and automated verification PASS; live Week/Day smoke outstanding. The owner-approved CAL-106 scope established provider-neutral participant identity, organizer/attendee separation, roles, response status, RSVP, CUTYPE/resource semantics, delegation, deterministic duplicate merge, Google/CalDAV conformance and legacy JSON compatibility. It required no migration: the existing event-scoped JSON column stores a versioned canonical envelope without backfill or N+1 reads. Month, event details, organizer and optional-attendee rendering were confirmed live; Week and Day live views remain unverified — see `CALENDAR_RUNTIME_BASELINE.md`. Canon: `CALENDAR_PARTICIPANT_MODEL.md`.
 
 **Цель:** обеспечить reproducible Yandex calendar auth/discovery/list/fetch/CRUD на живом account.
 

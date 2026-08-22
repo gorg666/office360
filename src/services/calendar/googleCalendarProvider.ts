@@ -13,7 +13,10 @@ import {
   calendarDateToUnixSeconds,
   createOccurrenceKey,
   instantSecondsToWallDateTime,
-  participantRefFromEmail,
+  calendarOrganizerFromInput,
+  dedupeCalendarAttendees,
+  normalizeParticipantEmail,
+  serializeCalendarParticipants,
   parseCalendarDate,
   type CalendarEventTime,
   type CalendarProviderCapabilities,
@@ -44,8 +47,8 @@ export interface GoogleCalendarEvent {
   start: { dateTime?: string; date?: string; timeZone?: string };
   end: { dateTime?: string; date?: string; timeZone?: string };
   status?: string;
-  organizer?: { email: string; displayName?: string };
-  attendees?: { email: string; displayName?: string; responseStatus?: string }[];
+  organizer?: { email: string; displayName?: string; self?: boolean };
+  attendees?: { email: string; displayName?: string; responseStatus?: string; organizer?: boolean; self?: boolean; optional?: boolean; resource?: boolean; additionalGuests?: number }[];
   htmlLink?: string;
   iCalUID?: string;
   etag?: string;
@@ -154,9 +157,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
       body.end = { dateTime: new Date(event.endTime).toISOString(), timeZone: "UTC" };
     }
 
-    if (event.attendees) {
-      body.attendees = event.attendees;
-    }
+    if (event.attendees !== undefined) body.attendees = event.attendees.map(mapDomainAttendeeToGoogle);
     if (event.transparency) body.transparency = event.transparency;
     if (event.sequence !== undefined) body.sequence = event.sequence;
 
@@ -229,7 +230,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
     const base = `${CALENDAR_API_BASE}/calendars/${encodeURIComponent(calendarRemoteId)}/events/${encodeURIComponent(remoteEventId)}`;
     const current = await client.request<GoogleCalendarEvent>(base);
     const attendees = (current.attendees ?? []).map((attendee) =>
-      attendee.email.toLowerCase() === attendeeEmail.toLowerCase()
+      normalizeParticipantEmail(attendee.email) === normalizeParticipantEmail(attendeeEmail)
         ? { ...attendee, responseStatus: status }
         : attendee,
     );
@@ -320,8 +321,11 @@ export function mapGoogleEvent(event: GoogleCalendarEvent): CalendarEventData {
   const occurrenceKey = event.recurringEventId && occurrenceIdentity
     ? createOccurrenceKey(seriesUid, occurrenceIdentity)
     : null;
-  const participants = (event.attendees ?? []).map((attendee) =>
-    participantRefFromEmail(attendee.email, attendee.displayName));
+  const organizer = event.organizer ? calendarOrganizerFromInput(event.organizer) : null;
+  const attendees = dedupeCalendarAttendees((event.attendees ?? [])
+    .filter((attendee) => !attendee.organizer || !organizer || normalizeParticipantEmail(attendee.email) !== organizer.participant.normalizedEmail)
+    .map((attendee) => ({ ...attendee, status: attendee.responseStatus })));
+  const participants = attendees.map((attendee) => attendee.participant);
 
   return {
     remoteEventId: event.id,
@@ -335,7 +339,9 @@ export function mapGoogleEvent(event: GoogleCalendarEvent): CalendarEventData {
     isAllDay: time.kind === "all-day",
     status: event.status ?? "confirmed",
     organizerEmail: event.organizer?.email ?? null,
-    attendeesJson: event.attendees ? JSON.stringify(event.attendees) : null,
+    attendeesJson: serializeCalendarParticipants({ organizer, attendees }),
+    organizer,
+    attendees,
     htmlLink: event.htmlLink ?? null,
     icalData: null,
     time,
@@ -345,6 +351,22 @@ export function mapGoogleEvent(event: GoogleCalendarEvent): CalendarEventData {
     transparency: event.transparency === "transparent" ? "transparent" : "opaque",
     sequence: event.sequence ?? 0,
     participants,
+  };
+}
+
+function mapDomainAttendeeToGoogle(input: import("./domain").CalendarAttendeeInput): Record<string, unknown> {
+  const attendee = dedupeCalendarAttendees([input])[0];
+  if (!attendee) return {};
+  const responseStatus = attendee.status === "needs-action"
+    ? (attendee.rawStatus ? "needsAction" : undefined)
+    : attendee.status === "unknown" ? undefined : attendee.status;
+  return {
+    email: attendee.participant.value,
+    ...(attendee.participant.displayName ? { displayName: attendee.participant.displayName } : {}),
+    ...(attendee.role === "optional" ? { optional: true } : {}),
+    ...(responseStatus ? { responseStatus } : {}),
+    ...(attendee.participantType === "resource" || attendee.participantType === "room" ? { resource: true } : {}),
+    ...(attendee.additionalGuests !== undefined ? { additionalGuests: attendee.additionalGuests } : {}),
   };
 }
 

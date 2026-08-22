@@ -10,7 +10,9 @@ import {
   naiveDateToWallDateTime,
   parseCalendarDate,
   parseWallDateTime,
-  participantRefFromEmail,
+  calendarOrganizerFromInput,
+  dedupeCalendarAttendees,
+  serializeCalendarParticipants,
   projectFloatingWallTime,
   wallDateTimeToNaiveDate,
   zonedWallDateTimeToInstant,
@@ -90,12 +92,12 @@ function parseCalendarEventComponent(
   const recurrenceIdentity = recurrenceIdLine
     ? temporalToIdentity(parseTemporalValue(recurrenceIdLine, options, timeZones))
     : null;
-  const attendees = lines.filter((line) => line.name === "ATTENDEE").flatMap((line) => {
-    const email = firstPropertyValue(line)?.match(/^mailto:(.+)$/i)?.[1]?.trim();
-    if (!email) return [];
+  const attendees = dedupeCalendarAttendees(lines.filter((line) => line.name === "ATTENDEE").flatMap((line) => {
+    const uri = firstPropertyValue(line)?.trim();
+    if (!uri) return [];
     const displayName = firstParameter(line, "CN");
     return [{
-      email,
+      uri,
       ...(displayName ? { displayName } : {}),
       ...(firstParameter(line, "PARTSTAT") ? { responseStatus: firstParameter(line, "PARTSTAT")!.toLowerCase() } : {}),
       ...(firstParameter(line, "ROLE") ? { role: firstParameter(line, "ROLE") } : {}),
@@ -105,9 +107,15 @@ function parseCalendarEventComponent(
       ...(parameterValues(line, "DELEGATED-TO").length > 0 ? { delegatedTo: parameterValues(line, "DELEGATED-TO") } : {}),
       ...(parameterValues(line, "DELEGATED-FROM").length > 0 ? { delegatedFrom: parameterValues(line, "DELEGATED-FROM") } : {}),
     }];
-  });
-  const participants = attendees.map((attendee) => participantRefFromEmail(attendee.email, attendee.displayName));
-  const organizerEmail = firstValue(lines, "ORGANIZER")?.match(/^mailto:(.+)$/i)?.[1]?.trim() ?? null;
+  }));
+  const organizerLine = firstLine(lines, "ORGANIZER");
+  const organizer = organizerLine ? calendarOrganizerFromInput({
+    uri: firstPropertyValue(organizerLine) ?? undefined,
+    displayName: firstParameter(organizerLine, "CN") ?? undefined,
+    sentBy: firstParameter(organizerLine, "SENT-BY") ?? undefined,
+  }) : null;
+  const organizerEmail = organizer?.participant.normalizedEmail ? organizer.participant.value : null;
+  const participants = attendees.map((attendee) => attendee.participant);
   const rule = firstValue(lines, "RRULE");
   const sequence = Number.parseInt(firstValue(lines, "SEQUENCE") ?? "0", 10);
   const transparencyValue = firstValue(lines, "TRANSP")?.toLowerCase();
@@ -127,7 +135,9 @@ function parseCalendarEventComponent(
     isAllDay: time.kind === "all-day",
     status: (firstValue(lines, "STATUS") ?? "confirmed").toLowerCase(),
     organizerEmail,
-    attendeesJson: attendees.length > 0 ? JSON.stringify(attendees) : null,
+    attendeesJson: serializeCalendarParticipants({ organizer, attendees }),
+    organizer,
+    attendees,
     htmlLink: null,
     icalData,
     time,

@@ -9,7 +9,7 @@ import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import type { DbCalendar } from "@/services/db/calendars";
 import type { CalendarParticipationStatus } from "@/services/calendar/types";
 import { calendarMutationService } from "@/services/calendar/calendarMutationService";
-import { supportsRecurrenceScope, type CalendarProviderCapabilities, type RecurrenceWriteScope } from "@/services/calendar/domain";
+import { findCurrentAttendee, parseCalendarParticipants, supportsRecurrenceScope, type CalendarAttendee, type CalendarOrganizer, type CalendarProviderCapabilities, type RecurrenceWriteScope } from "@/services/calendar/domain";
 import { useAccountStore } from "@/stores/accountStore";
 import { navigateToLabel } from "@/router/navigate";
 import { cefNavigate } from "@/services/cef";
@@ -22,12 +22,6 @@ interface EventDetailModalProps {
   anchor?: { x: number; y: number } | null;
   onClose: () => void;
   onUpdated: () => void;
-}
-
-interface Attendee {
-  email: string;
-  displayName?: string;
-  responseStatus?: string;
 }
 
 export function EventDetailModal({ event, calendars, accountId, anchor, onClose, onUpdated }: EventDetailModalProps) {
@@ -44,10 +38,11 @@ export function EventDetailModal({ event, calendars, accountId, anchor, onClose,
   const accounts = useAccountStore((state) => state.accounts);
   const accountEmail = accounts.find((account) => account.id === accountId)?.email ?? "";
   const calendar = calendars.find((item) => item.id === event.calendar_id);
-  const attendees = useMemo(() => parseAttendees(event.attendees_json), [event.attendees_json]);
+  const participantSet = useMemo(() => parseCalendarParticipants(event.attendees_json, event.organizer_email), [event.attendees_json, event.organizer_email]);
+  const attendees = participantSet.attendees;
   const meetingUrl = useMemo(() => findTelemostUrl(event.description), [event.description]);
   const recurring = event.is_recurrence_master === 1 || event.occurrence_key !== null;
-  const selfAttendee = attendees.find((item) => item.email.toLowerCase() === accountEmail.toLowerCase());
+  const selfAttendee = findCurrentAttendee(attendees, { accountId, email: accountEmail });
   const recurrenceScope: RecurrenceWriteScope | undefined = event.occurrence_key
     ? "single"
     : event.is_recurrence_master === 1
@@ -194,10 +189,10 @@ export function EventDetailModal({ event, calendars, accountId, anchor, onClose,
           {recurring && <Repeat2 size={15} className="text-text-tertiary" aria-label="Повторяющееся событие" />}
         </InfoRow>
         {event.location && <InfoRow icon={<MapPin size={17} />} label="Место"><span>{event.location}</span></InfoRow>}
-        {event.organizer_email && <InfoRow icon={<User size={17} />} label="Организатор"><PersonChip attendee={{ email: event.organizer_email }} /></InfoRow>}
+        {participantSet.organizer && <InfoRow icon={<User size={17} />} label="Организатор"><OrganizerChip organizer={participantSet.organizer} /></InfoRow>}
         {attendees.length > 0 && (
           <InfoRow icon={<User size={17} />} label="Участники">
-            <div className="flex flex-wrap gap-2">{attendees.map((attendee) => <PersonChip key={attendee.email} attendee={attendee} />)}</div>
+            <div className="flex flex-wrap gap-2">{attendees.map((attendee) => <PersonChip key={attendee.participant.normalizedEmail ?? attendee.participant.value} attendee={attendee} />)}</div>
           </InfoRow>
         )}
         {calendar && <InfoRow label="Календарь"><span className="inline-flex items-center gap-2"><i className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: calendar.color ?? "var(--color-accent)" }} />{calendar.display_name}</span></InfoRow>}
@@ -206,7 +201,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, onClose,
         <div className="flex items-center justify-between gap-3 pt-3 border-t border-border-primary">
           <div className="flex items-center gap-2">
             {selfAttendee && canRsvp && (
-              <select value={normalizeResponse(selfAttendee.responseStatus)} onChange={(e) => void handleRsvp(e.target.value as CalendarParticipationStatus)} disabled={busyAction !== null} className="px-3 py-2 rounded-md bg-bg-tertiary text-sm font-medium text-text-primary border border-border-primary outline-none">
+              <select value={normalizeResponse(selfAttendee.status)} onChange={(e) => void handleRsvp(e.target.value as CalendarParticipationStatus)} disabled={busyAction !== null} className="px-3 py-2 rounded-md bg-bg-tertiary text-sm font-medium text-text-primary border border-border-primary outline-none">
                 <option value="accepted">Пойду</option><option value="tentative">Возможно</option><option value="declined">Не пойду</option>
               </select>
             )}
@@ -231,11 +226,13 @@ function InfoRow({ icon, label, children }: { icon?: ReactNode; label: string; c
   return <div className="grid grid-cols-[132px_1fr] gap-3 text-sm"><div className="flex items-center gap-2 text-text-tertiary">{icon}{label}</div><div className="flex items-center gap-2 text-text-secondary min-w-0">{children}</div></div>;
 }
 
-function PersonChip({ attendee }: { attendee: Attendee }) {
-  const status = attendee.responseStatus?.toLowerCase();
+function PersonChip({ attendee }: { attendee: CalendarAttendee }) {
+  const status = attendee.status;
   const StatusIcon = status === "accepted" || status === "needs-action" ? (status === "accepted" ? Check : CircleHelp) : status === "declined" ? X : Clock;
-  return <span title={attendee.email} className="inline-flex items-center gap-1.5 rounded-full bg-bg-tertiary px-2.5 py-1"><User size={13} /><span>{attendee.displayName ?? attendee.email}</span><StatusIcon size={13} className={status === "accepted" ? "text-success" : status === "declined" ? "text-danger" : "text-text-tertiary"} /></span>;
+  const role = attendee.role === "optional" ? "необязательно" : attendee.role === "chair" ? "председатель" : attendee.role === "non-participant" ? "информирование" : null;
+  return <span title={attendee.participant.value} className="inline-flex items-center gap-1.5 rounded-full bg-bg-tertiary px-2.5 py-1"><User size={13} /><span>{attendee.participant.displayName ?? attendee.participant.value}</span>{role && <span className="text-text-tertiary">({role})</span>}<StatusIcon size={13} className={status === "accepted" ? "text-success" : status === "declined" ? "text-danger" : "text-text-tertiary"} /></span>;
 }
+function OrganizerChip({ organizer }: { organizer: CalendarOrganizer }) { return <span title={organizer.participant.value}>{organizer.participant.displayName ?? organizer.participant.value}</span>; }
 
 function LinkifiedText({ text }: { text: string }) {
   const parts = text.split(/(https?:\/\/[^\s]+)/g);
@@ -245,7 +242,6 @@ function LinkifiedText({ text }: { text: string }) {
 function Notice({ children }: { children: ReactNode }) { return <div className="rounded-md bg-accent/10 px-3 py-2 text-xs text-text-secondary">{children}</div>; }
 function ErrorNotice({ children }: { children: ReactNode }) { return <div role="alert" className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{children}</div>; }
 
-function parseAttendees(value: string | null): Attendee[] { try { return value ? JSON.parse(value) as Attendee[] : []; } catch { return []; } }
 function findTelemostUrl(value: string | null): string | null { return value?.match(/https:\/\/telemost(?:\.360)?\.yandex\.ru\/[^\s]+/i)?.[0]?.replace(/[),.;]+$/, "") ?? null; }
 function normalizeResponse(value?: string): CalendarParticipationStatus { return value === "declined" || value === "tentative" ? value : "accepted"; }
 function errorMessage(cause: unknown, fallback: string): string { return cause instanceof Error ? `${fallback}: ${cause.message}` : fallback; }

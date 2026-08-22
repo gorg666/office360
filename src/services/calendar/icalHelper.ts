@@ -1,4 +1,5 @@
 import type { CalendarEventData, CalendarParticipationStatus, CreateEventInput, UpdateEventInput } from "./types";
+import { parseCalendarParticipants } from "./domain";
 import {
   parseCalendarEvent,
   parseCalendarEventsInRange,
@@ -80,9 +81,17 @@ export function parseICalendarInvite(icalData: string, href?: string): ParsedCal
   const component = decoded.events[0];
   if (!component) throw new Error("No readable VEVENT component");
   const event = parseVEvent(icalData, href);
-  const attendees = event.attendeesJson
-    ? JSON.parse(event.attendeesJson) as ParsedICalAttendee[]
-    : [];
+  const attendees = parseCalendarParticipants(event.attendeesJson, event.organizerEmail).attendees.map((attendee) => ({
+    email: attendee.participant.value,
+    ...(attendee.participant.displayName ? { displayName: attendee.participant.displayName } : {}),
+    ...(attendee.rawStatus ? { responseStatus: attendee.status } : {}),
+    ...(attendee.rawRole ? { role: attendee.rawRole } : {}),
+    ...(attendee.rawParticipantType ? { calendarUserType: attendee.rawParticipantType } : {}),
+    ...(attendee.rsvpRequested !== null ? { rsvp: attendee.rsvpRequested } : {}),
+    ...(attendee.sentBy ? { sentBy: participantUri(attendee.sentBy) } : {}),
+    ...(attendee.delegatedTo.length ? { delegatedTo: attendee.delegatedTo.map(participantUri) } : {}),
+    ...(attendee.delegatedFrom.length ? { delegatedFrom: attendee.delegatedFrom.map(participantUri) } : {}),
+  }));
   const recurrenceIdProperty = firstProperty(component.properties, "RECURRENCE-ID");
   const recurrenceId = recurrenceIdProperty?.values[0] ?? null;
   let recurrenceIdTime: number | null = null;
@@ -122,6 +131,10 @@ export function parseICalendarInvite(icalData: string, href?: string): ParsedCal
     isCancelled,
     attendees,
   };
+}
+
+function participantUri(participant: import("./domain").ParticipantRef): string {
+  return participant.normalizedEmail ? `mailto:${participant.value}` : participant.value;
 }
 
 function firstProperty(properties: ICalendarPropertyData[], name: string): ICalendarPropertyData | null {
