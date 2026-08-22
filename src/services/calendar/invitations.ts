@@ -8,7 +8,11 @@ import {
   type DbCalendarInvitation,
 } from "@/services/db/calendarInvitations";
 import { enqueuePendingOperation } from "@/services/db/pendingOperations";
-import { upsertCalendarEvent } from "@/services/db/calendarEvents";
+import {
+  calendarProjectionKey,
+  removeCalendarProjection,
+  upsertCalendarEvent,
+} from "@/services/db/calendarEvents";
 import { parseICalendarInvite } from "./icalHelper";
 import type { EmailProvider } from "@/services/email/types";
 
@@ -182,6 +186,11 @@ export async function executeCalendarQueuedAction(
   const invitationId = typeof params.invitationId === "string" ? params.invitationId : null;
   if (!invitationId) throw new Error("calendarRsvp requires invitationId");
 
+  const eventUid = typeof params.eventUid === "string" ? params.eventUid : null;
+  const recurrenceKey = typeof params.recurrenceKey === "string" ? params.recurrenceKey : "";
+  if (eventUid) {
+    await removeCalendarProjection(accountId, calendarProjectionKey(eventUid, recurrenceKey));
+  }
   await updateInvitationQueueStatus(invitationId, "blocked");
   emitInvitationChanged();
   throw new Error("unsupported capability: remote calendar RSVP delivery is not implemented yet");
@@ -194,7 +203,7 @@ async function projectInvitationToCalendarEvent(
 ): Promise<void> {
   if (invitation.start_time <= 0 || invitation.end_time <= 0) return;
 
-  const eventId = `invite:${invitation.event_uid}:${invitation.recurrence_key}`;
+  const eventId = calendarProjectionKey(invitation.event_uid, invitation.recurrence_key);
   await upsertCalendarEvent({
     accountId,
     googleEventId: eventId,
@@ -213,6 +222,9 @@ async function projectInvitationToCalendarEvent(
     etag: null,
     icalData: invitation.raw_ical,
     uid: invitation.event_uid,
+    origin: "local_projection",
+    projectionKey: eventId,
+    projectionStatus: "pending",
   });
 }
 

@@ -1,11 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+const connectionMocks = vi.hoisted(() => ({
+  getDb: vi.fn(),
+  selectFirstBy: vi.fn(),
+  withTransaction: vi.fn(),
+}));
+
 vi.mock("@/services/db/connection", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/services/db/connection")>();
   return {
     ...actual,
-    getDb: vi.fn(),
-    selectFirstBy: vi.fn(),
+    getDb: connectionMocks.getDb,
+    selectFirstBy: connectionMocks.selectFirstBy,
+    withTransaction: connectionMocks.withTransaction,
   };
 });
 
@@ -20,6 +27,8 @@ import {
   deleteEventByRemoteId,
   deleteCalendarEvent,
   normalizeCalendarEventRow,
+  clearCalendarEventNormalizationCache,
+  reconcileCalendarEventsRange,
   type DbCalendarEvent,
 } from "./calendarEvents";
 import { createMockDb } from "@/test/mocks";
@@ -56,13 +65,18 @@ const makeEvent = (overrides: Partial<DbCalendarEvent> = {}): DbCalendarEvent =>
   is_recurrence_master: 0,
   transp: null,
   sequence: 0,
+  origin: "remote",
+  projection_key: null,
+  projection_status: null,
   ...overrides,
 });
 
 describe("calendarEvents service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearCalendarEventNormalizationCache();
     vi.mocked(getDb).mockResolvedValue(mockDb as unknown as Awaited<ReturnType<typeof getDb>>);
+    connectionMocks.withTransaction.mockImplementation(async (fn) => fn(mockDb));
   });
 
   describe("upsertCalendarEvent", () => {
@@ -171,7 +185,7 @@ describe("calendarEvents service", () => {
       });
 
       const [, params] = mockDb.execute.mock.calls[0] as [string, unknown[]];
-      expect(params.slice(18)).toEqual([
+      expect(params.slice(18, 28)).toEqual([
         "timed-zoned", "Europe/Moscow", "2026-03-15T10:00:00", "2026-03-15T11:00:00",
         null, "series-1", "series-1::occurrence", 1, "transparent", 7,
       ]);
@@ -257,13 +271,89 @@ describe("calendarEvents service", () => {
       });
       expect(mockDb.execute).not.toHaveBeenCalled();
     });
+
+    it("memoizes a legacy semantic projection for repeated reads", () => {
+      const legacy = makeEvent({
+        time_kind: null,
+        ical_data: [
+          "BEGIN:VEVENT", "UID:legacy-cache", "DTSTART:20260315T100000Z",
+          "DTEND:20260315T110000Z", "END:VEVENT",
+        ].join("\r\n"),
+      });
+      const first = normalizeCalendarEventRow(legacy);
+      const second = normalizeCalendarEventRow({ ...legacy });
+      expect(second).toBe(first);
+    });
+  });
+
+  describe("authoritative reconciliation", () => {
+    const providerEvent = (id: string) => ({
+      remoteEventId: id,
+      uid: `uid-${id}`,
+      etag: null,
+      summary: id,
+      description: null,
+      location: null,
+      startTime: 1000,
+      endTime: 2000,
+      isAllDay: false,
+      status: "confirmed",
+      organizerEmail: null,
+      attendeesJson: null,
+      htmlLink: null,
+      icalData: null,
+      time: {
+        kind: "timed-zoned" as const,
+        start: { wall: { year: 1970, month: 1, day: 1, hour: 0, minute: 16, second: 40 }, tzid: "UTC", instant: 1000 },
+        end: { wall: { year: 1970, month: 1, day: 1, hour: 0, minute: 33, second: 20 }, tzid: "UTC", instant: 2000 },
+      },
+      seriesUid: `uid-${id}`,
+      occurrenceKey: null,
+      isRecurrenceMaster: false,
+      transparency: null,
+      sequence: 0,
+      participants: [],
+    });
+
+    it("upserts current A,C,D then removes only missing remote identities", async () => {
+      await reconcileCalendarEventsRange({
+        accountId: "acc-1", calendarId: "cal-1", rangeStart: 500, rangeEnd: 2500,
+        events: [providerEvent("A"), providerEvent("C"), providerEvent("D")],
+        diagnostics: { unreadableComponentCount: 0, unreadableObjectCount: 0 },
+      });
+      const deleteCall = mockDb.execute.mock.calls.find(([sql]) => String(sql).includes("google_event_id NOT IN"));
+      expect(deleteCall).toBeDefined();
+      expect(deleteCall?.[1]).toEqual(["acc-1", "cal-1", 500, 2500, "A", "C", "D"]);
+      expect(mockDb.execute.mock.calls.at(-1)?.[0]).toContain("calendar_sync_coverage");
+    });
+
+    it("does not delete missing cache rows for a degraded response", async () => {
+      await reconcileCalendarEventsRange({
+        accountId: "acc-1", calendarId: "cal-1", rangeStart: 500, rangeEnd: 2500,
+        events: [providerEvent("A")],
+        diagnostics: { unreadableComponentCount: 1, unreadableObjectCount: 0 },
+      });
+      expect(mockDb.execute.mock.calls.some(([sql]) => String(sql).includes("google_event_id NOT IN"))).toBe(false);
+      const coverageCall = mockDb.execute.mock.calls.at(-1) as [string, unknown[]];
+      expect(coverageCall[1][5]).toBe("partial");
+    });
+
+    it("removes a matching local RSVP projection after remote confirmation", async () => {
+      await reconcileCalendarEventsRange({
+        accountId: "acc-1", calendarId: "cal-1", rangeStart: 500, rangeEnd: 2500,
+        events: [providerEvent("A")],
+        diagnostics: { unreadableComponentCount: 0, unreadableObjectCount: 0 },
+      });
+      const projectionDelete = mockDb.execute.mock.calls.find(([sql]) => String(sql).includes("origin = 'local_projection'"));
+      expect(projectionDelete?.[1]).toEqual(["acc-1", "uid-A", 1000]);
+    });
   });
 
   describe("getCalendarEventsInRangeMulti", () => {
-    it("filters by calendar IDs and includes null calendar_id events", async () => {
+    it("filters by calendar IDs and explicit local projections", async () => {
       const events = [
         makeEvent({ calendar_id: "cal-1" }),
-        makeEvent({ id: "evt-2", calendar_id: null }),
+        makeEvent({ id: "evt-2", calendar_id: null, origin: "local_projection", projection_key: "invite:uid:", projection_status: "pending" }),
       ];
       mockDb.select.mockResolvedValueOnce(events);
 
@@ -273,12 +363,13 @@ describe("calendarEvents service", () => {
       expect(mockDb.select).toHaveBeenCalledTimes(1);
       const [sql, params] = mockDb.select.mock.calls[0] as [string, unknown[]];
       expect(sql).toContain("calendar_id IN ($4, $5)");
-      expect(sql).toContain("OR calendar_id IS NULL");
+      expect(sql).toContain("origin = 'local_projection'");
+      expect(sql).toContain("google_event_id LIKE 'invite:%'");
       expect(params).toEqual(["acc-1", 500, 2500, "cal-1", "cal-2"]);
     });
 
-    it("falls back to getCalendarEventsInRange when calendarIds is empty", async () => {
-      const events = [makeEvent()];
+    it("returns only local projections when no remote calendar is visible", async () => {
+      const events = [makeEvent({ origin: "local_projection", projection_key: "invite:uid:", projection_status: "pending" })];
       mockDb.select.mockResolvedValueOnce(events);
 
       const result = await getCalendarEventsInRangeMulti("acc-1", [], 500, 2500);
@@ -286,9 +377,9 @@ describe("calendarEvents service", () => {
       expect(result).toEqual(events);
       expect(mockDb.select).toHaveBeenCalledTimes(1);
       const [sql, params] = mockDb.select.mock.calls[0] as [string, unknown[]];
-      // Should use the simple range query (no calendar_id filter)
       expect(sql).not.toContain("calendar_id IN");
       expect(sql).toContain("WHERE account_id = $1 AND start_time < $3 AND end_time > $2");
+      expect(sql).toContain("origin = 'local_projection'");
       expect(params).toEqual(["acc-1", 500, 2500]);
     });
   });

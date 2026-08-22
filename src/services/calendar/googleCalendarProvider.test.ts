@@ -109,6 +109,45 @@ describe("GoogleCalendarProvider", () => {
       const calledUrl = mockClient.request.mock.calls[0][0] as string;
       expect(calledUrl).toContain("/calendars/user%40example.com/events?");
     });
+
+    it("follows all event-list pages in order", async () => {
+      const event = (id: string) => ({
+        id,
+        summary: id,
+        start: { dateTime: "2025-06-15T10:00:00Z" },
+        end: { dateTime: "2025-06-15T11:00:00Z" },
+      });
+      mockClient.request
+        .mockResolvedValueOnce({ items: [event("page-1")], nextPageToken: "token-2" })
+        .mockResolvedValueOnce({ items: [event("page-2")], nextPageToken: "token-3" })
+        .mockResolvedValueOnce({ items: [event("page-3")] });
+
+      const result = await provider.fetchEvents("cal-1", "2025-06-01T00:00:00Z", "2025-07-01T00:00:00Z");
+
+      expect(result.map((item) => item.remoteEventId)).toEqual(["page-1", "page-2", "page-3"]);
+      expect(mockClient.request).toHaveBeenCalledTimes(3);
+      expect(mockClient.request.mock.calls[1][0]).toContain("pageToken=token-2");
+      expect(mockClient.request.mock.calls[2][0]).toContain("pageToken=token-3");
+    });
+
+    it("accepts an empty final page", async () => {
+      mockClient.request
+        .mockResolvedValueOnce({ items: [], nextPageToken: "final-empty" })
+        .mockResolvedValueOnce({ items: [] });
+
+      await expect(provider.fetchEvents("cal-1", "2025-06-01T00:00:00Z", "2025-07-01T00:00:00Z"))
+        .resolves.toEqual([]);
+      expect(mockClient.request).toHaveBeenCalledTimes(2);
+    });
+
+    it("rejects the whole fetch when a later page fails", async () => {
+      mockClient.request
+        .mockResolvedValueOnce({ items: [], nextPageToken: "page-2" })
+        .mockRejectedValueOnce(new Error("page 2 failed"));
+
+      await expect(provider.fetchEvents("cal-1", "2025-06-01T00:00:00Z", "2025-07-01T00:00:00Z"))
+        .rejects.toThrow("page 2 failed");
+    });
   });
 
   describe("createEvent", () => {

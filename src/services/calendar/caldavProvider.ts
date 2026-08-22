@@ -50,7 +50,7 @@ export class CalDAVProvider implements CalendarProvider {
     recurrence: { read: true, write: false, scopes: ["series"] },
     rsvp: "direct",
     freeBusy: "none",
-    sync: { mode: "full", pagination: false },
+    sync: { mode: "range-refresh", pagination: false },
     conflictDetection: "etag",
   };
   private _lastReadDiagnostics: CalendarReadDiagnostics = emptyReadDiagnostics();

@@ -145,6 +145,26 @@ TZ-pinned matrix запускалась отдельным Vitest process при
 
 Автоматические проверки: targeted Calendar + legacy DB — 13 files / 184 tests; codec fixtures — 12 semantic tests; `npm run test:calendar-tz` — 45/45 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; full Vitest — 201 files / 2037 tests; TypeScript, production build и `cargo check` — PASS. Production main chunk: 2,008.36 kB raw / 598.94 kB gzip, delta к CAL-102F baseline +82.48 kB raw / +23.95 kB gzip. Build сохранил прежние chunk warnings и добавил non-fatal browser-externalized `stream` warning от transitive `sax`; runtime Calendar path загрузился успешно.
 
+### CAL-104 sync/cache reconciliation validation
+
+Дата: 2026-08-22 (Asia/Bangkok). Migration gate v35 подтверждён владельцем. Append-only v35 применена только к локальной development SQLite DB во время `npm run tauri dev`; production, deploy, seed/reset/delete, массовый backfill и cloud event mutations не выполнялись.
+
+| Проверка | Статус | Наблюдение |
+|---|---|---|
+| Migration v35 | PASS | `_migrations.version=35`; присутствуют `origin`, `projection_key`, `projection_status` и 10-колоночная `calendar_sync_coverage` |
+| Fresh/existing SQLite | PASS | In-memory verifier подтвердил fresh DB, сохранность legacy row и coverage round-trip без destructive SQL |
+| Runtime semantic rows | PASS | Агрегатная read-only проверка: 3 event rows с `origin=remote`, legacy-null отсутствует после обычного fetch |
+| Runtime coverage | PASS | 6 complete-range records; event payloads и account/calendar identifiers не читались |
+| Month / Week / Day | PASS | Все три представления завершили Yandex refresh без stale/error banner |
+| Calendar list/switch | PASS | Две collections отобразились; secondary visibility переключена и восстановлена в исходное состояние |
+| Refresh/cache recovery | PASS | F5 refresh завершился, Calendar state и исходная visibility сохранились |
+| Account switch | AUTOMATED | В runtime доступен один Calendar account; stale account/range response fencing покрыт UI race tests |
+| Cloud mutations | NOT PERFORMED | Create/update/delete/RSVP не выполнялись |
+
+CAL-104 вводит единый cache-first orchestration path, range-level coverage (`never-synced | partial | complete`), authoritative bounded reconciliation и non-destructive degraded reconciliation. Google page-token fetch покрыт полностью; generic CalDAV явно объявляет `range-refresh`. Optimistic RSVP projections имеют стабильный ключ и удаляются при unsupported delivery. Ограничения: coverage intervals пока не объединяются; durable Google sync-token persistence и CalDAV sync-collection/ctag deltas остаются следующим provider-readiness этапом.
+
+Автоматические проверки: TypeScript PASS; targeted Calendar/provider/UI — 13 files / 163 tests; `npm run test:calendar-tz` — 45/45 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; full Vitest — 203 files / 2055 tests; migration v34+v35 verifier PASS; production build и `cargo check` PASS. Production main chunk: 2,015.17 kB raw / 600.56 kB gzip; прежнее предупреждение о chunk size остаётся. Rust-код не менялся; два существующих unused-variable warning не относятся к CAL-104.
+
 ## Checks
 
 Финальные build/test результаты фиксируются после удаления временной instrumentation и перечислены в итоговом CAL-101A отчёте. Общий `cargo fmt --check` имеет существующий repo-wide formatting debt; изменённый Rust-файл проверяется отдельно.

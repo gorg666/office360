@@ -164,7 +164,7 @@ describe("calendar semantic time migration", () => {
 
   it("is append-only and adds the semantic columns and indexes", () => {
     expect(migration).toBeDefined();
-    expect(migration?.sql).not.toMatch(/\b(?:DROP|DELETE|UPDATE|REPLACE)\b/i);
+    expect(migration?.sql).not.toMatch(/(?:^|;)\s*(?:DROP|DELETE|UPDATE|REPLACE)\b/im);
     expect(migration?.sql.match(/ALTER TABLE calendar_events ADD COLUMN/g)).toHaveLength(10);
 
     for (const column of [
@@ -194,5 +194,21 @@ describe("calendar semantic time migration", () => {
     for (const nullable of ["time_kind", "tzid", "wall_start", "wall_end", "end_date_exclusive", "series_uid", "occurrence_key", "transp"]) {
       expect(migration?.sql).toMatch(new RegExp(`ADD COLUMN ${nullable} TEXT;`));
     }
+  });
+});
+
+describe("calendar sync coverage migration", () => {
+  const migration = MIGRATIONS.find((item) => item.version === 35);
+
+  it("is append-only and adds explicit projection and range coverage state", () => {
+    expect(migration).toBeDefined();
+    expect(migration?.sql).not.toMatch(/(?:^|;)\s*(?:DROP|DELETE|UPDATE|REPLACE)\b/im);
+    expect(migration?.sql.match(/ALTER TABLE calendar_events ADD COLUMN/g)).toHaveLength(3);
+    expect(migration?.sql).toContain("ADD COLUMN origin TEXT");
+    expect(migration?.sql).toContain("ADD COLUMN projection_key TEXT");
+    expect(migration?.sql).toContain("ADD COLUMN projection_status TEXT");
+    expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS calendar_sync_coverage");
+    expect(migration?.sql).toContain("UNIQUE(account_id, calendar_id, range_start, range_end)");
+    expect(migration?.sql).toContain("idx_calendar_events_projection_key");
   });
 });

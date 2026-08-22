@@ -41,6 +41,8 @@ vi.mock("@/services/db/pendingOperations", () => ({
 }));
 
 vi.mock("@/services/db/calendarEvents", () => ({
+  calendarProjectionKey: vi.fn((uid: string, recurrenceKey: string) => `invite:${uid}:${recurrenceKey}`),
+  removeCalendarProjection: vi.fn(() => Promise.resolve()),
   upsertCalendarEvent: vi.fn(() => Promise.resolve()),
 }));
 
@@ -58,7 +60,7 @@ import {
   upsertCalendarInvitation,
 } from "@/services/db/calendarInvitations";
 import { enqueuePendingOperation } from "@/services/db/pendingOperations";
-import { upsertCalendarEvent } from "@/services/db/calendarEvents";
+import { removeCalendarProjection, upsertCalendarEvent } from "@/services/db/calendarEvents";
 
 const ical = [
   "BEGIN:VCALENDAR",
@@ -153,6 +155,9 @@ describe("calendar invitations service", () => {
       accountId: "acc-1",
       googleEventId: "invite:uid-1:",
       summary: "Planning",
+      origin: "local_projection",
+      projectionKey: "invite:uid-1:",
+      projectionStatus: "pending",
     }));
     expect(enqueuePendingOperation).toHaveBeenCalledWith("acc-1", "calendarRsvp", "invite-1", expect.objectContaining({
       invitationId: "invite-1",
@@ -165,8 +170,31 @@ describe("calendar invitations service", () => {
     await expect(executeCalendarQueuedAction("acc-1", "calendarRsvp", {
       invitationId: "invite-1",
       rsvpStatus: "accepted",
+      eventUid: "uid-1",
+      recurrenceKey: "",
     })).rejects.toThrow(/unsupported capability/i);
 
     expect(updateInvitationQueueStatus).toHaveBeenCalledWith("invite-1", "blocked");
+    expect(removeCalendarProjection).toHaveBeenCalledWith("acc-1", "invite:uid-1:");
+  });
+
+  it("reuses one stable projection identity for repeated RSVP", async () => {
+    const invitation = {
+      id: "invite-repeat", account_id: "acc-1", thread_id: "thread-1", message_id: "msg-1",
+      event_uid: "uid-repeat", recurrence_id: null, recurrence_key: "", method: "REQUEST",
+      sequence: 1, status: "confirmed", summary: "Repeat", description: null, location: null,
+      start_time: 1000, end_time: 2000, is_all_day: 0, timezone_id: null,
+      timezone_warning: 0, organizer_email: null, attendees_json: null,
+      rsvp_status: "needs_action" as const, rsvp_queue_status: null, queued_operation_id: null,
+      calendar_event_id: null, raw_ical: ical, source_hash: "body:repeat", created_at: 1, updated_at: 1,
+    };
+    vi.mocked(getCalendarInvitationById).mockResolvedValue(invitation);
+
+    await respondToCalendarInvitation("acc-1", invitation.id, "accepted");
+    await respondToCalendarInvitation("acc-1", invitation.id, "tentative");
+
+    expect(upsertCalendarEvent).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(upsertCalendarEvent).mock.calls.map(([event]) => event.projectionKey))
+      .toEqual(["invite:uid-repeat:", "invite:uid-repeat:"]);
   });
 });

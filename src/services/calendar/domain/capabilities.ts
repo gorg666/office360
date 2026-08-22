@@ -6,6 +6,6 @@ export interface CalendarProviderCapabilities {
   readonly recurrence: { read: boolean; write: boolean; scopes: RecurrenceScope[] };
   readonly rsvp: "direct" | "imip" | "none";
   readonly freeBusy: "native" | "derived" | "none";
-  readonly sync: { mode: "sync-token" | "ctag" | "full"; pagination: boolean };
+  readonly sync: { mode: "sync-token" | "ctag" | "range-refresh"; pagination: boolean };
   readonly conflictDetection: "etag" | "sequence" | "none";
 }

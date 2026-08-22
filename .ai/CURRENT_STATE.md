@@ -4,7 +4,7 @@
 
 ## Last updated
 
-2026-08-11 (~22:50 ICT) — hybrid checkpoint freeze (MSG-HYBRID-001/HUB closed; MSG-HYBRID-002 open)
+2026-08-22 (Asia/Bangkok) — Calendar CAL-104 local validation complete; legacy hybrid checkpoint remains unchanged
 
 ## Project
 
@@ -57,4 +57,7 @@ Remote GitHub: `gorg666/office360`
 - Canonical detail: `docs/calendar/CALENDAR_TIME_MODEL.md` and `docs/calendar/CALENDAR_RUNTIME_BASELINE.md`.
 - CAL-103: PASS locally. `ical.js` 2.2.1 is isolated behind the Calendar codec; handwritten production parser/serializer helpers were removed. CAL-102 time/occurrence rules remain authoritative; VTIMEZONE aliases, provider-neutral unsupported-TZID diagnostics, recurrence preservation, malformed isolation, Mail invitations, and provider conformance are covered.
 - CAL-103 verification: TypeScript PASS; targeted Calendar/legacy DB 184/184; four-host-TZ codec/domain matrix 45/45 per zone; full Vitest 201 files / 2037 tests; production build and cargo check PASS; read-only Yandex Month/Week/Day/two-calendar-list Tauri smoke PASS. Existing live recurrence was not identifiable; recurrence is covered by fixtures/provider tests.
-- Next Calendar step: CAL-104 only by explicit instruction; do not start automatically.
+- CAL-104: PASS locally. A single cache-first sync service now owns provider fetch, coverage accounting, authoritative/degraded reconciliation, cache reload and safe UI status. Google bounded fetch consumes every page; generic CalDAV advertises range-refresh. Stable local RSVP projections and stale request fencing are covered.
+- Migration v35: append-only and applied only to local development DB. Runtime schema/version and aggregate-only verification PASS: version 35, 3 semantic event columns, 10 coverage columns, 6 complete coverage rows, 3 remote events. No production/deploy/seed/reset/delete/backfill/cloud event mutation.
+- CAL-104 verification: TypeScript PASS; targeted Calendar/provider/UI 163/163; four-host-TZ matrix 45/45 per zone; full Vitest 203 files / 2055 tests; v34+v35 fresh/existing migration verifier PASS; production build and cargo check PASS; read-only Yandex Month/Week/Day/calendar-list/switch/refresh Tauri smoke PASS. Only one Calendar account was available live; account/range race fencing is automated.
+- Next Calendar step: provider/write readiness and durable delta sync only by explicit instruction; do not start automatically.

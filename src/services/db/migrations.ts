@@ -1128,6 +1128,37 @@ export const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_calendar_events_occurrence_key ON calendar_events(account_id, occurrence_key);
     `,
   },
+  {
+    version: 35,
+    description: "Calendar sync coverage and local projection lifecycle",
+    sql: `
+      ALTER TABLE calendar_events ADD COLUMN origin TEXT;
+      ALTER TABLE calendar_events ADD COLUMN projection_key TEXT;
+      ALTER TABLE calendar_events ADD COLUMN projection_status TEXT;
+
+      CREATE TABLE IF NOT EXISTS calendar_sync_coverage (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        calendar_id TEXT NOT NULL REFERENCES calendars(id) ON DELETE CASCADE,
+        range_start INTEGER NOT NULL,
+        range_end INTEGER NOT NULL,
+        coverage_state TEXT NOT NULL,
+        last_attempt_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        last_successful_sync INTEGER,
+        unreadable_component_count INTEGER NOT NULL DEFAULT 0,
+        unreadable_object_count INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(account_id, calendar_id, range_start, range_end)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_sync_coverage_lookup
+        ON calendar_sync_coverage(account_id, calendar_id, range_start, range_end, coverage_state);
+      CREATE INDEX IF NOT EXISTS idx_calendar_events_origin
+        ON calendar_events(account_id, origin, projection_status);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_projection_key
+        ON calendar_events(account_id, projection_key)
+        WHERE projection_key IS NOT NULL;
+    `,
+  },
 ];
 
 /**

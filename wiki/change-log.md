@@ -1,5 +1,13 @@
 # Журнал изменений
 
+## 2026-08-22 — Calendar sync/cache ownership
+
+- Calendar range loading and remote/cache reconciliation moved from `CalendarPage` into a dedicated service boundary.
+- Append-only migration v35 adds explicit remote/local-projection semantics and durable complete/partial range coverage without rewriting existing rows.
+- Successful empty ranges are distinguishable from never-synced ranges; degraded parser responses retain missing cached events.
+- Google bounded event reads now follow all pages; generic CalDAV accurately declares bounded range refresh rather than token sync.
+- Late range/account responses are presentation-safe, and unconfirmed RSVP projections have a deterministic cleanup lifecycle.
+
 ## 2026-08-22 — Calendar iCalendar codec foundation
 
 - Calendar raw ICS parsing, serialization, event update and attendee participation update now use pinned `ical.js` behind an isolated codec boundary.

@@ -76,9 +76,11 @@ describe("Calendar provider semantic conformance", () => {
   it("declares actual provider capabilities explicitly", () => {
     expect(new GoogleCalendarProvider("account").capabilities).toMatchObject({
       recurrence: { read: true, scopes: ["instance", "series"] }, freeBusy: "native",
+      sync: { mode: "sync-token", pagination: true },
     });
     expect(new CalDAVProvider("account").capabilities).toMatchObject({
       recurrence: { read: true, scopes: ["series"] }, freeBusy: "none",
+      sync: { mode: "range-refresh", pagination: false },
     });
   });
 });

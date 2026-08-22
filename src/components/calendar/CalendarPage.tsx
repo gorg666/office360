@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
-import { deleteCalendarEventsInRange, getCalendarEventsInRangeMulti, upsertCalendarEvent, type DbCalendarEvent } from "@/services/db/calendarEvents";
-import { getVisibleCalendars, getCalendarsForAccount, upsertCalendar, type DbCalendar } from "@/services/db/calendars";
-import { getCalendarProvider, hasCalendarSupport } from "@/services/calendar/providerFactory";
-import type { CalendarEventData, CalendarReadDiagnostics, CreateEventInput } from "@/services/calendar/types";
+import { calendarEventDataToUpsert, upsertCalendarEvent, type DbCalendarEvent } from "@/services/db/calendarEvents";
+import { getCalendarsForAccount, upsertCalendar, type DbCalendar } from "@/services/db/calendars";
+import { getCalendarProvider } from "@/services/calendar/providerFactory";
+import { calendarSyncService } from "@/services/calendar/calendarSyncService";
+import type { CalendarReadDiagnostics, CreateEventInput } from "@/services/calendar/types";
 import { CalendarToolbar, type CalendarView } from "./CalendarToolbar";
 import { MonthView } from "./MonthView";
 import { WeekView } from "./WeekView";
@@ -39,6 +40,7 @@ export function CalendarPage() {
   const [showCalendarList, setShowCalendarList] = useState(false);
   const [hasCalendar, setHasCalendar] = useState(true);
   const reauthDoneRef = useRef(false);
+  const loadGenerationRef = useRef(0);
   const calendarApiEnableUrl =
     "https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com";
 
@@ -71,10 +73,6 @@ export function CalendarPage() {
   const loadCalendars = useCallback(async () => {
     if (!activeAccountId) return;
     try {
-      const supported = await hasCalendarSupport(activeAccountId);
-      setHasCalendar(supported);
-      if (!supported) return;
-
       const cals = await getCalendarsForAccount(activeAccountId);
       setCalendars(cals);
     } catch {
@@ -83,127 +81,59 @@ export function CalendarPage() {
   }, [activeAccountId]);
 
   const loadEvents = useCallback(async () => {
+    const generation = ++loadGenerationRef.current;
     if (!activeAccountId) return;
+    const isCurrent = () => loadGenerationRef.current === generation;
     setLoadState({ status: "loading" });
     setNeedsReauth(false);
     setCalendarError(null);
 
     const { start, end } = getRange();
-    const startTs = Math.floor(start.getTime() / 1000);
-    const endTs = Math.floor(end.getTime() / 1000);
+    const result = await calendarSyncService.loadRange({
+      accountId: activeAccountId,
+      rangeStart: start,
+      rangeEnd: end,
+      onCache: (snapshot) => {
+        if (!isCurrent()) return;
+        setEvents(snapshot.events);
+        setCalendars(snapshot.calendars);
+      },
+    });
+    if (!isCurrent()) return;
 
-    let hasUsableCache = false;
+    setHasCalendar(result.hasCalendar);
+    setEvents(result.events);
+    setCalendars(result.calendars);
+    setNeedsReauth(false);
+    setCalendarError(null);
 
-    // Load from local cache first. An empty result is not treated as usable
-    // because the current schema has no cache-completeness marker for a range.
-    try {
-      const visibleCals = await getVisibleCalendars(activeAccountId);
-      const calendarIds = visibleCals.map((c) => c.id);
-      const cached = await getCalendarEventsInRangeMulti(activeAccountId, calendarIds, startTs, endTs);
-      setEvents(cached);
-      hasUsableCache = cached.length > 0;
-    } catch {
-      // ignore cache errors
+    if (result.status === "fresh" || result.status === "fresh-with-warnings") {
+      setLoadState({ status: "fresh", ...result.diagnostics });
+      return;
     }
 
-    // Fetch from provider API
-    try {
-      const supported = await hasCalendarSupport(activeAccountId);
-      if (!supported) {
-        setLoadState({ status: "fresh", unreadableComponentCount: 0, unreadableObjectCount: 0 });
-        return;
-      }
-
-      const provider = await getCalendarProvider(activeAccountId);
-
-      // Discover/update calendars
-      const providerCalendars = await provider.listCalendars();
-      for (const cal of providerCalendars) {
-        await upsertCalendar({
-          accountId: activeAccountId,
-          provider: provider.type,
-          remoteId: cal.remoteId,
-          displayName: cal.displayName,
-          color: cal.color,
-          isPrimary: cal.isPrimary,
-        });
-      }
-
-      // Reload calendars from DB
-      const allCals = await getCalendarsForAccount(activeAccountId);
-      setCalendars(allCals);
-
-      // Fetch events for visible calendars
-      const visibleCals = await getVisibleCalendars(activeAccountId);
-      const readDiagnostics: CalendarReadDiagnostics = {
-        unreadableComponentCount: 0,
-        unreadableObjectCount: 0,
-      };
-      for (const cal of visibleCals) {
-        const apiEvents = await provider.fetchEvents(
-          cal.remote_id,
-          start.toISOString(),
-          end.toISOString(),
-        );
-
-        const calendarDiagnostics = provider.lastReadDiagnostics ?? {
-          unreadableComponentCount: 0,
-          unreadableObjectCount: 0,
-        };
-        readDiagnostics.unreadableComponentCount += calendarDiagnostics.unreadableComponentCount;
-        readDiagnostics.unreadableObjectCount += calendarDiagnostics.unreadableObjectCount;
-
-        if (
-          calendarDiagnostics.unreadableComponentCount === 0
-          && calendarDiagnostics.unreadableObjectCount === 0
-        ) {
-          await deleteCalendarEventsInRange(activeAccountId, cal.id, startTs, endTs);
-        }
-
-        for (const event of apiEvents) {
-          await upsertCalendarEventFromProvider(activeAccountId, cal.id, event);
-        }
-      }
-
-      // Reload events from DB
-      const calendarIds = visibleCals.map((c) => c.id);
-      const fresh = await getCalendarEventsInRangeMulti(activeAccountId, calendarIds, startTs, endTs);
-      setEvents(fresh);
-      setNeedsReauth(false);
-      setCalendarError(null);
-      setLoadState({ status: "fresh", ...readDiagnostics });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const lowerMessage = message.toLowerCase();
-      const isCalendarApiDisabled =
-        lowerMessage.includes("service_disabled") ||
-        lowerMessage.includes("not been used") ||
-        lowerMessage.includes("not enabled") ||
-        lowerMessage.includes("accessnotconfigured");
-      setLoadState({ status: hasUsableCache ? "stale" : "error" });
-      if (message.includes("403") || message.includes("insufficient")) {
-        if (isCalendarApiDisabled) {
+    setLoadState({ status: result.status });
+    if (result.errorCategory === "calendar-api-disabled" || result.errorCategory === "permission") {
+      if (result.errorCategory === "calendar-api-disabled") {
           setNeedsReauth(false);
           setCalendarError(
             "Google Calendar API выключен в проекте Google Cloud. " +
             "Откройте Google Cloud Console и включите Google Calendar API для проекта с вашим Client ID.",
           );
-        } else if (reauthDoneRef.current) {
+      } else if (reauthDoneRef.current) {
           reauthDoneRef.current = false;
           setCalendarError(
             "Доступ к календарю всё ещё запрещён после повторной авторизации. " +
             "Включите Google Calendar API в проекте Google Cloud Console: " +
             "APIs & Services -> Library -> Google Calendar API -> Enable.",
           );
-        } else {
+      } else {
           setNeedsReauth(true);
-        }
       }
     }
   }, [activeAccountId, getRange]);
 
   useEffect(() => {
-    loadCalendars();
     loadEvents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccountId, currentDate, view]);
@@ -293,7 +223,7 @@ export function CalendarPage() {
       const created = await provider.createEvent(calendarRemoteId, input);
 
       // Save to local DB
-      await upsertCalendarEventFromProvider(activeAccountId, calendarDbId ?? null, created);
+      await upsertCalendarEvent(calendarEventDataToUpsert(activeAccountId, calendarDbId ?? null, created));
 
       setShowCreate(false);
       setCreateInitialValues(undefined);
@@ -532,36 +462,4 @@ export function CalendarPage() {
       )}
     </div>
   );
-}
-
-async function upsertCalendarEventFromProvider(
-  accountId: string,
-  calendarId: string | null,
-  event: CalendarEventData,
-): Promise<void> {
-  await upsertCalendarEvent({
-    accountId,
-    googleEventId: event.instanceId ?? event.remoteEventId,
-    summary: event.summary,
-    description: event.description,
-    location: event.location,
-    startTime: event.startTime,
-    endTime: event.endTime,
-    isAllDay: event.isAllDay,
-    status: event.status,
-    organizerEmail: event.organizerEmail,
-    attendeesJson: event.attendeesJson,
-    htmlLink: event.htmlLink,
-    calendarId,
-    remoteEventId: event.remoteEventId,
-    etag: event.etag,
-    icalData: event.icalData,
-    uid: event.uid,
-    time: event.time,
-    seriesUid: event.seriesUid,
-    occurrenceKey: event.occurrenceKey,
-    isRecurrenceMaster: event.isRecurrenceMaster,
-    transparency: event.transparency,
-    sequence: event.sequence,
-  });
 }

@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102 and CAL-103 completed; CAL-104 requires a separate explicit start.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-103 and CAL-104 completed; CAL-105 requires a separate explicit start.
 
 ## ID convention
 
@@ -127,9 +127,11 @@ CAL-101 Git/runtime gate
 
 **Риски:** data migration, duplicate identities/occurrences, DB growth. This ticket requires APOSTLE migration confirmation.
 
-## CAL-105 — Provider capabilities, pagination and durable sync
+**Acceptance:** PASS. Approved append-only v35 adds explicit local projection lifecycle and durable per-calendar range coverage without rewriting existing rows. `CalendarSyncService` owns cache-first bounded refresh, authoritative/degraded reconciliation, safe deletion ordering, offline state and diagnostics; `CalendarPage` keeps presentation state with generation guards. Google bounded fetch pagination, honest CalDAV `range-refresh` capability, RSVP projection cleanup, synced-empty semantics and bounded legacy normalization cache are covered. Canonical model: `CALENDAR_SYNC_CACHE_MODEL.md`.
 
-**Цель:** вынести sync из `CalendarPage`, формализовать provider capabilities and conflicts.
+## CAL-105 — Provider/write readiness and durable delta sync
+
+**Цель:** завершить provider-specific write/conflict readiness и durable delta sync поверх CAL-104 service/cache boundary.
 
 **Основные файлы/модули:** `providerFactory.ts`, `types.ts`, Google/CalDAV providers, new calendar sync manager/store, DB sync state.
 
@@ -138,8 +140,8 @@ CAL-101 Git/runtime gate
 **Definition of Done:**
 
 - typed capability matrix (CRUD, recurrence scope, RSVP, FreeBusy, ACL, reminders);
-- Google pagination/sync token; CalDAV ctag/sync/fallback policy;
-- atomic cache refresh/tombstones, no destructive partial range state;
+- durable Google sync-token adoption/recovery; CalDAV ctag/sync-collection/fallback policy;
+- provider write conflict/retry policy and truthful mutation capabilities;
 - offline/error/conflict states surfaced to UI;
 - provider contract and sync tests.
 
