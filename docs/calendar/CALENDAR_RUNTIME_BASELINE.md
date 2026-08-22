@@ -199,11 +199,11 @@ No real invitations, events or RSVP mutations were performed for this ticket.
 | Event details | PASS | Существующее Yandex-событие открылось, участники отрисованы |
 | Organizer (визуально) | PASS | Организатор отображён отдельно от списка участников |
 | Optional attendee (визуально) | PASS | Роль «необязательно» отображена в чипе участника |
-| Week | **NOT COMPLETED** | Пользователь остановил Computer Use; в последующей сессии dev-сборка Tauri не разрешается allowlist'ом автоматизации (окно не является установленным приложением) |
-| Day | **NOT COMPLETED** | То же ограничение |
+| Week | PASS | Week time-grid загрузился без ошибки; существующие Yandex-события отобразились; карточка существующего события с участниками открылась (организатор, список участников, RSVP UI без поломки). Cloud mutations: NONE |
+| Day | PASS | Day time-grid загрузился; существующее событие отобразилось; карточка открылась с организатором, участниками и RSVP UI без поломки. Cloud mutations: NONE |
 | Mail live invitation | NOT AVAILABLE | Fixture без внешней мутации отсутствует; автоматическая регрессия PASS |
 
-Week/Day остаются незакрытыми именно как **live** проверки. Изменения CAL-106 не затрагивают `WeekView.tsx` и `DayView.tsx`; затронут общий путь разбора участников и `EventDetailModal`. Поэтому поведение, которое подтверждал бы этот smoke, покрыто автоматически: `EventDetailModal.test.tsx` рендерит канонический envelope (организатор, роль «необязательно»), разрешает текущего пользователя как участника с предвыбранным ответом, и проверяет, что legacy-массив и повреждённый JSON не ломают карточку события. Это не заменяет live-подтверждение и не записывается как PASS.
+Live Week/Day smoke выполнен 2026-08-22 (Asia/Bangkok) на уже запущенной dev-сборке `feat/calendar-yandex360` (read-only). На открытом live-событии роль «необязательно» в чипе не присутствовала; optional attendee остаётся подтверждённым Month smoke + `EventDetailModal.test.tsx`. Создавать fixture запрещено тикетом. RSVP, create/edit/delete не выполнялись.
 
 Автоматические проверки CAL-106: TypeScript PASS; targeted Calendar/participant/invitation/UI — 9 files / 78 tests; full Vitest — 206 files / 2080 tests; `npm run test:calendar-tz` — 45/45 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS; `cargo check` PASS с двумя прежними unrelated warnings. Rust не менялся. Migration не требовалась и не запускалась.
 

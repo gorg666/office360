@@ -1,6 +1,6 @@
 # CAL-106 — Calendar participant model
 
-Status: implemented on `feat/calendar-yandex360`, 2026-08-22. Automated verification complete; live Week/Day runtime smoke outstanding (`CALENDAR_RUNTIME_BASELINE.md`).
+Status: implemented on `feat/calendar-yandex360`, 2026-08-22. Automated verification complete; live Month/Week/Day runtime smoke PASS (`CALENDAR_RUNTIME_BASELINE.md`).
 
 ## Domain boundary
 
@@ -56,4 +56,4 @@ It must not require `CalendarAttendee[]` or a full `CalendarEvent`, because avai
 1. There is no organization directory or participant picker; stable account/provider IDs are used only when a provider supplies them.
 2. Google cannot preserve the RFC distinction between `room` and generic `resource`.
 3. Invitation delivery, remote iTIP orchestration, Free/Busy and room booking remain unsupported.
-4. Live Week/Day calendar smoke for this change has not been executed; the behaviour it would confirm is covered by `EventDetailModal.test.tsx` and the participant/provider suites, which is weaker evidence than a live run.
+4. Live Week/Day smoke (2026-08-22) confirmed rendering and event details for an existing Yandex event with organizer and attendees; the opened fixture did not show the optional-role chip text. Optional role remains confirmed by Month smoke and `EventDetailModal.test.tsx`. No cloud mutations were performed.
