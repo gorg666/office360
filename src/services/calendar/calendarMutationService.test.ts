@@ -5,7 +5,7 @@ import { getCalendarProvider } from "./providerFactory";
 vi.mock("./providerFactory", () => ({ getCalendarProvider: vi.fn() }));
 
 const capabilities = {
-  version: 2 as const,
+  version: 3 as const,
   read: { calendars: "full" as const, events: "full" as const },
   events: { create: "remote" as const, update: "remote" as const, delete: "remote" as const },
   recurrence: {
@@ -18,7 +18,7 @@ const capabilities = {
   rsvp: { local: "projection" as const, remote: "direct" as const },
   invitations: "none" as const,
   sync: { mode: "range-refresh" as const, pagination: false, durability: "ephemeral" as const },
-  freeBusy: "none" as const,
+  freeBusy: { self: "local-derived" as const, others: "none" as const },
   permissions: "none" as const,
   sharedCalendars: "read" as const,
   reminders: "none" as const,

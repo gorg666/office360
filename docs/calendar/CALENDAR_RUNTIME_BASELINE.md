@@ -207,4 +207,20 @@ Live Week/Day smoke выполнен 2026-08-22 (Asia/Bangkok) на уже за�
 
 Автоматические проверки CAL-106: TypeScript PASS; targeted Calendar/participant/invitation/UI — 9 files / 78 tests; full Vitest — 206 files / 2080 tests; `npm run test:calendar-tz` — 45/45 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS; `cargo check` PASS с двумя прежними unrelated warnings. Rust не менялся. Migration не требовалась и не запускалась.
 
+### CAL-107 Free/Busy foundation validation
+
+Дата: 2026-08-22 (Asia/Bangkok). Миграция не создавалась и не запускалась; cloud events не изменялись.
+
+**Runtime risk surface.** CAL-107 не подключён ни к одному runtime-пути: `grep` по `src/` подтверждает, что модули `src/services/calendar/freeBusy/` не импортируются ни одним production-файлом, и что `capabilities.freeBusy` не читается ни в одном компоненте или сервисе. Изменения, видимые приложению, сводятся к форме capability-контракта (`version: 3`, `freeBusy` разделён на `self`/`others`) и двум литералам в провайдерах. `CalendarPage`, `MonthView`, `WeekView`, `DayView`, `EventDetailModal`, sync- и mutation-сервисы не менялись.
+
+| Проверка | Статус | Наблюдение |
+|---|---|---|
+| Month / Week / Day / Yandex read (live) | NOT RE-RUN | Dev-сборка Tauri не разрешается allowlist'ом автоматизации (окно не является установленным приложением) — то же ограничение, что фиксировалось для CAL-106 |
+| Регрессия календарных view | NOT EXPECTED | Ни один view/сервис не изменён; Free/Busy не имеет UI и не вызывается из runtime |
+| Автоматическая регрессия календаря | PASS | Full Vitest 209 files / 2120 tests, включая CalendarPage/EventDetailModal/provider/sync/mutation-наборы |
+
+Free/Busy UI отсутствует по условиям тикета, поэтому визуальная проверка Free/Busy не предусмотрена.
+
+Автоматические проверки CAL-107: TypeScript PASS; targeted Free/Busy — 3 files / 40 tests; full Vitest — 209 files / 2120 tests; `npm run test:calendar-tz` — 61/61 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe` (матрица расширена проекцией Free/Busy); production build PASS; `cargo check` PASS с двумя прежними unrelated warnings. Rust не менялся.
+
 Финальные build/test результаты фиксируются после удаления временной instrumentation и перечислены в итоговом CAL-101A отчёте. Общий `cargo fmt --check` имеет существующий repo-wide formatting debt; изменённый Rust-файл проверяется отдельно.

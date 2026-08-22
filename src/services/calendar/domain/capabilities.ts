@@ -3,8 +3,11 @@ export type RecurrenceWriteScope = "single" | "series" | "this-and-future";
 export type CalendarCapabilityLevel = "none" | "partial" | "full";
 export type CalendarRemoteMutationCapability = "unsupported" | "remote";
 
+export type FreeBusySelfCapability = "none" | "local-derived" | "remote";
+export type FreeBusyOthersCapability = "none" | "remote";
+
 export interface CalendarProviderCapabilities {
-  readonly version: 2;
+  readonly version: 3;
   readonly read: { calendars: CalendarCapabilityLevel; events: CalendarCapabilityLevel };
   readonly events: {
     create: CalendarRemoteMutationCapability;
@@ -28,7 +31,19 @@ export interface CalendarProviderCapabilities {
     pagination: boolean;
     durability: "ephemeral" | "durable";
   };
-  readonly freeBusy: "native" | "derived" | "none";
+  readonly freeBusy: {
+    /**
+     * Availability of the signed-in account itself. `local-derived` means it is computed
+     * from the synced calendar cache and its coverage metadata, not from a provider query.
+     */
+    self: FreeBusySelfCapability;
+    /**
+     * Availability of any other identity. Stays `none` until a real remote Free/Busy
+     * adapter exists — deriving it by searching local events for someone else's address
+     * would be a guess, not a capability.
+     */
+    others: FreeBusyOthersCapability;
+  };
   readonly permissions: CalendarCapabilityLevel;
   readonly sharedCalendars: "none" | "read" | "manage";
   readonly reminders: CalendarCapabilityLevel;

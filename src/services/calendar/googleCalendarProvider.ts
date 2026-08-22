@@ -67,7 +67,7 @@ interface GoogleEventListResponse {
 export class GoogleCalendarProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "google_api";
   readonly capabilities: CalendarProviderCapabilities = {
-    version: 2,
+    version: 3,
     read: { calendars: "full", events: "full" },
     events: { create: "remote", update: "remote", delete: "remote" },
     recurrence: {
@@ -80,7 +80,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
     rsvp: { local: "projection", remote: "direct" },
     invitations: "none",
     sync: { mode: "sync-token", pagination: true, durability: "ephemeral" },
-    freeBusy: "none",
+    freeBusy: { self: "local-derived", others: "none" },
     permissions: "none",
     sharedCalendars: "read",
     reminders: "none",

@@ -45,7 +45,7 @@ interface GetSessionOptions {
 export class CalDAVProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "caldav";
   readonly capabilities: CalendarProviderCapabilities = {
-    version: 2,
+    version: 3,
     read: { calendars: "full", events: "full" },
     events: { create: "remote", update: "remote", delete: "remote" },
     recurrence: {
@@ -58,7 +58,7 @@ export class CalDAVProvider implements CalendarProvider {
     rsvp: { local: "projection", remote: "direct" },
     invitations: "none",
     sync: { mode: "range-refresh", pagination: false, durability: "ephemeral" },
-    freeBusy: "none",
+    freeBusy: { self: "local-derived", others: "none" },
     permissions: "none",
     sharedCalendars: "read",
     reminders: "none",

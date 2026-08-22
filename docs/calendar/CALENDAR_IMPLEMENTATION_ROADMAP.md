@@ -1,7 +1,9 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-103, CAL-104 and CAL-105 completed; the approved participant-domain CAL-106 is implemented and automatically verified, with live Week/Day smoke still outstanding.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-103, CAL-104, CAL-105, the approved participant-domain CAL-106 and the approved Free/Busy-foundation CAL-107 completed.
+
+**Numbering divergence.** Delivered ticket IDs no longer line up with the original section titles below: the delivered CAL-106 was the participant domain (not «Yandex/CalDAV production readiness») and the delivered CAL-107 is the Free/Busy foundation (not «Mail inbound calendar MIME ingestion»). Acceptance notes are attached to the delivered work; the unbuilt sections keep their original scope and need renumbering before they are started.
 
 ## ID convention
 
@@ -171,7 +173,19 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Риски:** Yandex OAuth application configuration and undocumented/provider-specific CalDAV behavior.
 
-## CAL-107 — Mail inbound calendar MIME ingestion
+## CAL-107 (delivered) — Provider-neutral Free/Busy foundation
+
+**Цель:** ответить «кто / на какой интервал / в какой timezone / занят или свободен / почему / насколько можно доверять», не строя Scheduling Assistant.
+
+**Основные файлы/модули:** `src/services/calendar/freeBusy/`, `domain/capabilities.ts` (`version: 3`).
+
+**Зависимости:** CAL-102 time foundation, CAL-104 coverage metadata, CAL-106 `ParticipantRef`.
+
+**Acceptance (2026-08-22):** PASS. Availability state и reliability разделены; `unknown`, `partial`, `unsupported`, `permission-denied` и `error` структурно не сводятся к `free`. Проекция событий учитывает `TRANSP`, `STATUS:CANCELLED`, tentative, declined-самого-себя и unconfirmed local projections; recurrence/EXDATE/RDATE/RECURRENCE-ID берутся из уже нормализованных occurrences. Занятость собирается по всем календарям аккаунта независимо от UI-видимости. Local-derived adapter реализован для текущего аккаунта; остальные identity честно возвращают `unsupported`. Миграция не потребовалась. Канон: `CALENDAR_FREE_BUSY_MODEL.md`.
+
+**Не входило:** Scheduling Assistant UI, group slot recommendation, working hours, remote Google/Yandex Free/Busy, participant picker, room booking, permissions/ACL.
+
+## CAL-107 (original scope, not started) — Mail inbound calendar MIME ingestion
 
 **Цель:** reliably ingest calendar parts during mail sync, not only when a thread is opened.
 

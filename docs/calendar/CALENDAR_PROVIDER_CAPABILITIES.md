@@ -1,7 +1,7 @@
 # Calendar provider capabilities and write paths
 
 Дата: 2026-08-22 (Asia/Bangkok)
-Контракт: `src/services/calendar/domain/capabilities.ts` (`version: 2`)
+Контракт: `src/services/calendar/domain/capabilities.ts` (`version: 3`)
 
 Этот документ фиксирует только реально подключённые runtime-paths. Capability не означает, что provider API теоретически умеет функцию: она означает, что Office360 имеет работающий adapter и service boundary для этой функции.
 
@@ -27,13 +27,16 @@ Yandex использует тот же `CalDAVProvider`, что generic CalDAV,
 | Invitation delivery | `none` | `none` | `none` |
 | Sync mode | `sync-token`, paginated | `range-refresh`, not paginated | `range-refresh`, not paginated |
 | Sync durability | `ephemeral` | `ephemeral` | `ephemeral` |
-| Free/Busy | `none` | `none` | `none` |
+| Free/Busy (self) | `local-derived` | `local-derived` | `local-derived` |
+| Free/Busy (others) | `none` | `none` | `none` |
 | Permissions / ACL | `none` | `none` | `none` |
 | Shared calendars | `read` | `read` | `read` |
 | Reminders | `none` | `none` | `none` |
 | Conflict detection | `etag` when cached ETag exists | `etag` when cached ETag exists | `etag` when cached ETag exists |
 
 `partial` recurrence write means Office360 can update ordinary fields on a recurrence target while preserving the existing RRULE/EXDATE/RDATE/RECURRENCE-ID data. CAL-105 does not add recurrence-rule authoring or `this-and-future`. Attendee write is partial because basic create/codec preservation and RSVP exist, but there is no complete attendee editor/role model yet.
+
+`freeBusy` splits into `self` and `others` in `version: 3`, because one value cannot express «я знаю занятость своего аккаунта, но ничью больше». `self = local-derived` means CAL-107 computes the signed-in account's availability from the synced cache and its CAL-104 coverage metadata, not from a provider query. `others = none` is deliberate: выводить занятость другого человека, отыскивая его адрес в локальных событиях, — это догадка, а не capability. Details: `CALENDAR_FREE_BUSY_MODEL.md`.
 
 `rsvp.remote = direct` means the adapter performs a remote provider/API mutation. Google uses its attendee update path; CalDAV updates the remote resource. CAL-105 did not perform live mutations, so organizer delivery side effects were not confirmed for CalDAV/Yandex. General invitation and outbound iTIP delivery therefore remain `none`.
 
@@ -79,7 +82,7 @@ This is critical for CalDAV/Yandex: expanded occurrences share the series `.ics`
 
 ## Deliberate unsupported states
 
-- The current adapters do not implement Free/Busy, ACL management, reminders, provider-native invitation delivery or outbound email iTIP.
+- The current adapters do not implement remote Free/Busy, ACL management, reminders, provider-native invitation delivery or outbound email iTIP.
 - Mail invitation queue items contain UID/recurrence identity but no provider calendar/resource locator. They cannot be routed safely to `respondToEvent`; they end as terminal unsupported instead of retrying forever.
 - Google sync tokens and CalDAV delta state are not durably adopted yet. Google fetch pagination remains complete, while the capability honestly reports ephemeral sync state; CalDAV reports bounded `range-refresh`.
 - `src/services/google/calendar.ts` has no imports in the current application graph and is legacy candidate code. It remains untouched to avoid unrelated destructive cleanup. The proven unreachable duplicate Gmail branch in `calendar/providerFactory.ts` was removed.
