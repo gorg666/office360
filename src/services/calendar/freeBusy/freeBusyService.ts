@@ -1,5 +1,6 @@
 import { participantIdentityKey, type ParticipantRef } from "../domain";
 import { LocalAccountFreeBusyAdapter } from "./localAccountAdapter";
+import { getAccountRemoteFreeBusyAdapter } from "./remoteAdapter";
 import type {
   AvailabilityRequest,
   AvailabilityResult,
@@ -37,7 +38,7 @@ export class FreeBusyService {
     for (const participant of request.participants) {
       let port: FreeBusyPort | null = null;
       for (const candidate of this.ports) {
-        if (await candidate.canAnswer(participant)) {
+        if (await candidate.canAnswer(participant, normalized)) {
           port = candidate;
           break;
         }
@@ -112,9 +113,12 @@ function fallback(
 }
 
 /**
- * Wires the only adapter CAL-107 ships: local-derived availability for the signed-in
- * account. No remote Free/Busy adapter exists, so other identities resolve to `unsupported`.
+ * Wires local-derived availability for the signed-in account before the account-scoped,
+ * capability-gated remote adapter.
  */
 export function createAccountFreeBusyService(accountId: string): FreeBusyService {
-  return new FreeBusyService([new LocalAccountFreeBusyAdapter(accountId)]);
+  return new FreeBusyService([
+    new LocalAccountFreeBusyAdapter(accountId),
+    getAccountRemoteFreeBusyAdapter(accountId),
+  ]);
 }

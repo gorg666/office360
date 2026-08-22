@@ -1,5 +1,12 @@
 # Журнал изменений
 
+## 2026-08-22 — CAL-110 remote Free/Busy
+
+- Scheduling Assistant получает privacy-limited remote busy intervals через единый account/provider-scoped adapter boundary.
+- Google использует официальный batched `freeBusy.query`; partial errors не стирают успешные ответы.
+- Generic CalDAV требует RFC 6638 scheduling discovery. Yandex проходит только read-only discovery и остаётся unsupported без доказанного public CalDAV endpoint.
+- Добавлены AbortSignal, короткий in-memory cache/coalescing и provider/scheduler conformance tests. Migration: none.
+
 ## 2026-08-22 — Calendar provider/write capabilities
 
 - Calendar provider capability contract v2 now describes real Google, CalDAV and Yandex read/write, recurrence, RSVP, sync, Free/Busy, ACL, reminders and conflict behavior.

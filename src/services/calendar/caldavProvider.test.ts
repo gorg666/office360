@@ -18,6 +18,9 @@ const mockFetchCalendarObjects = vi.fn();
 const mockCreateCalendarObject = vi.fn().mockResolvedValue(new Response(null, { status: 201 }));
 const mockUpdateCalendarObject = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
 const mockDeleteCalendarObject = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+const mockPropfind = vi.fn();
+const mockDavRequest = vi.fn();
+const mockDavFetch = vi.fn();
 
 vi.mock("tsdav", () => {
   const MockDAVClient = vi.fn(function (this: Record<string, unknown>) {
@@ -27,6 +30,10 @@ vi.mock("tsdav", () => {
     this.createCalendarObject = mockCreateCalendarObject;
     this.updateCalendarObject = mockUpdateCalendarObject;
     this.deleteCalendarObject = mockDeleteCalendarObject;
+    this.account = { rootUrl: "https://caldav.example.com/", principalUrl: "https://caldav.example.com/principal/" };
+    this.propfind = mockPropfind;
+    this.davRequest = mockDavRequest;
+    this.fetchOverride = mockDavFetch;
   });
   return { DAVClient: MockDAVClient };
 });
@@ -111,6 +118,9 @@ describe("CalDAVProvider", () => {
     mockCreateCalendarObject.mockReset().mockResolvedValue(new Response(null, { status: 201 }));
     mockUpdateCalendarObject.mockReset().mockResolvedValue(new Response(null, { status: 204 }));
     mockDeleteCalendarObject.mockReset().mockResolvedValue(new Response(null, { status: 204 }));
+    mockPropfind.mockReset();
+    mockDavRequest.mockReset();
+    mockDavFetch.mockReset();
     provider = new CalDAVProvider("acc-1");
   });
 
@@ -261,6 +271,105 @@ describe("CalDAVProvider", () => {
       expect(diagnostics).not.toContain(account.email);
       expect(diagnostics).not.toContain(account.access_token);
       info.mockRestore();
+    });
+  });
+
+  describe("remote free/busy discovery", () => {
+    function supportedDiscovery(): void {
+      mockPropfind.mockResolvedValue([{ ok: true, props: {
+        scheduleInboxURL: { href: "/inbox/" },
+        scheduleOutboxURL: { href: "/outbox/" },
+        calendarUserAddressSet: { href: ["mailto:self@example.com"] },
+      } }]);
+      mockDavFetch.mockResolvedValue(new Response(null, {
+        status: 200,
+        headers: { DAV: "1, 3, calendar-access, calendar-auto-schedule" },
+      }));
+    }
+
+    it("enables generic CalDAV only after RFC 6638 properties and DAV token are present", async () => {
+      supportedDiscovery();
+      await expect(provider.discoverRemoteFreeBusy()).resolves.toMatchObject({
+        supported: true,
+        autoSchedule: true,
+        scheduleOutboxUrl: "https://caldav.example.com/outbox/",
+        calendarUserAddresses: ["mailto:self@example.com"],
+        reason: "supported",
+      });
+      expect(provider.capabilities.freeBusy.others).toBe("remote");
+      expect(mockPropfind).toHaveBeenCalledWith(expect.objectContaining({
+        url: "https://caldav.example.com/principal/",
+        depth: "0",
+      }));
+    });
+
+    it("keeps a server without scheduling outbox unsupported", async () => {
+      mockPropfind.mockResolvedValue([{ ok: true, props: {
+        calendarUserAddressSet: { href: ["mailto:self@example.com"] },
+      } }]);
+      mockDavFetch.mockResolvedValue(new Response(null, { status: 200, headers: { DAV: "calendar-access" } }));
+      await expect(provider.discoverRemoteFreeBusy()).resolves.toMatchObject({
+        supported: false,
+        reason: "missing-outbox",
+      });
+    });
+
+    it("does not trust a scheduling DAV token from a failed OPTIONS response", async () => {
+      supportedDiscovery();
+      mockDavFetch.mockResolvedValue(new Response(null, {
+        status: 403,
+        headers: { DAV: "calendar-access, calendar-auto-schedule" },
+      }));
+
+      await expect(provider.discoverRemoteFreeBusy()).resolves.toMatchObject({
+        supported: false,
+        autoSchedule: false,
+        reason: "missing-auto-schedule",
+      });
+      expect(provider.capabilities.freeBusy.others).toBe("none");
+    });
+
+    it("performs read-only Yandex discovery but does not claim remote support", async () => {
+      supportedDiscovery();
+      vi.mocked(getAccount).mockResolvedValue(createYandexAccount());
+      const yandex = new CalDAVProvider("acc-yandex");
+      await expect(yandex.discoverRemoteFreeBusy()).resolves.toMatchObject({
+        supported: false,
+        autoSchedule: true,
+        reason: "yandex-unconfirmed",
+      });
+      expect(yandex.capabilities.freeBusy.others).toBe("none");
+      expect(mockDavRequest).not.toHaveBeenCalled();
+    });
+
+    it("posts VFREEBUSY to the discovered outbox and returns only busy geometry", async () => {
+      supportedDiscovery();
+      mockDavRequest.mockResolvedValue([{ ok: true, status: 200, raw: `<?xml version="1.0"?>
+        <c:schedule-response xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:d="DAV:">
+          <c:response><c:recipient><d:href>mailto:other@example.com</d:href></c:recipient>
+          <c:request-status>2.0;Success</c:request-status><c:calendar-data><![CDATA[
+BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VFREEBUSY\r\nFREEBUSY:20260822T100000Z/20260822T110000Z\r\nEND:VFREEBUSY\r\nEND:VCALENDAR
+          ]]></c:calendar-data></c:response>
+        </c:schedule-response>` }]);
+
+      const result = await provider.queryRemoteFreeBusy(["other@example.com"], {
+        start: Date.parse("2026-08-22T00:00:00Z") / 1000,
+        end: Date.parse("2026-08-23T00:00:00Z") / 1000,
+      });
+
+      expect(result).toEqual([{
+        recipient: "other@example.com",
+        status: "known",
+        busy: [{
+          start: Date.parse("2026-08-22T10:00:00Z") / 1000,
+          end: Date.parse("2026-08-22T11:00:00Z") / 1000,
+          busyType: "busy",
+        }],
+      }]);
+      const call = mockDavRequest.mock.calls[0][0];
+      expect(call.url).toBe("https://caldav.example.com/outbox/");
+      expect(call.init.body).toContain("ATTENDEE:mailto:other@example.com");
+      expect(call.init.body).not.toContain("SUMMARY");
     });
   });
 

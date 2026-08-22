@@ -104,7 +104,7 @@ export class SchedulingAssistantService {
   }
 }
 
-/** Wires the assistant onto the only Free/Busy adapter that exists today. */
+/** Wires local-derived self availability plus the account's capability-gated remote adapter. */
 export function createAccountSchedulingAssistant(accountId: string): SchedulingAssistantService {
   return new SchedulingAssistantService(createAccountFreeBusyService(accountId));
 }

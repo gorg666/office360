@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108 and CAL-109 completed. This document is the source of truth for Calendar ticket numbering.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108, CAL-109 and CAL-110 completed. This document is the source of truth for Calendar ticket numbering.
 
 **Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
 
@@ -204,7 +204,7 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Не входило:** remote Free/Busy adapters, новый participant picker backend, room booking, drag/resize сетки календаря.
 
-## CAL-110 — Remote Free/Busy provider adapters
+## CAL-110 (delivered) — Remote Free/Busy provider adapters
 
 **Цель:** реальные remote Free/Busy adapters, чтобы занятость других участников перестала быть `unsupported`.
 
@@ -222,6 +222,8 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 - privacy/ACL тесты и live corporate smoke, где возможно.
 
 **Риски:** provider support, авторизация, утечка через inference.
+
+**Acceptance (2026-08-22):** PASS. Google uses the official 50-item batch endpoint with per-participant failures, cancellation and privacy projection. Generic CalDAV is enabled only after RFC 6638 principal/outbox/auto-schedule discovery and posts VFREEBUSY to the outbox. Yandex discovery is read-only and remains unsupported. Account/provider-scoped 60-second cache and exact-request coalescing require no migration. Canonical contract: `CALENDAR_REMOTE_FREE_BUSY.md`.
 
 ## CAL-111 — Participant picker and directory
 

@@ -112,11 +112,18 @@ export interface AvailabilityResult {
 export interface FreeBusyPort {
   readonly source: AvailabilitySource;
   /** Whether this adapter can answer for the given identity at all. */
-  canAnswer(participant: ParticipantRef): Promise<boolean> | boolean;
+  canAnswer(participant: ParticipantRef, request?: AvailabilityRequest): Promise<boolean> | boolean;
   queryAvailability(
     participants: readonly ParticipantRef[],
     request: AvailabilityRequest,
   ): Promise<ParticipantAvailability[]>;
+}
+
+/** Account/provider-scoped remote boundary used beneath `FreeBusyService`. */
+export interface RemoteFreeBusyAdapter extends FreeBusyPort {
+  readonly source: "remote-provider";
+  readonly accountId: string;
+  readonly providerType: "google_api" | "caldav";
 }
 
 /**

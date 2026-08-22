@@ -80,7 +80,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
     rsvp: { local: "projection", remote: "direct" },
     invitations: "none",
     sync: { mode: "sync-token", pagination: true, durability: "ephemeral" },
-    freeBusy: { self: "local-derived", others: "none" },
+    freeBusy: { self: "local-derived", others: "remote" },
     permissions: "none",
     sharedCalendars: "read",
     reminders: "none",

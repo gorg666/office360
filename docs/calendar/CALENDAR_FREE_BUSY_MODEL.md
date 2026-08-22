@@ -193,8 +193,9 @@ interface FreeBusyPort {
 ```
 
 `FreeBusyService` routes each identity to the first adapter that can answer for it and reports
-everyone else as `unsupported`. CAL-107 ships exactly one adapter:
-`LocalAccountFreeBusyAdapter`, for the signed-in account itself.
+everyone else as `unsupported`. CAL-107 shipped `LocalAccountFreeBusyAdapter` for the signed-in
+account; CAL-110 adds the optional account/provider-scoped remote adapter described in
+`CALENDAR_REMOTE_FREE_BUSY.md`.
 
 The capability contract moved to `version: 3` and now separates the two questions, because one
 value cannot express "I know my own availability but nobody else's":
@@ -206,10 +207,9 @@ freeBusy: {
 }
 ```
 
-Google, CalDAV and Yandex all declare `{ self: "local-derived", others: "none" }`. `others` stays
-`none` on purpose: deriving another person's availability by searching local events for their
-address would be a guess presented as a capability. No fake remote Free/Busy exists in this
-codebase.
+Google declares `{ self: "local-derived", others: "remote" }`. Generic CalDAV starts at `none`
+and changes to `remote` only after RFC 6638 discovery. Yandex remains `none`; deriving another
+person's availability from local events or from undocumented endpoints is still forbidden.
 
 `permission-denied` is a distinct reliability value and must never be collapsed into `unsupported`
 or into free time when a real remote adapter starts returning it.
@@ -235,8 +235,8 @@ No scoring, ranking or slot recommendation exists, and none may be added to this
 1. No account- or calendar-level timezone is stored, so all-day and floating values are resolved
    against the request zone. For all-day this matches how the calendar already renders; for
    floating it is an explicit assumption that downgrades reliability rather than a silent guess.
-2. Remote participants are always `unsupported`. There is no Google `freeBusy.query` or CalDAV
-   RFC 6638 adapter yet, so `others` capability is `none` for every provider.
+2. Remote participants require Google or discovery-confirmed generic CalDAV. Yandex and CalDAV
+   servers without an RFC 6638 scheduling outbox remain `unsupported`.
 3. Availability is computed from the cache without triggering a sync, so a range that has never
    been opened in the UI reads as `unknown` until something syncs it.
 4. Coverage is evaluated per requested range against CAL-104 records; CAL-104 does not merge

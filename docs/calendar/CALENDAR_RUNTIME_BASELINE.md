@@ -269,3 +269,20 @@ Unsigned `tauri dev` не управляется Computer Use allowlist; smoke �
 Working-hours UI: **PASS** — component/engine contract подтверждён; live preference fixture отсутствует, фиктивные часы не подставляются.
 
 Rust не менялся. Общий `cargo fmt --check` имеет существующий repo-wide formatting debt.
+
+### CAL-110 Remote Free/Busy validation
+
+Дата: 2026-08-22 (Asia/Bangkok). Миграция не создавалась и не запускалась; cloud events, RSVP и invitations не изменялись. Google live account отсутствует, поэтому Google remote Free/Busy подтверждён автоматическими provider-contract тестами, а не live-запросом.
+
+| Live smoke | Status | Observation |
+|---|---|---|
+| Month | PASS | Август 2026 загрузился; существующие Yandex-события отобразились |
+| Week | PASS | 16–22 августа загрузилась; существующее событие отобразилось |
+| Day | PASS | 22 августа загрузился без error/stale banner |
+| Existing event details | PASS | Read-only Yandex-событие с организатором и required/optional участниками открылось |
+| Scheduling Assistant | PASS | Режим edit открыл assistant для существующего события; Save не нажимался |
+| Yandex remote discovery | PASS | Участники остались `unknown` / «Нет данных о занятости»; отсутствие подтверждённой RFC 6638 поддержки не было интерпретировано как free |
+| Google live Free/Busy | NOT AVAILABLE | В development runtime нет безопасного live Google account fixture |
+| Cloud mutations | NONE | Create, Save, Delete, RSVP и outbound Free/Busy request к Yandex не выполнялись |
+
+Автоматические проверки CAL-110: TypeScript PASS; targeted Calendar/provider/remote scheduling — 14 files / 173 tests (финальный remote subset: 4 files / 44 tests); full Vitest — 219 files / 2201 tests; `npm run test:calendar-tz` — 110/110 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,031.14 kB raw / 605.01 kB gzip); `cargo check` PASS с двумя прежними unused-variable warnings в `src/lib.rs:360`. Rust не менялся.

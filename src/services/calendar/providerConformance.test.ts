@@ -83,7 +83,7 @@ describe("Calendar provider semantic conformance", () => {
         updateScopes: ["single", "series"], deleteScopes: ["single", "series"],
       },
       rsvp: { local: "projection", remote: "direct" },
-      invitations: "none", freeBusy: { self: "local-derived", others: "none" }, conflictDetection: "etag",
+      invitations: "none", freeBusy: { self: "local-derived", others: "remote" }, conflictDetection: "etag",
       sync: { mode: "sync-token", pagination: true, durability: "ephemeral" },
     });
     expect(new CalDAVProvider("account").capabilities).toMatchObject({

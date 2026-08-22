@@ -18,6 +18,8 @@ import { isYandexOAuthCalendarAccount, YANDEX_CALDAV_URL } from "./yandex";
 import { clearAccountDiagnostic, upsertAccountDiagnostic } from "@/services/db/accountDiagnostics";
 import { createConnectionDiagnostic, redactLogIdentifier } from "@/services/diagnostics";
 import { calDavSessionFetch, isCalDavAuthFailure } from "./caldavAuthFailure";
+import { decodeVFreeBusy, encodeVFreeBusyRequest } from "./ical/freeBusyCodec";
+import type { BusyInterval } from "./freeBusy/types";
 
 export { isCalDavAuthFailure } from "./caldavAuthFailure";
 
@@ -42,28 +44,46 @@ interface GetSessionOptions {
   reason?: string;
 }
 
+export interface CalDavFreeBusyDiscovery {
+  supported: boolean;
+  autoSchedule: boolean;
+  scheduleInboxUrl: string | null;
+  scheduleOutboxUrl: string | null;
+  calendarUserAddresses: string[];
+  reason: "supported" | "missing-principal" | "missing-outbox" | "missing-user-address" | "missing-auto-schedule" | "yandex-unconfirmed" | "error";
+}
+
+export interface CalDavRemoteFreeBusyResult {
+  recipient: string;
+  status: "known" | "permission-denied" | "error";
+  busy: BusyInterval[];
+}
+
 export class CalDAVProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "caldav";
-  readonly capabilities: CalendarProviderCapabilities = {
-    version: 3,
-    read: { calendars: "full", events: "full" },
-    events: { create: "remote", update: "remote", delete: "remote" },
-    recurrence: {
-      read: "full",
-      write: "partial",
-      updateScopes: ["series"],
-      deleteScopes: ["series"],
-    },
-    attendees: { read: "partial", write: "partial" },
-    rsvp: { local: "projection", remote: "direct" },
-    invitations: "none",
-    sync: { mode: "range-refresh", pagination: false, durability: "ephemeral" },
-    freeBusy: { self: "local-derived", others: "none" },
-    permissions: "none",
-    sharedCalendars: "read",
-    reminders: "none",
-    conflictDetection: "etag",
-  };
+  private remoteFreeBusyCapability: "none" | "remote" = "none";
+  get capabilities(): CalendarProviderCapabilities {
+    return {
+      version: 3,
+      read: { calendars: "full", events: "full" },
+      events: { create: "remote", update: "remote", delete: "remote" },
+      recurrence: {
+        read: "full",
+        write: "partial",
+        updateScopes: ["series"],
+        deleteScopes: ["series"],
+      },
+      attendees: { read: "partial", write: "partial" },
+      rsvp: { local: "projection", remote: "direct" },
+      invitations: "none",
+      sync: { mode: "range-refresh", pagination: false, durability: "ephemeral" },
+      freeBusy: { self: "local-derived", others: this.remoteFreeBusyCapability },
+      permissions: "none",
+      sharedCalendars: "read",
+      reminders: "none",
+      conflictDetection: "etag",
+    };
+  }
   private _lastReadDiagnostics: CalendarReadDiagnostics = emptyReadDiagnostics();
 
   get lastReadDiagnostics(): CalendarReadDiagnostics {
@@ -74,6 +94,7 @@ export class CalDAVProvider implements CalendarProvider {
   private sessionCreation: Promise<CalDavProviderSession> | null = null;
   private recreationPending = false;
   private forceCredentialRefreshRequired = false;
+  private freeBusyDiscovery: Promise<CalDavFreeBusyDiscovery> | null = null;
 
   constructor(readonly accountId: string) {
     this.sessionKey = `caldav:${accountId}`;
@@ -225,6 +246,113 @@ export class CalDAVProvider implements CalendarProvider {
       accountId: redactedAccountId,
       sessionKey: `caldav:${redactedAccountId}`,
       ...details,
+    });
+  }
+
+  /** Read-only RFC 6638 discovery. Yandex remains disabled until its CalDAV endpoint is proven. */
+  discoverRemoteFreeBusy(signal?: AbortSignal): Promise<CalDavFreeBusyDiscovery> {
+    if (this.freeBusyDiscovery) return this.freeBusyDiscovery;
+    const discovery = this.discoverRemoteFreeBusyOnce(signal);
+    this.freeBusyDiscovery = discovery;
+    discovery.catch(() => {
+      if (this.freeBusyDiscovery === discovery) this.freeBusyDiscovery = null;
+    });
+    return discovery;
+  }
+
+  private async discoverRemoteFreeBusyOnce(signal?: AbortSignal): Promise<CalDavFreeBusyDiscovery> {
+    const account = await getAccount(this.accountId);
+    if (!account) return emptyFreeBusyDiscovery("error");
+    const isYandex = isYandexOAuthCalendarAccount(account);
+    const discovery = await this.withClient("free_busy_discovery", async (client) => {
+      const principalUrl = client.account?.principalUrl;
+      if (!principalUrl) return emptyFreeBusyDiscovery("missing-principal");
+      const [response] = await client.propfind({
+        url: principalUrl,
+        depth: "0",
+        fetchOptions: { signal },
+        props: {
+          "c:calendar-user-address-set": {},
+          "c:schedule-inbox-URL": {},
+          "c:schedule-outbox-URL": {},
+        },
+      });
+      const props = response?.props ?? {};
+      const scheduleInboxUrl = resolveDavHref(props.scheduleInboxURL, client.account?.rootUrl);
+      const scheduleOutboxUrl = resolveDavHref(props.scheduleOutboxURL, client.account?.rootUrl);
+      const calendarUserAddresses = davHrefs(props.calendarUserAddressSet);
+      const fetcher = client.fetchOverride ?? globalThis.fetch;
+      const options = await fetcher(principalUrl, {
+        method: "OPTIONS",
+        headers: client.authHeaders,
+        signal,
+      });
+      const autoSchedule = options.ok && (options.headers.get("DAV") ?? "").toLowerCase().split(",")
+        .map((value: string) => value.trim()).includes("calendar-auto-schedule");
+      const reason = !scheduleOutboxUrl ? "missing-outbox"
+        : calendarUserAddresses.length === 0 ? "missing-user-address"
+          : !autoSchedule ? "missing-auto-schedule" : "supported";
+      return {
+        supported: reason === "supported",
+        autoSchedule,
+        scheduleInboxUrl,
+        scheduleOutboxUrl,
+        calendarUserAddresses,
+        reason,
+      } satisfies CalDavFreeBusyDiscovery;
+    });
+
+    const result = isYandex
+      ? { ...discovery, supported: false, reason: "yandex-unconfirmed" as const }
+      : discovery;
+    this.remoteFreeBusyCapability = result.supported ? "remote" : "none";
+    console.info("[calendar-free-busy]", {
+      event: "caldav_discovery",
+      accountId: redactLogIdentifier(this.accountId),
+      provider: isYandex ? "yandex" : "caldav",
+      supported: result.supported,
+      autoSchedule: result.autoSchedule,
+      hasInbox: Boolean(result.scheduleInboxUrl),
+      hasOutbox: Boolean(result.scheduleOutboxUrl),
+      hasUserAddress: result.calendarUserAddresses.length > 0,
+      reason: result.reason,
+    });
+    return result;
+  }
+
+  async queryRemoteFreeBusy(
+    recipients: readonly string[],
+    range: { start: number; end: number },
+    signal?: AbortSignal,
+  ): Promise<CalDavRemoteFreeBusyResult[]> {
+    const discovery = await this.discoverRemoteFreeBusy(signal);
+    if (!discovery.supported || !discovery.scheduleOutboxUrl || !discovery.calendarUserAddresses[0]) {
+      return recipients.map((recipient) => ({ recipient, status: "error", busy: [] }));
+    }
+    const organizer = discovery.calendarUserAddresses[0];
+    return this.withClient("free_busy_query", async (client) => {
+      const addresses = recipients.map(mailtoAddress);
+      const body = encodeVFreeBusyRequest({
+        organizer,
+        attendees: addresses,
+        start: range.start,
+        end: range.end,
+        uid: crypto.randomUUID(),
+        now: Math.floor(Date.now() / 1000),
+      });
+      const [response] = await client.davRequest({
+        url: discovery.scheduleOutboxUrl!,
+        convertIncoming: false,
+        parseOutgoing: false,
+        fetchOptions: { signal },
+        init: {
+          method: "POST",
+          headers: { "Content-Type": "text/calendar; charset=utf-8" },
+          body,
+        },
+      });
+      if (!response?.ok) throw new Error(`CalDAV free busy failed (${response?.status ?? 0})`);
+      return parseScheduleResponse(String(response.raw ?? ""), recipients);
     });
   }
 
@@ -473,4 +601,58 @@ function joinCalendarObjectUrl(calendarRemoteId: string, filename: string): stri
     const separator = calendarRemoteId.endsWith("/") ? "" : "/";
     return `${calendarRemoteId}${separator}${filename}`;
   }
+}
+
+function emptyFreeBusyDiscovery(reason: CalDavFreeBusyDiscovery["reason"]): CalDavFreeBusyDiscovery {
+  return {
+    supported: false,
+    autoSchedule: false,
+    scheduleInboxUrl: null,
+    scheduleOutboxUrl: null,
+    calendarUserAddresses: [],
+    reason,
+  };
+}
+
+function davHrefs(value: unknown): string[] {
+  const candidate = value as { href?: unknown } | null;
+  const href = candidate?.href;
+  if (Array.isArray(href)) return href.filter((entry): entry is string => typeof entry === "string");
+  return typeof href === "string" ? [href] : [];
+}
+
+function resolveDavHref(value: unknown, base?: string): string | null {
+  const href = davHrefs(value)[0];
+  if (!href) return null;
+  try { return new URL(href, base).href; } catch { return null; }
+}
+
+function mailtoAddress(value: string): string {
+  return /^mailto:/i.test(value) ? value : `mailto:${value}`;
+}
+
+function parseScheduleResponse(xml: string, requested: readonly string[]): CalDavRemoteFreeBusyResult[] {
+  const byRecipient = new Map<string, CalDavRemoteFreeBusyResult>();
+  const document = new DOMParser().parseFromString(xml, "application/xml");
+  const responses = [...document.getElementsByTagNameNS("*", "response")];
+  for (const response of responses) {
+    const recipient = response.getElementsByTagNameNS("*", "recipient")[0]
+      ?.getElementsByTagNameNS("*", "href")[0]?.textContent?.trim().replace(/^mailto:/i, "").toLowerCase();
+    if (!recipient) continue;
+    const requestStatus = response.getElementsByTagNameNS("*", "request-status")[0]?.textContent?.trim() ?? "";
+    const calendarData = response.getElementsByTagNameNS("*", "calendar-data")[0]?.textContent ?? "";
+    if (requestStatus.startsWith("2.") && calendarData.trim()) {
+      try {
+        byRecipient.set(recipient, { recipient, status: "known", busy: decodeVFreeBusy(calendarData) });
+      } catch {
+        byRecipient.set(recipient, { recipient, status: "error", busy: [] });
+      }
+    } else if (requestStatus.startsWith("3.7") || requestStatus.startsWith("3.8")) {
+      byRecipient.set(recipient, { recipient, status: "permission-denied", busy: [] });
+    } else {
+      byRecipient.set(recipient, { recipient, status: "error", busy: [] });
+    }
+  }
+  return requested.map((recipient) => byRecipient.get(recipient.toLowerCase())
+    ?? { recipient, status: "error" as const, busy: [] });
 }

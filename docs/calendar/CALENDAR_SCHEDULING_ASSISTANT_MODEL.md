@@ -181,7 +181,7 @@ or a Yandex-like coloured timeline.
 
 ## Known limitations
 
-1. Remote participants remain `unsupported` until CAL-110 adds provider Free/Busy adapters.
+1. Remote participants require a CAL-110-capable Google or discovery-confirmed generic CalDAV account; Yandex remains unsupported.
 2. Overnight working hours are not modelled.
 3. The engine does not trigger a calendar sync; it reports whatever CAL-107 already knows.
 4. Room booking, directory search and working-hours settings UI are out of scope.

@@ -97,10 +97,10 @@ datetime-local (`Intl` in production, injected `timeZone` in tests). It is not
 
 Month / Week / Day views are unchanged.
 
-## Known limitation: remote availability unsupported
+## Remote availability
 
-Until a remote Free/Busy adapter exists (CAL-110), other participants typically
-render as unknown. That is correct. The UI must not imply they are free.
+CAL-110 supplies remote answers for Google and discovery-confirmed generic CalDAV. Unsupported
+providers (including Yandex) still render as unknown. The UI must never imply they are free.
 
 Working-hours UI is **PASS** for the CAL-109 contract: no fake working hours; if the
 engine supplies `workingHoursApplied` / `outsideWorkingHoursParticipants`, the UI

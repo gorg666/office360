@@ -54,11 +54,11 @@ src/services/email/types.ts
 
 ## Calendar capabilities
 
-Calendar использует отдельный provider-neutral contract v2 в `src/services/calendar/domain/capabilities.ts`. Google и CalDAV/Yandex явно объявляют read/CRUD, recurrence scopes, attendee/RSVP, invitation delivery, sync durability, Free/Busy, ACL, shared-calendar, reminder и conflict facts. Полная матрица и write-path ownership: `docs/calendar/CALENDAR_PROVIDER_CAPABILITIES.md`.
+Calendar использует отдельный provider-neutral contract v3 в `src/services/calendar/domain/capabilities.ts`. Google и CalDAV/Yandex явно объявляют read/CRUD, recurrence scopes, attendee/RSVP, invitation delivery, sync durability, Free/Busy, ACL, shared-calendar, reminder и conflict facts. Полная матрица и write-path ownership: `docs/calendar/CALENDAR_PROVIDER_CAPABILITIES.md`.
 
 UI не определяет Calendar features по наличию методов provider. Все create/update/delete/RSVP команды проходят через `CalendarMutationService`; unsupported scope возвращается typed result до remote call. В частности, CalDAV/Yandex occurrence нельзя удалить как отдельный `.ics` resource: adapter объявляет только series scope.
 
-Текущие adapters не заявляют Free/Busy, permissions, reminders или invitation delivery. Google sync-token и CalDAV delta state пока не durable; generic CalDAV/Yandex честно используют `range-refresh`. Calendar write success обновляет локальный cache через единый CAL-104 reconciliation path.
+Google заявляет remote Free/Busy для других участников. Generic CalDAV включает его только после RFC 6638 scheduling discovery; Yandex остаётся local-derived self / remote unsupported. Permissions, reminders и invitation delivery не заявлены. Google sync-token и CalDAV delta state пока не durable; generic CalDAV/Yandex честно используют `range-refresh`. Calendar write success обновляет локальный cache через единый CAL-104 reconciliation path.
 
 ## Microsoft 365 / Exchange status
 
