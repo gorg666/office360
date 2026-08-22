@@ -32,6 +32,10 @@ export interface CalendarEventData {
   transparency: "opaque" | "transparent" | null;
   sequence: number;
   participants: ParticipantRef[];
+  timeZoneDiagnostic?: {
+    status: "unsupported-timezone";
+    originalTzid: string;
+  };
 }
 
 export interface CreateEventInput {
@@ -44,6 +48,7 @@ export interface CreateEventInput {
   attendees?: { email: string }[];
   time?: CalendarEventTime;
   transparency?: "opaque" | "transparent";
+  status?: string;
   sequence?: number;
 }
 
@@ -56,6 +61,7 @@ export interface UpdateEventInput {
   isAllDay?: boolean;
   time?: CalendarEventTime;
   transparency?: "opaque" | "transparent";
+  status?: string;
   sequence?: number;
 }
 

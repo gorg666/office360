@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C and CAL-102 completed; CAL-103 requires a separate explicit start.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102 and CAL-103 completed; CAL-104 requires a separate explicit start.
 
 ## ID convention
 
@@ -106,6 +106,8 @@ CAL-101 Git/runtime gate
 - raw calendar content redacted from diagnostics.
 
 **Риски:** malformed real-world ICS, library bundle/license/security.
+
+**Acceptance:** PASS. `ical.js` 2.2.1 (MPL-2.0) is isolated in `src/services/calendar/ical/codec.ts`; handwritten production parsing/serialization was removed. CAL-102 time/occurrence semantics, malformed isolation, Mail invitations, CalDAV/Yandex paths, Google conformance, legacy lazy reads, recurrence metadata, VTIMEZONE preservation, and provider-neutral unknown-TZID diagnostics are covered. The four-host-TZ command now includes codec tests. Details and limitations: `CALENDAR_ICAL_CODEC.md`.
 
 ## CAL-104 — Normalize Calendar persistence and sync state
 

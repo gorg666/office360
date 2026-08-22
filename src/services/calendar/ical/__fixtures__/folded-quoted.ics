@@ -1,0 +1,13 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:folded-quoted-1
+DTSTART:20260315T100000Z
+DTEND:20260315T110000Z
+DESCRIPTION:First line with LF folding that is intentionally long and
+ continues here
+LOCATION:Room
+	 42
+ATTENDEE;CN="Doe, Jane; Platform";ALTREP="CID:part1.0001@example.org";ROLE=REQ-PARTICIPANT:mailto:jane@example.com
+END:VEVENT
+END:VCALENDAR

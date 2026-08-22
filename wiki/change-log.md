@@ -1,5 +1,13 @@
 # Журнал изменений
 
+## 2026-08-22 — Calendar iCalendar codec foundation
+
+- Calendar raw ICS parsing, serialization, event update and attendee participation update now use pinned `ical.js` behind an isolated codec boundary.
+- Existing CAL-102 zoned/floating/all-day, DST and occurrence identity semantics remain authoritative.
+- Incoming VTIMEZONE locations and a small explicit Windows TZID alias set map to IANA zones; unresolved identifiers produce a provider-neutral warning and deterministic projection instead of silently using the host timezone.
+- Recurrence metadata, unknown properties and VTIMEZONE components survive event updates; malformed sibling VEVENTs remain isolated.
+- Mail REQUEST/REPLY/CANCEL parsing and CalDAV/Yandex behavior share the codec; Google retains its native provider mapping.
+
 ## 2026-08-11 — планирование Телемоста и единая OAuth-сессия
 
 - Домашняя страница встроенного Телемоста остаётся невидимым техническим DOM-исполнителем; CEF показывается только для встречи или авторизации.

@@ -6,6 +6,7 @@ const vitest = fileURLToPath(new URL("../node_modules/vitest/vitest.mjs", import
 const testFiles = [
   "src/services/calendar/domain/time.test.ts",
   "src/services/calendar/icalTimeMapping.test.ts",
+  "src/services/calendar/ical/codec.test.ts",
 ];
 
 for (const zone of zones) {

@@ -419,8 +419,8 @@ describe("parseVEvent", () => {
     const result = parseVEvent(ical);
 
     // Local time -- new Date(2025, 5, 20, 14, 0, 0)
-    const expectedStart = Math.floor(new Date(2025, 5, 20, 14, 0, 0).getTime() / 1000);
-    const expectedEnd = Math.floor(new Date(2025, 5, 20, 15, 0, 0).getTime() / 1000);
+    const expectedStart = Math.floor(Date.UTC(2025, 5, 20, 14, 0, 0) / 1000);
+    const expectedEnd = Math.floor(Date.UTC(2025, 5, 20, 15, 0, 0) / 1000);
     expect(result.startTime).toBe(expectedStart);
     expect(result.endTime).toBe(expectedEnd);
   });

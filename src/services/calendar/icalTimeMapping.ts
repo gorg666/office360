@@ -7,7 +7,6 @@ import {
   createOccurrenceKey,
   formatWallDateTime,
   instantSecondsToWallDateTime,
-  isSupportedIanaTimeZone,
   naiveDateToWallDateTime,
   parseCalendarDate,
   parseWallDateTime,
@@ -20,6 +19,15 @@ import {
   type OccurrenceIdentity,
   type WallDateTime,
 } from "./domain";
+import {
+  decodeICalendar,
+  type ICalendarEventComponent,
+  type ICalendarPropertyData,
+} from "./ical/codec";
+import {
+  resolveCalendarTimeZone,
+  type ICalendarTimeZoneDefinition,
+} from "./ical/timeZoneResolver";
 
 export interface CalendarParseOptions {
   floatingTimeZone?: string;
@@ -35,12 +43,7 @@ export interface CalendarParseResult {
   diagnostics: CalendarParseDiagnostics;
 }
 
-export interface ICalContentLine {
-  name: string;
-  params: Record<string, string>;
-  rawName: string;
-  value: string;
-}
+export type ICalContentLine = ICalendarPropertyData;
 
 interface ParsedTemporalValue {
   kind: "timed-zoned" | "floating" | "all-day";
@@ -48,6 +51,7 @@ interface ParsedTemporalValue {
   date?: CalendarDate;
   tzid?: string;
   instant: number;
+  unsupportedTzid?: string;
 }
 
 export function parseCalendarEvent(
@@ -55,36 +59,55 @@ export function parseCalendarEvent(
   href?: string,
   options: CalendarParseOptions = {},
 ): CalendarEventData {
-  const lines = unfoldICalLines(icalData).map(parseICalContentLine).filter(isPresent);
+  const decoded = decodeICalendar(icalData);
+  const component = decoded.events[0];
+  if (!component) throw new Error("No readable VEVENT component");
+  return parseCalendarEventComponent(component, icalData, href, options, decoded.timeZones);
+}
+
+function parseCalendarEventComponent(
+  component: ICalendarEventComponent,
+  icalData: string,
+  href: string | undefined,
+  options: CalendarParseOptions,
+  timeZones: readonly ICalendarTimeZoneDefinition[],
+): CalendarEventData {
+  const lines = component.properties;
   const uid = firstValue(lines, "UID");
   const startLine = firstLine(lines, "DTSTART") ?? {
     name: "DTSTART",
-    params: {},
-    rawName: "DTSTART",
-    value: "19700101T000000Z",
+    parameters: {},
+    valueType: "DATE-TIME",
+    values: ["19700101T000000Z"],
   };
-  const start = parseTemporalValue(startLine, options);
+  const start = parseTemporalValue(startLine, options, timeZones);
   const durationSeconds = parseICalDuration(firstValue(lines, "DURATION"))
     ?? (start.kind === "all-day" ? 86400 : 3600);
   const endLine = firstLine(lines, "DTEND");
-  const end = endLine ? parseTemporalValue(endLine, options) : addTemporalDuration(start, durationSeconds, options);
+  const end = endLine ? parseTemporalValue(endLine, options, timeZones) : addTemporalDuration(start, durationSeconds, options);
   const time = createEventTime(start, end);
   const recurrenceIdLine = firstLine(lines, "RECURRENCE-ID");
   const recurrenceIdentity = recurrenceIdLine
-    ? temporalToIdentity(parseTemporalValue(recurrenceIdLine, options))
+    ? temporalToIdentity(parseTemporalValue(recurrenceIdLine, options, timeZones))
     : null;
   const attendees = lines.filter((line) => line.name === "ATTENDEE").flatMap((line) => {
-    const email = line.value.match(/^mailto:(.+)$/i)?.[1]?.trim();
+    const email = firstPropertyValue(line)?.match(/^mailto:(.+)$/i)?.[1]?.trim();
     if (!email) return [];
-    const displayName = line.params.CN;
+    const displayName = firstParameter(line, "CN");
     return [{
       email,
       ...(displayName ? { displayName } : {}),
-      ...(line.params.PARTSTAT ? { responseStatus: line.params.PARTSTAT.toLowerCase() } : {}),
+      ...(firstParameter(line, "PARTSTAT") ? { responseStatus: firstParameter(line, "PARTSTAT")!.toLowerCase() } : {}),
+      ...(firstParameter(line, "ROLE") ? { role: firstParameter(line, "ROLE") } : {}),
+      ...(firstParameter(line, "CUTYPE") ? { calendarUserType: firstParameter(line, "CUTYPE") } : {}),
+      ...(firstParameter(line, "RSVP") ? { rsvp: firstParameter(line, "RSVP")!.toUpperCase() === "TRUE" } : {}),
+      ...(firstParameter(line, "SENT-BY") ? { sentBy: firstParameter(line, "SENT-BY") } : {}),
+      ...(parameterValues(line, "DELEGATED-TO").length > 0 ? { delegatedTo: parameterValues(line, "DELEGATED-TO") } : {}),
+      ...(parameterValues(line, "DELEGATED-FROM").length > 0 ? { delegatedFrom: parameterValues(line, "DELEGATED-FROM") } : {}),
     }];
   });
   const participants = attendees.map((attendee) => participantRefFromEmail(attendee.email, attendee.displayName));
-  const organizerEmail = firstLine(lines, "ORGANIZER")?.value.match(/^mailto:(.+)$/i)?.[1]?.trim() ?? null;
+  const organizerEmail = firstValue(lines, "ORGANIZER")?.match(/^mailto:(.+)$/i)?.[1]?.trim() ?? null;
   const rule = firstValue(lines, "RRULE");
   const sequence = Number.parseInt(firstValue(lines, "SEQUENCE") ?? "0", 10);
   const transparencyValue = firstValue(lines, "TRANSP")?.toLowerCase();
@@ -96,9 +119,9 @@ export function parseCalendarEvent(
     remoteEventId: href ?? uid ?? crypto.randomUUID(),
     uid,
     etag: null,
-    summary: unescapeICalText(firstValue(lines, "SUMMARY")),
-    description: unescapeICalText(firstValue(lines, "DESCRIPTION")),
-    location: unescapeICalText(firstValue(lines, "LOCATION")),
+    summary: firstValue(lines, "SUMMARY"),
+    description: firstValue(lines, "DESCRIPTION"),
+    location: firstValue(lines, "LOCATION"),
     startTime: compatibilityStart(time, options),
     endTime: compatibilityEnd(time, options),
     isAllDay: time.kind === "all-day",
@@ -114,6 +137,12 @@ export function parseCalendarEvent(
     transparency,
     sequence: Number.isFinite(sequence) ? sequence : 0,
     participants,
+    ...((start.unsupportedTzid ?? end.unsupportedTzid) ? {
+      timeZoneDiagnostic: {
+        status: "unsupported-timezone" as const,
+        originalTzid: (start.unsupportedTzid ?? end.unsupportedTzid)!,
+      },
+    } : {}),
   };
 }
 
@@ -134,20 +163,19 @@ export function parseCalendarEventsInRangeDetailed(
   rangeEnd: Date,
   options: CalendarParseOptions = {},
 ): CalendarParseResult {
-  const extracted = extractVEventBlocks(icalData);
+  const decoded = decodeICalendar(icalData);
   const diagnostics: CalendarParseDiagnostics = {
-    unreadableComponentCount: extracted.unreadableComponentCount,
-    unreadableObjectCount: extracted.blocks.length === 0 && !isCalendarEnvelope(icalData) ? 1 : 0,
+    unreadableComponentCount: decoded.unreadableComponentCount,
+    unreadableObjectCount: decoded.unreadableObjectCount,
   };
   const parsed: ParsedEventComponent[] = [];
-  for (const block of extracted.blocks) {
+  for (const component of decoded.events) {
     try {
-      const lines = unfoldICalLines(block).map(parseICalContentLine).filter(isPresent);
       parsed.push({
-        block,
-        lines,
-        event: parseCalendarEvent(wrapVEvent(block), href, options),
-        recurrenceId: firstLine(lines, "RECURRENCE-ID"),
+        component,
+        lines: component.properties,
+        event: parseCalendarEventComponent(component, icalData, href, options, decoded.timeZones),
+        recurrenceId: firstLine(component.properties, "RECURRENCE-ID"),
       });
     } catch {
       diagnostics.unreadableComponentCount += 1;
@@ -168,7 +196,7 @@ export function parseCalendarEventsInRangeDetailed(
 }
 
 interface ParsedEventComponent {
-  block: string;
+  component: ICalendarEventComponent;
   lines: ICalContentLine[];
   event: CalendarEventData;
   recurrenceId: ICalContentLine | null;
@@ -206,16 +234,16 @@ function expandParsedEvents(
   }
 
   for (const line of rdateLines) {
-    for (const value of splitPropertyValues(line.value)) {
-      const wall = recurrenceValueToMasterWall({ ...line, value }, master.event.time, options);
+    for (const value of line.values.flatMap(splitPropertyValues)) {
+      const wall = recurrenceValueToMasterWall({ ...line, values: [value] }, master.event.time, options);
       candidateWalls.set(formatWallDateTime(wall), wall);
     }
   }
 
   const exclusions = new Set(
     master.lines.filter((line) => line.name === "EXDATE").flatMap((line) =>
-      splitPropertyValues(line.value).map((value) => {
-        const wall = recurrenceValueToMasterWall({ ...line, value }, master.event.time, options);
+      line.values.flatMap(splitPropertyValues).map((value) => {
+        const wall = recurrenceValueToMasterWall({ ...line, values: [value] }, master.event.time, options);
         return createOccurrenceKey(seriesUid, identityForMasterWall(master.event.time, wall));
       }),
     ),
@@ -254,8 +282,14 @@ export function parseICalDateTimeToInstant(
   value: string,
   params: Record<string, string> = {},
   options: CalendarParseOptions = {},
+  timeZones: readonly ICalendarTimeZoneDefinition[] = [],
 ): number {
-  return parseTemporalValue({ name: "DATE", params, rawName: "DATE", value }, options).instant;
+  return parseTemporalValue({
+    name: "DATE",
+    parameters: params,
+    valueType: params.VALUE ?? "DATE-TIME",
+    values: [value],
+  }, options, timeZones).instant;
 }
 
 export function parseICalDuration(value: string | null): number | null {
@@ -269,52 +303,38 @@ export function parseICalDuration(value: string | null): number | null {
     + Number(match[5] ?? 0);
 }
 
-export function unfoldICalLines(icalData: string): string[] {
-  return icalData.replace(/\r?\n[ \t]/g, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n")
-    .split("\n").filter((line) => line.length > 0);
-}
-
-export function parseICalContentLine(line: string): ICalContentLine | null {
-  const colonIndex = findUnquotedCharacter(line, ":");
-  if (colonIndex === -1) return null;
-  const rawName = line.slice(0, colonIndex);
-  const value = line.slice(colonIndex + 1);
-  const [namePart, ...paramParts] = splitUnquoted(rawName, ";");
-  const name = namePart?.toUpperCase();
-  if (!name) return null;
-  const params: Record<string, string> = {};
-  for (const part of paramParts) {
-    const eqIndex = findUnquotedCharacter(part, "=");
-    if (eqIndex === -1) continue;
-    params[part.slice(0, eqIndex).toUpperCase()] = part.slice(eqIndex + 1).replace(/^"(.*)"$/, "$1");
-  }
-  return { name, params, rawName, value };
-}
-
-function parseTemporalValue(line: ICalContentLine, options: CalendarParseOptions): ParsedTemporalValue {
-  if (line.params.VALUE?.toUpperCase() === "DATE" || /^\d{8}$/.test(line.value)) {
-    if (line.params.TZID) throw new Error("VALUE=DATE must not include TZID");
-    const date = parseCalendarDate(line.value);
+function parseTemporalValue(
+  line: ICalContentLine,
+  options: CalendarParseOptions,
+  timeZones: readonly ICalendarTimeZoneDefinition[],
+): ParsedTemporalValue {
+  const value = firstPropertyValue(line) ?? "";
+  const valueType = line.valueType.toUpperCase();
+  const tzid = firstParameter(line, "TZID");
+  if (valueType === "DATE" || /^\d{8}$/.test(value)) {
+    if (tzid) throw new Error("VALUE=DATE must not include TZID");
+    const date = parseCalendarDate(value);
     return { kind: "all-day", date, instant: calendarDateToUnixSeconds(date) };
   }
-  const isUtc = line.value.endsWith("Z");
-  const wall = parseWallDateTime(isUtc ? line.value.slice(0, -1) : line.value);
+  const isUtc = value.endsWith("Z");
+  const wall = parseWallDateTime(isUtc ? value.slice(0, -1) : value);
   if (isUtc) {
     return { kind: "timed-zoned", wall, tzid: "UTC", instant: zonedWallDateTimeToInstant(wall, "UTC") };
   }
-  if (line.params.TZID) {
-    if (!isSupportedIanaTimeZone(line.params.TZID)) {
-      const floatingTimeZone = options.floatingTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-      return { kind: "floating", wall, instant: projectFloatingWallTime(wall, floatingTimeZone) };
+  if (tzid) {
+    const resolved = resolveCalendarTimeZone(tzid, timeZones);
+    if (!resolved.resolvedTzid) {
+      const floatingTimeZone = options.floatingTimeZone ?? "UTC";
+      return { kind: "floating", wall, instant: projectFloatingWallTime(wall, floatingTimeZone), unsupportedTzid: tzid };
     }
     return {
       kind: "timed-zoned",
       wall,
-      tzid: line.params.TZID,
-      instant: zonedWallDateTimeToInstant(wall, line.params.TZID),
+      tzid: resolved.resolvedTzid,
+      instant: zonedWallDateTimeToInstant(wall, resolved.resolvedTzid),
     };
   }
-  const floatingTimeZone = options.floatingTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const floatingTimeZone = options.floatingTimeZone ?? "UTC";
   return { kind: "floating", wall, instant: projectFloatingWallTime(wall, floatingTimeZone) };
 }
 
@@ -348,7 +368,7 @@ function addTemporalDuration(
   }
   const wall = addWallSeconds(start.wall!, durationSeconds);
   if (start.kind === "floating") {
-    const zone = options.floatingTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const zone = options.floatingTimeZone ?? "UTC";
     return { kind: "floating", wall, instant: projectFloatingWallTime(wall, zone) };
   }
   return {
@@ -388,7 +408,7 @@ function recurrenceValueToMasterWall(
   masterTime: CalendarEventTime,
   options: CalendarParseOptions,
 ): WallDateTime {
-  const parsed = parseTemporalValue(line, options);
+  const parsed = parseTemporalValue(line, options, []);
   if (masterTime.kind === "all-day") {
     if (parsed.date) return calendarDateToWall(parsed.date);
     return parsed.wall!;
@@ -430,14 +450,14 @@ function eventWallDurationSeconds(time: CalendarEventTime): number {
 function compatibilityStart(time: CalendarEventTime, options: CalendarParseOptions): number {
   if (time.kind === "all-day") return calendarDateToUnixSeconds(time.startDate);
   if (time.kind === "timed-zoned") return time.start.instant;
-  const zone = options.floatingTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = options.floatingTimeZone ?? "UTC";
   return projectFloatingWallTime(time.start, zone);
 }
 
 function compatibilityEnd(time: CalendarEventTime, options: CalendarParseOptions): number {
   if (time.kind === "all-day") return calendarDateToUnixSeconds(time.endDateExclusive);
   if (time.kind === "timed-zoned") return time.end.instant;
-  const zone = options.floatingTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = options.floatingTimeZone ?? "UTC";
   return projectFloatingWallTime(time.end, zone);
 }
 
@@ -455,79 +475,25 @@ function firstLine(lines: ICalContentLine[], name: string): ICalContentLine | nu
 }
 
 function firstValue(lines: ICalContentLine[], name: string): string | null {
-  return firstLine(lines, name)?.value ?? null;
+  const line = firstLine(lines, name);
+  return line ? firstPropertyValue(line) : null;
 }
 
 function splitPropertyValues(value: string): string[] {
   return value.split(",").map((part) => part.trim()).filter(Boolean);
 }
 
-function extractVEventBlocks(icalData: string): { blocks: string[]; unreadableComponentCount: number } {
-  const blocks: string[] = [];
-  let current: string[] | null = null;
-  let unreadableComponentCount = 0;
-  for (const line of unfoldICalLines(icalData)) {
-    const marker = line.trim().toUpperCase();
-    if (marker === "BEGIN:VEVENT") {
-      if (current) unreadableComponentCount += 1;
-      current = ["BEGIN:VEVENT"];
-    } else if (marker === "END:VEVENT") {
-      if (!current) {
-        unreadableComponentCount += 1;
-        continue;
-      }
-      current.push("END:VEVENT");
-      blocks.push(current.join("\r\n"));
-      current = null;
-    } else if (current) {
-      current.push(line);
-    }
-  }
-  if (current) unreadableComponentCount += 1;
-  return { blocks, unreadableComponentCount };
+function firstPropertyValue(line: ICalContentLine): string | null {
+  return line.values[0] ?? null;
 }
 
-function isCalendarEnvelope(icalData: string): boolean {
-  const lines = unfoldICalLines(icalData).map((line) => line.trim().toUpperCase());
-  return lines.includes("BEGIN:VCALENDAR") && lines.includes("END:VCALENDAR");
+function firstParameter(line: ICalContentLine, name: string): string | undefined {
+  const value = line.parameters[name];
+  return Array.isArray(value) ? value[0] : value;
 }
 
-function wrapVEvent(block: string): string {
-  return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${block}\r\nEND:VCALENDAR`;
-}
-
-function unescapeICalText(value: string | null): string | null {
-  if (value === null) return null;
-  return value.replace(/\\([nN,;\\])/g, (_match, escaped: string) => {
-    if (escaped === "n" || escaped === "N") return "\n";
-    return escaped;
-  });
-}
-
-function findUnquotedCharacter(value: string, character: string): number {
-  let quoted = false;
-  for (let index = 0; index < value.length; index += 1) {
-    if (value[index] === '"') quoted = !quoted;
-    else if (!quoted && value[index] === character) return index;
-  }
-  return -1;
-}
-
-function splitUnquoted(value: string, separator: string): string[] {
-  const parts: string[] = [];
-  let start = 0;
-  let quoted = false;
-  for (let index = 0; index < value.length; index += 1) {
-    if (value[index] === '"') quoted = !quoted;
-    else if (!quoted && value[index] === separator) {
-      parts.push(value.slice(start, index));
-      start = index + 1;
-    }
-  }
-  parts.push(value.slice(start));
-  return parts;
-}
-
-function isPresent<T>(value: T | null): value is T {
-  return value !== null;
+function parameterValues(line: ICalContentLine, name: string): string[] {
+  const value = line.parameters[name];
+  if (!value) return [];
+  return Array.isArray(value) ? value : value.split(",").map((item) => item.trim()).filter(Boolean);
 }

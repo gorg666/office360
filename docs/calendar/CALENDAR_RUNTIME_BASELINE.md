@@ -129,6 +129,22 @@ TZ-pinned matrix запускалась отдельным Vitest process при
 
 Автоматические проверки: targeted Calendar/provider/UI — 85/85; `npm run test:calendar-tz` — 33/33 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; full Vitest — 200 files / 2025 tests; TypeScript, production build и `cargo check` — PASS. Read-only Tauri smoke: Month показал существующие Yandex events, Week — существующее timed event, Day и calendar list (две коллекции) загрузились без stale/error. Реальные cloud events не изменялись.
 
+### CAL-103 iCalendar codec validation
+
+Дата: 2026-08-22 (Asia/Bangkok). `ical.js` 2.2.1 (MPL-2.0) установлен exact-version dependency и изолирован в Calendar codec. Production parser/serializer/update paths больше не используют handwritten content-line parser, regex property replacement или manual escaping.
+
+| Проверка | Статус | Наблюдение |
+|---|---|---|
+| Calendar open / Month | PASS | Yandex events отобразились после remote refresh без error/stale/degraded notice |
+| Week | PASS | Существующее timed event отобразилось; refresh завершился без parser warning |
+| Day | PASS | Day grid загрузился, loading state завершился без error/stale banner |
+| Calendar list | PASS | Открылись две Yandex collections; visibility не изменялась |
+| Existing recurrence | NOT CONFIRMED | В доступном текущем диапазоне визуально подтверждён timed event, но достоверно recurring live fixture не идентифицирован; recurrence covered by codec/provider tests |
+| Cloud mutations | NOT PERFORMED | Create/update/delete/RSVP не выполнялись |
+| Parser diagnostics | PASS | На текущих нормальных Yandex данных новых unreadable/degraded notices не было; raw ICS не логировался |
+
+Автоматические проверки: targeted Calendar + legacy DB — 13 files / 184 tests; codec fixtures — 12 semantic tests; `npm run test:calendar-tz` — 45/45 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; full Vitest — 201 files / 2037 tests; TypeScript, production build и `cargo check` — PASS. Production main chunk: 2,008.36 kB raw / 598.94 kB gzip, delta к CAL-102F baseline +82.48 kB raw / +23.95 kB gzip. Build сохранил прежние chunk warnings и добавил non-fatal browser-externalized `stream` warning от transitive `sax`; runtime Calendar path загрузился успешно.
+
 ## Checks
 
 Финальные build/test результаты фиксируются после удаления временной instrumentation и перечислены в итоговом CAL-101A отчёте. Общий `cargo fmt --check` имеет существующий repo-wide formatting debt; изменённый Rust-файл проверяется отдельно.

@@ -1,5 +1,5 @@
 import { generateVEvent, parseVEvent, parseVEventsInRange, parseVEventsInRangeDetailed, updateVEventFields } from "./icalHelper";
-import { parseICalContentLine } from "./icalTimeMapping";
+import { decodeICalendarProperty } from "./ical/codec";
 
 const HOST_TIME_ZONES = ["UTC", "Europe/Moscow", "America/New_York", "Australia/Lord_Howe"];
 
@@ -165,7 +165,7 @@ describe("malformed event isolation", () => {
 
 describe("current ICS time boundary", () => {
   it("parses quoted parameters containing a colon and LF folding", () => {
-    expect(parseICalContentLine('DESCRIPTION;ALTREP="https://ex.test/desc":Body')?.params.ALTREP)
+    expect(decodeICalendarProperty('DESCRIPTION;ALTREP="https://ex.test/desc":Body').parameters.ALTREP)
       .toBe("https://ex.test/desc");
     const parsed = parseVEvent("BEGIN:VEVENT\nUID:folded\nDTSTART:20260315T100000Z\nDTEND:20260315T110000Z\nDESCRIPTION:Long\n continuation\nEND:VEVENT");
     expect(parsed.description).toBe("Longcontinuation");
