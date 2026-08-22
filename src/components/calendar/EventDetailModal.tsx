@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useEffect, type ReactNode } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, CircleHelp, Clock, Copy, ExternalLink, Mail, MapPin, Pencil, Repeat2, Trash2, User, X } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -9,11 +9,13 @@ import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import type { DbCalendar } from "@/services/db/calendars";
 import type { CalendarParticipationStatus } from "@/services/calendar/types";
 import { calendarMutationService } from "@/services/calendar/calendarMutationService";
-import { findCurrentAttendee, parseCalendarParticipants, supportsRecurrenceScope, type CalendarAttendee, type CalendarOrganizer, type CalendarProviderCapabilities, type RecurrenceWriteScope } from "@/services/calendar/domain";
+import { findCurrentAttendee, parseCalendarParticipants, type CalendarAttendee, type CalendarOrganizer, type CalendarProviderCapabilities, type RecurrenceWriteScope } from "@/services/calendar/domain";
 import { useAccountStore } from "@/stores/accountStore";
 import { navigateToLabel } from "@/router/navigate";
 import { cefNavigate } from "@/services/cef";
 import { allDayStartDate } from "./eventTimeProjection";
+import { RecurrenceScopeDialog } from "./recurrence/RecurrenceScopeDialog";
+import { canMutateRecurring, classifyRecurringEditTarget, recurrenceScopeChoices, writeFailureCopy } from "./recurrence/recurrenceEditScope";
 import { SchedulingAssistant, type PlanMeetingFn } from "./scheduling/SchedulingAssistant";
 import { buildEditorSchedulingParticipants } from "./scheduling/schedulingView";
 
@@ -38,8 +40,10 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
   const [endTime, setEndTime] = useState(toLocalISOString(new Date(event.end_time * 1000)));
   const [busyAction, setBusyAction] = useState<"save" | "delete" | "rsvp" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [pendingIntent, setPendingIntent] = useState<"update" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [providerCapabilities, setProviderCapabilities] = useState<CalendarProviderCapabilities | null>(null);
+  const inFlightRef = useRef(false);
   const accounts = useAccountStore((state) => state.accounts);
   const account = accounts.find((item) => item.id === accountId);
   const accountEmail = account?.email ?? "";
@@ -56,20 +60,21 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
     [accountDisplayName, accountEmail, attendees],
   );
   const meetingUrl = useMemo(() => findTelemostUrl(event.description), [event.description]);
-  const recurring = event.is_recurrence_master === 1 || event.occurrence_key !== null;
+  const editTarget = useMemo(() => classifyRecurringEditTarget(event), [event]);
+  const recurring = editTarget.kind !== "plain";
   const selfAttendee = findCurrentAttendee(attendees, { accountId, email: accountEmail });
-  const recurrenceScope: RecurrenceWriteScope | undefined = event.occurrence_key
-    ? "single"
-    : event.is_recurrence_master === 1
-      ? "series"
-      : undefined;
-  const canUpdate = providerCapabilities?.events.update === "remote" && (
-    !recurring || (recurrenceScope !== undefined && supportsRecurrenceScope(providerCapabilities, "update", recurrenceScope))
+  const updateChoices = useMemo(
+    () => recurrenceScopeChoices(providerCapabilities, "update", editTarget),
+    [editTarget, providerCapabilities],
   );
-  const canDelete = providerCapabilities?.events.delete === "remote" && (
-    !recurring || (recurrenceScope !== undefined && supportsRecurrenceScope(providerCapabilities, "delete", recurrenceScope))
+  const deleteChoices = useMemo(
+    () => recurrenceScopeChoices(providerCapabilities, "delete", editTarget),
+    [editTarget, providerCapabilities],
   );
+  const canUpdate = canMutateRecurring(providerCapabilities, "update", editTarget);
+  const canDelete = canMutateRecurring(providerCapabilities, "delete", editTarget);
   const canRsvp = providerCapabilities?.rsvp.remote === "direct";
+  const scopeChoices = pendingIntent === "delete" ? deleteChoices : updateChoices;
 
   useEffect(() => {
     let current = true;
@@ -84,53 +89,90 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
     remoteEventId: event.remote_event_id ?? event.google_event_id,
   }), [calendar?.remote_id, event.google_event_id, event.remote_event_id]);
 
-  const handleSave = useCallback(async () => {
+  const mutationTarget = useCallback((scope?: RecurrenceWriteScope) => ({
+    accountId,
+    ...remoteIds(),
+    etag: event.etag ?? undefined,
+    isRecurring: recurring,
+    recurrenceScope: scope,
+    seriesUid: editTarget.seriesUid,
+    occurrenceKey: scope === "single" ? editTarget.occurrenceKey : undefined,
+  }), [accountId, editTarget.occurrenceKey, editTarget.seriesUid, event.etag, recurring, remoteIds]);
+
+  const commitUpdate = useCallback(async (scope?: RecurrenceWriteScope) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setBusyAction("save"); setError(null);
     try {
-      const ids = remoteIds();
       const result = await calendarMutationService.update({
-        accountId,
-        ...ids,
-        etag: event.etag ?? undefined,
+        ...mutationTarget(scope),
         baseSequence: event.sequence,
-        isRecurring: recurring,
-        recurrenceScope,
-        seriesUid: event.series_uid ?? event.uid ?? undefined,
-        occurrenceKey: event.occurrence_key ?? undefined,
       }, {
         summary,
         description,
         location,
-        startTime: recurring ? undefined : new Date(startTime).toISOString(),
-        endTime: recurring ? undefined : new Date(endTime).toISOString(),
+        startTime: new Date(startTime).toISOString(),
+        endTime: new Date(endTime).toISOString(),
         isAllDay: event.is_all_day === 1,
       });
-      if (result.status !== "success") throw new Error(result.message);
+      if (result.status !== "success") {
+        setPendingIntent(null);
+        setError(writeFailureCopy(result));
+        return;
+      }
+      setPendingIntent(null);
       onUpdated();
-    } catch (cause) {
-      setError(errorMessage(cause, "Не удалось сохранить событие"));
-    } finally { setBusyAction(null); }
-  }, [accountId, description, endTime, event.etag, event.is_all_day, event.occurrence_key, event.sequence, event.series_uid, event.uid, location, onUpdated, recurrenceScope, recurring, remoteIds, startTime, summary]);
+    } catch {
+      setPendingIntent(null);
+      setError("Не удалось выполнить операцию с календарём.");
+    } finally {
+      inFlightRef.current = false;
+      setBusyAction(null);
+    }
+  }, [description, endTime, event.is_all_day, event.sequence, location, mutationTarget, onUpdated, startTime, summary]);
 
-  const handleDelete = useCallback(async () => {
+  const commitDelete = useCallback(async (scope?: RecurrenceWriteScope) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setBusyAction("delete"); setError(null);
     try {
-      const ids = remoteIds();
-      const result = await calendarMutationService.delete({
-        accountId,
-        ...ids,
-        etag: event.etag ?? undefined,
-        isRecurring: recurring,
-        recurrenceScope,
-        seriesUid: event.series_uid ?? event.uid ?? undefined,
-        occurrenceKey: event.occurrence_key ?? undefined,
-      });
-      if (result.status !== "success") throw new Error(result.message);
+      const result = await calendarMutationService.delete(mutationTarget(scope));
+      if (result.status !== "success") {
+        setPendingIntent(null);
+        setError(writeFailureCopy(result));
+        return;
+      }
+      setPendingIntent(null);
       onUpdated();
-    } catch (cause) {
-      setError(errorMessage(cause, "Не удалось удалить событие"));
-    } finally { setBusyAction(null); }
-  }, [accountId, event.etag, event.occurrence_key, event.series_uid, event.uid, onUpdated, recurrenceScope, recurring, remoteIds]);
+    } catch {
+      setPendingIntent(null);
+      setError("Не удалось выполнить операцию с календарём.");
+    } finally {
+      inFlightRef.current = false;
+      setBusyAction(null);
+    }
+  }, [mutationTarget, onUpdated]);
+
+  const requestSave = useCallback(() => {
+    if (busyAction) return;
+    if (!recurring) {
+      void commitUpdate();
+      return;
+    }
+    setError(null);
+    setPendingIntent("update");
+  }, [busyAction, commitUpdate, recurring]);
+
+  const requestDelete = useCallback(() => {
+    if (busyAction) return;
+    if (!recurring) {
+      void commitDelete();
+      return;
+    }
+    setConfirmDelete(false);
+    setError(null);
+    setPendingIntent("delete");
+  }, [busyAction, commitDelete, recurring]);
 
   const handleRsvp = useCallback(async (status: CalendarParticipationStatus) => {
     if (!accountEmail) return;
@@ -156,42 +198,52 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
     window.setTimeout(() => void cefNavigate(meetingUrl), 150);
   }, [event.id, meetingUrl]);
 
+  const scopeDialog = pendingIntent && scopeChoices.length > 0 ? (
+    <RecurrenceScopeDialog
+      intent={pendingIntent}
+      choices={scopeChoices}
+      busy={busyAction !== null}
+      onCancel={() => setPendingIntent(null)}
+      onConfirm={(scope) => { void (pendingIntent === "delete" ? commitDelete(scope) : commitUpdate(scope)); }}
+    />
+  ) : null;
+
   if (editing) {
     return (
-      <Modal isOpen onClose={onClose} title="Изменить событие" width="w-full max-w-5xl" panelClassName="max-h-[90vh] overflow-hidden">
+      <>
+      <Modal isOpen onClose={pendingIntent ? () => undefined : onClose} title="Изменить событие" width="w-full max-w-5xl" panelClassName="max-h-[90vh] overflow-hidden">
         <div className="max-h-[calc(90vh-3.5rem)] space-y-4 overflow-y-auto p-5">
-          {recurring && <Notice>{recurrenceScope === "single" ? "Изменения будут применены только к этому повторению." : "Изменения будут применены ко всей серии повторяющихся событий."}</Notice>}
           <TextField label="Название" type="text" value={summary} onChange={(e) => setSummary(e.target.value)} autoFocus />
           <div className="grid grid-cols-2 gap-3">
-            <TextField label="Начало" type="datetime-local" value={startTime} onChange={(e) => setStartTime(e.target.value)} disabled={recurring} />
-            <TextField label="Окончание" type="datetime-local" value={endTime} onChange={(e) => setEndTime(e.target.value)} disabled={recurring} />
+            <TextField label="Начало" type="datetime-local" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+            <TextField label="Окончание" type="datetime-local" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
           </div>
-          {!recurring && (
-            <SchedulingAssistant
-              accountId={accountId}
-              timeZone={timeZone}
-              startTime={startTime}
-              endTime={endTime}
-              participants={schedulingParticipants}
-              planMeeting={planMeeting}
-              debounceMs={debounceMs}
-              onSelectRange={(nextStart, nextEnd) => {
-                setStartTime(nextStart);
-                setEndTime(nextEnd);
-              }}
-            />
-          )}
+          <SchedulingAssistant
+            accountId={accountId}
+            timeZone={timeZone}
+            startTime={startTime}
+            endTime={endTime}
+            participants={schedulingParticipants}
+            planMeeting={planMeeting}
+            debounceMs={debounceMs}
+            onSelectRange={(nextStart, nextEnd) => {
+              setStartTime(nextStart);
+              setEndTime(nextEnd);
+            }}
+          />
           <TextField label="Место" type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Добавить место" />
           <label className="block text-xs text-text-secondary">Описание
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={5} className="mt-1 w-full px-3 py-2 bg-bg-tertiary border border-border-primary rounded text-sm text-text-primary outline-none focus:border-accent resize-y" />
           </label>
           {error && <ErrorNotice>{error}</ErrorNotice>}
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" size="md" onClick={() => setEditing(false)}>Отмена</Button>
-            <Button variant="primary" size="md" onClick={handleSave} disabled={busyAction !== null || !summary.trim()}>{busyAction === "save" ? "Сохранение…" : "Сохранить"}</Button>
+            <Button variant="secondary" size="md" onClick={() => { setPendingIntent(null); setEditing(false); }}>Отмена</Button>
+            <Button variant="primary" size="md" onClick={requestSave} disabled={busyAction !== null || !summary.trim()}>{busyAction === "save" ? "Сохранение…" : "Сохранить"}</Button>
           </div>
         </div>
       </Modal>
+      {scopeDialog}
+      </>
     );
   }
 
@@ -201,6 +253,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
   const panelTop = Math.max(12, Math.min((anchor?.y ?? viewportHeight / 2) - 90, viewportHeight - 540));
 
   return createPortal(
+    <>
     <div className="fixed inset-0 z-50" onMouseDown={(mouseEvent) => mouseEvent.target === mouseEvent.currentTarget && onClose()}>
       <section
         role="dialog"
@@ -244,14 +297,20 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
           </div>
           <div className="flex items-center gap-1">
             {event.organizer_email && <Button variant="secondary" size="md" icon={<Mail size={15} />} iconOnly aria-label="Написать организатору" onClick={() => void openUrl(`mailto:${event.organizer_email}`)} />}
-            {canDelete && (!confirmDelete ? <Button variant="ghost" size="md" icon={<Trash2 size={15} />} iconOnly aria-label="Удалить" onClick={() => setConfirmDelete(true)} /> : <><Button variant="danger" size="sm" onClick={handleDelete} disabled={busyAction !== null}>{busyAction === "delete" ? "Удаление…" : "Удалить"}</Button><Button variant="secondary" size="sm" onClick={() => setConfirmDelete(false)}>Отмена</Button></>)}
+            {canDelete && (recurring
+              ? <Button variant="ghost" size="md" icon={<Trash2 size={15} />} iconOnly aria-label="Удалить" onClick={requestDelete} disabled={busyAction !== null} />
+              : (!confirmDelete
+                ? <Button variant="ghost" size="md" icon={<Trash2 size={15} />} iconOnly aria-label="Удалить" onClick={() => setConfirmDelete(true)} />
+                : <><Button variant="danger" size="sm" onClick={requestDelete} disabled={busyAction !== null}>{busyAction === "delete" ? "Удаление…" : "Удалить"}</Button><Button variant="secondary" size="sm" onClick={() => setConfirmDelete(false)}>Отмена</Button></>))}
             {canUpdate && <Button variant="secondary" size="md" icon={<Pencil size={15} />} iconOnly aria-label="Изменить" onClick={() => setEditing(true)} />}
           </div>
         </div>
       </div>
         </div>
       </section>
-    </div>,
+    </div>
+    {scopeDialog}
+    </>,
     document.body,
   );
 }
@@ -273,7 +332,6 @@ function LinkifiedText({ text }: { text: string }) {
   return <>{parts.map((part, index) => /^https?:\/\//.test(part) ? <button key={index} className="text-accent hover:underline break-all text-left" onClick={() => void openUrl(part.replace(/[),.;]+$/, ""))}>{part}</button> : <span key={index} className="whitespace-pre-wrap">{part}</span>)}</>;
 }
 
-function Notice({ children }: { children: ReactNode }) { return <div className="rounded-md bg-accent/10 px-3 py-2 text-xs text-text-secondary">{children}</div>; }
 function ErrorNotice({ children }: { children: ReactNode }) { return <div role="alert" className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{children}</div>; }
 
 function findTelemostUrl(value: string | null): string | null { return value?.match(/https:\/\/telemost(?:\.360)?\.yandex\.ru\/[^\s]+/i)?.[0]?.replace(/[),.;]+$/, "") ?? null; }

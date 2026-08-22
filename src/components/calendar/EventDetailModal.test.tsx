@@ -53,7 +53,7 @@ describe("EventDetailModal provider capabilities", () => {
     mocks.capabilities.mockResolvedValue(seriesOnlyCapabilities);
   });
 
-  it("hides occurrence update/delete for a series-only provider", async () => {
+  it("shows occurrence update/delete when a series-only provider still allows series mutation", async () => {
     render(<EventDetailModal
       event={event({ occurrence_key: "series-1::20270115T080000Z" })}
       calendars={[calendar]}
@@ -62,9 +62,8 @@ describe("EventDetailModal provider capabilities", () => {
       onUpdated={vi.fn()}
     />);
 
-    await waitFor(() => expect(mocks.capabilities).toHaveBeenCalledWith("account-1"));
-    expect(screen.queryByRole("button", { name: "Изменить" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Удалить" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Изменить" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Удалить" })).toBeInTheDocument();
   });
 
   it("shows series update/delete when that scope is declared", async () => {

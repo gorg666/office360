@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108, CAL-109, CAL-110 and CAL-111 completed. This document is the source of truth for Calendar ticket numbering.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108, CAL-109, CAL-110, CAL-111 and CAL-112 completed. This document is the source of truth for Calendar ticket numbering.
 
 **Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
 
@@ -31,7 +31,7 @@ CAL-101 gate  ->  CAL-102 time/occurrence  ->  CAL-103 codec
 CAL-106 participant identity  ->  CAL-107 Free/Busy foundation  ->  CAL-108 scheduling engine
                                                                 ->  CAL-109 Scheduling Assistant UI
                                                                 ->  CAL-110 remote Free/Busy adapters
-CAL-105 provider/write  ->  CAL-111 recurrence mutation backend  ->  CAL-112 recurring edit UX
+CAL-105 provider/write  ->  CAL-111 recurrence mutation backend  ->  CAL-112 recurring edit UX (delivered)
 CAL-113 Mail inbound  ->  CAL-114 outbound iTIP/RSVP
 CAL-115 application service/UI state  ->  CAL-116 layout engine  ->  CAL-117 drag/resize
                                       ->  CAL-118 event editor
@@ -234,15 +234,15 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Acceptance (2026-08-22):** explicit scope and canonical series/occurrence identity reach the provider. Google and CalDAV/Yandex support safe single/series update/delete; CalDAV single delete is EXDATE PUT rather than resource delete. Google series operations resolve the master and its ETag. `this-and-future` is truthfully unsupported. RRULE/RDATE/EXDATE/overrides, TZID and original RECURRENCE-ID are covered by fixtures. No migration and no live cloud mutation. Canonical contract: `CALENDAR_RECURRENCE_MUTATIONS.md`.
 
-## CAL-112 — Recurring edit UX
+## CAL-112 (delivered) — Recurring edit UX
 
-**Цель:** финальный prompt «только это / это и последующие / вся серия» и подключение Scheduling Assistant start/end к CAL-111 contract.
+**Цель:** финальный prompt «только это / вся серия» и подключение Scheduling Assistant start/end к CAL-111 contract.
 
 **Зависимости:** CAL-111.
 
-**Definition of Done:** capability-driven scope choices; unsupported scopes disabled/explained; no implicit scope inference; single move keeps original identity; Month/Week/Day runtime acceptance without accidental remote writes.
+**Acceptance (2026-08-22):** occurrence Save/Delete shows a capability-driven scope dialog after user intent; `single` and `series` call `CalendarMutationService` once with canonical identity; series master does not offer `single`; `this-and-future` is hidden under current Google/CalDAV capabilities; Cancel mutates nothing; Scheduling Assistant is available on occurrence edit and slot click updates start/end without auto-save; typed conflict/unsupported/permission/network errors stay in the editor. Canonical UX: `CALENDAR_RECURRENCE_EDIT_UX.md`.
 
-**Не входит:** backend split-series implementation, participant directory, room booking.
+**Не входит:** backend split-series / this-and-future implementation, recurrence rule builder on create, participant directory, room booking.
 
 ### Pending backlog without a reassigned ticket number
 

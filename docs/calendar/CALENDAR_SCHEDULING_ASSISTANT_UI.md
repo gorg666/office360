@@ -11,7 +11,7 @@ geometry come from `SchedulingAssistantService.planMeeting()` → `GroupScheduli
 ## UI structure
 
 ```text
-EventCreateModal / EventDetailModal (editing, non-recurring)
+EventCreateModal / EventDetailModal (editing, including recurring occurrence)
         ↓
 SchedulingAssistant
         ├── toolbar (prev / today / next, granularity 15/30/60, timezone)
@@ -81,8 +81,9 @@ DOM text, `title` or `aria-label`. Tooltip for hard busy is always «Занят�
 - Manual change of Start/End updates the translucent selection overlay and, after
   debounce, re-queries if duration or day changed.
 - Required ↔ optional toggle is local UI state, then a new `planMeeting` call.
-- Recurring events hide the assistant: time fields are disabled, and slot pick
-  would not be writable without a recurrence rewrite.
+- Recurring occurrence edit shows the assistant (CAL-112). Slot pick updates the
+  occurrence start/end only; Save then asks for `single` vs `series`. The UI does
+  not rewrite RRULE/EXDATE itself.
 
 Timezone shown in the assistant is the same IANA zone used to interpret
 datetime-local (`Intl` in production, injected `timeZone` in tests). It is not
@@ -92,8 +93,9 @@ datetime-local (`Intl` in production, injected `timeZone` in tests). It is not
 
 - **Create:** `CalendarPage` → `EventCreateModal` with `accountId`, `selfEmail`,
   `selfDisplayName`. Empty attendees and no self → «Добавьте участников…».
-- **Edit:** `EventDetailModal` after «Изменить», hidden when `recurring`.
-  Participants come from `parseCalendarParticipants` (`non-participant` skipped).
+- **Edit:** `EventDetailModal` after «Изменить», including recurring occurrence
+  and series-master rows (CAL-112). Participants come from
+  `parseCalendarParticipants` (`non-participant` skipped).
 
 Month / Week / Day views are unchanged.
 
@@ -127,7 +129,5 @@ allowlist does not drive the app; smoke used PrintWindow + UIA.
 | Day | PASS |
 | cargo check | PASS after releasing `cef-runtime` lock |
 
-Recurring edit: assistant remains **not** wired (`EventDetailModal` hides it when
-`is_recurrence_master === 1 || occurrence_key !== null`). That is documented future
-scope, not a CAL-109 live failure. No confirmed recurring fixture was required to
-close this ticket.
+Recurring edit assistant is wired in CAL-112 (`CALENDAR_RECURRENCE_EDIT_UX.md`).
+CAL-109 live smoke did not require a recurring cloud fixture.

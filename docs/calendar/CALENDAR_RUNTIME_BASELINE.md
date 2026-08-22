@@ -305,3 +305,21 @@ Rust не менялся. Общий `cargo fmt --check` имеет сущест
 Graphify incremental index обновлён после feature diff: 6,125 nodes / 15,435 edges / 377 communities. Recurrence mutation surface представлен 207 релевантными nodes; integrity audit: 0 missing endpoints, 0 self-loops, 0 duplicate edges. CLI/skill сообщает версию 0.9.33, а сохранение query memory предупреждает о более старом interpreter package 0.9.31; rebuild и integrity gate завершились успешно.
 
 Автоматические проверки CAL-111 до финального runtime/docs pass: TypeScript PASS; targeted Calendar recurrence/provider/UI — 14 files / 189 tests; full Vitest — 2217 tests; `npm run test:calendar-tz` — 119/119 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS; `cargo check` PASS с двумя прежними unrelated unused-variable warnings. После runtime/docs-only дополнения минимально повторены TypeScript, targeted 14 files / 189 tests и `cargo check`. Rust не менялся.
+
+### CAL-112 recurring event edit/delete UX validation
+
+Дата: 2026-08-22 (Asia/Bangkok). Миграция не создавалась и не запускалась; cloud events, RSVP и invitations не изменялись. Live Tauri-сессии на момент закрытия тикета не было; recurring cloud fixture не создавался.
+
+| Live smoke | Status | Observation |
+|---|---|---|
+| Month / Week / Day | NOT STARTED | Нет активной `tauri dev` сессии; предыдущий desktop smoke не перезапускался |
+| Non-recurring edit | AUTOMATED PASS | Scope dialog не показывается; plain save/delete покрыты EventDetailModal tests |
+| Recurring editor UI | AUTOMATED PASS | Occurrence Save/Delete открывает scope dialog; series master не предлагает `single`; Cancel не вызывает mutation |
+| Recurring fixture | NOT AVAILABLE | Создавать cloud recurring event запрещено |
+| Scheduling Assistant on occurrence | AUTOMATED PASS | Assistant виден; slot click пишет start/end; Save + `single` передаёт обновлённое время |
+| `this-and-future` | HIDDEN BY DESIGN | Capability не advertises scope; option omitted; silent fallback на series отсутствует |
+| Cloud mutations | NONE | Create, Save, Delete, RSVP и recurring update/delete не вызывались |
+
+Graphify incremental index обновлён после feature diff: 6,178 nodes / 15,546 edges / 374 communities. Integrity audit на `graph.json`: 0 missing endpoints, 0 dangling endpoints, 0 self-loops, 0 duplicate edges. `graphify-out/` gitignored.
+
+Автоматические проверки CAL-112: TypeScript `npx tsc --noEmit` PASS; targeted recurrence UX / CAL-111 mutation / assistant / FreeBusy / participant / privacy / providers — 12 files / 144 tests; full Vitest — 222 files / 2248 tests; `npm run test:calendar-tz` — 119/119 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,035.69 kB raw / 606.13 kB gzip); `cargo check` PASS с двумя прежними unused-variable warnings в `src/lib.rs:360`. Rust не менялся. Канон UX: `docs/calendar/CALENDAR_RECURRENCE_EDIT_UX.md`.
