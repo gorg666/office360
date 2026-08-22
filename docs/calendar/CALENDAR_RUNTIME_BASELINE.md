@@ -231,30 +231,41 @@ Free/Busy UI отсутствует по условиям тикета, поэт
 
 ### CAL-109 Scheduling Assistant UI validation
 
-Дата: 2026-08-22 (Asia/Bangkok). Миграция не создавалась и не запускалась; cloud events не изменялись; outbound invites не отправлялись.
+Дата: 2026-08-22 (Asia/Bangkok). Миграция не создавалась и не запускалась; cloud events не изменялись; outbound invites не отправлялись. Feature commit: `5edefcf`. Live smoke повторён после снятия lock на `cef-runtime\chrome_100_percent.pak` (закрыт только stale `office360.exe` debug instance; runtime не удалялся).
 
 **Runtime surface.** Assistant встроен в `EventCreateModal` и в режим редактирования `EventDetailModal` (скрыт для recurring). UI — thin consumer `planMeeting` / `GroupSchedulingResult`. Month/Week/Day не импортируют scheduling UI.
 
-| Проверка | Статус | Наблюдение |
+| Live smoke | Status | Observation |
 |---|---|---|
-| Create/Edit entry | PASS | Create modal всегда показывает assistant; edit — после «Изменить», не для recurring |
-| Unknown remote | EXPECTED | Другие участники CAL-107 `unsupported` → «Нет данных о занятости», не free |
-| Privacy | PASS | `publicBusyIntervals` снимает title; UI пишет «Занят» |
-| Month / Week / Day | NOT RE-RUN live | Автотесты CalendarPage; live Tauri не запускался (см. ниже) |
+| Create assistant | PASS | Calendar → Создать событие → «Подбор времени»; self «Вы / Обязательный»; group «Все обязательные участники»; timeline, timezone, шаг 30 мин, suggested slots. Save/Создать не нажимались |
+| Edit assistant | PASS | Существующее нерекуррентное событие → «Изменить» → assistant открылся; участники на месте; текущий интервал выделен. Сохранение в cloud не выполнялось |
+| Slot selection | PASS | Клик suggested/timeline обновил Начало и Окончание, duration сохранилась, модалка осталась открытой, auto-save нет |
+| Editor sync | PASS | Ручное изменение datetime в create (год) сразу обновило assistant: ошибка «Проверьте начало и окончание встречи.», suggestions опустели, reload страницы не требовался |
+| Unknown remote participant | PASS | Чужие участники: оранжевый «Нет данных о занятости» + striped `?`; не окрашены как свободные |
+| Privacy | PASS | На чужих busy/unknown рядах только имя/усечённый email, роль и availability; title/description/location/ICS/UID/resource id не показаны |
+| Working hours UI | PASS | Легенда содержит «Вне рабочего времени»; полосы только если engine `workingHoursApplied`. **No configured live working-hours fixture** — фейковый 09:00–18:00 не рисовался |
+| Responsive | PASS | Узкое окно ~720×839: колонка участников целая, timeline с локальным `overflow-x-auto`, контролы доступны. Pixel-perfect mobile не требовался |
+| Month | PASS | Август 2026; существующие события на месте после cancel create/edit |
+| Week | PASS | 16–22 авг 2026; view не сломан |
+| Day | PASS | 22 авг 2026; view не сломан |
+| Recurring edit | DOCUMENTED LIMITATION | Assistant скрыт при `is_recurrence_master === 1 \|\| occurrence_key !== null`. Live recurring fixture в текущем Month не подтверждён; карточка события без assistant в detail — ожидаемо до «Изменить». Не чинилось в CAL-109 |
+| Cloud mutations | NONE | Отмена / Закрыть; RSVP, Удалить, Создать, Сохранить не вызывались |
+
+Unsigned `tauri dev` не управляется Computer Use allowlist; smoke выполнен PrintWindow + UIA Invoke + координатные клики. Отсутствие CDP не считается функциональным падением.
 
 | Проверка | Статус |
 |---|---|
-| TypeScript `npx tsc --noEmit` | PASS |
-| Targeted Scheduling UI + engine + FreeBusy | PASS |
-| Participant / CalendarPage / EventDetailModal | PASS |
-| `npm run test:calendar-tz` | PASS 110/110 × `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe` |
-| Full Vitest | PASS 216 files / 2185 tests |
-| `npm run build` | PASS |
-| `cargo check` | FAIL / blocked: `cef-runtime\chrome_100_percent.pak` os error 32 (файл занят другим процессом; Rust не менялся) |
-| Tauri visual smoke | NOT RE-RUN: тот же file lock; unsigned `tauri dev` historically blocked allowlist'ом (CAL-106/107) |
+| TypeScript `npx tsc --noEmit` | PASS (feature code unchanged after `5edefcf`; not re-run) |
+| Targeted Scheduling UI + engine + FreeBusy | PASS (unchanged) |
+| Participant / CalendarPage / EventDetailModal | PASS (unchanged) |
+| `npm run test:calendar-tz` | PASS 110/110 × `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe` (unchanged) |
+| Full Vitest | PASS 216 files / 2185 tests (unchanged) |
+| `npm run build` | PASS (unchanged) |
+| `cargo check` | PASS (`src-tauri`, после unlock; два прежних unused-variable warning в `src/lib.rs:360`) |
+| Tauri visual smoke | PASS read-only `npm run tauri -- dev` |
 
 Канон UI: `docs/calendar/CALENDAR_SCHEDULING_ASSISTANT_UI.md`.
 
-Working-hours UI: **PARTIAL** — полосы и подписи только из engine (`workingHoursApplied` / `outsideWorkingHoursParticipants`); фиктивные 09–18 не рисуются.
+Working-hours UI: **PASS** — component/engine contract подтверждён; live preference fixture отсутствует, фиктивные часы не подставляются.
 
 Rust не менялся. Общий `cargo fmt --check` имеет существующий repo-wide formatting debt.

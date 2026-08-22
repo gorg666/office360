@@ -1,6 +1,6 @@
 # CAL-109 — Scheduling Assistant UI
 
-Status: implemented on `feat/calendar-yandex360`, 2026-08-22.
+Status: **PASS** on `feat/calendar-yandex360`, 2026-08-22. Feature: `5edefcf`. Live smoke closed the previous CEF file-lock PARTIAL.
 Code: `src/components/calendar/scheduling/`, wired from `EventCreateModal` and `EventDetailModal` (edit mode).
 Migration: **NONE**. The UI is a thin consumer of CAL-108.
 
@@ -102,6 +102,32 @@ Month / Week / Day views are unchanged.
 Until a remote Free/Busy adapter exists (CAL-110), other participants typically
 render as unknown. That is correct. The UI must not imply they are free.
 
-Working-hours UI is **partial**: it visualizes engine output only; Office 360 does
-not currently supply a user working-hours preference to `planMeeting`, so the
-assistant will not draw a fake 09:00–18:00 band.
+Working-hours UI is **PASS** for the CAL-109 contract: no fake working hours; if the
+engine supplies `workingHoursApplied` / `outsideWorkingHoursParticipants`, the UI
+can represent them (dashed band + legend «Вне рабочего времени»). Live smoke had
+**no configured working-hours fixture**, so no 09:00–18:00 band was drawn.
+
+## Live smoke (2026-08-22, Asia/Bangkok)
+
+Read-only `npm run tauri -- dev`. Cloud mutations: **NONE**. Unsigned window: Computer Use
+allowlist does not drive the app; smoke used PrintWindow + UIA.
+
+| Check | Result |
+| --- | --- |
+| Create assistant | PASS |
+| Edit assistant (non-recurring) | PASS |
+| Slot selection | PASS — start/end changed, duration preserved, no auto-save |
+| Editor sync | PASS — datetime change updated timeline/suggestions without reload |
+| Unknown remote participant | PASS — «Нет данных о занятости», not painted free |
+| Privacy | PASS — availability semantics only on foreign rows |
+| Working hours UI | PASS — engine mapping only; no live WH fixture |
+| Responsive | PASS — usable at ~720px; local timeline scroll; no page-level overflow blocker |
+| Month | PASS |
+| Week | PASS |
+| Day | PASS |
+| cargo check | PASS after releasing `cef-runtime` lock |
+
+Recurring edit: assistant remains **not** wired (`EventDetailModal` hides it when
+`is_recurrence_master === 1 || occurrence_key !== null`). That is documented future
+scope, not a CAL-109 live failure. No confirmed recurring fixture was required to
+close this ticket.
