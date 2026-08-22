@@ -93,7 +93,11 @@ Create is capability-driven: `events.create === "remote"`. Otherwise click/drag 
 - `EventCreateModal.test.tsx` all-day hydrate / Cancel
 - `CalendarPage.createSelection.test.tsx` modal + Cancel, no mutation
 
-Live Tauri smoke, if a session exists: open modal from grid and **Cancel**. Do not create a real Yandex cloud event without a separate permission.
+Live Tauri smoke (2026-08-23, existing `npm run tauri -- dev` session): Day click/drag, Week click/drag (including cross-day clamp to origin column), Month empty/day-number/spillover, all-day empty click, overlay Enter/Space, Month day-number activation, toolbar **Создать**, and ~720×780 responsive create all opened `EventCreateModal` with the expected date/range and were closed with **Отмена**. **Создать** in the modal was not pressed. Month event-card click opened detail, not create. Month `+N` overflow was not visible in the August 2026 range (N/A). Keyboard drag-selection was not required.
+
+Existing-event click: PASS (detail). Existing timed drag drop commits immediately for non-recurring events (CAL-113); one accidental live move happened during regression smoke. Resize / Month event drag / all-day event drag were not dropped again. Automated CAL-113/114 remain PASS.
+
+CAL-117-FINAL live: Day click **PASS**, Day drag **PASS**, Week click **PASS**, Week drag **PASS**, Month create **PASS**, All-day create **PASS** (click-only), Keyboard accessibility **PASS** (no keyboard drag-selection), Responsive **PASS**. Grid-create cloud mutations: **NONE**.
 
 ## Known limitations
 

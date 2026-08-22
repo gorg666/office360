@@ -367,22 +367,42 @@ Graphify incremental index обновлён после feature diff: 6,367 nodes
 
 ### CAL-117 create-by-grid-selection validation
 
-Дата: 2026-08-23 (Asia/Bangkok). Миграция не создавалась и не запускалась; cloud events, RSVP и invitations не изменялись. Live Tauri-сессии на момент закрытия тикета не было; реальный Yandex write не выполнялся.
+Дата: 2026-08-23 (Asia/Bangkok). Feature commit `2e35144c` (не amend). Production code в CAL-117-FINAL не менялся. Миграция не создавалась и не запускалась. Live Tauri: уже работавшая сессия `npm run tauri -- dev` (CEF lock не трогался; runtime-файлы не удалялись). Все create-модалки закрывались **Отмена**; кнопка **Создать** в модалке не нажималась. Account id, email, calendar names и event titles в этот отчёт не копировались.
 
 | Live smoke | Status | Observation |
 |---|---|---|
-| Day / Week click-to-create | AUTOMATED PASS | Overlay click snaps to 15 min and opens 60-minute draft via `EventCreateModal` |
-| Day / Week drag-to-create | AUTOMATED PASS | Preview `timed-create-preview`; reverse drag; min duration 15 min; Week locked to origin column |
-| Month empty-cell create | AUTOMATED PASS | All-day draft on `data-calendar-date`, including spillover cells |
-| All-day row create | AUTOMATED PASS | Click-only single-day all-day draft; multi-day all-day selection not in CAL-117 |
-| Existing event click / drag / resize | AUTOMATED PASS | CAL-113/114 regression suites unchanged |
-| Read-only | AUTOMATED PASS | `events.create !== remote`: no modal |
-| Cancel | AUTOMATED PASS | Modal close does not call `calendarMutationService.create` |
-| Keyboard | AUTOMATED PASS | Overlay slot + Month day-number + toolbar; no keyboard drag-selection |
-| Cloud mutations | NONE | Grid create не вызывался на реальном Yandex event |
+| Day empty click | PASS | Timed draft 60 min, All day Off, Cancel |
+| Day drag | PASS | Selection preview visible; modal start/end matched snapped range; Cancel |
+| Week click | PASS | Correct day/time; Cancel |
+| Week same-column drag | PASS | Correct day/range; Cancel |
+| Week cross-day drag | PASS | Остался origin day; multi-day timed event не создался |
+| Month empty / day-number | PASS | All-day draft на `data-calendar-date` ячейки; Cancel |
+| Month spillover | PASS | Ячейка прошлого месяца открыла её фактическую дату, не номер видимого месяца |
+| Month event card click | PASS | Event detail, не create |
+| Month +N overflow | N/A | Overflow chip в видимом диапазоне августа 2026 не показан |
+| All-day empty click | PASS | Single-day all-day draft; Cancel |
+| Keyboard overlay Enter/Space | PASS | Focused timed slot → create modal |
+| Keyboard Month day button | PASS | Активация day-number control (`month-create-day`) |
+| Toolbar Создать | PASS | Keyboard-accessible (focus + Enter) |
+| Responsive ~720×780 | PASS | Timed grid usable; preview/modal внутри calendar surface; Month create clickable; catastrophic page overflow нет. Timed modal в узком окне скроллится, Отмена достижима |
+| Existing event click | PASS | Detail, не create (Month и Week) |
+| Existing timed drag / resize | PARTIAL live | Non-recurring drop коммитит сразу (CAL-113, нет post-drop cancel). Во время smoke один accidental live move существующего timed event. Resize / Month event drag / all-day event drag повторно не дропались, чтобы не писать ещё. Automated CAL-113/114 остаются PASS |
+| CAL-117 create Cancel | PASS | Create path не вызывал `calendarMutationService.create` |
+| datetime-local host widget | accepted | Не переписывался; submit/domain conversion по-прежнему Calendar TZ (automated TZ suite) |
+| Cloud mutations (grid create) | NONE | |
+| Cloud mutations (existing-event drag) | 1 unintended CAL-113 update | См. строку Existing timed drag |
 
-Канон: `docs/calendar/CALENDAR_CREATE_BY_SELECTION.md`.
+Accepted limitations (не blockers для parity gate):
+
+- all-day create = click only (нет multi-day all-day drag-selection)
+- no keyboard drag-selection
+- no auto-scroll during selection
+- `datetime-local` в модалке остаётся host-widget
+
+CAL-117-FINAL: **PASS** (create live acceptance). Канон: `docs/calendar/CALENDAR_CREATE_BY_SELECTION.md`.
 
 Graphify incremental index обновлён после feature diff: 6,414 nodes / 16,423 edges / 397 communities. Integrity audit (`graphify diagnose multigraph`): 0 missing endpoints, 0 dangling endpoints, 0 self-loops, 0 duplicate edges. `graphify-out/` gitignored. Community labels stale vs 397 communities (LLM `graphify label` not required for this ticket).
 
-Автоматические проверки CAL-117: TypeScript `npx tsc --noEmit` PASS; targeted create-selection — 6 files / 54 tests PASS; CAL-113/114/recurrence/provider/sync regression — 18 files / 202 tests PASS; full Vitest — 238 files / 2357 tests PASS; `npm run test:calendar-tz` — 162/162 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,035.74 kB raw / 606.16 kB gzip; CalendarPage chunk 117.73 kB / 34.68 kB gzip); `cargo check` PASS с двумя прежними unused-variable warnings в `src/lib.rs:360`. Rust не менялся.
+Автоматические проверки CAL-117 (feature): TypeScript `npx tsc --noEmit` PASS; targeted create-selection — 6 files / 54 tests PASS; CAL-113/114/recurrence/provider/sync regression — 18 files / 202 tests PASS; full Vitest — 238 files / 2357 tests PASS; `npm run test:calendar-tz` — 162/162 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,035.74 kB raw / 606.16 kB gzip; CalendarPage chunk 117.73 kB / 34.68 kB gzip); `cargo check` PASS с двумя прежними unused-variable warnings в `src/lib.rs:360`. Rust не менялся.
+
+CAL-117-FINAL re-run (docs-only, production code unchanged): `npx tsc --noEmit` PASS; targeted create-selection — 6 files / 54 tests PASS; `cargo check` PASS (те же 2 unused-variable warnings в `src/lib.rs:360`). Full battery не повторялся.
