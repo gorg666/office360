@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108, CAL-109, CAL-110, CAL-111, CAL-112 and CAL-113 completed. This document is the source of truth for Calendar ticket numbering.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108, CAL-109, CAL-110, CAL-111, CAL-112, CAL-113 and CAL-114 (Month/all-day interactions) completed. This document is the source of truth for Calendar ticket numbering.
 
 **Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
 
@@ -33,9 +33,10 @@ CAL-106 participant identity  ->  CAL-107 Free/Busy foundation  ->  CAL-108 sche
                                                                 ->  CAL-110 remote Free/Busy adapters
 CAL-105 provider/write  ->  CAL-111 recurrence mutation backend  ->  CAL-112 recurring edit UX (delivered)
 CAL-102/105/112  ->  CAL-113 Day/Week timed drag/resize (delivered)
-CAL-114 outbound iTIP/RSVP  (mail inbound remains pending backlog)
-CAL-115 application service/UI state  ->  CAL-116 layout engine  ->  CAL-117 remaining drag/selection
+                 ->  CAL-114 Month/all-day/conversion (delivered)
+CAL-115 application service/UI state  ->  CAL-116 layout engine  ->  CAL-117 create-by-selection / auto-scroll
                                       ->  CAL-118 event editor
+Outbound iTIP/RSVP  (pending backlog; previously outlined as CAL-114 before Month/all-day took that number)
 CAL-119 shared calendars/permissions
 CAL-120 reminders
 CAL-121 search/performance/a11y
@@ -264,17 +265,32 @@ These scopes were previously labeled CAL-111/CAL-112 before the explicit owner h
 
 **Зависимости:** CAL-102, CAL-105, CAL-111, CAL-112.
 
-**Acceptance (2026-08-22):** Day/Week timed drag, Week cross-day move, top/bottom resize, 15-minute snap, 15-minute minimum duration, duration-preserving moves, capability-gated read-only, click vs drag threshold, occurrence scope dialog (`single` / `series` / Cancel rollback), conflict/network/permission rollback, DST wall-clock tests for `America/New_York` and `Australia/Lord_Howe`. Month DnD and all-day ↔ timed are out of scope. No migration and no live cloud mutation. Canonical contract: `CALENDAR_DRAG_RESIZE.md`.
+**Acceptance (2026-08-22):** Day/Week timed drag, Week cross-day move, top/bottom resize, 15-minute snap, 15-minute minimum duration, duration-preserving moves, capability-gated read-only, click vs drag threshold, occurrence scope dialog (`single` / `series` / Cancel rollback), conflict/network/permission rollback, DST wall-clock tests for `America/New_York` and `Australia/Lord_Howe`. Month DnD and all-day ↔ timed shipped under **CAL-114**. No migration and no live cloud mutation. Canonical contract: `CALENDAR_DRAG_RESIZE.md`.
 
 
-## CAL-114 — Outbound invitations, updates, cancellations and RSVP
+## CAL-114 — Month, all-day and timed ↔ all-day interactions
 
+
+**Цель:** закрыть remaining pointer gap after CAL-113: Month drag/drop, all-day row drag, timed ↔ all-day conversion, and keyboard-accessible move/edit without a second mutation path.
+
+**Основные файлы/модули:** `src/components/calendar/dateGrid/`, MonthView, WeekView/DayView all-day lane, TimedGridOverlay conversion, CalendarPage pending-commit, Event Edit a11y.
+
+**Зависимости:** CAL-102, CAL-105, CAL-111, CAL-112, CAL-113.
+
+**Acceptance (2026-08-23):** Month timed/all-day/multi-day drag with wall-clock or exclusive-date preservation; Week all-day row drag; timed → all-day and all-day → timed (60-minute default duration, CAL-113 snap); CAL-112 occurrence scope dialog; cancel/network/conflict/permission rollback; capability-gated read-only; 6 px click threshold; Event Edit as keyboard move/resize equivalent; DST/floating coverage in `dateShift.test.ts` / `npm run test:calendar-tz`. No migration and no live cloud mutation. Canonical contract: `CALENDAR_MONTH_ALLDAY_INTERACTIONS.md`.
+
+**Owner note:** an earlier outline used CAL-114 for outbound iTIP/RSVP. That work is **pending backlog** (do not implement mail here) and must take a later unused number when scheduled — do not reuse CAL-114.
+
+
+## Pending backlog — Outbound invitations, updates, cancellations and RSVP
+
+Formerly outlined under CAL-114 before Month/all-day took that number. Not started.
 
 **Цель:** объединить direct provider and iMIP delivery with truthful queue states.
 
 **Основные файлы/модули:** invitations service, Calendar provider capabilities, email builder, composer/send orchestrator, pending operations/Outbox/Sent.
 
-**Зависимости:** CAL-103, CAL-105; mail inbound MIME ingestion remains pending backlog (not CAL-113).
+**Зависимости:** CAL-103, CAL-105; mail inbound MIME ingestion remains pending backlog.
 
 **Definition of Done:**
 
@@ -328,27 +344,25 @@ These scopes were previously labeled CAL-111/CAL-112 before the explicit owner h
 **Риски:** accessibility, layout complexity, bundle size.
 
 
-## CAL-117 — Remaining drag, resize and selection
+## CAL-117 — Create-by-selection and remaining drag polish
 
 
-**Цель:** закрыть drag/resize gaps that CAL-113 did not take: Month, all-day, keyboard, and create-by-selection.
+**Цель:** закрыть gaps after CAL-113/114: create-by-empty-slot selection and optional auto-scroll. Month, all-day, timed ↔ all-day, and keyboard Event Edit shipped under **CAL-114**.
 
-Timed Day/Week drag/resize shipped under **CAL-113**. This section is the remaining surface, not a second timed-grid implementation.
+Not a second timed-grid or date-grid mutation implementation.
 
-**Основные файлы/модули:** MonthView, all-day row, layout engine, DnD/keyboard, mutation service.
+**Основные файлы/модули:** Month/Week/Day empty-slot selection, optional Week auto-scroll, layout engine.
 
-**Зависимости:** CAL-113, CAL-115, CAL-116.
+**Зависимости:** CAL-113, CAL-114, CAL-115, CAL-116.
 
 **Definition of Done:**
 
-- Month drag/drop;
-- all-day ↔ timed moves;
-- keyboard equivalents and announcements;
 - create-by-empty-slot selection;
-- optional edge auto-scroll;
+- optional Week/Day edge auto-scroll (Month auto-scroll not required);
+- remaining keyboard announcements if Event Edit is insufficient for a later a11y pass;
 - pointer/touch/keyboard tests and Tauri smoke.
 
-**Риски:** accidental mutation, DST boundary drag, recurring scope, touch behavior.
+**Риски:** accidental mutation, touch behavior.
 
 
 ## CAL-118 — Full event editor: recurrence, reminders, privacy, timezone

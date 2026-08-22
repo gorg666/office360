@@ -28,6 +28,12 @@ import {
   type TimedDraft,
   type TimedVisualOverride,
 } from "./timedGrid";
+import {
+  applyDateGridDraft,
+  commitDateGridMutation,
+  overrideFromDateGrid,
+  type DateGridDraft,
+} from "./dateGrid";
 import { Button } from "@/components/ui/Button";
 import type { RecurrenceWriteScope } from "@/services/calendar/domain";
 
@@ -36,6 +42,10 @@ type CalendarLoadState =
   | ({ status: "fresh" } & CalendarReadDiagnostics)
   | { status: "stale" }
   | { status: "error" };
+
+type PendingGridMutation =
+  | { kind: "timed"; event: DbCalendarEvent; draft: TimedDraft }
+  | { kind: "date"; event: DbCalendarEvent; draft: DateGridDraft };
 
 export function CalendarPage() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
@@ -57,13 +67,13 @@ export function CalendarPage() {
   const [providerCapabilities, setProviderCapabilities] = useState<CalendarProviderCapabilities | null>(null);
   const [pendingEventIds, setPendingEventIds] = useState<ReadonlySet<string>>(() => new Set());
   const [visualOverrides, setVisualOverrides] = useState<Readonly<Record<string, TimedVisualOverride>>>({});
-  const [timedGesture, setTimedGesture] = useState<{ event: DbCalendarEvent; draft: TimedDraft } | null>(null);
+  const [timedGesture, setTimedGesture] = useState<PendingGridMutation | null>(null);
   const [timedError, setTimedError] = useState<string | null>(null);
   const [timedBusy, setTimedBusy] = useState(false);
   const reauthDoneRef = useRef(false);
   const loadGenerationRef = useRef(0);
   const timedInFlightRef = useRef(new Set<string>());
-  const timedGestureRef = useRef<{ event: DbCalendarEvent; draft: TimedDraft } | null>(null);
+  const timedGestureRef = useRef<PendingGridMutation | null>(null);
   const calendarApiEnableUrl =
     "https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com";
 
@@ -318,14 +328,50 @@ export function CalendarPage() {
     }
   }, [activeAccountId, calendars, clearTimedOverride, loadEvents]);
 
-  const handleTimedCommit = useCallback((
+  const runDateMutation = useCallback(async (
     event: DbCalendarEvent,
-    draft: TimedDraft,
-    _anchor: { x: number; y: number },
+    draft: DateGridDraft,
+    scope?: RecurrenceWriteScope,
+  ) => {
+    if (!activeAccountId) return;
+    setTimedError(null);
+    setTimedBusy(true);
+    try {
+      const result = await commitDateGridMutation({
+        accountId: activeAccountId,
+        event,
+        calendars,
+        draft,
+        scope,
+      });
+      if (result.status !== "success") {
+        clearTimedOverride(event.id);
+        setTimedGesture(null);
+        timedGestureRef.current = null;
+        setTimedError(dragResizeFailureCopy(result));
+        return;
+      }
+      clearTimedOverride(event.id);
+      setTimedGesture(null);
+      timedGestureRef.current = null;
+      await loadEvents();
+    } catch {
+      clearTimedOverride(event.id);
+      setTimedGesture(null);
+      timedGestureRef.current = null;
+      setTimedError("Не удалось выполнить операцию с календарём.");
+    } finally {
+      setTimedBusy(false);
+    }
+  }, [activeAccountId, calendars, clearTimedOverride, loadEvents]);
+
+  const beginPendingMutation = useCallback((
+    event: DbCalendarEvent,
+    override: TimedVisualOverride,
+    pending: PendingGridMutation,
+    commit: () => void,
   ) => {
     if (timedInFlightRef.current.has(event.id)) return;
-    const override = overrideFromTimedDraft(event, draft);
-    if (!override) return;
     timedInFlightRef.current.add(event.id);
     setPendingEventIds(new Set(timedInFlightRef.current));
     setVisualOverrides((current) => ({ ...current, [event.id]: override }));
@@ -334,13 +380,37 @@ export function CalendarPage() {
     const target = classifyRecurringEditTarget(event);
     const choices = recurrenceScopeChoices(providerCapabilities, "update", target);
     if (choices.length > 0) {
-      const pending = { event, draft };
       timedGestureRef.current = pending;
       setTimedGesture(pending);
       return;
     }
-    void runTimedMutation(event, draft);
-  }, [providerCapabilities, runTimedMutation]);
+    commit();
+  }, [providerCapabilities]);
+
+  const handleTimedCommit = useCallback((
+    event: DbCalendarEvent,
+    draft: TimedDraft,
+    _anchor: { x: number; y: number },
+  ) => {
+    const override = overrideFromTimedDraft(event, draft);
+    if (!override) return;
+    beginPendingMutation(event, override, { kind: "timed", event, draft }, () => {
+      void runTimedMutation(event, draft);
+    });
+  }, [beginPendingMutation, runTimedMutation]);
+
+  const handleDateCommit = useCallback((
+    event: DbCalendarEvent,
+    draft: DateGridDraft,
+    _anchor: { x: number; y: number },
+  ) => {
+    const applied = applyDateGridDraft(event, draft);
+    if (!applied.ok || applied.unchanged) return;
+    const override = overrideFromDateGrid(applied.time);
+    beginPendingMutation(event, override, { kind: "date", event, draft }, () => {
+      void runDateMutation(event, draft);
+    });
+  }, [beginPendingMutation, runDateMutation]);
 
   const handleTimedScopeCancel = useCallback(() => {
     const pending = timedGestureRef.current;
@@ -352,8 +422,12 @@ export function CalendarPage() {
   const handleTimedScopeConfirm = useCallback((scope: RecurrenceWriteScope) => {
     const pending = timedGestureRef.current;
     if (!pending) return;
-    void runTimedMutation(pending.event, pending.draft, scope);
-  }, [runTimedMutation]);
+    if (pending.kind === "timed") {
+      void runTimedMutation(pending.event, pending.draft, scope);
+      return;
+    }
+    void runDateMutation(pending.event, pending.draft, scope);
+  }, [runDateMutation, runTimedMutation]);
 
   const handleEventUpdated = useCallback(() => {
     setSelectedEvent(null);
@@ -549,6 +623,10 @@ export function CalendarPage() {
               currentDate={currentDate}
               events={events}
               onEventClick={handleEventClick}
+              capabilities={providerCapabilities}
+              pendingEventIds={pendingEventIds}
+              visualOverrides={visualOverrides}
+              onDateCommit={handleDateCommit}
             />
           )}
           {view === "week" && (
@@ -560,6 +638,7 @@ export function CalendarPage() {
               pendingEventIds={pendingEventIds}
               visualOverrides={visualOverrides}
               onTimedCommit={handleTimedCommit}
+              onDateCommit={handleDateCommit}
             />
           )}
           {view === "day" && (
@@ -571,6 +650,7 @@ export function CalendarPage() {
               pendingEventIds={pendingEventIds}
               visualOverrides={visualOverrides}
               onTimedCommit={handleTimedCommit}
+              onDateCommit={handleDateCommit}
             />
           )}
         </div>

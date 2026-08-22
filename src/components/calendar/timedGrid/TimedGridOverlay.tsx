@@ -24,10 +24,17 @@ import {
   resizeDraft,
   type TimedDraft,
 } from "./timedEventMutation";
+import { formatEventAriaLabel } from "../dateGrid/preview";
+import { hitTestAllDayDrop } from "../dateGrid/hitTest";
+import type { CalendarDate } from "@/services/calendar/domain";
+import type { DateGridDraft } from "../dateGrid/dateShift";
 
 export interface TimedVisualOverride {
   start_time: number;
   end_time: number;
+  time_kind?: "timed-zoned" | "floating" | "all-day" | null;
+  is_all_day?: number;
+  end_date_exclusive?: string | null;
 }
 
 interface TimedGridOverlayProps {
@@ -40,6 +47,8 @@ interface TimedGridOverlayProps {
   locale: "ru" | "en";
   onEventClick: (event: DbCalendarEvent, anchor: { x: number; y: number }) => void;
   onGestureCommit: (event: DbCalendarEvent, draft: TimedDraft, anchor: { x: number; y: number }) => void;
+  onConvertToAllDay?: (event: DbCalendarEvent, draft: DateGridDraft, anchor: { x: number; y: number }) => void;
+  onConvertPreview?: (date: CalendarDate | null) => void;
 }
 
 interface GestureState {
@@ -54,6 +63,7 @@ interface GestureState {
   draft: TimedDraft;
   previewStart: number;
   previewEnd: number;
+  convertDate: CalendarDate | null;
 }
 
 export function TimedGridOverlay({
@@ -66,6 +76,8 @@ export function TimedGridOverlay({
   locale,
   onEventClick,
   onGestureCommit,
+  onConvertToAllDay,
+  onConvertPreview,
 }: TimedGridOverlayProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<GestureState | null>(null);
@@ -170,6 +182,7 @@ export function TimedGridOverlay({
       draft: moveDraft(0),
       previewStart: startWeek,
       previewEnd: endWeek,
+      convertDate: null,
     };
     gestureRef.current = next;
     setGesture(next);
@@ -182,11 +195,22 @@ export function TimedGridOverlay({
     const dx = pointerEvent.clientX - state.originX;
     const dy = pointerEvent.clientY - state.originY;
     if (!state.dragging && !pointerExceedsDragThreshold(dx, dy)) return;
+    if (state.mode === "move" && onConvertToAllDay) {
+      const allDayDate = hitTestAllDayDrop(pointerEvent.clientX, pointerEvent.clientY);
+      if (allDayDate) {
+        const next = { ...state, dragging: true, convertDate: allDayDate };
+        gestureRef.current = next;
+        setGesture(next);
+        onConvertPreview?.(allDayDate);
+        return;
+      }
+    }
+    onConvertPreview?.(null);
     const point = resolvePoint(pointerEvent.clientX, pointerEvent.clientY);
     if (!point) return;
     const draft = draftFromPointer(state, point.weekMinutes);
     const axis = previewAxis(state, draft);
-    const next = { ...state, dragging: true, draft, previewStart: axis.start, previewEnd: axis.end };
+    const next = { ...state, dragging: true, draft, previewStart: axis.start, previewEnd: axis.end, convertDate: null };
     gestureRef.current = next;
     setGesture(next);
   }
@@ -195,8 +219,16 @@ export function TimedGridOverlay({
     const state = gestureRef.current;
     gestureRef.current = null;
     setGesture(null);
+    onConvertPreview?.(null);
     if (!state?.dragging) return;
     suppressClickRef.current = true;
+    if (state.mode === "move" && state.convertDate && onConvertToAllDay) {
+      onConvertToAllDay(state.event, { type: "to-all-day", startDate: state.convertDate }, {
+        x: pointerEvent.clientX,
+        y: pointerEvent.clientY,
+      });
+      return;
+    }
     const draft = clampTimedDraft(state.event, state.draft);
     const applied = applyTimedDraft(state.event, draft);
     if (!applied.ok || applied.unchanged) return;
@@ -206,6 +238,7 @@ export function TimedGridOverlay({
   function cancelGesture() {
     gestureRef.current = null;
     setGesture(null);
+    onConvertPreview?.(null);
   }
 
   function handleClick(event: DbCalendarEvent, mouseEvent: React.MouseEvent<HTMLElement>) {
@@ -217,9 +250,12 @@ export function TimedGridOverlay({
   }
 
   const height = minutesToY(MINUTES_PER_DAY, hourHeightPx);
-  const appliedPreview = preview ? applyTimedDraft(preview.event, preview.draft) : null;
-  const previewTimeText = appliedPreview?.ok ? previewLabel(appliedPreview.time) : null;
-  const previewSegments = preview ? weekRangeSegments(preview.previewStart, preview.previewEnd) : [];
+  const converting = Boolean(preview?.convertDate);
+  const appliedPreview = preview && !converting ? applyTimedDraft(preview.event, preview.draft) : null;
+  const previewTimeText = converting
+    ? (locale === "ru" ? "Весь день" : "All day")
+    : appliedPreview?.ok ? previewLabel(appliedPreview.time) : null;
+  const previewSegments = preview && !converting ? weekRangeSegments(preview.previewStart, preview.previewEnd) : [];
 
   return (
     <div
@@ -259,7 +295,8 @@ export function TimedGridOverlay({
               >
                 <button
                   type="button"
-                  className={`absolute inset-0 truncate px-1 pt-1.5 text-left ${interactive ? "cursor-grab" : "cursor-pointer"} ${live ? "cursor-grabbing" : ""}`}
+                  aria-label={formatEventAriaLabel(event, locale)}
+                  className={`absolute inset-0 truncate px-1 pt-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${interactive ? "cursor-grab" : "cursor-pointer"} ${live ? "cursor-grabbing" : ""}`}
                   onPointerDown={(pointerEvent) => {
                     if (!interactive) return;
                     beginGesture(event, "move", pointerEvent);
@@ -273,7 +310,7 @@ export function TimedGridOverlay({
                   <>
                     <div
                       data-testid={`timed-resize-start-${event.id}`}
-                      aria-label={locale === "ru" ? "Изменить время начала" : "Resize start time"}
+                      aria-hidden="true"
                       className="absolute inset-x-0 top-0 z-10 h-2 cursor-ns-resize"
                       onPointerDown={(pointerEvent) => {
                         pointerEvent.preventDefault();
@@ -284,7 +321,7 @@ export function TimedGridOverlay({
                     />
                     <div
                       data-testid={`timed-resize-end-${event.id}`}
-                      aria-label={locale === "ru" ? "Изменить время окончания" : "Resize end time"}
+                      aria-hidden="true"
                       className="absolute inset-x-0 bottom-0 z-10 h-2 cursor-ns-resize"
                       onPointerDown={(pointerEvent) => {
                         pointerEvent.preventDefault();
@@ -318,6 +355,15 @@ export function TimedGridOverlay({
           </span>
         </div>
       ))}
+      {converting && preview ? (
+        <div
+          data-testid="timed-convert-preview"
+          className="pointer-events-none absolute z-20 left-1 top-1 rounded bg-accent/40 px-1 py-0.5 text-[0.625rem] text-accent ring-1 ring-accent"
+        >
+          {preview.event.summary}
+          {previewTimeText ? <span className="ml-1 opacity-80">{previewTimeText}</span> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

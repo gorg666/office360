@@ -14,7 +14,7 @@ Timed events in Day and Week are positioned by `TimedGridOverlay` on the existin
 | Click / tiny move | Opens event details. Does not mutate. |
 | Recurring occurrence drop/resize | Existing CAL-112 scope dialog (`Только это событие` / `Всю серию`). No write until Save. Cancel restores the original position. |
 
-Month drag/drop, all-day ↔ timed moves, keyboard drag, and create-by-empty-slot selection are out of scope.
+Month drag/drop, all-day row drag, timed ↔ all-day conversion, and keyboard Event Edit shipped under **CAL-114** (`CALENDAR_MONTH_ALLDAY_INTERACTIONS.md`). Create-by-empty-slot selection and auto-scroll remain CAL-117.
 
 ## Snap
 
@@ -88,12 +88,12 @@ After a committed move/resize, `packOverlappingEvents` runs on the overlay’s c
 
 ## Accessibility
 
-Event blocks remain keyboard-activatable buttons (click/details). Resize handles are pointer-only `div`s with `aria-label`; they are not a keyboard drag implementation.
+Event blocks remain keyboard-activatable buttons (click/details). Resize handles are pointer-only `aria-hidden` divs; they must not steal event keyboard focus. Keyboard move/resize uses Event Edit (`Начало` / `Окончание`) — see CAL-114.
 
 ## Known limitations
 
-1. All-day row events are not draggable; timed ↔ all-day conversion is not implemented.
-2. Month view has no drag/drop.
-3. No keyboard drag/resize and no required edge auto-scroll.
-4. Touch is not a CAL-113 acceptance target.
+1. Create-by-empty-slot selection is not implemented (CAL-117).
+2. Edge auto-scroll is not implemented (CAL-117; Month auto-scroll is not required).
+3. No keyboard resize handle; Event Edit is the accessibility equivalent (CAL-114).
+4. Touch is not a CAL-113/114 acceptance target.
 5. Live Tauri / cloud writes are not part of this ticket’s proof; automated mutation tests are the write path evidence.

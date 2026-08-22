@@ -67,7 +67,7 @@ describe("TimedGridOverlay", () => {
       onGestureCommit={onCommit}
     />);
     mockOverlayRect(400);
-    const button = screen.getByRole("button", { name: "Standup" });
+    const button = screen.getByRole("button", { name: /Standup/ });
     fireEvent.pointerDown(button, { button: 0, pointerId: 1, clientX: 20, clientY: 480 });
     fireEvent.pointerMove(button, { pointerId: 1, clientX: 23, clientY: 483 });
     fireEvent.pointerUp(button, { pointerId: 1, clientX: 23, clientY: 483 });
@@ -89,7 +89,7 @@ describe("TimedGridOverlay", () => {
       onGestureCommit={onCommit}
     />);
     mockOverlayRect(400);
-    const button = screen.getByRole("button", { name: "Standup" });
+    const button = screen.getByRole("button", { name: /Standup/ });
     fireEvent.pointerDown(button, { button: 0, pointerId: 1, clientX: 20, clientY: 480 });
     fireEvent.pointerMove(button, { pointerId: 1, clientX: 20, clientY: 552 });
     expect(screen.getByTestId("timed-drag-preview")).toHaveTextContent("11:30");
@@ -115,7 +115,7 @@ describe("TimedGridOverlay", () => {
       onGestureCommit={onCommit}
     />);
     mockOverlayRect(800);
-    drag(screen.getByRole("button", { name: "Standup" }), { x: 50, y: 480 }, { x: 500, y: 480 });
+    drag(screen.getByRole("button", { name: /Standup/ }), { x: 50, y: 480 }, { x: 500, y: 480 });
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCommit.mock.calls[0]![1]).toEqual({
       mode: "move",
@@ -181,7 +181,7 @@ describe("TimedGridOverlay", () => {
     mockOverlayRect(400);
     expect(screen.getByTestId("timed-event-event-1")).toHaveAttribute("data-interactive", "false");
     expect(screen.queryByTestId("timed-resize-end-event-1")).not.toBeInTheDocument();
-    drag(screen.getByRole("button", { name: "Standup" }), { x: 20, y: 480 }, { x: 20, y: 552 });
+    drag(screen.getByRole("button", { name: /Standup/ }), { x: 20, y: 480 }, { x: 20, y: 552 });
     expect(onCommit).not.toHaveBeenCalled();
   });
 
@@ -199,7 +199,74 @@ describe("TimedGridOverlay", () => {
     />);
     mockOverlayRect(400);
     expect(screen.getByTestId("timed-event-event-1")).toHaveAttribute("data-interactive", "false");
-    drag(screen.getByRole("button", { name: "Standup" }), { x: 20, y: 480 }, { x: 20, y: 552 });
+    drag(screen.getByRole("button", { name: /Standup/ }), { x: 20, y: 480 }, { x: 20, y: 552 });
     expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it("converts a timed move into all-day when dropped on the all-day row", () => {
+    const onCommit = vi.fn();
+    const onConvert = vi.fn();
+    render(
+      <>
+        <div
+          data-allday-drop="2027-01-15"
+          data-calendar-date="2027-01-15"
+          data-testid="allday-drop-2027-01-15"
+        />
+        <TimedGridOverlay
+          days={[day]}
+          hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+          events={[event()]}
+          capabilities={capabilities}
+          pendingEventIds={new Set()}
+          locale="ru"
+          onEventClick={vi.fn()}
+          onGestureCommit={onCommit}
+          onConvertToAllDay={onConvert}
+        />
+      </>,
+    );
+    mockOverlayRect(400);
+    const zone = screen.getByTestId("allday-drop-2027-01-15");
+    vi.spyOn(zone, "getBoundingClientRect").mockReturnValue({
+      x: 0, y: -40, top: -40, left: 0, bottom: 0, right: 400, width: 400, height: 40,
+      toJSON() { return {}; },
+    });
+    const button = screen.getByRole("button", { name: /Standup/ });
+    fireEvent.pointerDown(button, { button: 0, pointerId: 1, clientX: 20, clientY: 480 });
+    fireEvent.pointerMove(button, { pointerId: 1, clientX: 20, clientY: -20 });
+    expect(screen.getByTestId("timed-convert-preview")).toHaveTextContent("Весь день");
+    fireEvent.pointerUp(button, { pointerId: 1, clientX: 20, clientY: -20 });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(onConvert).toHaveBeenCalledTimes(1);
+    expect(onConvert.mock.calls[0]![1]).toEqual({ type: "to-all-day", startDate: "2027-01-15" });
+  });
+
+  it("does not convert when a resize handle is dragged over the all-day row", () => {
+    const onCommit = vi.fn();
+    const onConvert = vi.fn();
+    render(
+      <>
+        <div data-allday-drop="2027-01-15" data-calendar-date="2027-01-15" data-testid="allday-drop-2027-01-15" />
+        <TimedGridOverlay
+          days={[day]}
+          hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+          events={[event()]}
+          capabilities={capabilities}
+          pendingEventIds={new Set()}
+          locale="ru"
+          onEventClick={vi.fn()}
+          onGestureCommit={onCommit}
+          onConvertToAllDay={onConvert}
+        />
+      </>,
+    );
+    mockOverlayRect(400);
+    vi.spyOn(screen.getByTestId("allday-drop-2027-01-15"), "getBoundingClientRect").mockReturnValue({
+      x: 0, y: -40, top: -40, left: 0, bottom: 0, right: 400, width: 400, height: 40,
+      toJSON() { return {}; },
+    });
+    drag(screen.getByTestId("timed-resize-end-event-1"), { x: 20, y: 528 }, { x: 20, y: -20 });
+    expect(onConvert).not.toHaveBeenCalled();
   });
 });

@@ -138,7 +138,7 @@ function buildEventTime(event: DbCalendarEvent, start: WallDateTime, end: WallDa
   };
 }
 
-function updateInputFromTime(time: CalendarEventTime): UpdateEventInput {
+export function updateInputFromTime(time: CalendarEventTime): UpdateEventInput {
   if (time.kind === "floating") {
     return {
       isAllDay: false,

@@ -1,9 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
-import type { CalendarProviderCapabilities } from "@/services/calendar/domain";
+import type { CalendarDate, CalendarProviderCapabilities } from "@/services/calendar/domain";
+import { calendarDateFromLocalDate } from "@/services/calendar/domain";
 import { useUIStore } from "@/stores/uiStore";
 import { eventOccursOnDate } from "./eventTimeProjection";
 import { TimedGridOverlay, WEEK_HOUR_HEIGHT_PX, type TimedDraft, type TimedVisualOverride } from "./timedGrid";
+import { AllDayLane, type DateGridDraft } from "./dateGrid";
 
 interface WeekViewProps {
   currentDate: Date;
@@ -13,6 +15,7 @@ interface WeekViewProps {
   pendingEventIds?: ReadonlySet<string>;
   visualOverrides?: Readonly<Record<string, TimedVisualOverride>>;
   onTimedCommit?: (event: DbCalendarEvent, draft: TimedDraft, anchor: { x: number; y: number }) => void;
+  onDateCommit?: (event: DbCalendarEvent, draft: DateGridDraft, anchor: { x: number; y: number }) => void;
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -29,12 +32,14 @@ export function WeekView({
   pendingEventIds,
   visualOverrides,
   onTimedCommit,
+  onDateCommit,
 }: WeekViewProps) {
   const locale = useUIStore((state) => state.locale);
   const weekStart = new Date(currentDate);
   weekStart.setDate(weekStart.getDate() - weekStart.getDay());
   weekStart.setHours(0, 0, 0, 0);
   const pending = pendingEventIds ?? new Set<string>();
+  const [conversionHighlight, setConversionHighlight] = useState<CalendarDate | null>(null);
 
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
@@ -45,21 +50,30 @@ export function WeekView({
   const today = new Date();
   const todayStr = today.toDateString();
 
+  const layoutEvents = useMemo(() => {
+    return events.map((event) => {
+      const override = visualOverrides?.[event.id];
+      return override ? { ...event, ...override } : event;
+    });
+  }, [events, visualOverrides]);
+
   const allDayByDay = useMemo(() => {
-    const adMap = new Map<number, DbCalendarEvent[]>();
+    const adMap = new Map<string, DbCalendarEvent[]>();
     for (const day of days) {
-      for (const event of events) {
-        if (!event.is_all_day || !eventOccursOnDate(event, day)) continue;
-        const list = adMap.get(day.getDate());
+      const key = calendarDateFromLocalDate(day);
+      for (const event of layoutEvents) {
+        if (event.is_all_day !== 1 && event.time_kind !== "all-day") continue;
+        if (!eventOccursOnDate(event, day)) continue;
+        const list = adMap.get(key);
         if (list) list.push(event);
-        else adMap.set(day.getDate(), [event]);
+        else adMap.set(key, [event]);
       }
     }
     return adMap;
-  }, [events, days]);
+  }, [layoutEvents, days]);
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden">
+    <div className="flex flex-col flex-1 overflow-hidden" data-testid="week-view">
       <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
         <div className="border-r border-border-secondary" />
         {days.map((day, i) => {
@@ -77,27 +91,42 @@ export function WeekView({
         })}
       </div>
 
-      <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
-        <div className="border-r border-border-secondary px-1 py-1 text-[0.625rem] text-text-tertiary">
-          {locale === "ru" ? "весь день" : "all-day"}
+      {onDateCommit ? (
+        <AllDayLane
+          days={days}
+          capabilities={capabilities}
+          pendingEventIds={pending}
+          locale={locale}
+          hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+          onEventClick={onEventClick}
+          onDateCommit={onDateCommit}
+          eventsByDay={allDayByDay}
+          conversionHighlight={conversionHighlight}
+        />
+      ) : (
+        <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
+          <div className="border-r border-border-secondary px-1 py-1 text-[0.625rem] text-text-tertiary">
+            {locale === "ru" ? "весь день" : "all-day"}
+          </div>
+          {days.map((day, i) => {
+            const allDay = allDayByDay.get(calendarDateFromLocalDate(day)) ?? [];
+            return (
+              <div key={i} className="border-r border-border-secondary px-1 py-1 space-y-0.5">
+                {allDay.map((event) => (
+                  <button
+                    key={event.id}
+                    type="button"
+                    onClick={(mouseEvent) => onEventClick(event, { x: mouseEvent.clientX, y: mouseEvent.clientY })}
+                    className="w-full text-left text-[0.625rem] px-1 py-0.5 rounded bg-accent/10 text-accent truncate hover:bg-accent/20 transition-colors"
+                  >
+                    {event.summary ?? (locale === "ru" ? "Событие" : "Event")}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
         </div>
-        {days.map((day, i) => {
-          const allDay = allDayByDay.get(day.getDate()) ?? [];
-          return (
-            <div key={i} className="border-r border-border-secondary px-1 py-1 space-y-0.5">
-              {allDay.map((e) => (
-                <button
-                  key={e.id}
-                  onClick={(mouseEvent) => onEventClick(e, { x: mouseEvent.clientX, y: mouseEvent.clientY })}
-                  className="w-full text-left text-[0.625rem] px-1 py-0.5 rounded bg-accent/10 text-accent truncate hover:bg-accent/20 transition-colors"
-                >
-                  {e.summary ?? (locale === "ru" ? "Событие" : "Event")}
-                </button>
-              ))}
-            </div>
-          );
-        })}
-      </div>
+      )}
 
       <div className="flex-1 overflow-y-auto">
         <div className="relative">
@@ -119,13 +148,15 @@ export function WeekView({
             <TimedGridOverlay
               days={days}
               hourHeightPx={WEEK_HOUR_HEIGHT_PX}
-              events={events}
+              events={layoutEvents}
               capabilities={capabilities}
               pendingEventIds={pending}
               visualOverrides={visualOverrides}
               locale={locale}
               onEventClick={onEventClick}
               onGestureCommit={onTimedCommit ?? (() => {})}
+              onConvertToAllDay={onDateCommit}
+              onConvertPreview={setConversionHighlight}
             />
           </div>
         </div>

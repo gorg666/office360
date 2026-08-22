@@ -341,3 +341,26 @@ Graphify incremental index обновлён после feature diff: 6,178 nodes
 Graphify incremental index обновлён после feature diff: 6,274 nodes / 15,870 edges / 383 communities. Integrity audit на `graph.json`: 0 missing endpoints, 0 dangling endpoints, 0 self-loops, 0 duplicate edges. `graphify-out/` gitignored. Community labels stale vs 383 communities (LLM `graphify label` not required for this ticket).
 
 Автоматические проверки CAL-113: TypeScript `npx tsc --noEmit` PASS; targeted drag/resize + CAL-111/112 + sync — 12 files / 84 tests; provider mutation regression — 4 files / 84 tests; full Vitest — 229 files / 2289 tests; `npm run test:calendar-tz` — 136/136 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,035.72 kB raw / 606.12 kB gzip); `cargo check` PASS с двумя прежними unused-variable warnings в `src/lib.rs:360`. Rust не менялся. Канон: `docs/calendar/CALENDAR_DRAG_RESIZE.md`.
+
+### CAL-114 Month / all-day / conversion validation
+
+Дата: 2026-08-23 (Asia/Bangkok). Миграция не создавалась и не запускалась; cloud events, RSVP и invitations не изменялись. Live Tauri-сессии на момент закрытия тикета не было; реальный Yandex write не выполнялся.
+
+| Live smoke | Status | Observation |
+|---|---|---|
+| Month timed / all-day drag | AUTOMATED PASS | MonthView + dateShift: same-week, cross-week, cross-month, wall-clock preserved |
+| Multi-day all-day | AUTOMATED PASS | Exclusive span shifted by grabbed-cell delta |
+| Week all-day row | AUTOMATED PASS | AllDayLane all-day → all-day and all-day → timed |
+| Timed ↔ all-day | AUTOMATED PASS | Overlay conversion preview `Весь день`; 60-minute default timed duration; CAL-113 snap |
+| Recurring scope | AUTOMATED PASS | Month/all-day occurrence drop opens CAL-112 dialog; `single` / `series` / Cancel rollback |
+| Click vs drag | AUTOMATED PASS | 6 px threshold; click still opens details |
+| Read-only | AUTOMATED PASS | `events.update !== remote`: not draggable / not convertible |
+| Rollback | AUTOMATED PASS | network / conflict / permission restore Month position and time kind |
+| Keyboard | AUTOMATED PASS | Event focus + aria-label; Event Edit `Начало` / `Окончание` is resize/move equivalent |
+| Cloud mutations | NONE | Month/all-day/conversion не вызывались на реальном Yandex event |
+
+Канон: `docs/calendar/CALENDAR_MONTH_ALLDAY_INTERACTIONS.md`.
+
+Graphify incremental index обновлён после feature diff: 6,367 nodes / 16,244 edges / 389 communities. Date-grid / Month / AllDayLane surface: 77 релевантных nodes. Integrity audit на `graph.json`: 0 missing endpoints, 0 dangling endpoints, 0 self-loops, 0 duplicate edges. `graphify-out/` gitignored. Community labels stale vs 389 communities (LLM `graphify label` not required for this ticket).
+
+Автоматические проверки CAL-114: TypeScript `npx tsc --noEmit` PASS; targeted Month/all-day/conversion/a11y — 8 files PASS; CAL-113/111/112 + sync regression — 12 files / 86 tests PASS; provider mutation regression — 4 files / 77 tests PASS; full Vitest — 236 files / 2326 tests PASS; `npm run test:calendar-tz` — 149/149 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,035.74 kB raw / 606.16 kB gzip); `cargo check` PASS с двумя прежними unused-variable warnings в `src/lib.rs:360`. Rust не менялся.

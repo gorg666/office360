@@ -15,6 +15,7 @@ const testFiles = [
   "src/components/calendar/scheduling/schedulingView.test.ts",
   "src/components/calendar/timedGrid/timedEventMutation.test.ts",
   "src/components/calendar/timedGrid/geometry.test.ts",
+  "src/components/calendar/dateGrid/dateShift.test.ts",
 ];
 
 for (const zone of zones) {
