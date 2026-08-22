@@ -16,7 +16,20 @@ import { EventCreateModal, type EventCreateInput } from "./EventCreateModal";
 import { EventDetailModal } from "./EventDetailModal";
 import { CalendarList } from "./CalendarList";
 import { CalendarReauthBanner } from "./CalendarReauthBanner";
+import { RecurrenceScopeDialog } from "./recurrence/RecurrenceScopeDialog";
+import {
+  classifyRecurringEditTarget,
+  dragResizeFailureCopy,
+  recurrenceScopeChoices,
+} from "./recurrence/recurrenceEditScope";
+import {
+  commitTimedGridMutation,
+  overrideFromTimedDraft,
+  type TimedDraft,
+  type TimedVisualOverride,
+} from "./timedGrid";
 import { Button } from "@/components/ui/Button";
+import type { RecurrenceWriteScope } from "@/services/calendar/domain";
 
 type CalendarLoadState =
   | { status: "loading" }
@@ -42,8 +55,15 @@ export function CalendarPage() {
   const [showCalendarList, setShowCalendarList] = useState(false);
   const [hasCalendar, setHasCalendar] = useState(true);
   const [providerCapabilities, setProviderCapabilities] = useState<CalendarProviderCapabilities | null>(null);
+  const [pendingEventIds, setPendingEventIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [visualOverrides, setVisualOverrides] = useState<Readonly<Record<string, TimedVisualOverride>>>({});
+  const [timedGesture, setTimedGesture] = useState<{ event: DbCalendarEvent; draft: TimedDraft } | null>(null);
+  const [timedError, setTimedError] = useState<string | null>(null);
+  const [timedBusy, setTimedBusy] = useState(false);
   const reauthDoneRef = useRef(false);
   const loadGenerationRef = useRef(0);
+  const timedInFlightRef = useRef(new Set<string>());
+  const timedGestureRef = useRef<{ event: DbCalendarEvent; draft: TimedDraft } | null>(null);
   const calendarApiEnableUrl =
     "https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com";
 
@@ -245,9 +265,95 @@ export function CalendarPage() {
   }, [activeAccountId, calendars, loadEvents]);
 
   const handleEventClick = useCallback((event: DbCalendarEvent, anchor: { x: number; y: number }) => {
+    if (timedInFlightRef.current.has(event.id)) return;
     setSelectedEvent(event);
     setEventAnchor(anchor);
   }, []);
+
+  const clearTimedOverride = useCallback((eventId: string) => {
+    timedInFlightRef.current.delete(eventId);
+    setPendingEventIds(new Set(timedInFlightRef.current));
+    setVisualOverrides((current) => {
+      if (!(eventId in current)) return current;
+      const next = { ...current };
+      delete next[eventId];
+      return next;
+    });
+  }, []);
+
+  const runTimedMutation = useCallback(async (
+    event: DbCalendarEvent,
+    draft: TimedDraft,
+    scope?: RecurrenceWriteScope,
+  ) => {
+    if (!activeAccountId) return;
+    setTimedError(null);
+    setTimedBusy(true);
+    try {
+      const result = await commitTimedGridMutation({
+        accountId: activeAccountId,
+        event,
+        calendars,
+        draft,
+        scope,
+      });
+      if (result.status !== "success") {
+        clearTimedOverride(event.id);
+        setTimedGesture(null);
+        timedGestureRef.current = null;
+        setTimedError(dragResizeFailureCopy(result));
+        return;
+      }
+      clearTimedOverride(event.id);
+      setTimedGesture(null);
+      timedGestureRef.current = null;
+      await loadEvents();
+    } catch {
+      clearTimedOverride(event.id);
+      setTimedGesture(null);
+      timedGestureRef.current = null;
+      setTimedError("Не удалось выполнить операцию с календарём.");
+    } finally {
+      setTimedBusy(false);
+    }
+  }, [activeAccountId, calendars, clearTimedOverride, loadEvents]);
+
+  const handleTimedCommit = useCallback((
+    event: DbCalendarEvent,
+    draft: TimedDraft,
+    _anchor: { x: number; y: number },
+  ) => {
+    if (timedInFlightRef.current.has(event.id)) return;
+    const override = overrideFromTimedDraft(event, draft);
+    if (!override) return;
+    timedInFlightRef.current.add(event.id);
+    setPendingEventIds(new Set(timedInFlightRef.current));
+    setVisualOverrides((current) => ({ ...current, [event.id]: override }));
+    setTimedError(null);
+    setSelectedEvent(null);
+    const target = classifyRecurringEditTarget(event);
+    const choices = recurrenceScopeChoices(providerCapabilities, "update", target);
+    if (choices.length > 0) {
+      const pending = { event, draft };
+      timedGestureRef.current = pending;
+      setTimedGesture(pending);
+      return;
+    }
+    void runTimedMutation(event, draft);
+  }, [providerCapabilities, runTimedMutation]);
+
+  const handleTimedScopeCancel = useCallback(() => {
+    const pending = timedGestureRef.current;
+    timedGestureRef.current = null;
+    setTimedGesture(null);
+    if (pending) clearTimedOverride(pending.event.id);
+  }, [clearTimedOverride]);
+
+  const handleTimedScopeConfirm = useCallback((scope: RecurrenceWriteScope) => {
+    const pending = timedGestureRef.current;
+    if (!pending) return;
+    void runTimedMutation(pending.event, pending.draft, scope);
+  }, [runTimedMutation]);
 
   const handleEventUpdated = useCallback(() => {
     setSelectedEvent(null);
@@ -400,6 +506,16 @@ export function CalendarPage() {
         </div>
       )}
 
+      {timedError && (
+        <div
+          role="alert"
+          data-testid="timed-mutation-error"
+          className="mx-6 my-2 p-3 rounded-lg border border-danger/30 bg-danger/10"
+        >
+          <p className="text-sm text-text-primary">{timedError}</p>
+        </div>
+      )}
+
       {loadState.status === "loading" && events.length === 0 && (
         <div role="status" className="flex-1 flex items-center justify-center gap-2 text-text-tertiary text-sm">
           <Loader2 size={16} aria-hidden="true" className="animate-spin" />
@@ -440,6 +556,10 @@ export function CalendarPage() {
               currentDate={currentDate}
               events={events}
               onEventClick={handleEventClick}
+              capabilities={providerCapabilities}
+              pendingEventIds={pendingEventIds}
+              visualOverrides={visualOverrides}
+              onTimedCommit={handleTimedCommit}
             />
           )}
           {view === "day" && (
@@ -447,6 +567,10 @@ export function CalendarPage() {
               currentDate={currentDate}
               events={events}
               onEventClick={handleEventClick}
+              capabilities={providerCapabilities}
+              pendingEventIds={pendingEventIds}
+              visualOverrides={visualOverrides}
+              onTimedCommit={handleTimedCommit}
             />
           )}
         </div>
@@ -472,6 +596,20 @@ export function CalendarPage() {
           anchor={eventAnchor}
           onClose={() => setSelectedEvent(null)}
           onUpdated={handleEventUpdated}
+        />
+      )}
+
+      {timedGesture && (
+        <RecurrenceScopeDialog
+          intent="update"
+          choices={recurrenceScopeChoices(
+            providerCapabilities,
+            "update",
+            classifyRecurringEditTarget(timedGesture.event),
+          )}
+          busy={timedBusy}
+          onCancel={handleTimedScopeCancel}
+          onConfirm={handleTimedScopeConfirm}
         />
       )}
     </div>

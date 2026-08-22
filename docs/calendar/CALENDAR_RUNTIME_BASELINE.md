@@ -323,3 +323,21 @@ Graphify incremental index обновлён после feature diff: 6,125 nodes
 Graphify incremental index обновлён после feature diff: 6,178 nodes / 15,546 edges / 374 communities. Integrity audit на `graph.json`: 0 missing endpoints, 0 dangling endpoints, 0 self-loops, 0 duplicate edges. `graphify-out/` gitignored.
 
 Автоматические проверки CAL-112: TypeScript `npx tsc --noEmit` PASS; targeted recurrence UX / CAL-111 mutation / assistant / FreeBusy / participant / privacy / providers — 12 files / 144 tests; full Vitest — 222 files / 2248 tests; `npm run test:calendar-tz` — 119/119 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,035.69 kB raw / 606.13 kB gzip); `cargo check` PASS с двумя прежними unused-variable warnings в `src/lib.rs:360`. Rust не менялся. Канон UX: `docs/calendar/CALENDAR_RECURRENCE_EDIT_UX.md`.
+
+### CAL-113 timed Day/Week drag and resize validation
+
+Дата: 2026-08-22 (Asia/Bangkok). Миграция не создавалась и не запускалась; cloud events, RSVP и invitations не изменялись. Live Tauri-сессии на момент закрытия тикета не было; реальный Yandex write не выполнялся.
+
+| Live smoke | Status | Observation |
+|---|---|---|
+| Day / Week timed drag | AUTOMATED PASS | Overlay + CalendarPage tests: same-day move, cross-day move, duration preserved, mutation once via `CalendarMutationService` |
+| Resize top / bottom | AUTOMATED PASS | Preview + commit; inversion clamped to 15 min; `end <= start` cannot be written |
+| Recurring scope | AUTOMATED PASS | Occurrence drop/resize opens CAL-112 dialog; `single` / `series` / Cancel rollback; `this-and-future` hidden |
+| Click vs drag | AUTOMATED PASS | Tiny pointer movement does not mutate; click still opens details |
+| Read-only | AUTOMATED PASS | `events.update !== remote` and all-day/cancelled: no drag/resize |
+| Rollback | AUTOMATED PASS | network / conflict / permission restore original geometry |
+| Cloud mutations | NONE | Drag/resize не вызывались на реальном Yandex event |
+
+Graphify incremental index обновлён после feature diff: 6,274 nodes / 15,870 edges / 383 communities. Integrity audit на `graph.json`: 0 missing endpoints, 0 dangling endpoints, 0 self-loops, 0 duplicate edges. `graphify-out/` gitignored. Community labels stale vs 383 communities (LLM `graphify label` not required for this ticket).
+
+Автоматические проверки CAL-113: TypeScript `npx tsc --noEmit` PASS; targeted drag/resize + CAL-111/112 + sync — 12 files / 84 tests; provider mutation regression — 4 files / 84 tests; full Vitest — 229 files / 2289 tests; `npm run test:calendar-tz` — 136/136 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,035.72 kB raw / 606.12 kB gzip); `cargo check` PASS с двумя прежними unused-variable warnings в `src/lib.rs:360`. Rust не менялся. Канон: `docs/calendar/CALENDAR_DRAG_RESIZE.md`.

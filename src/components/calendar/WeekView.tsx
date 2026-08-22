@@ -1,12 +1,18 @@
 import { useMemo } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
+import type { CalendarProviderCapabilities } from "@/services/calendar/domain";
 import { useUIStore } from "@/stores/uiStore";
 import { eventOccursOnDate } from "./eventTimeProjection";
+import { TimedGridOverlay, WEEK_HOUR_HEIGHT_PX, type TimedDraft, type TimedVisualOverride } from "./timedGrid";
 
 interface WeekViewProps {
   currentDate: Date;
   events: DbCalendarEvent[];
   onEventClick: (event: DbCalendarEvent, anchor: { x: number; y: number }) => void;
+  capabilities?: CalendarProviderCapabilities | null;
+  pendingEventIds?: ReadonlySet<string>;
+  visualOverrides?: Readonly<Record<string, TimedVisualOverride>>;
+  onTimedCommit?: (event: DbCalendarEvent, draft: TimedDraft, anchor: { x: number; y: number }) => void;
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -15,11 +21,20 @@ const DAY_NAMES = {
   ru: ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"],
 } as const;
 
-export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
+export function WeekView({
+  currentDate,
+  events,
+  onEventClick,
+  capabilities = null,
+  pendingEventIds,
+  visualOverrides,
+  onTimedCommit,
+}: WeekViewProps) {
   const locale = useUIStore((state) => state.locale);
   const weekStart = new Date(currentDate);
   weekStart.setDate(weekStart.getDate() - weekStart.getDay());
   weekStart.setHours(0, 0, 0, 0);
+  const pending = pendingEventIds ?? new Set<string>();
 
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
@@ -30,43 +45,21 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
   const today = new Date();
   const todayStr = today.toDateString();
 
-  // Pre-bucket events by day+hour and all-day per day (O(E) instead of O(168×E))
-  const { dayHourEvents, allDayByDay } = useMemo(() => {
-    const dhMap = new Map<string, DbCalendarEvent[]>();
+  const allDayByDay = useMemo(() => {
     const adMap = new Map<number, DbCalendarEvent[]>();
-
     for (const day of days) {
-      const dayTs = day.getTime() / 1000;
-      const dayKey = day.getDate();
-
-      for (const e of events) {
-        if (e.is_all_day) {
-          if (eventOccursOnDate(e, day)) {
-            const list = adMap.get(dayKey);
-            if (list) list.push(e);
-            else adMap.set(dayKey, [e]);
-          }
-        } else {
-          for (const hour of HOURS) {
-            const hStart = dayTs + hour * 3600;
-            const hEnd = hStart + 3600;
-            if (e.start_time < hEnd && e.end_time > hStart) {
-              const key = `${dayKey}-${hour}`;
-              const list = dhMap.get(key);
-              if (list) list.push(e);
-              else dhMap.set(key, [e]);
-            }
-          }
-        }
+      for (const event of events) {
+        if (!event.is_all_day || !eventOccursOnDate(event, day)) continue;
+        const list = adMap.get(day.getDate());
+        if (list) list.push(event);
+        else adMap.set(day.getDate(), [event]);
       }
     }
-
-    return { dayHourEvents: dhMap, allDayByDay: adMap };
+    return adMap;
   }, [events, days]);
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      {/* Day headers */}
       <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
         <div className="border-r border-border-secondary" />
         {days.map((day, i) => {
@@ -84,7 +77,6 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
         })}
       </div>
 
-      {/* All-day events row */}
       <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
         <div className="border-r border-border-secondary px-1 py-1 text-[0.625rem] text-text-tertiary">
           {locale === "ru" ? "весь день" : "all-day"}
@@ -107,35 +99,35 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
         })}
       </div>
 
-      {/* Time grid */}
       <div className="flex-1 overflow-y-auto">
-        <div className="grid grid-cols-[60px_repeat(7,1fr)]">
-          {HOURS.map((hour) => (
-            <div key={hour} className="contents">
-              <div className="border-r border-b border-border-secondary h-12 px-1 flex items-start justify-end">
-                <span className="text-[0.625rem] text-text-tertiary -mt-1.5">
-                  {hour === 0 ? "" : `${hour % 12 || 12}${hour < 12 ? "am" : "pm"}`}
-                </span>
+        <div className="relative">
+          <div className="grid grid-cols-[60px_repeat(7,1fr)]">
+            {HOURS.map((hour) => (
+              <div key={hour} className="contents">
+                <div className="border-r border-b border-border-secondary h-12 px-1 flex items-start justify-end">
+                  <span className="text-[0.625rem] text-text-tertiary -mt-1.5">
+                    {hour === 0 ? "" : `${hour % 12 || 12}${hour < 12 ? "am" : "pm"}`}
+                  </span>
+                </div>
+                {days.map((_, di) => (
+                  <div key={di} className="border-r border-b border-border-secondary h-12 relative px-0.5" />
+                ))}
               </div>
-              {days.map((day, di) => {
-                const hourEvents = dayHourEvents.get(`${day.getDate()}-${hour}`) ?? [];
-                return (
-                  <div key={di} className="border-r border-b border-border-secondary h-12 relative px-0.5">
-                    {hourEvents.map((e) => (
-                      <button
-                        key={e.id}
-                        onClick={(mouseEvent) => onEventClick(e, { x: mouseEvent.clientX, y: mouseEvent.clientY })}
-                        className="absolute inset-x-0.5 text-[0.625rem] px-1 py-0.5 rounded bg-accent/15 text-accent truncate hover:bg-accent/25 transition-colors"
-                        title={e.summary ?? (locale === "ru" ? "Событие" : "Event")}
-                      >
-                        {e.summary ?? (locale === "ru" ? "Событие" : "Event")}
-                      </button>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+            ))}
+          </div>
+          <div className="absolute top-0 right-0 bottom-0 left-[60px]">
+            <TimedGridOverlay
+              days={days}
+              hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+              events={events}
+              capabilities={capabilities}
+              pendingEventIds={pending}
+              visualOverrides={visualOverrides}
+              locale={locale}
+              onEventClick={onEventClick}
+              onGestureCommit={onTimedCommit ?? (() => {})}
+            />
+          </div>
         </div>
       </div>
     </div>

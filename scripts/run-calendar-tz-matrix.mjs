@@ -13,6 +13,8 @@ const testFiles = [
   "src/services/calendar/scheduling/workingHours.test.ts",
   "src/services/calendar/scheduling/schedulingAssistantService.test.ts",
   "src/components/calendar/scheduling/schedulingView.test.ts",
+  "src/components/calendar/timedGrid/timedEventMutation.test.ts",
+  "src/components/calendar/timedGrid/geometry.test.ts",
 ];
 
 for (const zone of zones) {

@@ -5,6 +5,7 @@ import {
   classifyRecurringEditTarget,
   defaultRecurrenceScope,
   recurrenceScopeChoices,
+  dragResizeFailureCopy,
   writeFailureCopy,
 } from "./recurrenceEditScope";
 
@@ -119,6 +120,15 @@ describe("writeFailureCopy", () => {
     expect(writeFailureCopy({ status: "permission-denied", message: "acl" }))
       .toBe("Недостаточно прав для изменения этого календаря.");
     expect(writeFailureCopy({ status: "network-error", message: "timeout" }))
+      .toBe("Не удалось связаться с сервером календаря. Повторите попытку.");
+  });
+});
+
+describe("dragResizeFailureCopy", () => {
+  it("uses the calendar-refresh conflict copy for drag and resize", () => {
+    expect(dragResizeFailureCopy({ status: "conflict", message: "etag" }))
+      .toBe("Событие было изменено в другом месте. Обновите календарь и попробуйте снова.");
+    expect(dragResizeFailureCopy({ status: "network-error", message: "timeout" }))
       .toBe("Не удалось связаться с сервером календаря. Повторите попытку.");
   });
 });

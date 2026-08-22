@@ -26,7 +26,7 @@ vi.mock("@/services/calendar/calendarSyncService", () => ({
   calendarSyncService: { loadRange: mocks.loadRange },
 }));
 vi.mock("@/services/calendar/calendarMutationService", () => ({
-  calendarMutationService: { capabilities: mocks.getCapabilities, create: vi.fn() },
+  calendarMutationService: { capabilities: mocks.getCapabilities, create: vi.fn(), update: vi.fn() },
 }));
 vi.mock("./CalendarToolbar", () => ({
   CalendarToolbar: ({ onViewChange, canCreateEvent }: { onViewChange: (view: "week") => void; canCreateEvent?: boolean }) => (

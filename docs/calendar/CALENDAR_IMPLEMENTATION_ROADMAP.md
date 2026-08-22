@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108, CAL-109, CAL-110, CAL-111 and CAL-112 completed. This document is the source of truth for Calendar ticket numbering.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108, CAL-109, CAL-110, CAL-111, CAL-112 and CAL-113 completed. This document is the source of truth for Calendar ticket numbering.
 
 **Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
 
@@ -32,8 +32,9 @@ CAL-106 participant identity  ->  CAL-107 Free/Busy foundation  ->  CAL-108 sche
                                                                 ->  CAL-109 Scheduling Assistant UI
                                                                 ->  CAL-110 remote Free/Busy adapters
 CAL-105 provider/write  ->  CAL-111 recurrence mutation backend  ->  CAL-112 recurring edit UX (delivered)
-CAL-113 Mail inbound  ->  CAL-114 outbound iTIP/RSVP
-CAL-115 application service/UI state  ->  CAL-116 layout engine  ->  CAL-117 drag/resize
+CAL-102/105/112  ->  CAL-113 Day/Week timed drag/resize (delivered)
+CAL-114 outbound iTIP/RSVP  (mail inbound remains pending backlog)
+CAL-115 application service/UI state  ->  CAL-116 layout engine  ->  CAL-117 remaining drag/selection
                                       ->  CAL-118 event editor
 CAL-119 shared calendars/permissions
 CAL-120 reminders
@@ -251,25 +252,19 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 These scopes were previously labeled CAL-111/CAL-112 before the explicit owner handoff assigned those numbers to recurrence backend/UI. They stay pending and must receive new numbers before implementation; completed ticket history is unchanged.
 
+- Mail inbound calendar MIME ingestion (previously listed as CAL-113 before the owner handoff assigned CAL-113 to Day/Week drag/resize).
 
-## CAL-113 — Mail inbound calendar MIME ingestion
+
+## CAL-113 (delivered) — Event drag and resize
 
 
-**Цель:** reliably ingest calendar parts during mail sync, not only when a thread is opened.
+**Цель:** production drag/resize for timed events in Day and Week through `CalendarMutationService`, with CAL-102 time semantics and CAL-112 recurrence scope UI.
 
-**Основные файлы/модули:** Gmail/IMAP parsers, `EmailProvider` parsed message contract, sync paths, invitations service/DB, ThreadView.
+**Основные файлы/модули:** `TimedGridOverlay`, `timedEventMutation`, `commitTimedGridMutation`, DayView, WeekView, CalendarPage.
 
-**Зависимости:** CAL-103, CAL-104.
+**Зависимости:** CAL-102, CAL-105, CAL-111, CAL-112.
 
-**Definition of Done:**
-
-- recursive MIME extraction for `text/calendar` and `.ics` across mixed/alternative/related;
-- body/attachment/inline calendar parts modeled uniformly;
-- REQUEST/update/CANCEL idempotency by UID/recurrence/sequence;
-- invitation visible before opening source message where sync payload permits;
-- Gmail and IMAP fixture tests; no raw MIME logging.
-
-**Риски:** provider attachment lazy-fetch cost, malformed MIME, duplicate events.
+**Acceptance (2026-08-22):** Day/Week timed drag, Week cross-day move, top/bottom resize, 15-minute snap, 15-minute minimum duration, duration-preserving moves, capability-gated read-only, click vs drag threshold, occurrence scope dialog (`single` / `series` / Cancel rollback), conflict/network/permission rollback, DST wall-clock tests for `America/New_York` and `Australia/Lord_Howe`. Month DnD and all-day ↔ timed are out of scope. No migration and no live cloud mutation. Canonical contract: `CALENDAR_DRAG_RESIZE.md`.
 
 
 ## CAL-114 — Outbound invitations, updates, cancellations and RSVP
@@ -279,7 +274,7 @@ These scopes were previously labeled CAL-111/CAL-112 before the explicit owner h
 
 **Основные файлы/модули:** invitations service, Calendar provider capabilities, email builder, composer/send orchestrator, pending operations/Outbox/Sent.
 
-**Зависимости:** CAL-103, CAL-105, CAL-113.
+**Зависимости:** CAL-103, CAL-105; mail inbound MIME ingestion remains pending backlog (not CAL-113).
 
 **Definition of Done:**
 
@@ -333,22 +328,24 @@ These scopes were previously labeled CAL-111/CAL-112 before the explicit owner h
 **Риски:** accessibility, layout complexity, bundle size.
 
 
-## CAL-117 — Event drag, resize and selection
+## CAL-117 — Remaining drag, resize and selection
 
 
-**Цель:** добавить safe drag/resize/create-by-selection поверх нового layout.
+**Цель:** закрыть drag/resize gaps that CAL-113 did not take: Month, all-day, keyboard, and create-by-selection.
 
-**Основные файлы/модули:** layout engine, DnD provider/hooks, mutation service, event editor.
+Timed Day/Week drag/resize shipped under **CAL-113**. This section is the remaining surface, not a second timed-grid implementation.
 
-**Зависимости:** CAL-115, CAL-116.
+**Основные файлы/модули:** MonthView, all-day row, layout engine, DnD/keyboard, mutation service.
+
+**Зависимости:** CAL-113, CAL-115, CAL-116.
 
 **Definition of Done:**
 
-- drag across time/day/all-day with snap and auto-scroll;
-- resize start/end with minimum duration;
+- Month drag/drop;
+- all-day ↔ timed moves;
 - keyboard equivalents and announcements;
-- optimistic update + rollback/conflict handling;
-- recurrence scope prompt where required;
+- create-by-empty-slot selection;
+- optional edge auto-scroll;
 - pointer/touch/keyboard tests and Tauri smoke.
 
 **Риски:** accidental mutation, DST boundary drag, recurring scope, touch behavior.

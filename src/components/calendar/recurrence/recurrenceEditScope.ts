@@ -87,6 +87,15 @@ export function writeFailureCopy(
   }
 }
 
+export function dragResizeFailureCopy(
+  result: Extract<CalendarWriteResult<unknown>, { status: CalendarWriteFailureStatus }>,
+): string {
+  if (result.status === "conflict") {
+    return "Событие было изменено в другом месте. Обновите календарь и попробуйте снова.";
+  }
+  return writeFailureCopy(result);
+}
+
 function scopeLabel(scope: RecurrenceWriteScope): string {
   if (scope === "single") return "Только это событие";
   if (scope === "series") return "Всю серию";
