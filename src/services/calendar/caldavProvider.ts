@@ -8,9 +8,10 @@ import type {
   CreateEventInput,
   UpdateEventInput,
   CalendarParticipationStatus,
+  CalendarReadDiagnostics,
 } from "./types";
 import type { CalendarProviderCapabilities } from "./domain";
-import { generateVEvent, parseVEvent, parseVEventsInRange, updateAttendeeParticipation, updateVEventFields } from "./icalHelper";
+import { generateVEvent, parseVEvent, parseVEventsInRangeDetailed, updateAttendeeParticipation, updateVEventFields } from "./icalHelper";
 import { getAccount, type DbAccount } from "@/services/db/accounts";
 import { ensureFreshToken, OAUTH_TOKEN_REFRESH_BUFFER_MS } from "@/services/oauth/oauthTokenManager";
 import { isYandexOAuthCalendarAccount, YANDEX_CALDAV_URL } from "./yandex";
@@ -52,6 +53,11 @@ export class CalDAVProvider implements CalendarProvider {
     sync: { mode: "full", pagination: false },
     conflictDetection: "etag",
   };
+  private _lastReadDiagnostics: CalendarReadDiagnostics = emptyReadDiagnostics();
+
+  get lastReadDiagnostics(): CalendarReadDiagnostics {
+    return this._lastReadDiagnostics;
+  }
   private readonly sessionKey: string;
   private session: CalDavProviderSession | null = null;
   private sessionCreation: Promise<CalDavProviderSession> | null = null;
@@ -231,13 +237,7 @@ export class CalDAVProvider implements CalendarProvider {
       },
     }));
 
-    return objects.flatMap((obj) => {
-      if (!obj.data) return [];
-      return parseVEventsInRange(obj.data, obj.url, new Date(timeMin), new Date(timeMax)).map((event) => ({
-        ...event,
-        etag: obj.etag ?? null,
-      }));
-    });
+    return this.parseCalendarObjects(objects, new Date(timeMin), new Date(timeMax));
   }
 
   async createEvent(calendarRemoteId: string, event: CreateEventInput): Promise<CalendarEventData> {
@@ -342,13 +342,7 @@ export class CalDAVProvider implements CalendarProvider {
       },
     }));
 
-    for (const obj of objects) {
-      if (!obj.data) continue;
-      created.push(...parseVEventsInRange(obj.data, obj.url, timeMin, timeMax).map((event) => ({
-        ...event,
-        etag: obj.etag ?? null,
-      })));
-    }
+    created.push(...this.parseCalendarObjects(objects, timeMin, timeMax));
 
     return { created, updated: [], deletedRemoteIds: [], newSyncToken: null, newCtag: null };
   }
@@ -372,6 +366,36 @@ export class CalDAVProvider implements CalendarProvider {
       return { success: false, message: diagnostic.userMessage };
     }
   }
+
+  private parseCalendarObjects(objects: DAVObject[], rangeStart: Date, rangeEnd: Date): CalendarEventData[] {
+    const diagnostics = emptyReadDiagnostics();
+    const events: CalendarEventData[] = [];
+    for (const object of objects) {
+      if (!object.data) continue;
+      try {
+        const parsed = parseVEventsInRangeDetailed(object.data, object.url, rangeStart, rangeEnd);
+        diagnostics.unreadableComponentCount += parsed.diagnostics.unreadableComponentCount;
+        diagnostics.unreadableObjectCount += parsed.diagnostics.unreadableObjectCount;
+        events.push(...parsed.events.map((event) => ({ ...event, etag: object.etag ?? null })));
+      } catch {
+        diagnostics.unreadableObjectCount += 1;
+      }
+    }
+    this._lastReadDiagnostics = diagnostics;
+    if (diagnostics.unreadableComponentCount > 0 || diagnostics.unreadableObjectCount > 0) {
+      console.warn("[calendar-read]", {
+        provider: "caldav",
+        accountId: redactLogIdentifier(this.accountId),
+        unreadableComponentCount: diagnostics.unreadableComponentCount,
+        unreadableObjectCount: diagnostics.unreadableObjectCount,
+      });
+    }
+    return events;
+  }
+}
+
+function emptyReadDiagnostics(): CalendarReadDiagnostics {
+  return { unreadableComponentCount: 0, unreadableObjectCount: 0 };
 }
 
 function getSessionStaleReason(

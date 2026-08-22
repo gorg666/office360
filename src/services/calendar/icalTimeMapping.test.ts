@@ -1,4 +1,4 @@
-import { generateVEvent, parseVEvent, parseVEventsInRange, updateVEventFields } from "./icalHelper";
+import { generateVEvent, parseVEvent, parseVEventsInRange, parseVEventsInRangeDetailed, updateVEventFields } from "./icalHelper";
 import { parseICalContentLine } from "./icalTimeMapping";
 
 const HOST_TIME_ZONES = ["UTC", "Europe/Moscow", "America/New_York", "Australia/Lord_Howe"];
@@ -103,6 +103,63 @@ describe("Calendar recurrence semantics", () => {
     expect(events.map((event) => event.summary)).toEqual(["Master", "Moved", "Master"]);
     expect(events.every((event) => event.occurrenceKey?.includes("override-series"))).toBe(true);
     expect(new Set(events.map((event) => event.occurrenceKey)).size).toBe(3);
+  });
+
+  it.each([1, 3, 5, 10])("returns a %i-day recurring occurrence that starts before and overlaps the range", (days) => {
+    const start = new Date("2026-03-01T10:00:00Z");
+    const rangeStart = new Date(start.getTime() + days * 86400000 - 3600000);
+    const events = parseVEventsInRange(calendar([vevent([
+      `UID:long-${days}`,
+      "DTSTART:20260301T100000Z",
+      `DURATION:P${days}D`,
+      "RRULE:FREQ=WEEKLY;COUNT=1",
+    ])]), `/long-${days}.ics`, rangeStart, new Date(rangeStart.getTime() + 2 * 3600000));
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.uid).toBe(`long-${days}`);
+  });
+
+  it("keeps end-at-range-start exclusive for a long occurrence", () => {
+    const events = parseVEventsInRange(calendar([vevent([
+      "UID:ends-at-boundary",
+      "DTSTART:20260301T100000Z",
+      "DURATION:P5D",
+      "RRULE:FREQ=WEEKLY;COUNT=1",
+    ])]), "/boundary.ics", new Date("2026-03-06T10:00:00Z"), new Date("2026-03-06T11:00:00Z"));
+
+    expect(events).toEqual([]);
+  });
+});
+
+describe("malformed event isolation", () => {
+  const rangeStart = new Date("2026-03-01T00:00:00Z");
+  const rangeEnd = new Date("2026-04-01T00:00:00Z");
+
+  it("keeps valid neighbors when one VEVENT has an invalid datetime", () => {
+    const parsed = parseVEventsInRangeDetailed(calendar([
+      vevent(["UID:good-1", "DTSTART:20260315T100000Z", "DTEND:20260315T110000Z"]),
+      vevent(["UID:bad", "DTSTART:20260315T25", "DTEND:20260315T260000"]),
+      vevent(["UID:good-2", "DTSTART:20260316T100000Z", "DTEND:20260316T110000Z"]),
+    ]), "/mixed.ics", rangeStart, rangeEnd);
+
+    expect(parsed.events.map((event) => event.uid)).toEqual(["good-1", "good-2"]);
+    expect(parsed.diagnostics).toEqual({ unreadableComponentCount: 1, unreadableObjectCount: 0 });
+  });
+
+  it("isolates an inconsistent VALUE=DATE and TZID component", () => {
+    const parsed = parseVEventsInRangeDetailed(calendar([
+      vevent(["UID:good", "DTSTART:20260315T100000Z", "DTEND:20260315T110000Z"]),
+      vevent(["UID:bad-date", "DTSTART;VALUE=DATE;TZID=Europe/Moscow:20260315", "DTEND;VALUE=DATE:20260316"]),
+    ]), "/mixed-value.ics", rangeStart, rangeEnd);
+
+    expect(parsed.events.map((event) => event.uid)).toEqual(["good"]);
+    expect(parsed.diagnostics.unreadableComponentCount).toBe(1);
+  });
+
+  it("marks a non-calendar DAV payload as an unreadable object", () => {
+    const parsed = parseVEventsInRangeDetailed("not an iCalendar object", "/broken.ics", rangeStart, rangeEnd);
+    expect(parsed.events).toEqual([]);
+    expect(parsed.diagnostics).toEqual({ unreadableComponentCount: 0, unreadableObjectCount: 1 });
   });
 });
 

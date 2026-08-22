@@ -25,6 +25,8 @@ The policy is centralized as `DST_DISAMBIGUATION_POLICY`. Coverage includes `Eur
 
 RRULE expansion runs on naive wall-clock values, then localizes each occurrence. A weekly 10:00 event therefore stays at 10:00 through DST while its UTC instant changes.
 
+Range expansion looks back by the greater of the existing three-day safety window and the event duration. This keeps long occurrences that begin before the requested range but still overlap it; an occurrence whose end is exactly the range start remains excluded.
+
 `occurrenceKey` is composed from:
 
 ```text
@@ -50,6 +52,10 @@ Migration v34 is append-only. It adds nullable semantic columns plus constant de
 3. otherwise project legacy timed epochs as explicit UTC semantics.
 
 Lazy derivation does not write or mass-backfill existing rows. New sync/write records persist the semantic fields.
+
+## Degraded provider reads
+
+CalDAV parsing isolates each `VEVENT` and DAV object. A malformed component is omitted without discarding valid siblings, while safe component/object counters flow through the same `fetchEvents` and `syncEvents` path. The UI reports a successful but degraded read and keeps existing cached range data; diagnostics never contain raw iCalendar content or DAV object identifiers.
 
 ## Current boundary
 

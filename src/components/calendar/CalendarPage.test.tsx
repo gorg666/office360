@@ -109,6 +109,7 @@ describe("CalendarPage load states", () => {
     type: "caldav",
     listCalendars: mocks.listCalendars,
     fetchEvents: mocks.fetchEvents,
+    lastReadDiagnostics: { unreadableComponentCount: 0, unreadableObjectCount: 0 },
   };
 
   beforeEach(() => {
@@ -127,6 +128,7 @@ describe("CalendarPage load states", () => {
     });
 
     provider.type = "caldav";
+    provider.lastReadDiagnostics = { unreadableComponentCount: 0, unreadableObjectCount: 0 };
     mocks.hasCalendarSupport.mockResolvedValue(true);
     mocks.getCalendarProvider.mockResolvedValue(provider);
     mocks.getVisibleCalendars.mockResolvedValue([dbCalendar]);
@@ -194,5 +196,19 @@ describe("CalendarPage load states", () => {
     });
     expect(screen.getByText("Свежее событие")).toBeInTheDocument();
     expect(mocks.listCalendars).toHaveBeenCalledTimes(2);
+  });
+
+  it("E: partial parse stays fresh, preserves cache, and shows a degraded notice", async () => {
+    provider.lastReadDiagnostics = { unreadableComponentCount: 1, unreadableObjectCount: 0 };
+    mocks.getCalendarEventsInRangeMulti
+      .mockResolvedValueOnce([makeDbEvent("Событие из кэша")])
+      .mockResolvedValueOnce([makeDbEvent("Свежее событие")]);
+
+    render(<CalendarPage />);
+
+    expect(await screen.findByText("Календарь загружен, но часть событий не удалось прочитать")).toBeInTheDocument();
+    expect(screen.getByText("Свежее событие")).toBeInTheDocument();
+    expect(screen.queryByText("Не удалось обновить календарь")).not.toBeInTheDocument();
+    expect(mocks.deleteCalendarEventsInRange).not.toHaveBeenCalled();
   });
 });

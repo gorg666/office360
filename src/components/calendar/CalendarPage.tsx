@@ -4,7 +4,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { deleteCalendarEventsInRange, getCalendarEventsInRangeMulti, upsertCalendarEvent, type DbCalendarEvent } from "@/services/db/calendarEvents";
 import { getVisibleCalendars, getCalendarsForAccount, upsertCalendar, type DbCalendar } from "@/services/db/calendars";
 import { getCalendarProvider, hasCalendarSupport } from "@/services/calendar/providerFactory";
-import type { CalendarEventData, CreateEventInput } from "@/services/calendar/types";
+import type { CalendarEventData, CalendarReadDiagnostics, CreateEventInput } from "@/services/calendar/types";
 import { CalendarToolbar, type CalendarView } from "./CalendarToolbar";
 import { MonthView } from "./MonthView";
 import { WeekView } from "./WeekView";
@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/Button";
 
 type CalendarLoadState =
   | { status: "loading" }
-  | { status: "fresh" }
+  | ({ status: "fresh" } & CalendarReadDiagnostics)
   | { status: "stale" }
   | { status: "error" };
 
@@ -110,7 +110,7 @@ export function CalendarPage() {
     try {
       const supported = await hasCalendarSupport(activeAccountId);
       if (!supported) {
-        setLoadState({ status: "fresh" });
+        setLoadState({ status: "fresh", unreadableComponentCount: 0, unreadableObjectCount: 0 });
         return;
       }
 
@@ -135,6 +135,10 @@ export function CalendarPage() {
 
       // Fetch events for visible calendars
       const visibleCals = await getVisibleCalendars(activeAccountId);
+      const readDiagnostics: CalendarReadDiagnostics = {
+        unreadableComponentCount: 0,
+        unreadableObjectCount: 0,
+      };
       for (const cal of visibleCals) {
         const apiEvents = await provider.fetchEvents(
           cal.remote_id,
@@ -142,7 +146,19 @@ export function CalendarPage() {
           end.toISOString(),
         );
 
-        await deleteCalendarEventsInRange(activeAccountId, cal.id, startTs, endTs);
+        const calendarDiagnostics = provider.lastReadDiagnostics ?? {
+          unreadableComponentCount: 0,
+          unreadableObjectCount: 0,
+        };
+        readDiagnostics.unreadableComponentCount += calendarDiagnostics.unreadableComponentCount;
+        readDiagnostics.unreadableObjectCount += calendarDiagnostics.unreadableObjectCount;
+
+        if (
+          calendarDiagnostics.unreadableComponentCount === 0
+          && calendarDiagnostics.unreadableObjectCount === 0
+        ) {
+          await deleteCalendarEventsInRange(activeAccountId, cal.id, startTs, endTs);
+        }
 
         for (const event of apiEvents) {
           await upsertCalendarEventFromProvider(activeAccountId, cal.id, event);
@@ -155,7 +171,7 @@ export function CalendarPage() {
       setEvents(fresh);
       setNeedsReauth(false);
       setCalendarError(null);
-      setLoadState({ status: "fresh" });
+      setLoadState({ status: "fresh", ...readDiagnostics });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const lowerMessage = message.toLowerCase();
@@ -420,6 +436,25 @@ export function CalendarPage() {
                 </Button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {loadState.status === "fresh"
+        && (loadState.unreadableComponentCount > 0 || loadState.unreadableObjectCount > 0) && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mx-6 my-2 p-3 rounded-lg border border-warning/30 bg-warning/10 flex items-start gap-2"
+        >
+          <AlertTriangle size={16} aria-hidden="true" className="shrink-0 mt-0.5 text-warning" />
+          <div>
+            <p className="text-sm font-medium text-text-primary">
+              Календарь загружен, но часть событий не удалось прочитать
+            </p>
+            <p className="text-xs text-text-secondary mt-1">
+              Корректные события показаны; непрочитанные данные будут повторно проверены при следующем обновлении.
+            </p>
           </div>
         </div>
       )}

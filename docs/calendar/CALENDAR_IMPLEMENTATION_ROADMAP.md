@@ -22,11 +22,11 @@ Existing QA history already uses `CAL-001` for the Yandex Calendar runtime failu
 ```text
 CAL-101 Git/runtime gate
   → CAL-102 domain + timezone contracts
-    → CAL-103 normalized DB + sync state
-      → CAL-104 provider capabilities/sync
-        ├─ CAL-105 Yandex/CalDAV runtime
-        ├─ CAL-106 iCalendar codec
-        │   → CAL-107 Mail inbound
+    ├─ CAL-103 iCalendar codec
+    └─ CAL-104 normalized DB + sync state
+      → CAL-105 provider capabilities/sync
+        ├─ CAL-106 Yandex/CalDAV runtime
+        ├─ CAL-107 Mail inbound
         │   → CAL-108 outbound iTIP/RSVP
         └─ CAL-109 event application service
             → CAL-110 time-grid layout
@@ -87,63 +87,9 @@ CAL-101 Git/runtime gate
 
 **Implementation (2026-08-22):** минимальный provider-neutral `domain/` различает timed-zoned, floating и all-day values; IANA resolver централизует DST gap/overlap policy; wall-clock recurrence формирует стабильный `occurrenceKey` для RRULE/EXDATE/RECURRENCE-ID/RDATE. Google и CalDAV проходят единый mapping contract, а `fetchEvents`/`syncEvents` используют один expansion path. Append-only migration v34 сохраняет TZID/wall/date/series/occurrence/TRANSP/SEQUENCE; legacy rows выводят semantics лениво без массового backfill. Канон: `CALENDAR_TIME_MODEL.md`.
 
-**Acceptance:** PASS. Four-host-TZ matrix, provider conformance, 2014-test full Vitest, production build, cargo check, in-memory SQLite fresh/existing/legacy/new-row smoke, and read-only Tauri Yandex Month/Week/Day/calendar-list smoke passed. Local development DB applied v34 with all ten semantic columns; subsequent normal sync populated semantic fields. No cloud mutations were performed.
+**Acceptance:** PASS. Four-host-TZ matrix, provider conformance, 2025-test full Vitest, production build, cargo check, in-memory SQLite fresh/existing/legacy/new-row smoke, and read-only Tauri Yandex Month/Week/Day/calendar-list smoke passed. Local development DB applied v34 with all ten semantic columns; subsequent normal sync populated semantic fields. CAL-102F additionally isolated malformed objects/components with safe degraded-read diagnostics and made recurrence range lookback duration-aware. No cloud mutations were performed.
 
-## CAL-103 — Normalize Calendar persistence and sync state
-
-**Цель:** добавить additive schema для attendees, recurrence exceptions, reminders, permissions/subscriptions, working hours, FreeBusy cache and pending ops.
-
-**Основные файлы/модули:** `src/services/db/migrations.ts`, Calendar repositories/tests.
-
-**Зависимости:** CAL-102; explicit migration approval required before execution against real DB.
-
-**Definition of Done:**
-
-- append-only migration and repository APIs;
-- existing events readable/backfilled lazily or by safe migration strategy;
-- account/org scope on every new table/index;
-- raw iCal remains available but not sole semantic store;
-- migration tests and rollback/recovery notes.
-
-**Риски:** data migration, duplicate identities/occurrences, DB growth. This ticket requires APOSTLE migration confirmation.
-
-## CAL-104 — Provider capabilities, pagination and durable sync
-
-**Цель:** вынести sync из `CalendarPage`, формализовать provider capabilities and conflicts.
-
-**Основные файлы/модули:** `providerFactory.ts`, `types.ts`, Google/CalDAV providers, new calendar sync manager/store, DB sync state.
-
-**Зависимости:** CAL-102, CAL-103.
-
-**Definition of Done:**
-
-- typed capability matrix (CRUD, recurrence scope, RSVP, FreeBusy, ACL, reminders);
-- Google pagination/sync token; CalDAV ctag/sync/fallback policy;
-- atomic cache refresh/tombstones, no destructive partial range state;
-- offline/error/conflict states surfaced to UI;
-- provider contract and sync tests.
-
-**Риски:** provider divergence, rate limits, ETag conflicts.
-
-## CAL-105 — Yandex/CalDAV production readiness
-
-**Цель:** обеспечить reproducible Yandex calendar auth/discovery/list/fetch/CRUD на живом account.
-
-**Основные файлы/модули:** `yandex.ts`, `yandexCalDavAuth.ts`, `autoDiscovery.ts`, OAuth token manager, account setup/diagnostics.
-
-**Зависимости:** CAL-101, CAL-104.
-
-**Definition of Done:**
-
-- scope/capability diagnostics without exposing tokens;
-- token refresh/re-auth flow;
-- list/fetch/create/update/delete smoke in Tauri;
-- provider-specific errors localized/actionable;
-- historical A2/CAL-001 closed with evidence.
-
-**Риски:** Yandex OAuth application configuration and undocumented/provider-specific CalDAV behavior.
-
-## CAL-106 — Standards-oriented iCalendar codec
+## CAL-103 — Standards-oriented iCalendar codec
 
 **Цель:** заменить regex helpers как authoritative semantic parser/serializer, сохранив compatibility.
 
@@ -161,13 +107,67 @@ CAL-101 Git/runtime gate
 
 **Риски:** malformed real-world ICS, library bundle/license/security.
 
+## CAL-104 — Normalize Calendar persistence and sync state
+
+**Цель:** добавить additive schema для attendees, recurrence exceptions, reminders, permissions/subscriptions, working hours, FreeBusy cache and pending ops.
+
+**Основные файлы/модули:** `src/services/db/migrations.ts`, Calendar repositories/tests.
+
+**Зависимости:** CAL-102; explicit migration approval required before execution against real DB.
+
+**Definition of Done:**
+
+- append-only migration and repository APIs;
+- existing events readable/backfilled lazily or by safe migration strategy;
+- account/org scope on every new table/index;
+- raw iCal remains available but not sole semantic store;
+- migration tests and rollback/recovery notes.
+
+**Риски:** data migration, duplicate identities/occurrences, DB growth. This ticket requires APOSTLE migration confirmation.
+
+## CAL-105 — Provider capabilities, pagination and durable sync
+
+**Цель:** вынести sync из `CalendarPage`, формализовать provider capabilities and conflicts.
+
+**Основные файлы/модули:** `providerFactory.ts`, `types.ts`, Google/CalDAV providers, new calendar sync manager/store, DB sync state.
+
+**Зависимости:** CAL-102, CAL-104.
+
+**Definition of Done:**
+
+- typed capability matrix (CRUD, recurrence scope, RSVP, FreeBusy, ACL, reminders);
+- Google pagination/sync token; CalDAV ctag/sync/fallback policy;
+- atomic cache refresh/tombstones, no destructive partial range state;
+- offline/error/conflict states surfaced to UI;
+- provider contract and sync tests.
+
+**Риски:** provider divergence, rate limits, ETag conflicts.
+
+## CAL-106 — Yandex/CalDAV production readiness
+
+**Цель:** обеспечить reproducible Yandex calendar auth/discovery/list/fetch/CRUD на живом account.
+
+**Основные файлы/модули:** `yandex.ts`, `yandexCalDavAuth.ts`, `autoDiscovery.ts`, OAuth token manager, account setup/diagnostics.
+
+**Зависимости:** CAL-101, CAL-105.
+
+**Definition of Done:**
+
+- scope/capability diagnostics without exposing tokens;
+- token refresh/re-auth flow;
+- list/fetch/create/update/delete smoke in Tauri;
+- provider-specific errors localized/actionable;
+- historical A2/CAL-001 closed with evidence.
+
+**Риски:** Yandex OAuth application configuration and undocumented/provider-specific CalDAV behavior.
+
 ## CAL-107 — Mail inbound calendar MIME ingestion
 
 **Цель:** reliably ingest calendar parts during mail sync, not only when a thread is opened.
 
 **Основные файлы/модули:** Gmail/IMAP parsers, `EmailProvider` parsed message contract, sync paths, invitations service/DB, ThreadView.
 
-**Зависимости:** CAL-103, CAL-106.
+**Зависимости:** CAL-103, CAL-104.
 
 **Definition of Done:**
 
@@ -185,7 +185,7 @@ CAL-101 Git/runtime gate
 
 **Основные файлы/модули:** invitations service, Calendar provider capabilities, email builder, composer/send orchestrator, pending operations/Outbox/Sent.
 
-**Зависимости:** CAL-104, CAL-106, CAL-107.
+**Зависимости:** CAL-103, CAL-105, CAL-107.
 
 **Definition of Done:**
 
@@ -203,7 +203,7 @@ CAL-101 Git/runtime gate
 
 **Основные файлы/модули:** CalendarPage, new calendar service/store/hooks, provider sync manager.
 
-**Зависимости:** CAL-103, CAL-104.
+**Зависимости:** CAL-104, CAL-105.
 
 **Definition of Done:**
 
@@ -259,7 +259,7 @@ CAL-101 Git/runtime gate
 
 **Основные файлы/модули:** EventCreateModal/EventDetailModal replacement, reusable UI primitives, domain commands.
 
-**Зависимости:** CAL-102, CAL-103, CAL-106, CAL-109.
+**Зависимости:** CAL-102, CAL-103, CAL-104, CAL-109.
 
 **Definition of Done:**
 
@@ -277,7 +277,7 @@ CAL-101 Git/runtime gate
 
 **Основные файлы/модули:** contacts DB/services, AddressInput-derived picker, calendar attendees repositories.
 
-**Зависимости:** CAL-102, CAL-103.
+**Зависимости:** CAL-102, CAL-104.
 
 **Definition of Done:**
 
@@ -295,7 +295,7 @@ CAL-101 Git/runtime gate
 
 **Основные файлы/модули:** provider contracts/adapters, new FreeBusy service/cache, permissions and attendee identity.
 
-**Зависимости:** CAL-103, CAL-104, CAL-113, privacy decisions.
+**Зависимости:** CAL-104, CAL-105, CAL-113, privacy decisions.
 
 **Definition of Done:**
 
@@ -331,7 +331,7 @@ CAL-101 Git/runtime gate
 
 **Основные файлы/модули:** calendar list/settings, provider ACL/subscription adapters, permissions tables.
 
-**Зависимости:** CAL-103, CAL-104, privacy model.
+**Зависимости:** CAL-104, CAL-105, privacy model.
 
 **Definition of Done:**
 
@@ -348,7 +348,7 @@ CAL-101 Git/runtime gate
 
 **Основные файлы/модули:** reminder DB/service, backgroundCheckers, notificationManager, deep-link navigation.
 
-**Зависимости:** CAL-103, CAL-109, CAL-112.
+**Зависимости:** CAL-104, CAL-109, CAL-112.
 
 **Definition of Done:**
 

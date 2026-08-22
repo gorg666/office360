@@ -123,6 +123,12 @@ Native `connect_imap_with_diagnostic()` и `imap_test_connection()` переда
 
 TZ-pinned matrix запускалась отдельным Vitest process при `TZ=UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`: в каждом процессе 25/25 domain/time tests passed. Full Vitest: 200 files, 2014 tests passed. Production build и `cargo check` passed; два существующих unused-variable Rust warnings не связаны с CAL-102.
 
+### CAL-102F review fixes
+
+Дата: 2026-08-22 (Asia/Bangkok). Malformed CalDAV/VEVENT reads теперь изолируются на уровне объекта и компонента; valid siblings сохраняются, а `fetchEvents` и `syncEvents` агрегируют одинаковые безопасные diagnostics. Fresh degraded read получает отдельный UI notice и не удаляет уже кешированный диапазон. Recurrence range lookback теперь равен `max(3 days, event duration)`, с exclusive overlap boundary.
+
+Автоматические проверки: targeted Calendar/provider/UI — 85/85; `npm run test:calendar-tz` — 33/33 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; full Vitest — 200 files / 2025 tests; TypeScript, production build и `cargo check` — PASS. Read-only Tauri smoke: Month показал существующие Yandex events, Week — существующее timed event, Day и calendar list (две коллекции) загрузились без stale/error. Реальные cloud events не изменялись.
+
 ## Checks
 
 Финальные build/test результаты фиксируются после удаления временной instrumentation и перечислены в итоговом CAL-101A отчёте. Общий `cargo fmt --check` имеет существующий repo-wide formatting debt; изменённый Rust-файл проверяется отдельно.

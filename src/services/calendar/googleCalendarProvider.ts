@@ -7,6 +7,7 @@ import type {
   CreateEventInput,
   UpdateEventInput,
   CalendarParticipationStatus,
+  CalendarReadDiagnostics,
 } from "./types";
 import {
   calendarDateToUnixSeconds,
@@ -70,6 +71,10 @@ export class GoogleCalendarProvider implements CalendarProvider {
     freeBusy: "native",
     sync: { mode: "sync-token", pagination: true },
     conflictDetection: "etag",
+  };
+  readonly lastReadDiagnostics: CalendarReadDiagnostics = {
+    unreadableComponentCount: 0,
+    unreadableObjectCount: 0,
   };
 
   constructor(readonly accountId: string) {}

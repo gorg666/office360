@@ -325,6 +325,25 @@ describe("CalDAVProvider", () => {
 
       expect(events).toHaveLength(1);
     });
+
+    it("skips one unreadable DAV object and keeps valid objects with safe diagnostics", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockFetchCalendarObjects.mockResolvedValue([
+        { data: MOCK_ICAL_DATA, url: "/cal/personal/good.ics", etag: '"good"' },
+        { data: "broken calendar payload", url: "/cal/personal/broken.ics", etag: '"bad"' },
+      ]);
+
+      const events = await provider.fetchEvents("/cal/personal/", "2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z");
+
+      expect(events).toHaveLength(1);
+      expect(events[0]?.uid).toBe("test-uid");
+      expect(provider.lastReadDiagnostics).toEqual({ unreadableComponentCount: 0, unreadableObjectCount: 1 });
+      expect(console.warn).toHaveBeenCalledWith("[calendar-read]", expect.objectContaining({
+        provider: "caldav",
+        accountId: "[redacted]",
+        unreadableObjectCount: 1,
+      }));
+    });
   });
 
   describe("createEvent", () => {
@@ -449,6 +468,20 @@ describe("CalDAVProvider", () => {
       expect(result.deletedRemoteIds).toEqual([]);
       expect(result.newSyncToken).toBeNull();
       expect(result.newCtag).toBeNull();
+    });
+
+    it("uses the same malformed-object isolation as fetchEvents", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockFetchCalendarObjects.mockResolvedValue([
+        { data: "broken calendar payload", url: "/cal/personal/broken.ics", etag: '"bad"' },
+        { data: MOCK_ICAL_DATA_2, url: "/cal/personal/good.ics", etag: '"good"' },
+      ]);
+
+      const result = await provider.syncEvents("/cal/personal/");
+
+      expect(result.created).toHaveLength(1);
+      expect(result.created[0]?.uid).toBe("test-uid-2");
+      expect(provider.lastReadDiagnostics).toEqual({ unreadableComponentCount: 0, unreadableObjectCount: 1 });
     });
   });
 

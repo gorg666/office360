@@ -61,6 +61,11 @@ export interface UpdateEventInput {
 
 export type CalendarParticipationStatus = "accepted" | "tentative" | "declined";
 
+export interface CalendarReadDiagnostics {
+  unreadableComponentCount: number;
+  unreadableObjectCount: number;
+}
+
 export interface CalendarSyncResult {
   created: CalendarEventData[];
   updated: CalendarEventData[];
@@ -73,6 +78,7 @@ export interface CalendarProvider {
   readonly accountId: string;
   readonly type: CalendarProviderType;
   readonly capabilities: CalendarProviderCapabilities;
+  readonly lastReadDiagnostics?: CalendarReadDiagnostics;
 
   listCalendars(): Promise<CalendarInfo[]>;
 

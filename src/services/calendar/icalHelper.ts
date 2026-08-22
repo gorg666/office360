@@ -2,6 +2,7 @@ import type { CalendarEventData, CalendarParticipationStatus, CreateEventInput, 
 import {
   parseCalendarEvent,
   parseCalendarEventsInRange,
+  parseCalendarEventsInRangeDetailed,
   parseICalContentLine,
   parseICalDateTimeToInstant,
   unfoldICalLines,
@@ -107,6 +108,8 @@ export function parseVEventsInRange(
 ): CalendarEventData[] {
   return parseCalendarEventsInRange(icalData, href, rangeStart, rangeEnd, options);
 }
+
+export { parseCalendarEventsInRangeDetailed as parseVEventsInRangeDetailed };
 
 export function updateVEventFields(icalData: string, event: UpdateEventInput): string {
   let changedMaster = false;

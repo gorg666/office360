@@ -25,6 +25,16 @@ export interface CalendarParseOptions {
   floatingTimeZone?: string;
 }
 
+export interface CalendarParseDiagnostics {
+  unreadableComponentCount: number;
+  unreadableObjectCount: number;
+}
+
+export interface CalendarParseResult {
+  events: CalendarEventData[];
+  diagnostics: CalendarParseDiagnostics;
+}
+
 export interface ICalContentLine {
   name: string;
   params: Record<string, string>;
@@ -114,16 +124,64 @@ export function parseCalendarEventsInRange(
   rangeEnd: Date,
   options: CalendarParseOptions = {},
 ): CalendarEventData[] {
-  const parsed = extractVEventBlocks(icalData).map((block) => {
-    const lines = unfoldICalLines(block).map(parseICalContentLine).filter(isPresent);
+  return parseCalendarEventsInRangeDetailed(icalData, href, rangeStart, rangeEnd, options).events;
+}
+
+export function parseCalendarEventsInRangeDetailed(
+  icalData: string,
+  href: string | undefined,
+  rangeStart: Date,
+  rangeEnd: Date,
+  options: CalendarParseOptions = {},
+): CalendarParseResult {
+  const extracted = extractVEventBlocks(icalData);
+  const diagnostics: CalendarParseDiagnostics = {
+    unreadableComponentCount: extracted.unreadableComponentCount,
+    unreadableObjectCount: extracted.blocks.length === 0 && !isCalendarEnvelope(icalData) ? 1 : 0,
+  };
+  const parsed: ParsedEventComponent[] = [];
+  for (const block of extracted.blocks) {
+    try {
+      const lines = unfoldICalLines(block).map(parseICalContentLine).filter(isPresent);
+      parsed.push({
+        block,
+        lines,
+        event: parseCalendarEvent(wrapVEvent(block), href, options),
+        recurrenceId: firstLine(lines, "RECURRENCE-ID"),
+      });
+    } catch {
+      diagnostics.unreadableComponentCount += 1;
+    }
+  }
+  if (parsed.length === 0) return { events: [], diagnostics };
+
+  try {
+    return { events: expandParsedEvents(parsed, icalData, href, rangeStart, rangeEnd, options), diagnostics };
+  } catch {
+    const master = parsed.find((item) => !item.recurrenceId) ?? parsed[0]!;
+    diagnostics.unreadableComponentCount += 1;
     return {
-      block,
-      lines,
-      event: parseCalendarEvent(wrapVEvent(block), href, options),
-      recurrenceId: firstLine(lines, "RECURRENCE-ID"),
+      events: parsed.filter((item) => item !== master && !item.recurrenceId).map((item) => item.event),
+      diagnostics,
     };
-  });
-  if (parsed.length === 0) return [];
+  }
+}
+
+interface ParsedEventComponent {
+  block: string;
+  lines: ICalContentLine[];
+  event: CalendarEventData;
+  recurrenceId: ICalContentLine | null;
+}
+
+function expandParsedEvents(
+  parsed: ParsedEventComponent[],
+  icalData: string,
+  href: string | undefined,
+  rangeStart: Date,
+  rangeEnd: Date,
+  options: CalendarParseOptions,
+): CalendarEventData[] {
 
   const master = parsed.find((item) => !item.recurrenceId) ?? parsed[0]!;
   const rule = firstValue(master.lines, "RRULE");
@@ -138,7 +196,8 @@ export function parseCalendarEventsInRange(
 
   if (rule) {
     const recurrence = rrulestr(rule, { dtstart: wallDateTimeToNaiveDate(masterWall) });
-    const expansionStart = new Date(rangeStart.getTime() - 3 * 86400000);
+    const safetyWindowMs = 3 * 86400000;
+    const expansionStart = new Date(rangeStart.getTime() - Math.max(safetyWindowMs, duration * 1000));
     const expansionEnd = new Date(rangeEnd.getTime() + 3 * 86400000);
     for (const date of recurrence.between(expansionStart, expansionEnd, true)) {
       const wall = naiveDateToWallDateTime(date);
@@ -234,6 +293,7 @@ export function parseICalContentLine(line: string): ICalContentLine | null {
 
 function parseTemporalValue(line: ICalContentLine, options: CalendarParseOptions): ParsedTemporalValue {
   if (line.params.VALUE?.toUpperCase() === "DATE" || /^\d{8}$/.test(line.value)) {
+    if (line.params.TZID) throw new Error("VALUE=DATE must not include TZID");
     const date = parseCalendarDate(line.value);
     return { kind: "all-day", date, instant: calendarDateToUnixSeconds(date) };
   }
@@ -402,8 +462,34 @@ function splitPropertyValues(value: string): string[] {
   return value.split(",").map((part) => part.trim()).filter(Boolean);
 }
 
-function extractVEventBlocks(icalData: string): string[] {
-  return icalData.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/gi) ?? [];
+function extractVEventBlocks(icalData: string): { blocks: string[]; unreadableComponentCount: number } {
+  const blocks: string[] = [];
+  let current: string[] | null = null;
+  let unreadableComponentCount = 0;
+  for (const line of unfoldICalLines(icalData)) {
+    const marker = line.trim().toUpperCase();
+    if (marker === "BEGIN:VEVENT") {
+      if (current) unreadableComponentCount += 1;
+      current = ["BEGIN:VEVENT"];
+    } else if (marker === "END:VEVENT") {
+      if (!current) {
+        unreadableComponentCount += 1;
+        continue;
+      }
+      current.push("END:VEVENT");
+      blocks.push(current.join("\r\n"));
+      current = null;
+    } else if (current) {
+      current.push(line);
+    }
+  }
+  if (current) unreadableComponentCount += 1;
+  return { blocks, unreadableComponentCount };
+}
+
+function isCalendarEnvelope(icalData: string): boolean {
+  const lines = unfoldICalLines(icalData).map((line) => line.trim().toUpperCase());
+  return lines.includes("BEGIN:VCALENDAR") && lines.includes("END:VCALENDAR");
 }
 
 function wrapVEvent(block: string): string {
