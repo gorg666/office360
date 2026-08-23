@@ -314,7 +314,7 @@ describe("CalDAVProvider", () => {
       });
     });
 
-    it("does not trust a scheduling DAV token from a failed OPTIONS response", async () => {
+    it("classifies permission-denied discovery separately from unsupported", async () => {
       supportedDiscovery();
       mockDavFetch.mockResolvedValue(new Response(null, {
         status: 403,
@@ -324,22 +324,69 @@ describe("CalDAVProvider", () => {
       await expect(provider.discoverRemoteFreeBusy()).resolves.toMatchObject({
         supported: false,
         autoSchedule: false,
-        reason: "missing-auto-schedule",
+        reason: "permission-denied",
       });
       expect(provider.capabilities.freeBusy.others).toBe("none");
     });
 
-    it("performs read-only Yandex discovery but does not claim remote support", async () => {
-      supportedDiscovery();
+    it("classifies a discovery transport failure as error, not unsupported", async () => {
+      mockPropfind.mockRejectedValue(new Error("Network unavailable"));
+      mockDavFetch.mockResolvedValue(new Response(null, { status: 200 }));
+      await expect(provider.discoverRemoteFreeBusy()).resolves.toMatchObject({
+        supported: false,
+        reason: "error",
+      });
+    });
+
+    it("preserves AbortError cancellation during discovery", async () => {
+      mockPropfind.mockRejectedValue(new DOMException("Aborted", "AbortError"));
+      await expect(provider.discoverRemoteFreeBusy()).rejects.toMatchObject({ name: "AbortError" });
+    });
+
+    it("keeps Yandex without RFC 6638 scheduling extensions unsupported and sends no request", async () => {
+      mockPropfind.mockResolvedValue([{ ok: true, props: {} }]);
+      mockDavFetch.mockResolvedValue(new Response(null, {
+        status: 200,
+        headers: { DAV: "1, 3, calendar-access" },
+      }));
       vi.mocked(getAccount).mockResolvedValue(createYandexAccount());
       const yandex = new CalDAVProvider("acc-yandex");
       await expect(yandex.discoverRemoteFreeBusy()).resolves.toMatchObject({
         supported: false,
-        autoSchedule: true,
-        reason: "yandex-unconfirmed",
+        autoSchedule: false,
+        reason: "missing-outbox",
       });
       expect(yandex.capabilities.freeBusy.others).toBe("none");
+      await expect(yandex.queryRemoteFreeBusy(["other@example.com"], { start: 10, end: 20 }))
+        .resolves.toEqual([{ recipient: "other@example.com", status: "error", busy: [] }]);
       expect(mockDavRequest).not.toHaveBeenCalled();
+    });
+
+    it("enables Yandex when its exposed DAV contract is RFC 6638-capable", async () => {
+      supportedDiscovery();
+      vi.mocked(getAccount).mockResolvedValue(createYandexAccount());
+      const yandex = new CalDAVProvider("acc-yandex");
+      await expect(yandex.discoverRemoteFreeBusy()).resolves.toMatchObject({
+        supported: true,
+        autoSchedule: true,
+        reason: "supported",
+      });
+      expect(yandex.capabilities.freeBusy.others).toBe("remote");
+    });
+
+    it("requires calendar-user-address-set even when an outbox is present", async () => {
+      mockPropfind.mockResolvedValue([{ ok: true, props: {
+        scheduleInboxURL: { href: "/inbox/" },
+        scheduleOutboxURL: { href: "/outbox/" },
+      } }]);
+      mockDavFetch.mockResolvedValue(new Response(null, {
+        status: 200,
+        headers: { DAV: "calendar-access, calendar-auto-schedule" },
+      }));
+      await expect(provider.discoverRemoteFreeBusy()).resolves.toMatchObject({
+        supported: false,
+        reason: "missing-user-address",
+      });
     });
 
     it("posts VFREEBUSY to the discovered outbox and returns only busy geometry", async () => {

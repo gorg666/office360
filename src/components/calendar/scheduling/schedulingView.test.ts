@@ -87,7 +87,7 @@ describe("schedulingView", () => {
     expect(rowShowsUnknownFill("unsupported")).toBe(true);
     expect(rowShowsUnknownFill("permission-denied")).toBe(true);
     expect(reliabilityCaption("permission-denied")).toBe("Нет доступа к занятости");
-    expect(reliabilityCaption("unsupported")).toBe("Нет данных о занятости");
+    expect(reliabilityCaption("unsupported")).toBe("Занятость недоступна через подключённый календарь");
   });
 
   it("builds editor participants without duplicating self", () => {

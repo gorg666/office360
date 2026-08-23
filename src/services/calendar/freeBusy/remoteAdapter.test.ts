@@ -55,4 +55,24 @@ describe("AccountRemoteFreeBusyAdapter", () => {
     await expect(new AccountRemoteFreeBusyAdapter("yandex", deps).canAnswer(participant)).resolves.toBe(false);
     expect(deps.google).not.toHaveBeenCalled();
   });
+
+  it("routes RFC 6638-capable Yandex through the CalDAV adapter", async () => {
+    const delegate: RemoteFreeBusyAdapter = {
+      accountId: "yandex", providerType: "caldav", source: "remote-provider",
+      canAnswer: () => true, queryAvailability: vi.fn(async () => result()),
+    };
+    const deps: AccountRemoteFreeBusyDependencies = {
+      getAccount: vi.fn(async () => ({
+        id: "yandex", provider: "imap", calendar_provider: "caldav", oauth_provider: "yandex",
+        auth_method: "oauth2", email: "self@yandex.ru",
+      }) as never),
+      google: vi.fn(), now: () => 0,
+      caldav: vi.fn(() => delegate),
+    };
+    const adapter = new AccountRemoteFreeBusyAdapter("yandex", deps);
+    await expect(adapter.canAnswer(participant)).resolves.toBe(true);
+    await expect(adapter.queryAvailability([participant], request)).resolves.toEqual(result());
+    expect(deps.caldav).toHaveBeenCalledWith("yandex");
+    expect(deps.google).not.toHaveBeenCalled();
+  });
 });

@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A through CAL-121 are completed (including CAL-102F); CAL-120 is the delivered parity audit. CAL-122 closes the audit's Mail/iTIP P0 lifecycle gap with automatic ingestion, delivered RSVP, organizer reconciliation and outbound REQUEST/REPLY/CANCEL. This document is the source of truth for Calendar ticket numbering and remaining priority, while `CALENDAR_FINAL_PARITY_AUDIT.md` records the parity verdict and addenda.
+Roadmap state: CAL-101A through CAL-123 are completed (including CAL-102F); CAL-120 is the delivered parity audit. CAL-122 closes the Mail/iTIP P0 lifecycle gap, and CAL-123 closes the Yandex participant Free/Busy P0 through the exposed RFC 6638 provider contract. This document is the source of truth for Calendar ticket numbering and remaining priority, while `CALENDAR_FINAL_PARITY_AUDIT.md` records the parity verdict and addenda.
 
 **Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
 
@@ -223,7 +223,7 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Риски:** provider support, авторизация, утечка через inference.
 
-**Acceptance (2026-08-22):** PASS. Google uses the official 50-item batch endpoint with per-participant failures, cancellation and privacy projection. Generic CalDAV is enabled only after RFC 6638 principal/outbox/auto-schedule discovery and posts VFREEBUSY to the outbox. Yandex discovery is read-only and remains unsupported. Account/provider-scoped 60-second cache and exact-request coalescing require no migration. Canonical contract: `CALENDAR_REMOTE_FREE_BUSY.md`.
+**Acceptance (2026-08-22, amended by CAL-123 on 2026-08-23):** PASS. Google uses the official 50-item batch endpoint with per-participant failures, cancellation and privacy projection. CalDAV/Yandex are enabled only after RFC 6638 principal/inbox/outbox/user-address/auto-schedule discovery and post VFREEBUSY to the outbox. CAL-123 live read-only discovery confirmed the complete contract on personal-domain and custom-domain Yandex accounts. Account/provider-scoped 60-second cache and exact-request coalescing require no migration. Canonical contracts: `CALENDAR_REMOTE_FREE_BUSY.md` and `CALENDAR_YANDEX_FREE_BUSY_DECISION.md`.
 
 ## CAL-111 (delivered) — Recurring event mutation semantics
 
@@ -439,15 +439,17 @@ The audit does **not** start notification delivery, ACL management, recurrence s
 
 **Cloud safety:** delivery/snooze/dismiss are local only and never write provider event metadata or ACLs. Canonical details: `CALENDAR_REMINDER_DELIVERY.md`.
 
+## CAL-123 (delivered) — Yandex remote participant Free/Busy decision
+
+**Status:** PASS. Read-only DAV discovery proved an exposed RFC 6638 scheduling contract for both available personal-domain and custom-domain Yandex accounts. The existing CAL-110 adapter is enabled by discovery, not by provider-name hardcoding. Root, principal, calendar home, calendar collection, inbox and outbox were probed; calendar-query/multiget and calendar-auto-schedule were observed. No live scheduling POST or cloud mutation was performed. Canonical decision: `CALENDAR_YANDEX_FREE_BUSY_DECISION.md`.
+
 ## Remaining P0/P1 gaps
 
 No new ticket numbers are assigned automatically.
 
 ### P0 — parity blockers unless explicitly waived
 
-- Yandex participant Free/Busy through a supported privacy-safe contract, or an explicit product waiver.
-
-The former Mail invitation lifecycle blocker is closed by CAL-122. Canonical contract: `CALENDAR_INVITATION_LIFECYCLE.md`.
+None. CAL-122 closed Mail invitation lifecycle and CAL-123 closed Yandex participant Free/Busy through a supported privacy-safe RFC 6638 contract.
 
 ### P1 — important parity gaps
 

@@ -155,6 +155,7 @@ export function reliabilityCaption(reliability: AvailabilityReliability): string
     case "permission-denied":
       return "Нет доступа к занятости";
     case "unsupported":
+      return "Занятость недоступна через подключённый календарь";
     case "unknown":
     case "error":
       return "Нет данных о занятости";

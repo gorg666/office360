@@ -51,7 +51,40 @@ export interface CalDavFreeBusyDiscovery {
   scheduleInboxUrl: string | null;
   scheduleOutboxUrl: string | null;
   calendarUserAddresses: string[];
-  reason: "supported" | "missing-principal" | "missing-outbox" | "missing-user-address" | "missing-auto-schedule" | "yandex-unconfirmed" | "error";
+  reason: "supported" | "missing-principal" | "missing-inbox" | "missing-outbox" | "missing-user-address" | "missing-auto-schedule" | "permission-denied" | "auth-required" | "error";
+  evidence: CalDavFreeBusyDiscoveryEvidence;
+}
+
+export type CalDavProbeStatus = "ok" | "missing" | "permission-denied" | "auth-required" | "error" | "not-probed";
+
+export interface CalDavResourceEvidence {
+  status: CalDavProbeStatus;
+  hasCurrentUserPrincipal: boolean;
+  hasPrincipalUrl: boolean;
+  hasCalendarHomeSet: boolean;
+  hasCalendarUserAddress: boolean;
+  hasScheduleInbox: boolean;
+  hasScheduleOutbox: boolean;
+  reports: {
+    freeBusyQuery: boolean;
+    calendarQuery: boolean;
+    calendarMultiget: boolean;
+  };
+  methods: {
+    propfind: boolean;
+    report: boolean;
+  };
+  hasReadFreeBusyPrivilege: boolean;
+  autoSchedule: boolean;
+}
+
+export interface CalDavFreeBusyDiscoveryEvidence {
+  root: CalDavResourceEvidence;
+  principal: CalDavResourceEvidence;
+  home: CalDavResourceEvidence;
+  calendar: CalDavResourceEvidence;
+  inbox: CalDavResourceEvidence;
+  outbox: CalDavResourceEvidence;
 }
 
 export interface CalDavRemoteFreeBusyResult {
@@ -258,7 +291,7 @@ export class CalDAVProvider implements CalendarProvider {
     });
   }
 
-  /** Read-only RFC 6638 discovery. Yandex remains disabled until its CalDAV endpoint is proven. */
+  /** Read-only RFC 6638 discovery. Capability is enabled only by the exposed DAV contract. */
   discoverRemoteFreeBusy(signal?: AbortSignal): Promise<CalDavFreeBusyDiscovery> {
     if (this.freeBusyDiscovery) return this.freeBusyDiscovery;
     const discovery = this.discoverRemoteFreeBusyOnce(signal);
@@ -273,34 +306,60 @@ export class CalDAVProvider implements CalendarProvider {
     const account = await getAccount(this.accountId);
     if (!account) return emptyFreeBusyDiscovery("error");
     const isYandex = isYandexOAuthCalendarAccount(account);
-    const discovery = await this.withClient("free_busy_discovery", async (client) => {
+    const result = await this.withClient("free_busy_discovery", async (client) => {
       const principalUrl = client.account?.principalUrl;
       if (!principalUrl) return emptyFreeBusyDiscovery("missing-principal");
-      const [response] = await client.propfind({
-        url: principalUrl,
-        depth: "0",
-        fetchOptions: { signal },
-        props: {
-          "c:calendar-user-address-set": {},
-          "c:schedule-inbox-URL": {},
-          "c:schedule-outbox-URL": {},
-        },
-      });
-      const props = response?.props ?? {};
+      const rootUrl = client.account?.rootUrl ?? null;
+      const homeUrl = client.account?.homeUrl ?? null;
+      let calendarUrl = client.account?.calendars?.[0]?.url ?? null;
+      let calendarAdvertisedReports: unknown = client.account?.calendars?.[0]?.reports ?? null;
+      if (!calendarUrl) {
+        try {
+          const calendars = await client.fetchCalendars({
+            props: {
+              "d:displayname": {},
+              "d:resourcetype": {},
+              "d:supported-report-set": {},
+              "d:supported-method-set": {},
+              "d:current-user-privilege-set": {},
+              "c:supported-calendar-component-set": {},
+            },
+          });
+          calendarUrl = calendars?.[0]?.url ?? null;
+          calendarAdvertisedReports = calendars?.[0]?.reports ?? null;
+        } catch (error) {
+          if (isAbortError(error)) throw error;
+          // Calendar collection evidence is additive; principal scheduling discovery remains authoritative.
+        }
+      }
+      const principalProbe = await probeDavResource(client, principalUrl, signal);
+      const props = principalProbe.props;
       const scheduleInboxUrl = resolveDavHref(props.scheduleInboxURL, client.account?.rootUrl);
       const scheduleOutboxUrl = resolveDavHref(props.scheduleOutboxURL, client.account?.rootUrl);
       const calendarUserAddresses = davHrefs(props.calendarUserAddressSet);
-      const fetcher = client.fetchOverride ?? globalThis.fetch;
-      const options = await fetcher(principalUrl, {
-        method: "OPTIONS",
-        headers: client.authHeaders,
-        signal,
-      });
-      const autoSchedule = options.ok && (options.headers.get("DAV") ?? "").toLowerCase().split(",")
-        .map((value: string) => value.trim()).includes("calendar-auto-schedule");
-      const reason = !scheduleOutboxUrl ? "missing-outbox"
-        : calendarUserAddresses.length === 0 ? "missing-user-address"
-          : !autoSchedule ? "missing-auto-schedule" : "supported";
+      const [rootProbe, homeProbe, calendarProbe, inboxProbe, outboxProbe] = await Promise.all([
+        probeDavResource(client, rootUrl, signal),
+        probeDavResource(client, homeUrl, signal),
+        probeDavResource(client, calendarUrl, signal),
+        probeDavResource(client, scheduleInboxUrl, signal),
+        probeDavResource(client, scheduleOutboxUrl, signal),
+      ]);
+      calendarProbe.evidence.reports = {
+        freeBusyQuery: calendarProbe.evidence.reports.freeBusyQuery
+          || davValueContains(calendarAdvertisedReports, "free-busy-query"),
+        calendarQuery: calendarProbe.evidence.reports.calendarQuery
+          || davValueContains(calendarAdvertisedReports, "calendar-query"),
+        calendarMultiget: calendarProbe.evidence.reports.calendarMultiget
+          || davValueContains(calendarAdvertisedReports, "calendar-multiget"),
+      };
+      const autoSchedule = principalProbe.evidence.autoSchedule;
+      const reason = principalProbe.evidence.status === "auth-required" ? "auth-required"
+        : principalProbe.evidence.status === "permission-denied" ? "permission-denied"
+          : principalProbe.evidence.status === "error" ? "error"
+            : !scheduleOutboxUrl ? "missing-outbox"
+              : !scheduleInboxUrl ? "missing-inbox"
+                : calendarUserAddresses.length === 0 ? "missing-user-address"
+                  : !autoSchedule ? "missing-auto-schedule" : "supported";
       return {
         supported: reason === "supported",
         autoSchedule,
@@ -308,12 +367,17 @@ export class CalDAVProvider implements CalendarProvider {
         scheduleOutboxUrl,
         calendarUserAddresses,
         reason,
+        evidence: {
+          root: rootProbe.evidence,
+          principal: principalProbe.evidence,
+          home: homeProbe.evidence,
+          calendar: calendarProbe.evidence,
+          inbox: inboxProbe.evidence,
+          outbox: outboxProbe.evidence,
+        },
       } satisfies CalDavFreeBusyDiscovery;
     });
 
-    const result = isYandex
-      ? { ...discovery, supported: false, reason: "yandex-unconfirmed" as const }
-      : discovery;
     this.remoteFreeBusyCapability = result.supported ? "remote" : "none";
     console.info("[calendar-free-busy]", {
       event: "caldav_discovery",
@@ -325,6 +389,7 @@ export class CalDAVProvider implements CalendarProvider {
       hasOutbox: Boolean(result.scheduleOutboxUrl),
       hasUserAddress: result.calendarUserAddresses.length > 0,
       reason: result.reason,
+      evidence: result.evidence,
     });
     return result;
   }
@@ -662,6 +727,165 @@ function emptyFreeBusyDiscovery(reason: CalDavFreeBusyDiscovery["reason"]): CalD
     scheduleOutboxUrl: null,
     calendarUserAddresses: [],
     reason,
+    evidence: emptyFreeBusyEvidence(),
+  };
+}
+
+const FREE_BUSY_PROPS = {
+  "d:current-user-principal": {},
+  "d:principal-URL": {},
+  "c:calendar-home-set": {},
+  "c:calendar-user-address-set": {},
+  "c:schedule-inbox-URL": {},
+  "c:schedule-outbox-URL": {},
+  "d:supported-report-set": {},
+  "d:supported-method-set": {},
+  "d:current-user-privilege-set": {},
+};
+
+async function probeDavResource(
+  client: DAVClient,
+  url: string | null,
+  signal?: AbortSignal,
+): Promise<{ props: Record<string, unknown>; evidence: CalDavResourceEvidence }> {
+  if (!url) return { props: {}, evidence: emptyResourceEvidence("not-probed") };
+
+  let props: Record<string, unknown> = {};
+  let propfindStatus: CalDavProbeStatus = "error";
+  try {
+    const [response] = await client.propfind({
+      url,
+      depth: "0",
+      fetchOptions: { signal },
+      props: FREE_BUSY_PROPS,
+    });
+    props = (response?.props ?? {}) as Record<string, unknown>;
+    propfindStatus = response?.ok ? "ok" : classifyDavStatus(response?.status);
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    propfindStatus = "error";
+  }
+
+  let optionsStatus: CalDavProbeStatus = "error";
+  let davHeader = "";
+  let allowHeader = "";
+  try {
+    const fetcher = client.fetchOverride ?? globalThis.fetch;
+    const response = await fetcher(url, {
+      method: "OPTIONS",
+      headers: client.authHeaders,
+      signal,
+    });
+    optionsStatus = response.ok ? "ok" : classifyDavStatus(response.status);
+    davHeader = response.headers.get("DAV") ?? "";
+    allowHeader = response.headers.get("Allow") ?? "";
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    optionsStatus = "error";
+  }
+
+  const combinedStatus = mostSpecificProbeStatus(propfindStatus, optionsStatus);
+  const supportedReports = props.supportedReportSet;
+  const supportedMethods = props.supportedMethodSet;
+  const privileges = props.currentUserPrivilegeSet;
+  return {
+    props,
+    evidence: {
+      status: combinedStatus,
+      hasCurrentUserPrincipal: hasDavValue(props.currentUserPrincipal),
+      hasPrincipalUrl: hasDavValue(props.principalURL),
+      hasCalendarHomeSet: hasDavValue(props.calendarHomeSet),
+      hasCalendarUserAddress: davHrefs(props.calendarUserAddressSet).length > 0,
+      hasScheduleInbox: hasDavValue(props.scheduleInboxURL),
+      hasScheduleOutbox: hasDavValue(props.scheduleOutboxURL),
+      reports: {
+        freeBusyQuery: davValueContains(supportedReports, "free-busy-query"),
+        calendarQuery: davValueContains(supportedReports, "calendar-query"),
+        calendarMultiget: davValueContains(supportedReports, "calendar-multiget"),
+      },
+      methods: {
+        propfind: propfindStatus === "ok" || davTokenListContains(allowHeader, "PROPFIND")
+          || davValueContains(supportedMethods, "PROPFIND"),
+        report: davTokenListContains(allowHeader, "REPORT") || davValueContains(supportedMethods, "REPORT"),
+      },
+      hasReadFreeBusyPrivilege: davValueContains(privileges, "read-free-busy"),
+      autoSchedule: optionsStatus === "ok" && davTokenListContains(davHeader, "calendar-auto-schedule"),
+    },
+  };
+}
+
+function classifyDavStatus(status?: number): CalDavProbeStatus {
+  if (status === 401) return "auth-required";
+  if (status === 403) return "permission-denied";
+  if (status === 404) return "missing";
+  return "error";
+}
+
+function mostSpecificProbeStatus(a: CalDavProbeStatus, b: CalDavProbeStatus): CalDavProbeStatus {
+  const order: CalDavProbeStatus[] = ["auth-required", "permission-denied", "error", "missing", "ok", "not-probed"];
+  return order.find((status) => status === a || status === b) ?? "error";
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError"
+    || error instanceof Error && error.name === "AbortError";
+}
+
+function hasDavValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    if (record.ok === false) return false;
+    if ("value" in record) return hasDavValue(record.value);
+    return Object.keys(record).length > 0;
+  }
+  if (Array.isArray(value)) return value.some(hasDavValue);
+  return String(value).trim().length > 0;
+}
+
+function davValueContains(value: unknown, expected: string): boolean {
+  if (value == null) return false;
+  const normalizedExpected = expected.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (typeof value === "string") {
+    return value.toLowerCase().replace(/[^a-z0-9]/g, "").includes(normalizedExpected);
+  }
+  if (Array.isArray(value)) return value.some((item) => davValueContains(item, expected));
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).some(([key, child]) =>
+      key.toLowerCase().replace(/[^a-z0-9]/g, "").includes(normalizedExpected)
+      || davValueContains(child, expected));
+  }
+  return false;
+}
+
+function davTokenListContains(value: string, expected: string): boolean {
+  return value.split(",").map((token) => token.trim().toLowerCase()).includes(expected.toLowerCase());
+}
+
+function emptyResourceEvidence(status: CalDavProbeStatus = "not-probed"): CalDavResourceEvidence {
+  return {
+    status,
+    hasCurrentUserPrincipal: false,
+    hasPrincipalUrl: false,
+    hasCalendarHomeSet: false,
+    hasCalendarUserAddress: false,
+    hasScheduleInbox: false,
+    hasScheduleOutbox: false,
+    reports: { freeBusyQuery: false, calendarQuery: false, calendarMultiget: false },
+    methods: { propfind: false, report: false },
+    hasReadFreeBusyPrivilege: false,
+    autoSchedule: false,
+  };
+}
+
+function emptyFreeBusyEvidence(): CalDavFreeBusyDiscoveryEvidence {
+  return {
+    root: emptyResourceEvidence(),
+    principal: emptyResourceEvidence(),
+    home: emptyResourceEvidence(),
+    calendar: emptyResourceEvidence(),
+    inbox: emptyResourceEvidence(),
+    outbox: emptyResourceEvidence(),
   };
 }
 

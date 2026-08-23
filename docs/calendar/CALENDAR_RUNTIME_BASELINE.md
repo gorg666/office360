@@ -476,3 +476,27 @@ Windows Computer Use не смог завершить визуальное Month
 Automated CAL-122 acceptance: TypeScript PASS; targeted iTIP/domain/codec/invitation/mutation/queue/Mail sync/recurrence/provider/privacy suites PASS; full Vitest — 250 files / 2467 tests PASS; four-zone Calendar TZ matrix — 15 files / 186 tests per zone PASS; production build PASS (main 2,098.91 kB raw / 622.56 kB gzip; Calendar chunk 120.73 kB raw / 35.55 kB gzip); `cargo check` PASS with the same two pre-existing unused-variable warnings in `src/lib.rs:378`. Rust was not changed.
 
 Graphify refresh: 6,739 nodes / 17,322 edges / 407 communities. Multigraph diagnostics: 0 missing endpoints, dangling endpoints, self-loops or exact duplicate edges. Saved community labels are stale relative to four newly formed communities; graph integrity is unaffected.
+
+### CAL-123 Yandex remote Free/Busy decision runtime
+
+Дата: 2026-08-23 (Asia/Bangkok). Migration: NONE. Cloud event/mail/RSVP/ACL mutations: NONE.
+
+Read-only Tauri discovery ran through the existing Yandex OAuth/session path for two local development accounts, classified without retaining identifiers as personal Yandex domain and custom domain (organization membership not inferred). Both returned `supported` from the complete exposed RFC 6638 contract.
+
+| Evidence | Personal | Custom domain |
+| --- | --- | --- |
+| root / principal / home / calendar / inbox / outbox | PASS | PASS |
+| current-user-principal / principal-URL / calendar-home-set | present | present |
+| calendar-user-address-set | present | present |
+| schedule-inbox / schedule-outbox | present | present |
+| calendar-auto-schedule | present | present |
+| supported methods | PROPFIND, REPORT | PROPFIND, REPORT |
+| calendar-query / calendar-multiget | advertised | advertised |
+| collection free-busy-query | not advertised | not advertised |
+| live VFREEBUSY POST | NOT RUN — possible scheduling side effect | NOT RUN — possible scheduling side effect |
+
+The missing collection `free-busy-query` report is not the RFC 6638 remote-participant path; the confirmed outbox contract is authoritative. No account ID, email, DAV URL, user address, token, Authorization header, raw XML or full response was retained in diagnostics or documentation. Private browser APIs and scraping were not used.
+
+Automated CAL-123 acceptance: TypeScript `npx tsc --noEmit` PASS; targeted provider/routing/scheduler/privacy/UI — 8 files / 92 tests PASS; full Vitest — 250 files / 2473 tests PASS; four-zone matrix — 15 files / 186 tests in each of UTC, Europe/Moscow, America/New_York and Australia/Lord_Howe; production build PASS (main 2,102.51 kB raw / 623.57 kB gzip; Calendar chunk 120.84 kB raw / 35.60 kB gzip); `cargo check` PASS with the same two pre-existing unused-variable warnings in `src/lib.rs:378`. Rust was not changed.
+
+Graphify refresh: 6,760 nodes / 17,358 edges / 414 communities. Integrity: 0 unverified code nodes, missing/dangling endpoints, self-loops or exact duplicate edges. Saved labels are stale relative to current communities; graph integrity is unaffected.

@@ -12,11 +12,9 @@ Docs-only runtime closure: `8e5201d`
 
 Office360 Calendar уже является полноценным provider-neutral календарным клиентом: Month/Week/Day, несколько календарей, create/edit/delete, single/series recurrence mutations, participant semantics, reminders metadata, Free/Busy foundation, Scheduling Assistant, drag/resize, all-day conversion, shared-calendar access enforcement, timezone/DST-safe domain, iCalendar codec и cache-first sync работают через единые service boundaries.
 
-Это ещё не полный функциональный паритет с веб-версией Яндекс 360 Календаря. CAL-121 закрыл reminder delivery, а CAL-122 закрыл Mail/iTIP P0: automatic REQUEST/REPLY/CANCEL ingestion, delivered RSVP, organizer reconciliation и outbound meeting delivery. Один ключевой provider outcome всё ещё не замкнут end-to-end:
+Это ещё не полный функциональный паритет с веб-версией Яндекс 360 Календаря, но оба P0 из первоначального CAL-120 закрыты. CAL-121 закрыл reminder delivery, CAL-122 — Mail/iTIP lifecycle, а CAL-123 подтвердил live exposed RFC 6638 contract и подключил существующий remote Free/Busy adapter для Yandex без private API.
 
-1. Scheduling Assistant существует, но занятость других Yandex-участников остаётся `unsupported`, потому что публичный CalDAV path не подтвердил RFC 6638 remote Free/Busy.
-
-Вердикт: **NEEDS FOLLOW-UP**. Calendar можно считать сильным foundation/release candidate, но нельзя называть feature-complete Yandex parity без закрытия или явного product waiver для оставшегося Yandex Free/Busy P0.
+Вердикт после CAL-123: **P0 CLOSED; P1 FOLLOW-UP**. Calendar является сильным provider-neutral release candidate. Оставшиеся различия — product interaction/management scope, а не отсутствующий Yandex provider outcome.
 
 ### Scores
 
@@ -24,7 +22,7 @@ Office360 Calendar уже является полноценным provider-neutr
 
 | Dimension | Score | Meaning |
 |---|---:|---|
-| Functional parity | **79%** | Большинство core event/calendar operations и local notification delivery есть; invitation delivery и Yandex participant availability не завершены |
+| Functional parity | **79%** | Historical CAL-120 score; subsequent CAL-122/CAL-123 closed its two recorded P0 outcomes |
 | Interaction parity | **74%** | Grid interactions сильные; recurring create, optional attendee authoring, Month overflow, search и sharing management отсутствуют |
 | Visual parity | **66%** | Office360 использует собственную coherent theme; это не pixel clone, но Calendar остаётся проще Яндекса и местами смешивает RU/EN copy |
 | Production readiness | **72%** | Test/build health высокий; provider write/live-fixture coverage, iTIP lifecycle и several UX/accessibility gaps мешают parity release |
@@ -64,7 +62,7 @@ Official comparison anchors:
 | Participants | PARTIAL | Normalized identity/status/type/delegation and provider conformance; create input is comma-separated email text, no directory/picker or invitation delivery |
 | Required / optional | PARTIAL | Existing roles survive provider/domain/codec round-trip and scheduler distinguishes them; create UI cannot persist optional role explicitly |
 | RSVP | PASS | Provider-backed Calendar RSVP is direct and ledgered; Mail RSVP queues METHOD:REPLY with explicit delivery state |
-| Free/Busy | PARTIAL | Self local-derived; Google remote automated; generic CalDAV conditional RFC 6638; Yandex others unsupported |
+| Free/Busy | PASS | Self local-derived; Google remote automated; CalDAV/Yandex remote only after complete RFC 6638 discovery; Yandex contract confirmed LIVE by CAL-123 |
 | Scheduling Assistant | PASS | LIVE create/edit assistant; AUTOMATED provider-neutral privacy-safe timeline and stale-response cancellation |
 | Suggested slots | PASS | AUTOMATED deterministic required/optional ranking and working-hours-aware engine; result quality depends on availability reliability |
 | Multiple calendars | PASS | LIVE two-calendar list, visibility toggle and create target; provider reads are paginated/bounded as applicable |
@@ -111,7 +109,7 @@ Official comparison anchors:
 
 ### Flow E — participants → availability → suggested slot → select time
 
-**PARTIAL; target-provider blocker.** Assistant UI and selection are LIVE/AUTOMATED, and Google/generic RFC 6638 adapters exist. Other Yandex participants remain unknown/unsupported, so the primary Yandex flow cannot promise a genuinely free slot.
+**PASS within provider permissions.** Assistant UI and selection are LIVE/AUTOMATED. Google and discovery-confirmed CalDAV/Yandex use remote adapters; per-recipient denial/error remains unknown and can never be promoted to free.
 
 ### Flow F — shared/read-only calendar → view → attempt edit
 
@@ -123,7 +121,7 @@ Official comparison anchors:
 
 ## Functional, interaction and visual parity
 
-- **Functional parity** asks whether the same outcome is possible. Grid CRUD, recurrence single/series, time semantics, provider sync, local reminder delivery and application iTIP lifecycle are real; Yandex participant availability remains the principal provider gap.
+- **Functional parity** asks whether the same outcome is possible. Grid CRUD, recurrence single/series, time semantics, provider sync, local reminder delivery, application iTIP lifecycle and discovery-gated Yandex participant availability are real. Remaining deltas are listed as P1/P2 product scope.
 - **Interaction parity** asks whether the user can discover and complete the workflow safely. Office360 intentionally differs in layout, but grid selection, drag/resize, scope prompts and scheduler are equivalent. Missing Month overflow action, search, recurring create and participant/ACL editors are interaction gaps.
 - **Visual parity** does not require Yandex branding or exact CSS. Office360 has a coherent semantic theme and readable calendar surfaces, but less dense feature chrome, mixed Russian/English editor copy, no dedicated current-time indicator and incomplete light/dark/responsive visual acceptance.
 
@@ -137,7 +135,7 @@ Official comparison anchors:
 | Single occurrence | Update/delete | Update/delete; EXDATE for delete | Same as CalDAV |
 | This-and-future | MISSING | MISSING | MISSING |
 | Reminders | Full defaults/overrides | Partial DISPLAY/EMAIL read; DISPLAY write | Same as CalDAV |
-| Remote Free/Busy others | PASS AUTOMATED | Conditional after RFC 6638 discovery | MISSING / unsupported |
+| Remote Free/Busy others | PASS AUTOMATED | Conditional after RFC 6638 discovery | PASS LIVE DISCOVERY / AUTOMATED QUERY |
 | Shared calendars | Read | Read | Read discovery |
 | Effective permissions | Full role mapping | Partial DAV privileges | Partial DAV privileges; LIVE owned only |
 | ACL management | MISSING | MISSING | MISSING |
@@ -179,9 +177,7 @@ Discovery, role normalization, local persistence, removed-calendar reconciliatio
 
 ### P0 — blocks full functional parity
 
-1. **Yandex participant availability:** a supported privacy-safe provider path, or an explicit product waiver that Scheduling Assistant on Yandex cannot match web Calendar.
-
-CAL-122 closed the former Mail invitation lifecycle item with automatic ingestion, durable per-recipient delivery and UID/SEQUENCE/RECURRENCE-ID reconciliation. See `CALENDAR_INVITATION_LIFECYCLE.md`.
+None. CAL-122 closed Mail invitation lifecycle. CAL-123 closed Yandex participant availability through the exposed privacy-safe RFC 6638 provider contract. See `CALENDAR_INVITATION_LIFECYCLE.md` and `CALENDAR_YANDEX_FREE_BUSY_DECISION.md`.
 
 ### P1 — important parity gaps
 
@@ -218,11 +214,11 @@ CAL-122 closed the former Mail invitation lifecycle item with automatic ingestio
 | Fully terminated real-time reminder delivery | Documented platform limitation | No; tray runtime plus startup catch-up is the approved contract |
 | Live Google Free/Busy fixture unavailable | Evidence gap | Not a code blocker; blocks live claim |
 | Live shared/read-only fixture unavailable | Evidence gap / P1 acceptance | Blocks production confidence for shared roles, not automated semantics |
-| Yandex RFC 6638 remote Free/Busy unsupported | P0 or accepted waiver | Blocks target-provider scheduler parity |
+| Yandex RFC 6638 remote Free/Busy | Closed by CAL-123 | No; complete discovery contract confirmed on personal-domain and custom-domain accounts |
 
 ## Regression and code health
 
-Current HEAD `8e5201d` changes only two Calendar docs after production commit `4be8742`. The last valid production-code battery is therefore applicable:
+CAL-123 changes the CalDAV discovery gate, diagnostics, scheduler limitation copy and tests. Its current production-code battery is recorded in `CALENDAR_RUNTIME_BASELINE.md`; the older CAL-119 figures below remain historical context:
 
 - TypeScript: PASS.
 - Targeted CAL-119: 13 files / 188 tests PASS.
@@ -245,18 +241,16 @@ Technical debt, not parity blockers by itself:
 
 ### Feature complete?
 
-**No** for full Yandex 360 Calendar parity. **Yes** as a provider-neutral Calendar foundation with documented unsupported capabilities.
+**No** for literal full Yandex 360 Calendar product parity because P1/P2 interaction and management scope remains. **Yes** as a provider-neutral Calendar release candidate with no open P0 provider outcome.
 
 ### Merge recommendation
 
-**NO for a parity-complete release.** A merge as an explicitly scoped foundation is acceptable only if the owner records waivers for remaining P0 gaps and does not market Mail RSVP or Yandex participant availability as delivered outcomes.
+**YES for the current scoped Calendar foundation/release candidate.** A literal feature-complete Yandex product claim still requires an explicit P1 release boundary, but no P0 provider waiver remains.
 
 ### Required before parity merge
 
-1. Close the Mail invitation lifecycle or explicitly remove it from the release promise.
-2. Resolve Yandex remote availability through a supported provider contract or approve a documented target-provider limitation.
-3. Run isolated live provider acceptance for create/edit/delete/RSVP/recurrence and shared/read-only roles without personal-calendar risk.
-4. Decide the P1 release boundary for recurring create, participant role authoring, search and ACL management.
+1. Run isolated live provider acceptance for create/edit/delete/RSVP/recurrence and shared/read-only roles without personal-calendar risk.
+2. Decide the P1 release boundary for recurring create, participant role authoring, search and ACL management.
 
 ### Post-merge backlog
 

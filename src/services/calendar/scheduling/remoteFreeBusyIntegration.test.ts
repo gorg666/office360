@@ -59,4 +59,14 @@ describe("Scheduling Assistant remote Free/Busy integration", () => {
     const result = await plan(service([availability(required, "permission-denied")]));
     expect(result.candidates[0]).toMatchObject({ classification: "unknown" });
   });
+
+  it("keeps an unsupported optional participant non-blocking but visibly unknown", async () => {
+    const result = await plan(service([
+      availability(required, "known"),
+      availability(optional, "unsupported"),
+    ]), [optional]);
+    expect(result.candidates[0]).toMatchObject({ classification: "confirmed" });
+    expect(result.participants[1]).toMatchObject({ role: "optional", reliability: "unsupported" });
+    expect(result.segments.some((segment) => segment.optionalUnknown.includes(1))).toBe(true);
+  });
 });

@@ -148,7 +148,9 @@ describe("SchedulingAssistant", () => {
         { participant: ANNA, role: "required" },
       ],
     });
-    expect(await screen.findByText("Нет данных о занятости")).toBeInTheDocument();
+    expect(await screen.findByText("Занятость недоступна через подключённый календарь")).toBeInTheDocument();
+    expect(screen.getByTestId("reliability-unsupported")).toHaveClass("text-warning");
+    expect(screen.queryByTestId("reliability-error")).not.toBeInTheDocument();
     const unknownRows = screen.getAllByTestId("scheduling-timeline").filter((node) => node.getAttribute("data-unknown") === "true");
     expect(unknownRows.length).toBeGreaterThan(0);
     expect(screen.getByTestId("group-segment")).toHaveAttribute("data-classification", "unknown");

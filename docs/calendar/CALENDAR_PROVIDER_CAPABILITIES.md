@@ -29,7 +29,7 @@ Yandex использует тот же `CalDAVProvider`, что generic CalDAV,
 | Sync mode | `sync-token`, paginated | `range-refresh`, not paginated | `range-refresh`, not paginated |
 | Sync durability | `ephemeral` | `ephemeral` | `ephemeral` |
 | Free/Busy (self) | `local-derived` | `local-derived` | `local-derived` |
-| Free/Busy (others) | `remote` | `none` → `remote` after RFC 6638 discovery | `none` |
+| Free/Busy (others) | `remote` | `none` → `remote` after RFC 6638 discovery | `none` → `remote` after RFC 6638 discovery |
 | Effective calendar access | `full` | `partial` | `partial` |
 | Ownership | `partial` | `partial` | `partial` |
 | ACL read / write | `none` / `none` | `partial` / `none` | `partial` / `none` |
@@ -42,7 +42,7 @@ Yandex использует тот же `CalDAVProvider`, что generic CalDAV,
 
 `partial` recurrence write means Office360 supports explicit single/series update and delete, including series RRULE replacement, while preserving existing EXDATE/RDATE/RECURRENCE-ID data. `this-and-future` and recurring-series creation remain unsupported. Details: `CALENDAR_RECURRENCE_MUTATIONS.md`.
 
-`freeBusy` splits into `self` and `others` in `version: 3`. `self = local-derived` means CAL-107 computes the signed-in account's availability from synced cache/coverage. Google `others = remote` uses only the official privacy-limited batch endpoint. Generic CalDAV starts at `none` and changes to `remote` only after RFC 6638 scheduling discovery proves an outbox, user address and auto-schedule support. Yandex stays `none`: its web UI feature is not proof of public CalDAV scheduling support. Details: `CALENDAR_FREE_BUSY_MODEL.md` and `CALENDAR_REMOTE_FREE_BUSY.md`.
+`freeBusy` splits into `self` and `others` in `version: 3`. `self = local-derived` means CAL-107 computes the signed-in account's availability from synced cache/coverage. Google `others = remote` uses only the official privacy-limited batch endpoint. CalDAV and Yandex start at `none` and change to `remote` only after RFC 6638 scheduling discovery proves inbox, outbox, user address and auto-schedule support. CAL-123 confirmed that exposed contract live for personal-domain and custom-domain Yandex accounts; no provider-name bypass exists. Details: `CALENDAR_FREE_BUSY_MODEL.md`, `CALENDAR_REMOTE_FREE_BUSY.md` and `CALENDAR_YANDEX_FREE_BUSY_DECISION.md`.
 
 `rsvp.remote = direct` means the adapter performs a remote provider/API mutation. Google uses its attendee update path; CalDAV updates the remote resource. Provider-native RFC 6638 scheduling is still not claimed. CAL-122 adds a separate application-level `email-itip` lifecycle using the existing Mail queue for REQUEST/REPLY/CANCEL; it does not inflate the provider adapter's native capability.
 
@@ -94,7 +94,7 @@ This is critical for CalDAV/Yandex: expanded occurrences share the series `.ics`
 
 ## Deliberate unsupported states
 
-- Remote Free/Busy exists for Google and discovery-confirmed generic CalDAV. Yandex remote Free/Busy, ACL management and provider-native invitation delivery remain unsupported. Application email iTIP is supported by CAL-122 through Mail queue semantics. Reminder metadata and desktop delivery follow CAL-118/CAL-121.
+- Remote Free/Busy exists for Google and discovery-confirmed CalDAV/Yandex. Missing discovery properties remain an intentional provider limitation. ACL management and provider-native invitation delivery remain unsupported. Application email iTIP is supported by CAL-122 through Mail queue semantics. Reminder metadata and desktop delivery follow CAL-118/CAL-121.
 - Mail invitation queue items use UID, recurrence identity, sequence and per-recipient durable action keys. Provider-backed Calendar RSVP uses direct provider delivery; Mail invitations use METHOD:REPLY rather than fabricating a provider resource locator.
 - Google sync tokens and CalDAV delta state are not durably adopted yet. Google fetch pagination remains complete, while the capability honestly reports ephemeral sync state; CalDAV reports bounded `range-refresh`.
 - `src/services/google/calendar.ts` has no imports in the current application graph and is legacy candidate code. It remains untouched to avoid unrelated destructive cleanup. The proven unreachable duplicate Gmail branch in `calendar/providerFactory.ts` was removed.

@@ -1,6 +1,6 @@
 # CAL-110 — Remote Free/Busy providers
 
-Status: implemented on `feat/calendar-yandex360`, 2026-08-22.
+Status: implemented on `feat/calendar-yandex360`, 2026-08-22; Yandex runtime decision finalized by CAL-123 on 2026-08-23.
 Migration: **NONE**.
 
 ## Boundary and routing
@@ -28,15 +28,16 @@ cross the adapter boundary. Unsupported or missing data is never interpreted as 
 | --- | --- | --- | --- |
 | Google Calendar API | `local-derived` | `remote` | official `POST /calendar/v3/freeBusy`; Calendar readonly scope already exists |
 | generic CalDAV | `local-derived` | initially `none`, then `remote` | enabled only after RFC 6638 scheduling outbox, calendar user address and `calendar-auto-schedule` discovery |
-| Yandex CalDAV | `local-derived` | `none` | read-only discovery runs, but remote query remains disabled because public Yandex docs do not confirm the CalDAV scheduling extension |
+| Yandex CalDAV | `local-derived` | initially `none`, then `remote` | CAL-123 live discovery proved the same complete RFC 6638 contract on personal-domain and custom-domain accounts |
 
 Google limits `calendarExpansionMax` to 50, so the adapter splits larger requests into batches
 of 50. Per-calendar errors and failed batches are isolated: successful participants remain
 known, access/not-found becomes `permission-denied`, and provider/rate/transport failures become
 `error`. The endpoint returns busy periods only; the adapter never calls `events.list`.
 
-Generic CalDAV discovery reads the current principal's `calendar-user-address-set`,
-`schedule-inbox-URL`, `schedule-outbox-URL`, and the OPTIONS `calendar-auto-schedule` DAV token.
+CalDAV discovery probes root, principal, home, a calendar collection, inbox and outbox without
+writing. It reads the current principal's `calendar-user-address-set`, `schedule-inbox-URL`,
+`schedule-outbox-URL`, and the OPTIONS `calendar-auto-schedule` DAV token.
 Only a complete result enables remote capability. A query posts an RFC 6638 VFREEBUSY request to
 the scheduling outbox and maps each schedule response independently. `3.7` / `3.8` request status
 is permission denied; malformed/missing responses are error. `free-busy-query REPORT` support on
@@ -69,9 +70,9 @@ and appears as an optional conflict. CAL-109 remains a thin consumer of `GroupSc
 
 1. No live Google account was available during CAL-110 acceptance; Google behavior is covered by
    official-contract mocks, batch/error/privacy tests and provider conformance.
-2. Yandex web Calendar exposes participant availability as a product feature, but that does not
-   prove its public CalDAV endpoint implements RFC 6638. Office360 therefore performs discovery
-   only and does not send a participant query.
+2. CAL-123 proved the exposed RFC 6638 scheduling contract on both available Yandex account
+   classes. Recipient eligibility can still be provider/policy-specific; per-recipient denial is
+   returned as `permission-denied`, never as free. See `CALENDAR_YANDEX_FREE_BUSY_DECISION.md`.
 3. CalDAV servers that expose only collection `free-busy-query REPORT`, without an RFC 6638
    scheduling outbox, remain unsupported for arbitrary participants.
 4. The cache is process-local and deliberately short-lived; it is not a durable offline source.
