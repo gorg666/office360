@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108, CAL-109, CAL-110, CAL-111, CAL-112, CAL-113, CAL-114, CAL-117, CAL-118 and CAL-119 completed. CAL-120 is the delivered final parity audit, not a feature implementation ticket. This document is the source of truth for Calendar ticket numbering and remaining priority, while `CALENDAR_FINAL_PARITY_AUDIT.md` is the current parity verdict.
+Roadmap state: CAL-101A through CAL-121 are completed (including CAL-102F); CAL-120 is the delivered parity audit. CAL-122 closes the audit's Mail/iTIP P0 lifecycle gap with automatic ingestion, delivered RSVP, organizer reconciliation and outbound REQUEST/REPLY/CANCEL. This document is the source of truth for Calendar ticket numbering and remaining priority, while `CALENDAR_FINAL_PARITY_AUDIT.md` records the parity verdict and addenda.
 
 **Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
 
@@ -445,8 +445,9 @@ No new ticket numbers are assigned automatically.
 
 ### P0 — parity blockers unless explicitly waived
 
-- complete Mail invitation lifecycle: delivered RSVP and outbound `REQUEST` / `REPLY` / `CANCEL` reconciliation;
 - Yandex participant Free/Busy through a supported privacy-safe contract, or an explicit product waiver.
+
+The former Mail invitation lifecycle blocker is closed by CAL-122. Canonical contract: `CALENDAR_INVITATION_LIFECYCLE.md`.
 
 ### P1 — important parity gaps
 

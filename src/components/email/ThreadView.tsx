@@ -157,6 +157,7 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
           messageId: msg.id,
           bodyText: msg.body_text,
           bodyHtml: msg.body_html,
+          senderEmail: msg.from_address,
         });
 
         if (provider) {
@@ -167,6 +168,7 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
             messageId: msg.id,
             attachments,
             provider,
+            senderEmail: msg.from_address,
           }).catch((err) => {
             console.warn("Failed to detect calendar invitation attachment:", err);
           });

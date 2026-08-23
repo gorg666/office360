@@ -35,11 +35,11 @@ CalDAV/iCalendar maps `ORGANIZER`, `ATTENDEE`, `CN`, `ROLE`, `PARTSTAT`, `CUTYPE
 
 Google maps `email`, `displayName`, `organizer`, `self`, `optional`, `responseStatus`, `resource`, and `additionalGuests`. Google has one resource boolean rather than distinct RFC room/resource values, so inbound Google resources normalize as `resource`; a domain `room` is written as Google `resource` and cannot round-trip its narrower type through that API.
 
-Calendar RSVP and Mail invitation projection both use the normalized attendee set when a current attendee identity is available. Delivery/queue state remains separate from attendance status.
+Calendar RSVP and Mail invitation projection both use the normalized attendee set when a current attendee identity is available. CAL-122 uses that same attendee set for REPLY reconciliation and outbound REQUEST/CANCEL generation. Delivery/queue state remains separate from attendance status.
 
 ## UI and Mail
 
-Calendar event details render the normalized organizer and attendees, show optional/chair/informational roles, and locate the current attendee through identity helpers. Mail invitation ingestion uses the same codec/domain projection; existing invitation delivery limitations are unchanged.
+Calendar event details render the normalized organizer and attendees, show optional/chair/informational roles, and locate the current attendee through identity helpers. Mail invitation ingestion uses the same codec/domain projection. Required/optional ROLE, PARTSTAT, participant identity and organizer/SENT-BY now survive the application iTIP delivery path described in `CALENDAR_INVITATION_LIFECYCLE.md`.
 
 ## Future Free/Busy boundary
 
@@ -55,5 +55,5 @@ It must not require `CalendarAttendee[]` or a full `CalendarEvent`, because avai
 
 1. There is no organization directory or participant picker; stable account/provider IDs are used only when a provider supplies them.
 2. Google cannot preserve the RFC distinction between `room` and generic `resource`.
-3. Invitation delivery, remote iTIP orchestration, Free/Busy and room booking remain unsupported.
+3. Provider-native RFC 6638 scheduling, Free/Busy mutation and room booking remain outside this model; application email iTIP delivery is owned by CAL-122.
 4. Live Week/Day smoke (2026-08-22) confirmed rendering and event details for an existing Yandex event with organizer and attendees; the opened fixture did not show the optional-role chip text. Optional role remains confirmed by Month smoke and `EventDetailModal.test.tsx`. No cloud mutations were performed.

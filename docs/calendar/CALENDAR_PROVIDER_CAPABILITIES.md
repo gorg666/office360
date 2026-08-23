@@ -24,7 +24,8 @@ Yandex использует тот же `CalDAVProvider`, что generic CalDAV,
 | Attendee write | `partial` | `partial` | `partial` |
 | Local RSVP | provisional projection | provisional projection | provisional projection |
 | Remote RSVP | `direct` | `direct` | `direct` |
-| Invitation delivery | `none` | `none` | `none` |
+| Provider-native invitation delivery | `none` | `none` | `none` |
+| Application Mail iTIP | `email-itip` | `email-itip` | `email-itip` |
 | Sync mode | `sync-token`, paginated | `range-refresh`, not paginated | `range-refresh`, not paginated |
 | Sync durability | `ephemeral` | `ephemeral` | `ephemeral` |
 | Free/Busy (self) | `local-derived` | `local-derived` | `local-derived` |
@@ -43,7 +44,7 @@ Yandex использует тот же `CalDAVProvider`, что generic CalDAV,
 
 `freeBusy` splits into `self` and `others` in `version: 3`. `self = local-derived` means CAL-107 computes the signed-in account's availability from synced cache/coverage. Google `others = remote` uses only the official privacy-limited batch endpoint. Generic CalDAV starts at `none` and changes to `remote` only after RFC 6638 scheduling discovery proves an outbox, user address and auto-schedule support. Yandex stays `none`: its web UI feature is not proof of public CalDAV scheduling support. Details: `CALENDAR_FREE_BUSY_MODEL.md` and `CALENDAR_REMOTE_FREE_BUSY.md`.
 
-`rsvp.remote = direct` means the adapter performs a remote provider/API mutation. Google uses its attendee update path; CalDAV updates the remote resource. CAL-105 did not perform live mutations, so organizer delivery side effects were not confirmed for CalDAV/Yandex. General invitation and outbound iTIP delivery therefore remain `none`.
+`rsvp.remote = direct` means the adapter performs a remote provider/API mutation. Google uses its attendee update path; CalDAV updates the remote resource. Provider-native RFC 6638 scheduling is still not claimed. CAL-122 adds a separate application-level `email-itip` lifecycle using the existing Mail queue for REQUEST/REPLY/CANCEL; it does not inflate the provider adapter's native capability.
 
 `version: 4` adds structured reminder facts. Google supports provider defaults, explicit none and up to five popup/email overrides. CalDAV/Yandex can read multiple DISPLAY/EMAIL `VALARM` values, but Office360 only writes DISPLAY/notification alarms; RFC EMAIL support alone is not evidence of provider delivery. Mutation service validation rejects unsupported defaults, methods, multiplicity and counts before provider I/O. Details: `CALENDAR_REMINDERS.md`.
 
@@ -57,7 +58,7 @@ Yandex использует тот же `CalDAVProvider`, что generic CalDAV,
 | Update | `EventDetailModal.handleSave` → `CalendarMutationService.update` | `updateEvent` | typed result; ETag forwarded | `CalendarSyncService.loadRange`; no local overwrite |
 | Delete | `EventDetailModal.handleDelete` → `CalendarMutationService.delete` | `deleteEvent` | typed result; ETag forwarded | authoritative range reconciliation; no manual DB delete |
 | Calendar-event RSVP | `EventDetailModal.handleRsvp` → `CalendarMutationService.respond` | `respondToEvent` | typed result; ETag forwarded | range refresh after confirmed remote success |
-| Mail-invitation RSVP | invitation projection → queue | no remote locator/provider call exists | terminal typed `unsupported` | provisional projection removed; queue blocked without retry |
+| Mail-invitation RSVP | normalized invitation + local attendee state | METHOD:REPLY through existing Mail queue | queued/retry/delivered/failed ledger | Calendar projection remains reconciled; delivery is explicit |
 
 There is no new optimistic Calendar write path. Provider failure therefore cannot leave a newly fabricated remote row in the Calendar cache. The existing Mail RSVP projection is explicitly provisional and is removed when delivery is unsupported.
 
@@ -93,8 +94,8 @@ This is critical for CalDAV/Yandex: expanded occurrences share the series `.ics`
 
 ## Deliberate unsupported states
 
-- Remote Free/Busy exists for Google and discovery-confirmed generic CalDAV. Yandex remote Free/Busy, ACL management, provider-native invitation delivery and outbound email iTIP remain unsupported. Reminder metadata is supported according to the structured matrix above; desktop notification delivery is not.
-- Mail invitation queue items contain UID/recurrence identity but no provider calendar/resource locator. They cannot be routed safely to `respondToEvent`; they end as terminal unsupported instead of retrying forever.
+- Remote Free/Busy exists for Google and discovery-confirmed generic CalDAV. Yandex remote Free/Busy, ACL management and provider-native invitation delivery remain unsupported. Application email iTIP is supported by CAL-122 through Mail queue semantics. Reminder metadata and desktop delivery follow CAL-118/CAL-121.
+- Mail invitation queue items use UID, recurrence identity, sequence and per-recipient durable action keys. Provider-backed Calendar RSVP uses direct provider delivery; Mail invitations use METHOD:REPLY rather than fabricating a provider resource locator.
 - Google sync tokens and CalDAV delta state are not durably adopted yet. Google fetch pagination remains complete, while the capability honestly reports ephemeral sync state; CalDAV reports bounded `range-refresh`.
 - `src/services/google/calendar.ts` has no imports in the current application graph and is legacy candidate code. It remains untouched to avoid unrelated destructive cleanup. The proven unreachable duplicate Gmail branch in `calendar/providerFactory.ts` was removed.
 

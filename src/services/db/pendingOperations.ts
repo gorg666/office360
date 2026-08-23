@@ -132,6 +132,30 @@ export async function enqueuePendingOperation(
   return id;
 }
 
+/** Durable iTIP sends reuse the normal Mail queue with a deterministic primary key. */
+export async function enqueueItipSendOperation(
+  accountId: string,
+  actionKey: string,
+  params: Record<string, unknown>,
+): Promise<string> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO pending_operations
+      (id, account_id, operation_type, resource_id, params, status, next_retry_at)
+     VALUES ($1, $2, 'sendMessage', $1, $3, 'pending', NULL)
+     ON CONFLICT(id) DO UPDATE SET
+       params = excluded.params,
+       status = 'pending',
+       retry_count = 0,
+       next_retry_at = NULL,
+       error_message = NULL,
+       updated_at = unixepoch()
+     WHERE pending_operations.status IN ('failed', 'blocked', 'cancelled')`,
+    [actionKey, accountId, JSON.stringify(params)],
+  );
+  return actionKey;
+}
+
 /**
  * Undo-send / in-flight compose: visible in Outbox, not picked by queue processor
  * (status !== 'pending'). Uses requestId as primary key for idempotency.

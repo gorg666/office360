@@ -215,6 +215,24 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
   await db.execute("DELETE FROM calendar_events WHERE id = $1", [eventId]);
 }
 
+export async function getCalendarEventByUid(
+  accountId: string,
+  uid: string,
+  occurrenceStart: number | null = null,
+): Promise<DbCalendarEvent | null> {
+  const row = await selectFirstBy<DbCalendarEvent>(
+    `SELECT * FROM calendar_events
+     WHERE account_id = $1 AND (uid = $2 OR series_uid = $2)
+       AND ($3 IS NULL OR start_time = $3)
+     ORDER BY CASE WHEN origin = 'remote' THEN 0 ELSE 1 END,
+              is_recurrence_master ASC,
+              updated_at DESC
+     LIMIT 1`,
+    [accountId, uid, occurrenceStart],
+  );
+  return row ? normalizeCalendarEventRow(row) : null;
+}
+
 export function calendarProjectionKey(uid: string, recurrenceKey: string): string {
   return `invite:${uid}:${recurrenceKey}`;
 }

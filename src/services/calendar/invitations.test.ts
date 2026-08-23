@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("@/services/db/calendarInvitations", () => ({
   getCalendarInvitationById: vi.fn(),
+  getCalendarInvitationByIdentity: vi.fn(() => Promise.resolve(null)),
   updateInvitationQueueStatus: vi.fn(() => Promise.resolve()),
   updateInvitationRsvp: vi.fn(() => Promise.resolve()),
   upsertCalendarInvitation: vi.fn((input) => Promise.resolve({
@@ -38,12 +39,28 @@ vi.mock("@/services/db/calendarInvitations", () => ({
 
 vi.mock("@/services/db/pendingOperations", () => ({
   enqueuePendingOperation: vi.fn(() => Promise.resolve("op-1")),
+  enqueueItipSendOperation: vi.fn(() => Promise.resolve("op-1")),
+}));
+
+vi.mock("@/services/db/calendarItipActions", () => ({
+  getCalendarItipAction: vi.fn(() => Promise.resolve(null)),
+  getLatestAppliedItipAction: vi.fn(() => Promise.resolve(null)),
+  recordCalendarItipAction: vi.fn((message) => Promise.resolve({
+    created: true,
+    action: {
+      action_key: `action:${message.method}:${message.eventUid}:${message.participantKey}`,
+      delivery_status: null,
+      pending_operation_id: null,
+    },
+  })),
+  updateCalendarItipAction: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("@/services/db/calendarEvents", () => ({
   calendarProjectionKey: vi.fn((uid: string, recurrenceKey: string) => `invite:${uid}:${recurrenceKey}`),
   removeCalendarProjection: vi.fn(() => Promise.resolve()),
   upsertCalendarEvent: vi.fn(() => Promise.resolve()),
+  getCalendarEventByUid: vi.fn(() => Promise.resolve(null)),
 }));
 
 vi.mock("@/services/db/accounts", () => ({
@@ -63,7 +80,7 @@ import {
   updateInvitationRsvp,
   upsertCalendarInvitation,
 } from "@/services/db/calendarInvitations";
-import { enqueuePendingOperation } from "@/services/db/pendingOperations";
+import { enqueueItipSendOperation } from "@/services/db/pendingOperations";
 import { removeCalendarProjection, upsertCalendarEvent } from "@/services/db/calendarEvents";
 
 const ical = [
@@ -71,6 +88,8 @@ const ical = [
   "METHOD:REQUEST",
   "BEGIN:VEVENT",
   "UID:uid-1",
+  "ORGANIZER:mailto:lead@example.com",
+  "ATTENDEE;ROLE=REQ-PARTICIPANT:mailto:self@example.com",
   "SUMMARY:Planning",
   "DTSTART:20260620T100000Z",
   "DTEND:20260620T110000Z",
@@ -114,6 +133,7 @@ describe("calendar invitations service", () => {
       threadId: "thread-1",
       messageId: "msg-1",
       bodyText: ical,
+      senderEmail: "lead@example.com",
     });
 
     expect(result).toHaveLength(1);
@@ -163,9 +183,9 @@ describe("calendar invitations service", () => {
       projectionKey: "invite:uid-1:",
       projectionStatus: "pending",
     }));
-    expect(enqueuePendingOperation).toHaveBeenCalledWith("acc-1", "calendarRsvp", "invite-1", expect.objectContaining({
-      invitationId: "invite-1",
-      rsvpStatus: "accepted",
+    expect(enqueueItipSendOperation).toHaveBeenCalledWith("acc-1", expect.any(String), expect.objectContaining({
+      itipActionKey: expect.any(String),
+      itipInvitationId: "invite-1",
     }));
     expect(updateInvitationRsvp).toHaveBeenCalledWith("invite-1", "accepted", "queued", "op-1");
   });
@@ -202,7 +222,7 @@ describe("calendar invitations service", () => {
       event_uid: "uid-repeat", recurrence_id: null, recurrence_key: "", method: "REQUEST",
       sequence: 1, status: "confirmed", summary: "Repeat", description: null, location: null,
       start_time: 1000, end_time: 2000, is_all_day: 0, timezone_id: null,
-      timezone_warning: 0, organizer_email: null, attendees_json: null,
+      timezone_warning: 0, organizer_email: "lead@example.com", attendees_json: null,
       rsvp_status: "needs_action" as const, rsvp_queue_status: null, queued_operation_id: null,
       calendar_event_id: null, raw_ical: ical, source_hash: "body:repeat", created_at: 1, updated_at: 1,
     };

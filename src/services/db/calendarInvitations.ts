@@ -68,6 +68,18 @@ export async function getCalendarInvitationById(id: string): Promise<DbCalendarI
   );
 }
 
+export async function getCalendarInvitationByIdentity(
+  accountId: string,
+  eventUid: string,
+  recurrenceId?: string | null,
+): Promise<DbCalendarInvitation | null> {
+  return selectFirstBy<DbCalendarInvitation>(
+    `SELECT * FROM calendar_invitations
+     WHERE account_id = $1 AND event_uid = $2 AND recurrence_key = $3`,
+    [accountId, eventUid, recurrenceKey(recurrenceId)],
+  );
+}
+
 export async function upsertCalendarInvitation(
   input: UpsertCalendarInvitationInput,
 ): Promise<DbCalendarInvitation> {

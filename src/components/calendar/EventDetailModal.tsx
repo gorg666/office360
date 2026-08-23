@@ -9,6 +9,7 @@ import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { accessForCalendar, type DbCalendar } from "@/services/db/calendars";
 import type { CalendarParticipationStatus } from "@/services/calendar/types";
 import { calendarMutationService } from "@/services/calendar/calendarMutationService";
+import { respondToCalendarEventInvitation } from "@/services/calendar/itip";
 import { findCurrentAttendee, parseCalendarParticipants, parseCalendarReminderPolicy, type CalendarAttendee, type CalendarOrganizer, type CalendarProviderCapabilities, type CalendarReminderPolicy, type RecurrenceWriteScope } from "@/services/calendar/domain";
 import { useAccountStore } from "@/stores/accountStore";
 import { navigateToLabel } from "@/router/navigate";
@@ -184,11 +185,12 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
     setBusyAction("rsvp"); setError(null);
     try {
       const ids = remoteIds();
-      const result = await calendarMutationService.respond({
-        accountId,
-        ...ids,
-        etag: event.etag ?? undefined,
-      }, accountEmail, status);
+      const result = await respondToCalendarEventInvitation({
+        target: { accountId, ...ids, etag: event.etag ?? undefined },
+        event,
+        attendeeEmail: accountEmail,
+        status,
+      });
       if (result.status !== "success") throw new Error(result.message);
       onUpdated();
     } catch (cause) {

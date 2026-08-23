@@ -69,6 +69,10 @@ vi.mock("../db/folderSyncState", () => ({
 vi.mock("../db/pendingOperations", () => ({
   getPendingOpsForResource: vi.fn(() => []),
 }));
+vi.mock("../calendar/invitations", () => ({
+  detectInvitationsInMessage: vi.fn(() => Promise.resolve([])),
+  detectInvitationsFromAttachments: vi.fn(() => Promise.resolve([])),
+}));
 
 import {
   calculateSafeImapCheckpoint,

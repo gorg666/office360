@@ -35,6 +35,14 @@ vi.mock("../calendar/invitations", () => ({
   executeCalendarQueuedAction: vi.fn(() => Promise.resolve({ status: "success", value: undefined })),
 }));
 
+vi.mock("../db/calendarItipActions", () => ({
+  updateCalendarItipAction: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock("../db/calendarInvitations", () => ({
+  updateInvitationQueueStatus: vi.fn(() => Promise.resolve()),
+}));
+
 vi.mock("../db/accountDiagnostics", () => ({
   upsertAccountDiagnostic: vi.fn(() => Promise.resolve()),
 }));
@@ -71,6 +79,8 @@ import {
 import { executeQueuedAction } from "../emailActions";
 import { executeCalendarQueuedAction } from "../calendar/invitations";
 import { classifyError } from "@/utils/networkErrors";
+import { updateCalendarItipAction } from "../db/calendarItipActions";
+import { updateInvitationQueueStatus } from "../db/calendarInvitations";
 import { startQueueProcessor, stopQueueProcessor, triggerQueueFlush } from "./queueProcessor";
 import { createMockUIStoreState } from "@/test/mocks";
 
@@ -167,6 +177,39 @@ describe("queueProcessor", () => {
     });
     expect(executeQueuedAction).not.toHaveBeenCalled();
     expect(deleteOperation).toHaveBeenCalledWith("op-1");
+  });
+
+  it("moves iTIP delivery from delivering to delivered on SMTP success", async () => {
+    vi.mocked(getPendingOperations).mockResolvedValueOnce([{
+      id: "op-itip", account_id: "acct-1", operation_type: "sendMessage", resource_id: "action-1",
+      params: '{"rawBase64Url":"raw","itipActionKey":"action-1","itipInvitationId":"invite-1"}',
+      status: "pending", retry_count: 0, max_retries: 10, next_retry_at: null, created_at: 1000, error_message: null,
+    }]);
+
+    await triggerQueueFlush();
+
+    expect(updateCalendarItipAction).toHaveBeenNthCalledWith(1, { actionKey: "action-1", deliveryStatus: "delivering" });
+    expect(updateCalendarItipAction).toHaveBeenNthCalledWith(2, expect.objectContaining({ actionKey: "action-1", deliveryStatus: "delivered" }));
+    expect(updateInvitationQueueStatus).toHaveBeenCalledWith("invite-1", "delivered");
+    expect(deleteOperation).toHaveBeenCalledWith("op-itip");
+  });
+
+  it("keeps iTIP ledger retryable after a transient SMTP failure", async () => {
+    vi.mocked(getPendingOperations).mockResolvedValueOnce([{
+      id: "op-itip-retry", account_id: "acct-1", operation_type: "sendMessage", resource_id: "action-1",
+      params: '{"rawBase64Url":"raw","itipActionKey":"action-1"}', status: "pending",
+      retry_count: 0, max_retries: 10, next_retry_at: null, created_at: 1000, error_message: null,
+    }]);
+    vi.mocked(executeQueuedAction).mockRejectedValueOnce(new Error("offline"));
+    vi.mocked(classifyError).mockReturnValueOnce({ type: "network", isRetryable: true, message: "offline" });
+
+    await triggerQueueFlush();
+
+    expect(updateCalendarItipAction).toHaveBeenLastCalledWith(expect.objectContaining({
+      actionKey: "action-1", deliveryStatus: "retry_scheduled", failureCode: "network",
+    }));
+    expect(incrementRetry).toHaveBeenCalledWith("op-itip-retry");
+    expect(deleteOperation).not.toHaveBeenCalled();
   });
 
   it("blocks typed unsupported calendar actions without retrying", async () => {

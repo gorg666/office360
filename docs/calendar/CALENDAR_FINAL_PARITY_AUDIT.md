@@ -12,14 +12,15 @@ Docs-only runtime closure: `8e5201d`
 
 Office360 Calendar уже является полноценным provider-neutral календарным клиентом: Month/Week/Day, несколько календарей, create/edit/delete, single/series recurrence mutations, participant semantics, reminders metadata, Free/Busy foundation, Scheduling Assistant, drag/resize, all-day conversion, shared-calendar access enforcement, timezone/DST-safe domain, iCalendar codec и cache-first sync работают через единые service boundaries.
 
-Это ещё не полный функциональный паритет с веб-версией Яндекс 360 Календаря. CAL-121 закрыл прежний reminder-delivery gap: desktop delivery, durable at-most-once dedupe, snooze/dismiss, bounded startup catch-up, local migration v38 и native Tauri toast acceptance пройдены. Два ключевых user outcomes всё ещё не замкнуты end-to-end:
+Это ещё не полный функциональный паритет с веб-версией Яндекс 360 Календаря. CAL-121 закрыл reminder delivery, а CAL-122 закрыл Mail/iTIP P0: automatic REQUEST/REPLY/CANCEL ingestion, delivered RSVP, organizer reconciliation и outbound meeting delivery. Один ключевой provider outcome всё ещё не замкнут end-to-end:
 
-1. Mail приглашения распознаются, но Mail RSVP заканчивается terminal `unsupported`, а outbound `REQUEST` / `REPLY` / `CANCEL` delivery lifecycle отсутствует;
-2. Scheduling Assistant существует, но занятость других Yandex-участников остаётся `unsupported`, потому что публичный CalDAV path не подтвердил RFC 6638 remote Free/Busy.
+1. Scheduling Assistant существует, но занятость других Yandex-участников остаётся `unsupported`, потому что публичный CalDAV path не подтвердил RFC 6638 remote Free/Busy.
 
-Вердикт: **NEEDS FOLLOW-UP**. Calendar можно считать сильным foundation/release candidate, но нельзя называть feature-complete Yandex parity без закрытия или явного product waiver для P0 gaps.
+Вердикт: **NEEDS FOLLOW-UP**. Calendar можно считать сильным foundation/release candidate, но нельзя называть feature-complete Yandex parity без закрытия или явного product waiver для оставшегося Yandex Free/Busy P0.
 
 ### Scores
+
+Численные scores ниже — исторический снимок CAL-120 и не пересчитывались механически после CAL-121/CAL-122; актуальные строковые verdicts в матрице уже включают оба closure ticket.
 
 | Dimension | Score | Meaning |
 |---|---:|---|
@@ -62,7 +63,7 @@ Official comparison anchors:
 | Recurring events | PARTIAL | Full read/expansion and single/series update/delete; recurring create and `this-and-future` absent |
 | Participants | PARTIAL | Normalized identity/status/type/delegation and provider conformance; create input is comma-separated email text, no directory/picker or invitation delivery |
 | Required / optional | PARTIAL | Existing roles survive provider/domain/codec round-trip and scheduler distinguishes them; create UI cannot persist optional role explicitly |
-| RSVP | PARTIAL | Existing provider-backed Calendar event RSVP is direct; Mail invitation RSVP is local projection then terminal unsupported |
+| RSVP | PASS | Provider-backed Calendar RSVP is direct and ledgered; Mail RSVP queues METHOD:REPLY with explicit delivery state |
 | Free/Busy | PARTIAL | Self local-derived; Google remote automated; generic CalDAV conditional RFC 6638; Yandex others unsupported |
 | Scheduling Assistant | PASS | LIVE create/edit assistant; AUTOMATED provider-neutral privacy-safe timeline and stale-response cancellation |
 | Suggested slots | PASS | AUTOMATED deterministic required/optional ranking and working-hours-aware engine; result quality depends on availability reliability |
@@ -81,8 +82,8 @@ Official comparison anchors:
 | All-day | PASS | Exclusive date model, Google exclusive end and provider/codec/UI tests |
 | Floating time | PASS | Explicit floating domain; resolution assumptions are diagnostic/reliability-aware |
 | ICS / iCalendar | PASS | `ical.js` codec covers VEVENT, VTIMEZONE, recurrence, participants, VALARM and malformed isolation |
-| Mail invite ingestion | PARTIAL | REQUEST/CANCEL/REPLY method and sequence parse exist, but ingestion occurs on ThreadView inspection; REPLY/CANCEL are not a complete organizer/calendar reconciliation lifecycle |
-| Mail ↔ Calendar | PARTIAL | Invitation card and provisional projection exist; no delivered Mail RSVP, outbound invitations, updates or cancellations |
+| Mail invite ingestion | PASS | REQUEST/CANCEL/REPLY ingest at Gmail/IMAP store boundary; ThreadView is not required; sender and sequence are reconciled |
+| Mail ↔ Calendar | PASS | Delivered RSVP, organizer-side REPLY, inbound CANCEL and outbound REQUEST/update/CANCEL share one durable lifecycle |
 | Provider sync | PARTIAL | Cache-first bounded reconciliation and Google pagination; Google sync token and CalDAV delta/ctag durability remain ephemeral/range-refresh |
 | Offline / cache / stale | PARTIAL | Cached stale state, retry and degraded parse preservation work; offline event writes/queue are absent |
 | Errors / conflicts | PASS | Typed auth/permission/conflict/network states, ETag when available, rollback and safe user copy; legacy no-ETag writes remain unconditional |
@@ -118,11 +119,11 @@ Official comparison anchors:
 
 ### Flow G — incoming Mail invite → RSVP → Calendar state
 
-**PARTIAL / not end-to-end.** Incoming ICS renders an invitation card and updates local participant semantics. The queued response deliberately becomes `blocked`, removes the provisional Calendar projection and never informs the organizer. Yandex parity requires delivered RSVP and reconciled Calendar state.
+**PASS (automated, no live send).** Incoming ICS is ingested at message storage, renders an invitation card and updates Calendar participant semantics. RSVP uses the existing Mail queue with separate local and delivery state; fixtures cover success/retry/failure without sending real mail.
 
 ## Functional, interaction and visual parity
 
-- **Functional parity** asks whether the same outcome is possible. Grid CRUD, recurrence single/series, time semantics, provider sync and local reminder delivery are real; invitation lifecycle and Yandex participant availability are not.
+- **Functional parity** asks whether the same outcome is possible. Grid CRUD, recurrence single/series, time semantics, provider sync, local reminder delivery and application iTIP lifecycle are real; Yandex participant availability remains the principal provider gap.
 - **Interaction parity** asks whether the user can discover and complete the workflow safely. Office360 intentionally differs in layout, but grid selection, drag/resize, scope prompts and scheduler are equivalent. Missing Month overflow action, search, recurring create and participant/ACL editors are interaction gaps.
 - **Visual parity** does not require Yandex branding or exact CSS. Office360 has a coherent semantic theme and readable calendar surfaces, but less dense feature chrome, mixed Russian/English editor copy, no dedicated current-time indicator and incomplete light/dark/responsive visual acceptance.
 
@@ -178,8 +179,9 @@ Discovery, role normalization, local persistence, removed-calendar reconciliatio
 
 ### P0 — blocks full functional parity
 
-1. **Mail invitation lifecycle:** delivered RSVP plus outbound `REQUEST` / `REPLY` / `CANCEL`, sequence/recurrence reconciliation and visible delivery state.
-2. **Yandex participant availability:** a supported privacy-safe provider path, or an explicit product waiver that Scheduling Assistant on Yandex cannot match web Calendar.
+1. **Yandex participant availability:** a supported privacy-safe provider path, or an explicit product waiver that Scheduling Assistant on Yandex cannot match web Calendar.
+
+CAL-122 closed the former Mail invitation lifecycle item with automatic ingestion, durable per-recipient delivery and UID/SEQUENCE/RECURRENCE-ID reconciliation. See `CALENDAR_INVITATION_LIFECYCLE.md`.
 
 ### P1 — important parity gaps
 

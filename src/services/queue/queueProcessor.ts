@@ -13,6 +13,8 @@ import {
 } from "../db/pendingOperations";
 import { executeQueuedAction } from "../emailActions";
 import { executeCalendarQueuedAction } from "../calendar/invitations";
+import { updateCalendarItipAction } from "../db/calendarItipActions";
+import { updateInvitationQueueStatus } from "../db/calendarInvitations";
 import { classifyError } from "@/utils/networkErrors";
 import { triggerSync } from "../gmail/syncManager";
 import { upsertAccountDiagnostic } from "../db/accountDiagnostics";
@@ -64,6 +66,11 @@ async function processQueue(): Promise<void> {
       emitOutboxChanged();
 
       const params = JSON.parse(op.params) as Record<string, unknown>;
+      const itipActionKey = typeof params.itipActionKey === "string" ? params.itipActionKey : null;
+      const itipInvitationId = typeof params.itipInvitationId === "string" ? params.itipInvitationId : null;
+      if (itipActionKey) {
+        await updateCalendarItipAction({ actionKey: itipActionKey, deliveryStatus: "delivering" });
+      }
       if (op.operation_type === "calendarRsvp") {
         const result = await executeCalendarQueuedAction(op.account_id, op.operation_type, params);
         if (result.status === "unsupported") {
@@ -80,6 +87,17 @@ async function processQueue(): Promise<void> {
         }
       } else {
         await executeQueuedAction(op.account_id, op.operation_type, params);
+      }
+
+      if (itipActionKey) {
+        const deliveredAt = Math.floor(Date.now() / 1000);
+        await updateCalendarItipAction({
+          actionKey: itipActionKey,
+          deliveryStatus: "delivered",
+          deliveredAt,
+          failureCode: null,
+        });
+        if (itipInvitationId) await updateInvitationQueueStatus(itipInvitationId, "delivered");
       }
 
       await deleteOperation(op.id);
@@ -110,6 +128,14 @@ async function processQueue(): Promise<void> {
       if (classified.isRetryable) {
         await updateOperationStatus(op.id, "retry_scheduled", classified.message);
         await incrementRetry(op.id);
+        const params = JSON.parse(op.params) as Record<string, unknown>;
+        if (typeof params.itipActionKey === "string") {
+          await updateCalendarItipAction({
+            actionKey: params.itipActionKey,
+            deliveryStatus: "retry_scheduled",
+            failureCode: classified.type,
+          });
+        }
       } else if (
         classified.type === "auth" ||
         diagnostic.severity === "blocked" ||
@@ -121,11 +147,21 @@ async function processQueue(): Promise<void> {
           userAction: diagnostic.userAction as QueueUserAction,
           errorMessage: diagnostic.rawCause ?? classified.message,
         });
+        const params = JSON.parse(op.params) as Record<string, unknown>;
+        if (typeof params.itipActionKey === "string") {
+          await updateCalendarItipAction({ actionKey: params.itipActionKey, deliveryStatus: "failed", failureCode: diagnostic.debugCode });
+          if (typeof params.itipInvitationId === "string") await updateInvitationQueueStatus(params.itipInvitationId, "failed");
+        }
       } else {
         await failOperation(op.id, classified.message, {
           diagnosticCode: diagnostic.debugCode,
           userAction: op.operation_type === "sendMessage" ? "edit_settings" : diagnostic.userAction,
         });
+        const params = JSON.parse(op.params) as Record<string, unknown>;
+        if (typeof params.itipActionKey === "string") {
+          await updateCalendarItipAction({ actionKey: params.itipActionKey, deliveryStatus: "failed", failureCode: diagnostic.debugCode });
+          if (typeof params.itipInvitationId === "string") await updateInvitationQueueStatus(params.itipInvitationId, "failed");
+        }
       }
       emitOutboxChanged();
     }

@@ -464,3 +464,15 @@ Local acceptance: migration v38 is applied to the development DB (`MAX(_migratio
 Automated CAL-121 acceptance: TypeScript PASS; targeted delivery/migration/notification/UI — 6 files / 48 tests PASS; four-zone Calendar TZ matrix — 15 files / 186 tests per zone PASS; full Vitest — 246 files / 2442 tests PASS; production build PASS (main 2,066.02 kB raw / 614.26 kB gzip; Calendar chunk 127.03 kB raw / 37.09 kB gzip); Rust fmt/check PASS with two pre-existing unused-variable warnings. Durable state is committed before the OS notification side effect, making `delivery_key` an at-most-once replay boundary. A crash in that narrow boundary can miss a toast but cannot duplicate it after lease recovery.
 
 Graphify refresh: 6,653 nodes / 17,010 edges / 403 communities. Multigraph diagnostics: 0 missing or dangling endpoints, self-loops and exact duplicate edges.
+
+### CAL-122 invitation lifecycle runtime
+
+Дата: 2026-08-23 (Asia/Bangkok). Пользователь явно разрешил append-only migration v39 только для local development SQLite. Migration создаёт `calendar_itip_actions` и четыре индекса; существующие Mail, `calendar_invitations`, Calendar rows и event content не меняются, INSERT/backfill отсутствуют.
+
+Local Tauri startup PASS: development `office360.exe` собран и запущен, `_migrations.max(version)=39`; schema-only read подтвердил 22 утверждённые колонки, primary-key autoindex и четыре explicit indexes. `calendar_itip_actions` содержит 0 rows после startup, то есть migration и read-only smoke не создали lifecycle actions. Calendar navigation attempt активировал CalDAV discovery/fetch read path; runtime log содержит только Yandex CalDAV reads. Реальные mail send, RSVP, invitation, event mutation, cancel и ACL mutation не выполнялись.
+
+Windows Computer Use не смог завершить визуальное Month/Week/Day переключение: два безопасных click input завершились `SendInput sent 0 of 1 events; GetLastError=122`, после обязательного re-selection/retry automation была остановлена. Поэтому Tauri startup/migration/provider-read smoke — PASS, а live Month/Week/Day navigation для CAL-122 — NOT REVERIFIED; соответствующие UI/read regressions покрыты automated suite.
+
+Automated CAL-122 acceptance: TypeScript PASS; targeted iTIP/domain/codec/invitation/mutation/queue/Mail sync/recurrence/provider/privacy suites PASS; full Vitest — 250 files / 2467 tests PASS; four-zone Calendar TZ matrix — 15 files / 186 tests per zone PASS; production build PASS (main 2,098.91 kB raw / 622.56 kB gzip; Calendar chunk 120.73 kB raw / 35.55 kB gzip); `cargo check` PASS with the same two pre-existing unused-variable warnings in `src/lib.rs:378`. Rust was not changed.
+
+Graphify refresh: 6,739 nodes / 17,322 edges / 407 communities. Multigraph diagnostics: 0 missing endpoints, dangling endpoints, self-loops or exact duplicate edges. Saved community labels are stale relative to four newly formed communities; graph integrity is unaffected.

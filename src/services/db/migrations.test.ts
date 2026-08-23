@@ -253,3 +253,21 @@ describe("calendar reminder delivery migration", () => {
     expect(migration?.sql).toContain("idx_calendar_reminder_deliveries_parent");
   });
 });
+
+describe("calendar iTIP action ledger migration", () => {
+  const migration = MIGRATIONS.find((item) => item.version === 39);
+
+  it("only creates the approved durable action table and indexes", () => {
+    expect(migration).toBeDefined();
+    expect(migration?.sql).not.toMatch(/(?:^|;)\s*(?:DROP|DELETE|UPDATE|REPLACE|INSERT|ALTER)\b/im);
+    expect(splitStatements(migration!.sql)).toHaveLength(5);
+    expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS calendar_itip_actions");
+    expect(migration?.sql).toContain("action_key TEXT PRIMARY KEY");
+    expect(migration?.sql).toContain("source_fingerprint TEXT NOT NULL");
+    expect(migration?.sql).toContain("participant_key TEXT NOT NULL DEFAULT ''");
+    expect(migration?.sql).toContain("idx_calendar_itip_actions_event");
+    expect(migration?.sql).toContain("idx_calendar_itip_actions_delivery");
+    expect(migration?.sql).toContain("idx_calendar_itip_actions_message");
+    expect(migration?.sql).toContain("idx_calendar_itip_actions_pending_operation");
+  });
+});

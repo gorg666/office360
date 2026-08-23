@@ -1,11 +1,15 @@
 import { classifyError } from "@/utils/networkErrors";
 import { getCalendarProvider } from "./providerFactory";
 import { accessForCalendar, getCalendarByRemoteId } from "@/services/db/calendars";
+import { getEventByRemoteId } from "@/services/db/calendarEvents";
 import { refreshCalendarAccess } from "./calendarAccessService";
 import {
   normalizeCalendarReminderPolicy,
+  normalizeParticipantEmail,
   supportsRecurrenceScope,
   parseOccurrenceKey,
+  formatICalCalendarDate,
+  formatICalWallDateTime,
   type CalendarProviderCapabilities,
   type RecurrenceWriteScope,
 } from "./domain";
@@ -43,6 +47,8 @@ export interface CalendarMutationTarget {
   recurrenceScope?: RecurrenceWriteScope;
   seriesUid?: string;
   occurrenceKey?: string;
+  /** Internal reconciliation writes must not emit a second invitation message. */
+  suppressInvitationDelivery?: boolean;
 }
 
 export class CalendarMutationService {
@@ -64,7 +70,16 @@ export class CalendarMutationService {
       if (permissionFailure) return permissionFailure;
       const reminderFailure = validateReminderWrite(provider.capabilities, event.reminders);
       if (reminderFailure) return reminderFailure;
-      return runCalendarWrite(accountId, provider, () => provider.createEvent(calendarRemoteId, event));
+      const result = await runCalendarWrite(accountId, provider, () => provider.createEvent(calendarRemoteId, event));
+      if (result.status !== "success" || !result.value.attendees?.length) return result;
+      const calendar = await getCalendarByRemoteId(accountId, calendarRemoteId);
+      return deliverInvitation(result, () => queueCalendarDelivery({
+        accountId,
+        calendarId: calendar?.id ?? null,
+        method: "REQUEST",
+        event: result.value,
+        allowMissingOrganizer: true,
+      }));
     } catch (error) {
       return classifyWriteFailure(error);
     }
@@ -91,13 +106,46 @@ export class CalendarMutationService {
       const safeEvent = target.baseSequence === undefined
         ? event
         : { ...event, sequence: Math.max(event.sequence ?? 0, target.baseSequence + 1) };
-      return runCalendarWrite(target.accountId, provider, () => provider.updateEvent(
+      const calendar = await getCalendarByRemoteId(target.accountId, target.calendarRemoteId);
+      const previous = calendar
+        ? await getEventByRemoteId(calendar.id, target.remoteEventId).catch(() => null)
+        : null;
+      const result = await runCalendarWrite(target.accountId, provider, () => provider.updateEvent(
         target.calendarRemoteId,
         target.remoteEventId,
         safeEvent,
         target.etag,
         recurrence ?? undefined,
       ));
+      if (result.status !== "success" || target.suppressInvitationDelivery || !Array.isArray(result.value.attendees)) return result;
+      return deliverInvitation(result, async () => {
+        const itip = await import("./itip/lifecycle");
+        const currentRecipients = participantKeys(result.value.attendees);
+        if (currentRecipients.length) {
+          await itip.queueEventInvitationDeliveries({
+            accountId: target.accountId,
+            calendarId: calendar?.id ?? null,
+            method: "REQUEST",
+            event: result.value,
+            ...recurrenceDeliveryForTarget(target),
+          });
+        }
+        if (previous) {
+          const previousEvent = itip.invitationEnvelopeFromDbEvent(previous);
+          const removed = participantKeys(previousEvent.attendees).filter((key) => !currentRecipients.includes(key));
+          if (removed.length) {
+            await itip.queueEventInvitationDeliveries({
+              accountId: target.accountId,
+              calendarId: calendar?.id ?? null,
+              method: "CANCEL",
+              event: previousEvent,
+              recipients: removed,
+              sequence: result.value.sequence,
+              ...recurrenceDeliveryForTarget(target),
+            });
+          }
+        }
+      });
     } catch (error) {
       return classifyWriteFailure(error);
     }
@@ -113,12 +161,29 @@ export class CalendarMutationService {
       if (permissionFailure) return permissionFailure;
       const recurrence = recurringMutationContext(provider.capabilities, "delete", target);
       if (recurrence && "status" in recurrence) return recurrence;
-      return runCalendarWrite(target.accountId, provider, () => provider.deleteEvent(
+      const calendar = await getCalendarByRemoteId(target.accountId, target.calendarRemoteId);
+      const previous = calendar
+        ? await getEventByRemoteId(calendar.id, target.remoteEventId).catch(() => null)
+        : null;
+      const result = await runCalendarWrite(target.accountId, provider, () => provider.deleteEvent(
         target.calendarRemoteId,
         target.remoteEventId,
         target.etag,
         recurrence ?? undefined,
       ));
+      if (result.status !== "success" || target.suppressInvitationDelivery || !previous) return result;
+      return deliverInvitation(result, async () => {
+        const itip = await import("./itip/lifecycle");
+        const previousEvent = itip.invitationEnvelopeFromDbEvent(previous);
+        await itip.queueEventInvitationDeliveries({
+          accountId: target.accountId,
+          calendarId: calendar?.id ?? null,
+          method: "CANCEL",
+          event: previousEvent,
+          sequence: Math.max(previousEvent.sequence + 1, target.baseSequence === undefined ? 0 : target.baseSequence + 1),
+          ...recurrenceDeliveryForTarget(target),
+        });
+      });
     } catch (error) {
       return classifyWriteFailure(error);
     }
@@ -270,6 +335,55 @@ export function classifyWriteFailure(error: unknown): CalendarWriteResult<never>
 
 function unsupported(message: string): CalendarWriteResult<never> {
   return { status: "unsupported", message };
+}
+
+async function deliverInvitation<T>(
+  result: Extract<CalendarWriteResult<T>, { status: "success" }>,
+  delivery: () => Promise<unknown>,
+): Promise<CalendarWriteResult<T>> {
+  try {
+    await delivery();
+    return result;
+  } catch {
+    return {
+      status: "partial",
+      message: "Событие сохранено, но приглашение не удалось поставить в очередь отправки.",
+    };
+  }
+}
+
+async function queueCalendarDelivery(input: {
+  accountId: string;
+  calendarId: string | null;
+  method: "REQUEST" | "CANCEL";
+  event: CalendarEventData;
+  allowMissingOrganizer?: boolean;
+}): Promise<void> {
+  const itip = await import("./itip/lifecycle");
+  await itip.queueEventInvitationDeliveries(input);
+}
+
+function participantKeys(attendees: CalendarEventData["attendees"]): string[] {
+  return [...new Set(attendees
+    .map((attendee) => normalizeParticipantEmail(attendee.participant.normalizedEmail ?? attendee.participant.value))
+    .filter(Boolean))];
+}
+
+function recurrenceDeliveryForTarget(target: CalendarMutationTarget): {
+  recurrenceId: string | null;
+  recurrenceTzid?: string | null;
+} {
+  if (target.recurrenceScope !== "single" || !target.occurrenceKey) return { recurrenceId: null };
+  try {
+    const { identity } = parseOccurrenceKey(target.occurrenceKey);
+    if (identity.kind === "all-day") return { recurrenceId: formatICalCalendarDate(identity.date) };
+    return {
+      recurrenceId: formatICalWallDateTime(identity.wall),
+      recurrenceTzid: identity.kind === "timed-zoned" ? identity.tzid : null,
+    };
+  } catch {
+    return { recurrenceId: null };
+  }
 }
 
 export const calendarMutationService = new CalendarMutationService();

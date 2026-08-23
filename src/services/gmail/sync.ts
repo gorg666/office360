@@ -12,6 +12,7 @@ import { getMutedThreadIds } from "../db/threads";
 import { getThreadCategory } from "../db/threadCategories";
 import { getVipSenders } from "../db/notificationVips";
 import { getPendingOpsForResource } from "../db/pendingOperations";
+import { detectInvitationsFromAttachments, detectInvitationsInMessage } from "../calendar/invitations";
 
 async function loadAutoArchiveCategories(): Promise<Set<string>> {
   const raw = await getSetting("auto_archive_categories");
@@ -151,6 +152,42 @@ async function processAndStoreThread(
         isInline: att.isInline,
       }),
     ));
+
+    await detectInvitationsInMessage({
+      accountId,
+      threadId: parsed.threadId,
+      messageId: parsed.id,
+      bodyText: parsed.bodyText,
+      bodyHtml: parsed.bodyHtml,
+      senderEmail: parsed.fromAddress,
+    }).catch((error) => console.warn("[calendar-itip] Gmail body ingestion failed safely:", error));
+    if (client && parsed.attachments.some((attachment) =>
+      attachment.mimeType.toLowerCase().includes("text/calendar") || attachment.filename.toLowerCase().endsWith(".ics"))) {
+      await detectInvitationsFromAttachments({
+        accountId,
+        threadId: parsed.threadId,
+        messageId: parsed.id,
+        senderEmail: parsed.fromAddress,
+        attachments: parsed.attachments.map((attachment) => ({
+          id: `${parsed.id}_${attachment.gmailAttachmentId}`,
+          message_id: parsed.id,
+          account_id: accountId,
+          filename: attachment.filename,
+          mime_type: attachment.mimeType,
+          size: attachment.size,
+          gmail_attachment_id: attachment.gmailAttachmentId,
+          content_id: attachment.contentId,
+          is_inline: attachment.isInline ? 1 : 0,
+          local_path: null,
+        })),
+        provider: {
+          fetchAttachment: async (messageId, attachmentId) => {
+            const attachment = await client.getAttachment(messageId, attachmentId);
+            return { data: attachment.data, size: attachment.size };
+          },
+        },
+      }).catch((error) => console.warn("[calendar-itip] Gmail attachment ingestion failed safely:", error));
+    }
   }));
 }
 

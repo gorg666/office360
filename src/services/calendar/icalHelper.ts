@@ -34,6 +34,7 @@ export interface ParsedCalendarInvitation {
   event: CalendarEventData;
   method: string | null;
   sequence: number;
+  dtstamp: number | null;
   recurrenceId: string | null;
   recurrenceIdTime: number | null;
   timezoneId: string | null;
@@ -131,6 +132,20 @@ export function parseICalendarInvite(icalData: string, href?: string): ParsedCal
     ? resolveCalendarTimeZone(timezoneId, decoded.timeZones).resolvedTzid === null
     : false;
   const sequence = Number.parseInt(firstValue(component.properties, "SEQUENCE") ?? "0", 10);
+  const dtstampProperty = firstProperty(component.properties, "DTSTAMP");
+  let dtstamp: number | null = null;
+  if (dtstampProperty?.values[0]) {
+    try {
+      dtstamp = parseICalDateTimeToInstant(
+        dtstampProperty.values[0],
+        scalarParameters(dtstampProperty.parameters),
+        {},
+        decoded.timeZones,
+      );
+    } catch {
+      dtstamp = null;
+    }
+  }
   const method = decoded.method?.toUpperCase() ?? null;
   const isCancelled = method === "CANCEL" || event.status.toLowerCase() === "cancelled";
   const timezoneWarning = Boolean(event.timeZoneDiagnostic)
@@ -143,6 +158,7 @@ export function parseICalendarInvite(icalData: string, href?: string): ParsedCal
     event,
     method,
     sequence: Number.isFinite(sequence) ? sequence : 0,
+    dtstamp: dtstamp !== null && Number.isFinite(dtstamp) ? dtstamp : null,
     recurrenceId,
     recurrenceIdTime,
     timezoneId,

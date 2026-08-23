@@ -1237,6 +1237,90 @@ export const MIGRATIONS = [
         ON calendar_reminder_deliveries(parent_delivery_key);
     `,
   },
+  {
+    version: 39,
+    description: "Calendar iTIP action and delivery ledger",
+    sql: `
+      CREATE TABLE IF NOT EXISTS calendar_itip_actions (
+        action_key TEXT PRIMARY KEY,
+
+        account_id TEXT NOT NULL
+          REFERENCES accounts(id) ON DELETE CASCADE,
+
+        invitation_id TEXT
+          REFERENCES calendar_invitations(id) ON DELETE SET NULL,
+
+        calendar_id TEXT
+          REFERENCES calendars(id) ON DELETE SET NULL,
+
+        direction TEXT NOT NULL CHECK (
+          direction IN ('inbound', 'outbound')
+        ),
+
+        method TEXT NOT NULL CHECK (
+          method IN ('REQUEST', 'REPLY', 'CANCEL')
+        ),
+
+        event_uid TEXT NOT NULL,
+        recurrence_key TEXT NOT NULL DEFAULT '',
+        sequence INTEGER NOT NULL DEFAULT 0,
+        dtstamp INTEGER,
+
+        participant_key TEXT NOT NULL DEFAULT '',
+        event_resource_key TEXT,
+        message_id TEXT,
+        source_fingerprint TEXT NOT NULL,
+        pending_operation_id TEXT,
+
+        processing_status TEXT NOT NULL CHECK (
+          processing_status IN (
+            'pending',
+            'applied',
+            'ignored_stale',
+            'suspicious',
+            'failed'
+          )
+        ),
+
+        delivery_status TEXT CHECK (
+          delivery_status IN (
+            'queued',
+            'delivering',
+            'retry_scheduled',
+            'delivered',
+            'failed',
+            'cancelled'
+          )
+        ),
+
+        failure_code TEXT,
+        applied_at INTEGER,
+        delivered_at INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_itip_actions_event
+        ON calendar_itip_actions(
+          account_id,
+          event_uid,
+          recurrence_key,
+          sequence
+        );
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_itip_actions_delivery
+        ON calendar_itip_actions(
+          delivery_status,
+          updated_at
+        );
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_itip_actions_message
+        ON calendar_itip_actions(account_id, message_id);
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_itip_actions_pending_operation
+        ON calendar_itip_actions(pending_operation_id);
+    `,
+  },
 ];
 
 /**
