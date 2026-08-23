@@ -193,6 +193,24 @@ pub fn run() {
                 )?;
             }
 
+            #[cfg(debug_assertions)]
+            if std::env::args().any(|argument| argument == "--calendar-reminder-smoke") {
+                match notifications::show_office360_notification(
+                    app.handle(),
+                    "Office360 Calendar".to_string(),
+                    "Local reminder delivery smoke".to_string(),
+                ) {
+                    Ok(()) => {
+                        log::info!("[calendar-reminder] local desktop notification smoke: PASS")
+                    }
+                    Err(err) => {
+                        log::error!(
+                            "[calendar-reminder] local desktop notification smoke: FAIL: {err}"
+                        )
+                    }
+                }
+            }
+
             #[cfg(not(target_os = "linux"))]
             {
                 // Build system tray menu

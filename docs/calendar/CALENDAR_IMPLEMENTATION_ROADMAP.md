@@ -427,13 +427,24 @@ CAL-120 changed documentation only. It compared current production paths and run
 
 The audit does **not** start notification delivery, ACL management, recurrence splitting, Mail rewrite, auto-scroll or keyboard DnD.
 
+## CAL-121 — Calendar reminder delivery runtime
+
+**Status:** PASS (automated suite, local v38 schema verification and native Tauri toast smoke).
+
+**Цель:** durable desktop delivery for concrete provider-neutral Calendar notification reminders.
+
+**Основные файлы/модули:** `reminderDelivery/domain.ts`, `reminderDelivery/scheduler.ts`, `calendarReminderDeliveries.ts`, `CalendarReminderCenter`, migration v38.
+
+**Contract:** 6-hour startup/resume catch-up, 30-day rolling scheduling horizon, deterministic delivery key, durable claim/dedupe, linked snooze deliveries, occurrence-aware mutation cancellation, permission-safe diagnostics and privacy-filtered payloads. The tray-resident process is supported; fully terminated delivery is not supported without an OS background service.
+
+**Cloud safety:** delivery/snooze/dismiss are local only and never write provider event metadata or ACLs. Canonical details: `CALENDAR_REMINDER_DELIVERY.md`.
+
 ## Remaining P0/P1 gaps
 
 No new ticket numbers are assigned automatically.
 
 ### P0 — parity blockers unless explicitly waived
 
-- actual Calendar reminder delivery: desktop/background scheduling, catch-up/dedupe, snooze and dismiss;
 - complete Mail invitation lifecycle: delivered RSVP and outbound `REQUEST` / `REPLY` / `CANCEL` reconciliation;
 - Yandex participant Free/Busy through a supported privacy-safe contract, or an explicit product waiver.
 

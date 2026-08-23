@@ -12,11 +12,10 @@ Docs-only runtime closure: `8e5201d`
 
 Office360 Calendar уже является полноценным provider-neutral календарным клиентом: Month/Week/Day, несколько календарей, create/edit/delete, single/series recurrence mutations, participant semantics, reminders metadata, Free/Busy foundation, Scheduling Assistant, drag/resize, all-day conversion, shared-calendar access enforcement, timezone/DST-safe domain, iCalendar codec и cache-first sync работают через единые service boundaries.
 
-Это ещё не полный функциональный паритет с веб-версией Яндекс 360 Календаря. Три ключевых user outcomes не замкнуты end-to-end:
+Это ещё не полный функциональный паритет с веб-версией Яндекс 360 Календаря. CAL-121 закрыл прежний reminder-delivery gap: desktop delivery, durable at-most-once dedupe, snooze/dismiss, bounded startup catch-up, local migration v38 и native Tauri toast acceptance пройдены. Два ключевых user outcomes всё ещё не замкнуты end-to-end:
 
-1. reminder metadata сохраняется, но Office360 не доставляет desktop reminders и не имеет snooze/dismiss/catch-up scheduler;
-2. Mail приглашения распознаются, но Mail RSVP заканчивается terminal `unsupported`, а outbound `REQUEST` / `REPLY` / `CANCEL` delivery lifecycle отсутствует;
-3. Scheduling Assistant существует, но занятость других Yandex-участников остаётся `unsupported`, потому что публичный CalDAV path не подтвердил RFC 6638 remote Free/Busy.
+1. Mail приглашения распознаются, но Mail RSVP заканчивается terminal `unsupported`, а outbound `REQUEST` / `REPLY` / `CANCEL` delivery lifecycle отсутствует;
+2. Scheduling Assistant существует, но занятость других Yandex-участников остаётся `unsupported`, потому что публичный CalDAV path не подтвердил RFC 6638 remote Free/Busy.
 
 Вердикт: **NEEDS FOLLOW-UP**. Calendar можно считать сильным foundation/release candidate, но нельзя называть feature-complete Yandex parity без закрытия или явного product waiver для P0 gaps.
 
@@ -24,10 +23,10 @@ Office360 Calendar уже является полноценным provider-neutr
 
 | Dimension | Score | Meaning |
 |---|---:|---|
-| Functional parity | **79%** | Большинство core event/calendar operations есть; notification, invitation delivery и Yandex participant availability не завершены |
+| Functional parity | **79%** | Большинство core event/calendar operations и local notification delivery есть; invitation delivery и Yandex participant availability не завершены |
 | Interaction parity | **74%** | Grid interactions сильные; recurring create, optional attendee authoring, Month overflow, search и sharing management отсутствуют |
 | Visual parity | **66%** | Office360 использует собственную coherent theme; это не pixel clone, но Calendar остаётся проще Яндекса и местами смешивает RU/EN copy |
-| Production readiness | **72%** | Test/build health высокий; provider write/live-fixture coverage, notification/iTIP lifecycle и several UX/accessibility gaps мешают parity release |
+| Production readiness | **72%** | Test/build health высокий; provider write/live-fixture coverage, iTIP lifecycle и several UX/accessibility gaps мешают parity release |
 
 Оценки — evidence-weighted audit judgment, а не coverage percentage. `PASS` требует работающий runtime path или автоматический contract с честно указанным provenance; mocks не называются live evidence.
 
@@ -76,7 +75,7 @@ Official comparison anchors:
 | Month drag | PASS | AUTOMATED timed/all-day/multi-day moves, recurrence and DST semantics |
 | All-day interactions | PASS | AUTOMATED all-day row moves and timed ↔ all-day conversion; multi-day all-day create drag is absent |
 | Create by selection | PASS | LIVE Day/Week click+drag, Month/all-day click and keyboard slot/cell activation; no auto-scroll or keyboard drag-selection |
-| Reminders | PARTIAL | Provider-neutral metadata, Google/VALARM persistence and editor are implemented; no actual desktop delivery/snooze/dismiss/background catch-up |
+| Reminders | PASS | Provider-neutral metadata, Google/VALARM persistence, durable desktop delivery, snooze/dismiss, bounded catch-up, local v38 schema and native Tauri toast smoke are covered by CAL-118/CAL-121 |
 | Timezone | PASS | Provider-neutral TZID and IANA `Intl` resolver; editor uses explicit Calendar timezone on submit |
 | DST | PASS | Explicit gap shift-forward / overlap earlier-offset plus four-zone matrix including Lord Howe |
 | All-day | PASS | Exclusive date model, Google exclusive end and provider/codec/UI tests |
@@ -99,7 +98,7 @@ Official comparison anchors:
 
 ### Flow B — grid click/drag → create → participants → reminder → Save
 
-**PARTIAL.** Grid draft, event editor, attendees, reminder policy and provider create path are covered. Live smoke stopped at Cancel. Required-only email entry is available, but optional-role authoring, participant directory and actual invitation delivery are missing; reminder delivery is also absent after provider metadata save.
+**PARTIAL.** Grid draft, event editor, attendees, reminder policy, provider create path and local reminder delivery are covered. Live event creation smoke stopped at Cancel. Required-only email entry is available, but optional-role authoring, participant directory and actual invitation delivery are missing.
 
 ### Flow C — open existing → edit → move → drag/resize
 
@@ -123,7 +122,7 @@ Official comparison anchors:
 
 ## Functional, interaction and visual parity
 
-- **Functional parity** asks whether the same outcome is possible. Grid CRUD, recurrence single/series, time semantics and provider sync are real; notification delivery, invitation lifecycle and Yandex participant availability are not.
+- **Functional parity** asks whether the same outcome is possible. Grid CRUD, recurrence single/series, time semantics, provider sync and local reminder delivery are real; invitation lifecycle and Yandex participant availability are not.
 - **Interaction parity** asks whether the user can discover and complete the workflow safely. Office360 intentionally differs in layout, but grid selection, drag/resize, scope prompts and scheduler are equivalent. Missing Month overflow action, search, recurring create and participant/ACL editors are interaction gaps.
 - **Visual parity** does not require Yandex branding or exact CSS. Office360 has a coherent semantic theme and readable calendar surfaces, but less dense feature chrome, mixed Russian/English editor copy, no dedicated current-time indicator and incomplete light/dark/responsive visual acceptance.
 
@@ -163,13 +162,13 @@ Official comparison anchors:
 |---|---|
 | Reminder model | PASS |
 | Google/CalDAV/Yandex persistence | PASS within documented capability limits |
-| Desktop delivery | MISSING |
-| Snooze | MISSING |
-| Dismiss / acknowledge | MISSING |
-| Background scheduling | MISSING |
-| Restart/sleep catch-up and dedupe | MISSING |
+| Desktop delivery | PASS |
+| Snooze | PASS |
+| Dismiss / acknowledge | PASS |
+| Background scheduling | PASS while tray process is alive |
+| Restart/sleep catch-up and dedupe | PASS (6-hour bounded catch-up) |
 
-Reminder metadata must not be presented as an Office360 notification guarantee.
+Concrete notification reminders now have a local Office360 delivery guarantee while the tray process is alive, plus bounded startup catch-up. Fully terminated real-time delivery remains explicitly unsupported without an OS background service.
 
 ## Shared calendars and ACL
 
@@ -179,9 +178,8 @@ Discovery, role normalization, local persistence, removed-calendar reconciliatio
 
 ### P0 — blocks full functional parity
 
-1. **Reminder delivery engine:** desktop/background delivery, dedupe/catch-up, snooze and dismiss.
-2. **Mail invitation lifecycle:** delivered RSVP plus outbound `REQUEST` / `REPLY` / `CANCEL`, sequence/recurrence reconciliation and visible delivery state.
-3. **Yandex participant availability:** a supported privacy-safe provider path, or an explicit product waiver that Scheduling Assistant on Yandex cannot match web Calendar.
+1. **Mail invitation lifecycle:** delivered RSVP plus outbound `REQUEST` / `REPLY` / `CANCEL`, sequence/recurrence reconciliation and visible delivery state.
+2. **Yandex participant availability:** a supported privacy-safe provider path, or an explicit product waiver that Scheduling Assistant on Yandex cannot match web Calendar.
 
 ### P1 — important parity gaps
 
@@ -215,7 +213,7 @@ Discovery, role normalization, local persistence, removed-calendar reconciliatio
 | All-day create drag-selection absent | P2 | No; click create is understandable equivalent |
 | Keyboard drag-selection absent | P2 | No; slot/cell create and Event Edit provide accessible completion |
 | Auto-scroll absent | P2 | No for normal viewport; friction for long drag |
-| Desktop notification delivery/snooze/dismiss | P0 | Yes |
+| Fully terminated real-time reminder delivery | Documented platform limitation | No; tray runtime plus startup catch-up is the approved contract |
 | Live Google Free/Busy fixture unavailable | Evidence gap | Not a code blocker; blocks live claim |
 | Live shared/read-only fixture unavailable | Evidence gap / P1 acceptance | Blocks production confidence for shared roles, not automated semantics |
 | Yandex RFC 6638 remote Free/Busy unsupported | P0 or accepted waiver | Blocks target-provider scheduler parity |
@@ -249,11 +247,11 @@ Technical debt, not parity blockers by itself:
 
 ### Merge recommendation
 
-**NO for a parity-complete release.** A merge as an explicitly scoped foundation is acceptable only if the owner records waivers for P0 gaps and does not market reminders, Mail RSVP or Yandex participant availability as delivered outcomes.
+**NO for a parity-complete release.** A merge as an explicitly scoped foundation is acceptable only if the owner records waivers for remaining P0 gaps and does not market Mail RSVP or Yandex participant availability as delivered outcomes.
 
 ### Required before parity merge
 
-1. Close P0 reminder delivery and Mail invitation lifecycle, or explicitly remove them from the release promise.
+1. Close the Mail invitation lifecycle or explicitly remove it from the release promise.
 2. Resolve Yandex remote availability through a supported provider contract or approve a documented target-provider limitation.
 3. Run isolated live provider acceptance for create/edit/delete/RSVP/recurrence and shared/read-only roles without personal-calendar risk.
 4. Decide the P1 release boundary for recurring create, participant role authoring, search and ACL management.

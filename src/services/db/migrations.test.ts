@@ -237,3 +237,19 @@ describe("calendar access metadata migration", () => {
     expect(migration?.sql).toContain("idx_calendars_account_presence");
   });
 });
+
+describe("calendar reminder delivery migration", () => {
+  const migration = MIGRATIONS.find((item) => item.version === 38);
+
+  it("only creates the approved durable delivery table and indexes", () => {
+    expect(migration).toBeDefined();
+    expect(migration?.sql).not.toMatch(/(?:^|;)\s*(?:DROP|DELETE|UPDATE|REPLACE|INSERT|ALTER)\b/im);
+    expect(splitStatements(migration!.sql)).toHaveLength(4);
+    expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS calendar_reminder_deliveries");
+    expect(migration?.sql).toContain("delivery_key TEXT PRIMARY KEY");
+    expect(migration?.sql).toContain("source_fingerprint TEXT NOT NULL");
+    expect(migration?.sql).toContain("idx_calendar_reminder_deliveries_due");
+    expect(migration?.sql).toContain("idx_calendar_reminder_deliveries_event");
+    expect(migration?.sql).toContain("idx_calendar_reminder_deliveries_parent");
+  });
+});

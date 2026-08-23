@@ -1178,6 +1178,65 @@ export const MIGRATIONS = [
         ON calendars(account_id, provider_presence);
     `,
   },
+  {
+    version: 38,
+    description: "Calendar reminder delivery runtime",
+    sql: `
+      CREATE TABLE IF NOT EXISTS calendar_reminder_deliveries (
+        delivery_key TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL
+          REFERENCES accounts(id) ON DELETE CASCADE,
+        calendar_id TEXT NOT NULL
+          REFERENCES calendars(id) ON DELETE CASCADE,
+
+        event_resource_key TEXT NOT NULL,
+        series_uid TEXT,
+        occurrence_key TEXT NOT NULL,
+        reminder_key TEXT NOT NULL,
+        scheduled_at INTEGER NOT NULL,
+        source_fingerprint TEXT NOT NULL,
+
+        status TEXT NOT NULL CHECK (
+          status IN (
+            'scheduled',
+            'delivering',
+            'delivered',
+            'dismissed',
+            'snoozed',
+            'cancelled',
+            'failed'
+          )
+        ),
+
+        parent_delivery_key TEXT
+          REFERENCES calendar_reminder_deliveries(delivery_key),
+
+        delivered_at INTEGER,
+        handled_at INTEGER,
+        lease_expires_at INTEGER,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        failure_code TEXT,
+
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_reminder_deliveries_due
+        ON calendar_reminder_deliveries(status, scheduled_at);
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_reminder_deliveries_event
+        ON calendar_reminder_deliveries(
+          account_id,
+          calendar_id,
+          event_resource_key,
+          occurrence_key,
+          status
+        );
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_reminder_deliveries_parent
+        ON calendar_reminder_deliveries(parent_delivery_key);
+    `,
+  },
 ];
 
 /**

@@ -452,3 +452,15 @@ Graphify incremental index обновлён после feature diff: 6,469 nodes
 Graphify incremental index после feature/docs diff: 6,519 nodes / 16,711 edges / 401 communities. Integrity audit: 0 missing endpoints, 0 dangling endpoints, 0 self-loops, 0 exact duplicate edges. Community labels stale относительно текущих communities; это не влияет на graph integrity и runtime.
 
 Автоматические проверки CAL-119: TypeScript `npx tsc --noEmit` PASS; targeted access/provider/DB/mutation/sync/privacy — 13 files / 188 tests PASS; migration v34/v35/v36/v37 fresh/existing/legacy PASS; full Vitest — 241 files / 2409 tests PASS; `npm run test:calendar-tz` — 168/168 в каждой из `UTC`, `Europe/Moscow`, `America/New_York`, `Australia/Lord_Howe`; production build PASS (main 2,047.06 kB raw / 609.64 kB gzip; Calendar chunk 126.92 kB raw / 37.04 kB gzip); `cargo check` PASS с двумя прежними unrelated unused-variable warnings в `src/lib.rs:360`. Rust не менялся.
+
+### CAL-121 reminder delivery runtime
+
+Дата: 2026-08-23 (Asia/Bangkok). Пользователь явно разрешил append-only migration v38 только для локальной development SQLite DB. Migration создаёт пустую `calendar_reminder_deliveries` и три индекса; `calendar_events`, `reminders_json` и существующие rows не изменяются и не backfill.
+
+Runtime policy: 6-hour catch-up, 30-day scheduling horizon, one next-wake timer, reconciliation on startup/sync/focus/visibility/online, deterministic `delivery_key`, mutation-sensitive `source_fingerprint`, linked 5/10/30/60-minute snooze and occurrence-local dismiss. Closing the main window retains delivery while the tray process is alive. Fully terminated delivery remains unsupported; startup catch-up is the supported recovery path.
+
+Local acceptance: migration v38 is applied to the development DB (`MAX(_migrations.version)=38`); the approved 18-column table and all three indexes are present; grouped delivery count is empty, proving no migration backfill. A debug-only Tauri acceptance hook exercised the existing native Windows notification path and logged `[calendar-reminder] local desktop notification smoke: PASS`. No Calendar event, provider reminder metadata, cloud event or ACL was mutated. The connected account had no concrete due reminder in the bounded window, so scheduler delivery semantics are evidenced by automated fixtures rather than a real-event notification.
+
+Automated CAL-121 acceptance: TypeScript PASS; targeted delivery/migration/notification/UI — 6 files / 48 tests PASS; four-zone Calendar TZ matrix — 15 files / 186 tests per zone PASS; full Vitest — 246 files / 2442 tests PASS; production build PASS (main 2,066.02 kB raw / 614.26 kB gzip; Calendar chunk 127.03 kB raw / 37.09 kB gzip); Rust fmt/check PASS with two pre-existing unused-variable warnings. Durable state is committed before the OS notification side effect, making `delivery_key` an at-most-once replay boundary. A crash in that narrow boundary can miss a toast but cannot duplicate it after lease recovery.
+
+Graphify refresh: 6,653 nodes / 17,010 edges / 403 communities. Multigraph diagnostics: 0 missing or dangling endpoints, self-loops and exact duplicate edges.

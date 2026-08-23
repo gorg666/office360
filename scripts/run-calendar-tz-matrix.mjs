@@ -7,6 +7,8 @@ const testFiles = [
   "src/services/calendar/domain/time.test.ts",
   "src/services/calendar/icalTimeMapping.test.ts",
   "src/services/calendar/ical/codec.test.ts",
+  "src/services/calendar/reminderDelivery/domain.test.ts",
+  "src/services/calendar/reminderDelivery/scheduler.test.ts",
   "src/services/calendar/freeBusy/projection.test.ts",
   "src/services/calendar/scheduling/timeline.test.ts",
   "src/services/calendar/scheduling/slots.test.ts",

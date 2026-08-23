@@ -42,6 +42,11 @@ import {
 } from "./services/bundles/bundleManager";
 import { initNotifications } from "./services/notifications/notificationManager";
 import {
+  startCalendarReminderScheduler,
+  stopCalendarReminderScheduler,
+} from "./services/calendar/reminderDelivery";
+import { CalendarReminderCenter } from "./components/calendar/CalendarReminderCenter";
+import {
   initGlobalShortcut,
   unregisterComposeShortcut,
 } from "./services/globalShortcut";
@@ -481,6 +486,7 @@ export default function App() {
 
         // Initialize notifications
         await initNotifications();
+        startCalendarReminderScheduler();
 
         // Initialize global compose shortcut
         await initGlobalShortcut();
@@ -511,6 +517,7 @@ export default function App() {
 
     return () => {
       stopBackgroundSync();
+      stopCalendarReminderScheduler();
       stopSnoozeChecker();
       stopScheduledSendChecker();
       stopFollowUpChecker();
@@ -824,6 +831,7 @@ export default function App() {
         <Composer />
       </ErrorBoundary>
       <SendFeedbackToast />
+      <CalendarReminderCenter />
       <UpdateToast />
       <ErrorBoundary name="CommandPalette">
         <CommandPalette

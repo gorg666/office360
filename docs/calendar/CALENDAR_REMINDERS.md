@@ -20,6 +20,8 @@ Google maps `useDefault=true` (or absent metadata) to `inherit`, `useDefault=fal
 
 CalDAV/Yandex maps each relative-to-start `VALARM` independently. `ACTION:DISPLAY` becomes `notification`; `ACTION:EMAIL` is readable as `email`, but CalDAV/Yandex write capability deliberately advertises notification only because Office360 has not validated provider-side email delivery. Multiple DISPLAY alarms are written with relative `TRIGGER` durations. `inherit` cannot be represented in a resource and is rejected before provider I/O.
 
+CAL-121 adds local desktop delivery for concrete `custom` notification reminders. Delivery state, catch-up, dedupe, snooze and dismiss are separate from this provider metadata contract; see `CALENDAR_REMINDER_DELIVERY.md`. Provider email reminders and unresolved provider-default (`inherit`) alarms are not converted into invented local trigger instants.
+
 Absolute triggers, `RELATED=END`, positive/after-start triggers, malformed durations, and unsupported actions are omitted from the normalized policy with a safe diagnostic. They do not make the containing `VEVENT` unreadable. Unrelated CalDAV updates preserve the original alarm subcomponents; an explicit reminder update replaces them. Office360-authored DISPLAY alarms use a generic description and do not persist alarm payload text, recipients, or other private presentation data in the semantic envelope.
 
 ## Time, recurrence, and mutations

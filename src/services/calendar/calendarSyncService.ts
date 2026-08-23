@@ -139,6 +139,9 @@ export class CalendarSyncService {
         rangeStart,
         rangeEnd,
       )).state;
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("office360-calendar-reminders-reconcile"));
+      }
       return {
         events,
         calendars,

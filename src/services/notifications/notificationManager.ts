@@ -21,6 +21,12 @@ let lastSoundAt = 0;
 let notificationSoundVolume = 0.8;
 let notificationSoundPath = "";
 let isWindowsHost: boolean | null = null;
+export type NotificationPermissionStatus = "unknown" | "granted" | "denied" | "disabled";
+export type CalendarNotificationResult = {
+  status: "delivered" | "permission-denied" | "disabled" | "failed";
+  permission: NotificationPermissionStatus;
+};
+let notificationPermissionStatus: NotificationPermissionStatus = "unknown";
 
 interface NotificationContext {
   threadId?: string;
@@ -132,15 +138,18 @@ async function showOsNotification(title: string, body: string, actionTypeId: str
 /**
  * Initialize notification permissions and action types.
  */
-export async function initNotifications(): Promise<void> {
-  if (initialized) return;
+export async function initNotifications(): Promise<NotificationPermissionStatus> {
+  if (initialized) return notificationPermissionStatus;
   initialized = true;
 
   const setting = await getSetting("notifications_enabled");
   notificationsEnabled = setting !== "false";
   await loadNotificationSoundSettings();
 
-  if (!notificationsEnabled) return;
+  if (!notificationsEnabled) {
+    notificationPermissionStatus = "disabled";
+    return notificationPermissionStatus;
+  }
 
   if (await detectWindowsHost()) {
     try {
@@ -150,16 +159,25 @@ export async function initNotifications(): Promise<void> {
     }
   }
 
-  let granted = await isPermissionGranted();
-  if (!granted) {
-    const permission = await requestPermission();
-    granted = permission === "granted";
+  let granted = false;
+  try {
+    granted = await isPermissionGranted();
+    if (!granted) {
+      const permission = await requestPermission();
+      granted = permission === "granted";
+    }
+  } catch (error) {
+    notificationPermissionStatus = "unknown";
+    console.warn("Unable to determine notification permission:", error);
+    return notificationPermissionStatus;
   }
 
   if (!granted) {
     notificationsEnabled = false;
-    return;
+    notificationPermissionStatus = "denied";
+    return notificationPermissionStatus;
   }
+  notificationPermissionStatus = "granted";
 
   try {
     await registerActionTypes([
@@ -174,13 +192,22 @@ export async function initNotifications(): Promise<void> {
           { id: "archive", title: translateText("Archive", getInitialLocale()) },
         ],
       },
+      {
+        // Snooze/dismiss are provided by the in-app reminder center because
+        // native action support is not consistent across desktop platforms.
+        id: "calendar-reminder",
+        actions: [],
+      },
     ]);
 
     await onAction(async (event) => {
       const actionId = event.actionTypeId;
       const ctx = lastNotificationContext;
 
-      if (actionId === "reply" && ctx?.threadId && ctx?.accountId) {
+      if (actionId === "calendar-reminder") {
+        await showAndFocusMainWindow();
+        navigateToLabel("calendar");
+      } else if (actionId === "reply" && ctx?.threadId && ctx?.accountId) {
         await showAndFocusMainWindow();
         useComposerStore.getState().openComposer({
           mode: "reply",
@@ -204,6 +231,35 @@ export async function initNotifications(): Promise<void> {
     });
   } catch {
     // registerActionTypes/onAction not available on this platform (e.g. Windows)
+  }
+  return notificationPermissionStatus;
+}
+
+export function getNotificationPermissionStatus(): NotificationPermissionStatus {
+  return notificationPermissionStatus;
+}
+
+/** Calendar delivery entrypoint. Payload is already privacy-filtered by its domain service. */
+export async function showCalendarReminderNotification(input: {
+  title: string;
+  body: string;
+}): Promise<CalendarNotificationResult> {
+  if (!initialized) await initNotifications();
+  if (notificationPermissionStatus === "denied") {
+    return { status: "permission-denied", permission: notificationPermissionStatus };
+  }
+  if (notificationPermissionStatus === "disabled") {
+    return { status: "disabled", permission: notificationPermissionStatus };
+  }
+  if (notificationPermissionStatus !== "granted") {
+    return { status: "failed", permission: notificationPermissionStatus };
+  }
+  try {
+    await showOsNotification(input.title, input.body, "calendar-reminder");
+    return { status: "delivered", permission: notificationPermissionStatus };
+  } catch (error) {
+    console.warn("Calendar reminder notification failed:", error);
+    return { status: "failed", permission: notificationPermissionStatus };
   }
 }
 
