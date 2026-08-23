@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108, CAL-109, CAL-110, CAL-111, CAL-112, CAL-113, CAL-114 (Month/all-day interactions) and CAL-117 (create-by-selection) completed. This document is the source of truth for Calendar ticket numbering.
+Roadmap state: CAL-101A, CAL-101B, CAL-101C, CAL-102, CAL-102F, CAL-103, CAL-104, CAL-105, CAL-106, CAL-107, CAL-108, CAL-109, CAL-110, CAL-111, CAL-112, CAL-113, CAL-114, CAL-117, CAL-118 and CAL-119 completed. CAL-120 is the delivered final parity audit, not a feature implementation ticket. This document is the source of truth for Calendar ticket numbering and remaining priority, while `CALENDAR_FINAL_PARITY_AUDIT.md` is the current parity verdict.
 
 **Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
 
@@ -38,9 +38,8 @@ CAL-115 application service/UI state  ->  CAL-116 layout engine  ->  CAL-117 cre
 CAL-102/103/104/105                   ->  CAL-118 provider-neutral reminder metadata (delivered)
 Outbound iTIP/RSVP  (pending backlog; previously outlined as CAL-114 before Month/all-day took that number)
 CAL-119 shared calendars/permissions (delivered: read-only discovery/enforcement/reconciliation)
-CAL-120 reminders
-CAL-121 search/performance/a11y
-CAL-122 end-to-end parity release gate
+CAL-120 final parity audit (delivered; docs-only)
+Remaining P0/P1 gaps and post-parity backlog are intentionally unnumbered until the owner selects scope.
 ```
 
 ## CAL-101 — Approve clean baseline and reproduce Calendar runtime
@@ -422,67 +421,38 @@ Not a second timed-grid or date-grid mutation implementation. Not a second creat
 **Acceptance:** provider-neutral owner/editor/contributor/viewer/free-busy-only model; paginated Google CalendarList roles; CalDAV/Yandex WebDAV privilege projection; append-only v37 persistence with lazy legacy compatibility; non-destructive removed-calendar reconciliation; per-calendar CRUD/drag/resize enforcement; permission-revocation refresh without write retry; free-busy-only detail privacy. Cloud ACL, subscription, provider ordering and provider color mutations remain explicitly outside the approved scope.
 
 
-## CAL-120 — Event reminders and notification actions
+## CAL-120 (delivered) — Final Calendar parity audit
 
+CAL-120 changed documentation only. It compared current production paths and runtime evidence with the user workflows of Yandex 360 Calendar, separated functional/interaction/visual parity, classified remaining gaps and produced a merge recommendation. Canonical verdict: `CALENDAR_FINAL_PARITY_AUDIT.md`.
 
-**Цель:** добавить reliable in-app/desktop reminders.
+The audit does **not** start notification delivery, ACL management, recurrence splitting, Mail rewrite, auto-scroll or keyboard DnD.
 
-**Основные файлы/модули:** reminder DB/service, backgroundCheckers, notificationManager, deep-link navigation.
+## Remaining P0/P1 gaps
 
-**Зависимости:** CAL-104, CAL-115, CAL-118.
+No new ticket numbers are assigned automatically.
 
-**Definition of Done:**
+### P0 — parity blockers unless explicitly waived
 
-- multiple relative reminders per event/occurrence;
-- trigger, snooze, dismiss, open event actions;
-- restart/sleep catch-up and dedupe;
-- timezone/recurrence correctness;
-- documented app-closed guarantee and native follow-up if needed;
-- tests + desktop smoke.
+- actual Calendar reminder delivery: desktop/background scheduling, catch-up/dedupe, snooze and dismiss;
+- complete Mail invitation lifecycle: delivered RSVP and outbound `REQUEST` / `REPLY` / `CANCEL` reconciliation;
+- Yandex participant Free/Busy through a supported privacy-safe contract, or an explicit product waiver.
 
-**Риски:** missed/duplicate notifications, OS permission differences.
+### P1 — important parity gaps
 
+- recurring-series creation; keep `this-and-future` documented unless the owner expands product scope beyond current single/all parity evidence;
+- participant directory/picker and persistent required/optional authoring;
+- shared-calendar/ACL management plus an isolated live read-only/shared fixture;
+- account/permission-filtered Calendar search;
+- Month overflow details and locale/configurable week start;
+- durable Google sync-token / CalDAV delta state and explicit offline-write policy.
 
-## CAL-121 — Calendar search, performance and accessibility hardening
+## Post-parity backlog
 
-
-**Цель:** подготовить product-scale data/UI after core features stabilize.
-
-**Основные файлы/модули:** DB indexes/search, Calendar store/selectors, layout/scheduling UI, command palette.
-
-**Зависимости:** CAL-115–CAL-120 as applicable.
-
-**Definition of Done:**
-
-- account/permission-filtered event search;
-- bounded occurrence expansion and cache;
-- measured large-calendar and large-attendee performance;
-- virtualization only where measurements justify it;
-- WCAG keyboard/focus/color/announcement audit;
-- bundle/chunk review.
-
-**Риски:** indexing sensitive fields, premature virtualization, bundle growth.
-
-
-## CAL-122 — End-to-end parity release gate
-
-
-**Цель:** собрать provider, Mail, time, privacy and UI flows into verified release candidate.
-
-**Основные файлы/модули:** cross-cutting tests, docs/wiki, desktop smoke scenarios.
-
-**Зависимости:** all accepted feature tickets; separate Yandex UX comparison/acceptance spec.
-
-**Definition of Done:**
-
-- traceable parity matrix and accepted exclusions;
-- Google + Yandex/CalDAV provider smoke;
-- Mail REQUEST/REPLY/CANCEL round-trip;
-- recurring/DST/FreeBusy/privacy/shared-calendar scenarios;
-- clean build/test/cargo checks, installed Tauri smoke, no new console errors;
-- migration/recovery/security review and release notes.
-
-**Риски:** provider test accounts, platform-specific notifications, unresolved product parity decisions.
+- current-time indicator and consistent RU editor copy;
+- auto-scroll, multi-day all-day create selection and optional keyboard drag-selection;
+- WCAG, responsive, dark/light and measured performance/bundle hardening;
+- consolidate duplicated calendar discovery/application orchestration before expanding sync behavior;
+- room booking, directory rewrite, tasks/templates and other product extensions only by separate scope.
 
 
 ## Historical note — first implementation ticket

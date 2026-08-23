@@ -34,7 +34,7 @@ Create and edit surfaces are capability-driven. Supported actions include calend
 
 Remote Free/Busy projection accepts only time/attendance geometry. It neither reads nor returns reminder metadata or raw alarm content.
 
-CAL-118 does not schedule Windows toasts, background timers, snooze/dismiss actions, or app-closed delivery. That notification engine remains the separate CAL-120 boundary.
+CAL-118 does not schedule Windows toasts, background timers, snooze/dismiss actions, or app-closed delivery. After CAL-120 reassigned the number to the final parity audit, that notification engine remains an unnumbered P0 backlog boundary until the owner selects scope.
 
 ## Known limitations
 
