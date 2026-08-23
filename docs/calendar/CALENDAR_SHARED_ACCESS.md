@@ -41,3 +41,25 @@ Legacy `NULL` access metadata is readable to preserve existing cached events, bu
 CAL-119 performs read-only access discovery and normal local reconciliation. It does not mutate Google ACLs, CalDAV ACLs, subscriptions, provider ordering or provider colors. Local visibility remains an independent UI preference. Cloud ACL/subscription mutations require a separately approved product/API scope.
 
 Provider metadata is advisory until the provider enforces the operation. The mutation boundary remains authoritative and treats a runtime denial as permission revocation. `writerWithoutPrivateAccess` is represented as contributor; Google itself redacts private event data that role cannot see.
+
+## CAL-119 runtime smoke (2026-08-23)
+
+Feature commit `4be8742` не менялся. Windows Graphics Capture по-прежнему блокирует Computer Use (`GetCursorPos 0x80070005`, `CreateForMonitor 0x80070057`); visual smoke выполнен через обычное окно приложения (UIA + PrintWindow Tauri WebView), без починки capture.
+
+| Check | Status |
+|---|---|
+| Month | PASS |
+| Week | PASS |
+| Day | PASS |
+| Tauri | PASS |
+| Calendar list | PASS |
+| Shared fixture | NOT AVAILABLE |
+| Read-only fixture | NOT AVAILABLE |
+| Free-busy-only live fixture | NOT AVAILABLE |
+| Permission UI live | AUTOMATED ONLY — automated permission/privacy tests remain PASS |
+| Create target | PASS — writable selector loaded; Cancel; Save not pressed |
+| Event details | PASS |
+| Cloud event writes | NONE |
+| Cloud ACL mutations | NONE |
+
+Live account показал две owned present-коллекции (Primary + Owner). Shared/read-only/free-busy fixture не создавался и не расшаривался. `cargo check` повторён: PASS, два прежних unused-variable warning в `src/lib.rs:360`; Rust не менялся. Full Vitest не перезапускался.

@@ -437,8 +437,17 @@ Graphify incremental index обновлён после feature diff: 6,469 nodes
 | Legacy compatibility | PASS | Из 4 локальных calendar rows 2 сохранили `NULL` access/presence metadata; startup backfill не выполнялся |
 | Normal provider discovery | PASS | 2 rows получили versioned access metadata и `provider_presence='present'` через обычный успешный discovery; removed rows: 0 |
 | Removed-calendar reconciliation | AUTOMATED PASS | Отсутствующие remote IDs помечаются `removed`, локальная calendar/event cache не удаляется |
-| Month / Week / Day visual navigation | BLOCKED BY WINDOWS CAPTURE | Runtime window `Office360` существует, но Computer Use отказался захватывать monitor (`GetCursorPos 0x80070005`, затем `CreateForMonitor 0x80070057`); после одной recovery-попытки UI input прекращён, клики не заявляются |
-| Cloud mutations | NONE | Create, Save, Delete, RSVP, ACL/subscription writes и event drag/resize не вызывались |
+| Month visual | PASS | Month загрузился; существующие события отрисованы; список календарей открывается toolbar toggle |
+| Week visual | PASS | Week grid загрузился; переключение Day/Week/Month без layout regression; Windows Graphics Capture по-прежнему недоступен (`GetCursorPos 0x80070005` / `CreateForMonitor 0x80070057`), smoke через UIA + PrintWindow окна Tauri WebView |
+| Day visual | PASS | Day grid загрузился без ложного stale/error banner; переключение календарей/view без regression |
+| Calendar list | PASS | Две present-коллекции с access labels (`Primary` / `Owner`); removed calendars на экране нет |
+| Shared live fixture | NOT AVAILABLE | Shared / Read-only / Free-busy коллекций в live account нет; semantics покрыты automated tests |
+| Permission UI live | AUTOMATED ONLY | Read-only/shared fixture не создавался; у owned-события Edit/Delete видны; Create enabled |
+| Create target | PASS | Модалка Create открыта; writable calendars selectable (2 enabled / 0 disabled); закрыта Cancel; Save не нажимался |
+| Event details | PASS | Details overlay отрисовался; permission-driven controls согласованы с owned calendar; закрыто Close |
+| Visibility toggle | PASS | Локальный UI state (`setCalendarVisibility` → SQLite `is_visible`); toggle туда-обратно не меняет ACL и не unshare/delete |
+| Cloud event writes | NONE | Create/Save/Delete/RSVP/drag/resize cloud path не вызывались |
+| Cloud ACL mutations | NONE | Share/unshare/ACL/member changes не выполнялись |
 
 Graphify incremental index после feature/docs diff: 6,519 nodes / 16,711 edges / 401 communities. Integrity audit: 0 missing endpoints, 0 dangling endpoints, 0 self-loops, 0 exact duplicate edges. Community labels stale относительно текущих communities; это не влияет на graph integrity и runtime.
 
