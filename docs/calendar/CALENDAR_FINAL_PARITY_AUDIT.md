@@ -10,20 +10,22 @@ Production HEAD: `ff9e5fa`
 
 Закрывающие P0 commits: `7839344` (reminder delivery), `c559ccc` (Mail/iTIP lifecycle), `ff9e5fa` (Yandex remote Free/Busy).
 
+CAL-125 (2026-08-23) закрывает recurring create UI и persistent required/optional authoring. Этот файл остаётся каноническим parity verdict; дельта CAL-125 отмечена ниже. Live Save на real Yandex event по-прежнему запрещён.
+
 ## Executive verdict
 
-Все три P0 из предыдущего аудита закрыты. Office360 Calendar имеет provider-neutral Month/Week/Day, CRUD, безопасные single/series recurrence mutations, participant semantics, Scheduling Assistant, Google и discovery-confirmed CalDAV/Yandex remote Free/Busy, application Mail iTIP lifecycle и durable local reminder delivery.
+Все три P0 из предыдущего аудита закрыты. Office360 Calendar имеет provider-neutral Month/Week/Day, CRUD, безопасные single/series recurrence mutations, recurring create и series RRULE editor, persistent required/optional authoring, participant semantics, Scheduling Assistant, Google и discovery-confirmed CalDAV/Yandex remote Free/Busy, application Mail iTIP lifecycle и durable local reminder delivery.
 
-Буквальный продуктовый паритет с Yandex 360 Calendar ещё **не достигнут**: отсутствуют recurring-series authoring, сохраняемое required/optional authoring, Calendar search и ACL/share management; Month overflow и RU week-start остаются незавершёнными. Поэтому итог: **P0 CLOSED; P1 FOLLOW-UP; MERGE YES WITH CONDITIONS**. Ветку можно merge как scoped Calendar release candidate, но нельзя называть полностью parity-complete без явно принятой P1 boundary.
+Буквальный продуктовый паритет с Yandex 360 Calendar ещё **не достигнут**: отсутствуют Calendar search и ACL/share management; Month overflow и RU week-start остаются незавершёнными; `this-and-future` намеренно unsupported. Поэтому итог: **P0 CLOSED; P1 FOLLOW-UP; MERGE YES WITH CONDITIONS**. Ветку можно merge как scoped Calendar release candidate, но нельзя называть полностью parity-complete без явно принятой P1 boundary.
 
 ### Recalculated scores
 
 | Dimension | Score | Evidence-based interpretation |
 |---|---:|---|
-| Functional parity | **88%** | Все P0 outcomes работают; несколько самостоятельных authoring/management/search outcomes остаются P1 |
-| Interaction parity | **81%** | Grid, recurrence scope, scheduling, reminders и invitations сильные; missing editor/picker/search/overflow/share interactions заметны |
-| Visual parity | **71%** | Coherent Office360 surface, но не pixel clone; смешанный RU/EN copy, нет current-time line и полной visual matrix |
-| Production readiness | **84%** | Clean full battery и durable local lifecycles; live destructive/shared fixtures и provider delta/offline policy остаются gaps |
+| Functional parity | **90%** | P0 + recurring create + required/optional authoring закрыты; search/ACL/overflow/week-start остаются P1 |
+| Interaction parity | **84%** | Grid, recurrence create/edit, role controls, scheduling, reminders и invitations сильные; picker/search/overflow/share interactions остаются |
+| Visual parity | **71%** | Coherent Office360 surface, но не pixel clone; смешанный RU/EN copy вне recurrence/role editor, нет current-time line и полной visual matrix |
+| Production readiness | **85%** | Clean full battery и durable local lifecycles; live destructive/shared fixtures и provider delta/offline policy остаются gaps |
 
 Scores пересчитаны с нуля по текущей матрице. Это audit judgment, а не test-coverage percentage.
 
@@ -53,13 +55,13 @@ Automated fixture не называется live. CAL-123 live evidence подт
 | Month | PASS | LIVE render/navigation; AUTOMATED spans, all-day projection and moves |
 | Week | PASS | LIVE render/navigation; AUTOMATED continuous layout, overlaps, drag/resize |
 | Day | PASS | LIVE render/navigation/details; AUTOMATED timed and all-day interaction |
-| Create event | PARTIAL | Provider create, grid drafts, participants, reminders, assistant and outbound REQUEST work; no RRULE authoring or persistent optional role UI |
-| Edit event | PASS | Typed provider mutation, ETag when present, attendees/reminders, assistant and outbound update lifecycle |
+| Create event | PASS | Provider create, grid drafts, RRULE presets/custom, required/optional roles, reminders, assistant and outbound REQUEST; directory/picker remains P1 |
+| Edit event | PASS | Typed provider mutation, ETag when present, attendees/reminders/roles, series RRULE, assistant and outbound update lifecycle |
 | Delete event | PASS | Plain/series/single safe paths plus outbound CANCEL; destructive live acceptance intentionally limited |
-| Recurring create | MISSING | `EventCreateInput` and create UI have no recurrence rule; recurrence write exists only for series mutations |
-| Recurring edit | PASS | Explicit single/series scopes and safe provider mapping; `this-and-future` intentionally unsupported |
-| Participants | PARTIAL | Domain/provider/write lifecycle complete; authoring remains comma-separated email input without directory/picker |
-| Required / optional | PARTIAL | Round-trip and Scheduling Assistant roles work; role toggle is assistant-local and is not persisted by create/edit authoring |
+| Recurring create | PASS | CAL-125: presets, custom interval/days/until/count, all-day, create-by-selection; live evidence is Create → Cancel only |
+| Recurring edit | PASS | Explicit single/series scopes, series RRULE editor, occurrence cannot overwrite master; `this-and-future` intentionally unsupported |
+| Participants | PARTIAL | Domain/provider/write lifecycle and required/optional rows complete; authoring remains email input without directory/picker |
+| Required / optional | PASS | Persistent ROLE authoring, in-place toggle, identity merge and Scheduling Assistant re-query; chair/non-participant remain non-authored |
 | RSVP | PASS | Provider direct response and Mail METHOD:REPLY use one normalized attendee state with explicit delivery state |
 | Mail REQUEST | PASS | Automatic Gmail/IMAP ingestion, trust/sequence/idempotency and projection covered |
 | Mail REPLY | PASS | Organizer-side attendee reconciliation and stale/suspicious handling covered |
@@ -101,7 +103,7 @@ Automated fixture не называется live. CAL-123 live evidence подт
 
 ### Flow B — Create → participants → required/optional → reminders → Scheduling Assistant → Save → outbound invitation
 
-**PARTIAL.** Create, reminders, assistant, Save and outbound REQUEST are implemented. The flow cannot author RRULE and cannot persist optional attendee role from the current create UI.
+**PASS (AUTOMATED; live Create → Cancel only).** Recurrence presets/custom, required/optional persistence, reminders, assistant re-query and outbound REQUEST with RRULE+ROLE are covered. Real Save/mail was not executed.
 
 ### Flow C — Edit → drag/resize → participants/reminders → send update
 
@@ -109,7 +111,7 @@ Automated fixture не называется live. CAL-123 live evidence подт
 
 ### Flow D — Recurring occurrence → edit/delete → single/series
 
-**PASS for existing series; PARTIAL end-to-end recurrence product flow.** Single/series update/delete are safe and explicit. Creating the series in Office360 and `this-and-future` are unavailable.
+**PASS for create + existing series; `this-and-future` remains unsupported.** Office360 can author a series, edit master RRULE on `scope=series`, and keep occurrence edits from overwriting the master. Live series Save was not executed.
 
 ### Flow E — Add Yandex participant → remote Free/Busy → suggestion → choose slot
 
@@ -132,7 +134,7 @@ Automated fixture не называется live. CAL-123 live evidence подт
 | Capability | Google | Generic CalDAV | Yandex CalDAV |
 |---|---|---|---|
 | Read / CRUD | PASS contract | PASS contract | PASS read LIVE; writes contract-tested |
-| Recurrence | Read + single/series mutations | Read + single/series mutations | Same as CalDAV |
+| Recurrence | Read + create RRULE + single/series mutations | Read + create RRULE + single/series mutations | Same as CalDAV |
 | Attendees / RSVP | PASS normalized/direct | PASS normalized/direct | Same as CalDAV |
 | Application Mail iTIP | PASS | PASS | PASS |
 | Remote participant Free/Busy | PASS automated | Conditional RFC 6638 | PASS discovery LIVE / query automated |
@@ -156,8 +158,8 @@ None.
 
 ### P1 — material parity or release-readiness gaps
 
-1. Recurring-series creation/editor; `this-and-future` remains a declared limitation.
-2. Participant picker/directory and persistent required↔optional authoring.
+1. `this-and-future` remains a declared limitation (not offered as a working option).
+2. Participant picker/directory (required/optional authoring is delivered by CAL-125).
 3. Shared-calendar subscription/share/ACL management plus isolated live shared/read-only acceptance.
 4. Account- and permission-filtered Calendar event search.
 5. Month `+N` details interaction and locale/configurable Monday-first week.
@@ -179,8 +181,8 @@ None.
 
 ## Focused P1 findings
 
-- **Recurring create: MISSING.** Create UI/provider input has no recurrence rule; existing series mutation support does not close authoring.
-- **Participant authoring: PARTIAL.** Email entry adds required attendees. Scheduling Assistant role toggles are local planning state and do not persist optional roles.
+- **Recurring create: PASS (CAL-125).** Presets, custom weekly days, until/count, all-day and series RRULE edit; occurrence cannot overwrite master.
+- **Participant authoring: PARTIAL.** Required/optional persist from create/edit rows. Directory/picker is still absent.
 - **ACL management: MISSING.** Effective permission discovery/enforcement is PASS, but provider sharing mutations and management UI are absent.
 - **Calendar search: MISSING.** Mail/global search is not a Calendar event search substitute.
 - **Month overflow: PARTIAL.** `+N ещё` renders but its click only stops propagation and opens no details surface.
@@ -188,15 +190,17 @@ None.
 - **Current-time indicator: MISSING/P2.** Today header styling exists; no Day/Week horizontal current-time marker.
 - **Delta sync/offline: PARTIAL.** Cached reads and stale UI are strong. Google background delta token persistence exists but is inconsistent with capabilities and foreground ownership; CalDAV has no delta; offline writes are unsupported.
 
-## Test health on clean `ff9e5fa`
+## Test health after CAL-125
 
 | Check | Result |
 |---|---|
 | TypeScript `npx tsc --noEmit` | PASS |
-| Full Vitest | PASS — 250 files / 2473 tests |
+| Targeted recurrence/participant/SA/iTIP/reminder | PASS — 15 files / 187 tests |
+| Full Vitest | PASS — 253 files / 2507 tests |
 | TZ matrix | PASS — 15 files / 186 tests in each of UTC, Europe/Moscow, America/New_York, Australia/Lord_Howe |
-| Frontend production build | PASS — main 2,102.51 kB / 623.57 kB gzip; Calendar 120.84 kB / 35.60 kB gzip |
+| Frontend production build | PASS — main 2,110.48 kB / 626.55 kB gzip; Calendar 132.18 kB / 38.33 kB gzip |
 | `cargo check` | PASS — two pre-existing unused-variable warnings at `src/lib.rs:378` |
+| Live Tauri Create → Cancel | NOT RUN — no Tauri session at closure |
 
 Known non-failing test/build noise: existing React `act(...)` warnings, externalized `stream` warning from transitive `sax`, mixed static/dynamic import warnings and main chunk >500 kB.
 
@@ -218,7 +222,7 @@ No new Tauri runtime was required for this docs-only re-audit because `ff9e5fa` 
 - Google delta tokens are stored by the background path, but capabilities say ephemeral and 410 recovery does not clear the stored token.
 - `src/services/google/calendar.ts` remains an unreferenced legacy candidate.
 - Main bundle is 2,102.51 kB raw / 623.57 kB gzip; existing chunk warnings remain.
-- Graphify index is healthy at 6,760 nodes / 17,358 edges / 414 communities, but saved community labels are stale; query tooling package warns that skill 0.9.33 is newer than interpreter package 0.9.31.
+- Graphify index after CAL-125 `graphify update .`: 6,844 nodes / 17,606 edges / 406 communities; 0 unverified/missing/dangling/self-loop/duplicate edges. Saved community labels are stale (414 saved vs 406 communities). Semantic `--update` was not used (openai extra unavailable); code AST index was refreshed.
 - Rust retains two pre-existing unused-variable warnings.
 
 These are technical debt unless they directly map to the P1 delta/offline item above.
@@ -233,7 +237,7 @@ These are technical debt unless they directly map to the P1 delta/offline item a
 ### Must before broad release
 
 1. Run isolated non-personal live acceptance for provider create/edit/delete/recurrence/RSVP/outbound invitation and shared/read-only roles, or explicitly ship those as automated-only evidence.
-2. Select and close or explicitly defer the promised P1 product boundary: recurring create, persistent participant roles, search and ACL management.
+2. Select and close or explicitly defer the remaining P1 product boundary: search and ACL management (recurring create and persistent participant roles closed by CAL-125).
 3. Resolve/document the Google token-recovery/capability inconsistency and the CalDAV/offline sync policy before claiming robust offline/delta behavior.
 
 ### Acceptable post-merge

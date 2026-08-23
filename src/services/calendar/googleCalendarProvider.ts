@@ -194,12 +194,19 @@ export class GoogleCalendarProvider implements CalendarProvider {
     if (event.transparency) body.transparency = event.transparency;
     if (event.sequence !== undefined) body.sequence = event.sequence;
     if (event.reminders !== undefined) body.reminders = mapDomainRemindersToGoogle(event.reminders);
+    if (event.recurrenceRule) {
+      body.recurrence = [`RRULE:${sanitizeGoogleRecurrenceRule(event.recurrenceRule)}`];
+    }
 
     const created = await client.request<GoogleCalendarEvent>(url, {
       method: "POST",
       body: JSON.stringify(body),
     });
-    return mapGoogleEvent(created);
+    const mapped = mapGoogleEvent(created);
+    if (!mapped.recurrenceRule && event.recurrenceRule) {
+      mapped.recurrenceRule = sanitizeGoogleRecurrenceRule(event.recurrenceRule);
+    }
+    return mapped;
   }
 
   async updateEvent(
@@ -375,6 +382,12 @@ function sanitizeGoogleRecurrenceRule(rule: string): string {
   return rule;
 }
 
+function googleRecurrenceRule(event: GoogleCalendarEvent): string | null {
+  const line = event.recurrence?.find((value) => /^RRULE:/i.test(value));
+  if (!line) return null;
+  return line.replace(/^\s*RRULE:/i, "").trim() || null;
+}
+
 export function mapGoogleEvent(event: GoogleCalendarEvent): CalendarEventData {
   const time = mapGoogleTime(event.start, event.end);
   const startTime = time.kind === "all-day" ? calendarDateToUnixSeconds(time.startDate) : time.start.instant;
@@ -416,6 +429,7 @@ export function mapGoogleEvent(event: GoogleCalendarEvent): CalendarEventData {
     isRecurrenceMaster: false,
     transparency: event.transparency === "transparent" ? "transparent" : "opaque",
     sequence: event.sequence ?? 0,
+    recurrenceRule: googleRecurrenceRule(event),
     participants,
     reminders: reminderProjection.policy,
     ...(reminderProjection.diagnostics.length > 0 ? { reminderDiagnostics: reminderProjection.diagnostics } : {}),

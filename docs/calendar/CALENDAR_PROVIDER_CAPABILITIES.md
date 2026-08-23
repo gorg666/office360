@@ -40,7 +40,7 @@ Yandex использует тот же `CalDAVProvider`, что generic CalDAV,
 | Multiple reminders | yes, max 5 | yes | yes |
 | Conflict detection | `etag` when cached ETag exists | `etag` when cached ETag exists | `etag` when cached ETag exists |
 
-`partial` recurrence write means Office360 supports explicit single/series update and delete, including series RRULE replacement, while preserving existing EXDATE/RDATE/RECURRENCE-ID data. `this-and-future` and recurring-series creation remain unsupported. Details: `CALENDAR_RECURRENCE_MUTATIONS.md`.
+`partial` recurrence write means Office360 supports recurring-series creation plus explicit single/series update and delete, including series RRULE replacement, while preserving existing EXDATE/RDATE/RECURRENCE-ID data. `this-and-future` remains unsupported. Details: `CALENDAR_RECURRENCE_MUTATIONS.md` and `CALENDAR_RECURRING_CREATE.md`.
 
 `freeBusy` splits into `self` and `others` in `version: 3`. `self = local-derived` means CAL-107 computes the signed-in account's availability from synced cache/coverage. Google `others = remote` uses only the official privacy-limited batch endpoint. CalDAV and Yandex start at `none` and change to `remote` only after RFC 6638 scheduling discovery proves inbox, outbox, user address and auto-schedule support. CAL-123 confirmed that exposed contract live for personal-domain and custom-domain Yandex accounts; no provider-name bypass exists. Details: `CALENDAR_FREE_BUSY_MODEL.md`, `CALENDAR_REMOTE_FREE_BUSY.md` and `CALENDAR_YANDEX_FREE_BUSY_DECISION.md`.
 

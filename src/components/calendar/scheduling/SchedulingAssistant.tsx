@@ -112,13 +112,18 @@ export function SchedulingAssistant({
     .join(",");
 
   useEffect(() => {
-    const present = new Set(participants.map((entry) => participantIdentityKey(entry.participant)));
+    const incoming = new Map(participants.map((entry) => [participantIdentityKey(entry.participant), entry.role]));
     setRoleOverrides((current) => {
       const next: Record<string, ParticipantRole> = {};
       for (const [key, role] of Object.entries(current)) {
-        if (present.has(key)) next[key] = role;
+        const authored = incoming.get(key);
+        if (!authored) continue;
+        if (authored !== role) continue;
+        next[key] = role;
       }
-      return Object.keys(next).length === Object.keys(current).length ? current : next;
+      const same = Object.keys(next).length === Object.keys(current).length
+        && Object.entries(next).every(([key, role]) => current[key] === role);
+      return same ? current : next;
     });
   }, [participants]);
 

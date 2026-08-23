@@ -163,6 +163,25 @@ describe("generateVEvent", () => {
 
     expect(result).toContain("DTSTAMP:20250615T100000Z");
   });
+
+  it("serializes a recurring invite with required and optional roles", () => {
+    const result = generateVEvent({
+      summary: "Weekly sync",
+      startTime: "2026-09-08T10:00:00Z",
+      endTime: "2026-09-08T11:00:00Z",
+      recurrenceRule: "FREQ=WEEKLY;BYDAY=TU,TH",
+      attendees: [
+        { email: "req@example.com", role: "required" },
+        { email: "opt@example.com", role: "optional" },
+      ],
+    }, "recurring-invite");
+
+    expect(result).toContain("RRULE:FREQ=WEEKLY;BYDAY=TU,TH");
+    expect(result).toContain("ROLE=REQ-PARTICIPANT");
+    expect(result).toContain("ROLE=OPT-PARTICIPANT");
+    expect(result).toContain("mailto:req@example.com");
+    expect(result).toContain("mailto:opt@example.com");
+  });
 });
 
 describe("parseVEvent", () => {

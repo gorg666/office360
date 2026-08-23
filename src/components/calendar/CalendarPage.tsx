@@ -13,6 +13,7 @@ import { MonthView } from "./MonthView";
 import { WeekView } from "./WeekView";
 import { DayView } from "./DayView";
 import { EventCreateModal, type EventCreateInput } from "./EventCreateModal";
+import { authoredParticipantsToInputs, hydrateAuthoredParticipants } from "./participants/authoredParticipants";
 import { EventDetailModal } from "./EventDetailModal";
 import { CalendarList } from "./CalendarList";
 import { CalendarReauthBanner } from "./CalendarReauthBanner";
@@ -270,10 +271,11 @@ export function CalendarPage() {
         location: eventData.location || undefined,
         startTime: eventData.startTime,
         endTime: eventData.endTime,
-        attendees: eventData.attendees.map((email) => ({ email })),
+        attendees: authoredParticipantsToInputs(eventData.attendees),
         isAllDay: eventData.allDay,
         time: eventData.time,
         reminders: eventData.reminders,
+        recurrenceRule: eventData.recurrenceRule,
       };
 
       const result = await calendarMutationService.create(activeAccountId, calendarRemoteId, input);
@@ -300,7 +302,7 @@ export function CalendarPage() {
       endTime: values.endTime,
       allDay: values.allDay,
       time: values.time,
-      attendees: values.attendees,
+      attendees: hydrateAuthoredParticipants(values.attendees),
     });
     setShowCreate(true);
   }, [displayTimeZone, providerCapabilities]);

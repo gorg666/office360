@@ -10,6 +10,11 @@ React does not implement EXDATE, RECURRENCE-ID, overrides or series splits. It o
 classifies the opened target and calls `CalendarMutationService` with an explicit
 `recurrenceScope`.
 
+CAL-125 adds series RRULE authoring on `scope=series` through `RecurrenceRuleEditor`
+and the existing `recurrenceRule` domain. Occurrence edit keeps the editor read-only
+and omits `recurrenceRule` from the mutation. Create of a new series is documented in
+`CALENDAR_RECURRING_CREATE.md`.
+
 ## Target classification
 
 Identity comes from domain fields, not from an RRULE on the rendered occurrence:

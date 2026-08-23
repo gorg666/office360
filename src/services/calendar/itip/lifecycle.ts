@@ -26,6 +26,7 @@ import {
   parseCalendarParticipants,
   serializeCalendarParticipants,
   withAttendeeStatus,
+  recurrenceRuleFromICalendar,
   type AttendanceStatus,
 } from "../domain";
 import { parseICalendarInvite, generateVEvent } from "../icalHelper";
@@ -65,6 +66,7 @@ export type InvitationEventEnvelope = Pick<CalendarEventData,
   | "remoteEventId" | "uid" | "summary" | "description" | "location"
   | "startTime" | "endTime" | "isAllDay" | "status" | "organizer"
   | "attendees" | "icalData" | "occurrenceKey" | "sequence" | "transparency"
+  | "recurrenceRule"
 > & { time?: CalendarEventData["time"]; reminders?: CalendarEventData["reminders"] };
 
 export async function ingestInboundItip(input: InboundItipInput): Promise<InboundItipResult> {
@@ -374,6 +376,7 @@ export function invitationEnvelopeFromDbEvent(event: DbCalendarEvent): Invitatio
     occurrenceKey: event.occurrence_key,
     sequence: event.sequence,
     transparency: event.transp,
+    recurrenceRule: recurrenceRuleFromICalendar(event.ical_data),
   };
 }
 
@@ -609,6 +612,7 @@ function eventToCreateInput(event: InvitationEventEnvelope): CreateEventInput {
     status: event.status,
     sequence: event.sequence,
     reminders: event.reminders,
+    recurrenceRule: event.recurrenceRule ?? undefined,
   };
 }
 

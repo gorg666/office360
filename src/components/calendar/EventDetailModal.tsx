@@ -10,12 +10,36 @@ import { accessForCalendar, type DbCalendar } from "@/services/db/calendars";
 import type { CalendarParticipationStatus } from "@/services/calendar/types";
 import { calendarMutationService } from "@/services/calendar/calendarMutationService";
 import { respondToCalendarEventInvitation } from "@/services/calendar/itip";
-import { findCurrentAttendee, parseCalendarParticipants, parseCalendarReminderPolicy, type CalendarAttendee, type CalendarOrganizer, type CalendarProviderCapabilities, type CalendarReminderPolicy, type RecurrenceWriteScope } from "@/services/calendar/domain";
+import {
+  findCurrentAttendee,
+  parseCalendarParticipants,
+  parseCalendarReminderPolicy,
+  parseRecurrenceRule,
+  recurrenceContextFromForm,
+  recurrenceRuleFromICalendar,
+  sameRecurrenceSemantics,
+  serializeRecurrenceRule,
+  validateRecurrenceDraft,
+  type CalendarAttendee,
+  type CalendarOrganizer,
+  type CalendarProviderCapabilities,
+  type CalendarReminderPolicy,
+  type RecurrenceDraft,
+  type RecurrenceWriteScope,
+} from "@/services/calendar/domain";
 import { useAccountStore } from "@/stores/accountStore";
 import { navigateToLabel } from "@/router/navigate";
 import { cefNavigate } from "@/services/cef";
 import { allDayStartDate } from "./eventTimeProjection";
 import { RecurrenceScopeDialog } from "./recurrence/RecurrenceScopeDialog";
+import { RecurrenceRuleEditor } from "./recurrence/RecurrenceRuleEditor";
+import { ParticipantAuthoring } from "./participants/ParticipantAuthoring";
+import {
+  applyAuthoringRoles,
+  attendeesToAuthoredParticipants,
+  attendeesToInputs,
+  type AuthoredParticipant,
+} from "./participants/authoredParticipants";
 import { canMutateRecurring, classifyRecurringEditTarget, recurrenceScopeChoices, writeFailureCopy } from "./recurrence/recurrenceEditScope";
 import { SchedulingAssistant, type PlanMeetingFn } from "./scheduling/SchedulingAssistant";
 import { buildEditorSchedulingParticipants } from "./scheduling/schedulingView";
@@ -45,6 +69,15 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
   const [pendingIntent, setPendingIntent] = useState<"update" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reminders, setReminders] = useState<CalendarReminderPolicy | null>(() => parseCalendarReminderPolicy(event.reminders_json));
+  const [authoredParticipants, setAuthoredParticipants] = useState<AuthoredParticipant[]>(() => {
+    const parsed = parseCalendarParticipants(event.attendees_json, event.organizer_email);
+    return attendeesToAuthoredParticipants(parsed.attendees, parsed.organizer?.participant);
+  });
+  const originalRecurrenceRule = recurrenceRuleFromICalendar(event.ical_data);
+  const [recurrence, setRecurrence] = useState<RecurrenceDraft>(() => parseRecurrenceRule(
+    originalRecurrenceRule,
+    { allDay: event.is_all_day === 1, timeZone: event.tzid ?? timeZone },
+  ));
   const [providerCapabilities, setProviderCapabilities] = useState<CalendarProviderCapabilities | null>(null);
   const inFlightRef = useRef(false);
   const accounts = useAccountStore((state) => state.accounts);
@@ -60,9 +93,9 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
     () => buildEditorSchedulingParticipants({
       selfEmail: accountEmail,
       selfDisplayName: accountDisplayName,
-      attendees,
+      attendees: applyAuthoringRoles(attendees, authoredParticipants, participantSet.organizer?.participant),
     }),
-    [accountDisplayName, accountEmail, attendees],
+    [accountDisplayName, accountEmail, attendees, authoredParticipants, participantSet.organizer],
   );
   const meetingUrl = useMemo(() => findTelemostUrl(event.description), [event.description]);
   const editTarget = useMemo(() => classifyRecurringEditTarget(event), [event]);
@@ -106,9 +139,37 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
 
   const commitUpdate = useCallback(async (scope?: RecurrenceWriteScope) => {
     if (inFlightRef.current) return;
+    const eventStartDate = startTime.slice(0, 10);
+    const recurrenceErrors = validateRecurrenceDraft(recurrence, eventStartDate);
+    if (scope === "series" && recurrenceErrors.length > 0) {
+      setError(recurrenceErrors[0] ?? "Проверьте правило повторения.");
+      setPendingIntent(null);
+      return;
+    }
     inFlightRef.current = true;
     setBusyAction("save"); setError(null);
     try {
+      const allDay = event.is_all_day === 1;
+      const context = recurrenceContextFromForm({
+        startTime,
+        allDay,
+        timeZone: event.tzid ?? timeZone,
+      });
+      const originalDraft = parseRecurrenceRule(originalRecurrenceRule, context);
+      let recurrenceRule: string | null | undefined;
+      if (scope === "series") {
+        let serialized: string | null = null;
+        try {
+          serialized = serializeRecurrenceRule(recurrence, context);
+        } catch (cause) {
+          setPendingIntent(null);
+          setError(cause instanceof Error ? cause.message : "Проверьте правило повторения.");
+          return;
+        }
+        if (serialized && !sameRecurrenceSemantics(originalDraft, recurrence)) {
+          recurrenceRule = serialized;
+        }
+      }
       const result = await calendarMutationService.update({
         ...mutationTarget(scope),
         baseSequence: event.sequence,
@@ -118,8 +179,14 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
         location,
         startTime: new Date(startTime).toISOString(),
         endTime: new Date(endTime).toISOString(),
-        isAllDay: event.is_all_day === 1,
+        isAllDay: allDay,
+        attendees: attendeesToInputs(applyAuthoringRoles(
+          attendees,
+          authoredParticipants,
+          participantSet.organizer?.participant,
+        )),
         ...(reminders ? { reminders } : {}),
+        ...(recurrenceRule !== undefined ? { recurrenceRule } : {}),
       });
       if (result.status !== "success") {
         setPendingIntent(null);
@@ -135,7 +202,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
       inFlightRef.current = false;
       setBusyAction(null);
     }
-  }, [description, endTime, event.is_all_day, event.sequence, location, mutationTarget, onUpdated, reminders, startTime, summary]);
+  }, [attendees, authoredParticipants, description, endTime, event.is_all_day, event.sequence, event.tzid, location, mutationTarget, onUpdated, originalRecurrenceRule, participantSet.organizer, recurrence, reminders, startTime, summary, timeZone]);
 
   const commitDelete = useCallback(async (scope?: RecurrenceWriteScope) => {
     if (inFlightRef.current) return;
@@ -221,10 +288,23 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
       <Modal isOpen onClose={pendingIntent ? () => undefined : onClose} title="Изменить событие" width="w-full max-w-5xl" panelClassName="max-h-[90vh] overflow-hidden">
         <div className="max-h-[calc(90vh-3.5rem)] space-y-4 overflow-y-auto p-5">
           <TextField label="Название" type="text" value={summary} onChange={(e) => setSummary(e.target.value)} autoFocus />
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <TextField label="Начало" type="datetime-local" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
             <TextField label="Окончание" type="datetime-local" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
           </div>
+          {recurring ? (
+            <RecurrenceRuleEditor
+              value={recurrence}
+              eventStartDate={startTime.slice(0, 10)}
+              readOnly={editTarget.kind === "occurrence"}
+              onChange={setRecurrence}
+            />
+          ) : null}
+          {!originalRecurrenceRule && recurring ? (
+            <p className="text-xs text-text-tertiary">
+              Исходное правило повторения недоступно без ICS. Изменение серии отправит новое правило только если вы его зададите явно.
+            </p>
+          ) : null}
           <SchedulingAssistant
             accountId={accountId}
             timeZone={timeZone}
@@ -239,6 +319,11 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
             }}
           />
           <TextField label="Место" type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Добавить место" />
+          <ParticipantAuthoring
+            value={authoredParticipants}
+            organizerEmail={participantSet.organizer?.participant.normalizedEmail ?? event.organizer_email}
+            onChange={setAuthoredParticipants}
+          />
           <ReminderEditor capabilities={providerCapabilities} value={reminders} onChange={setReminders} />
           <label className="block text-xs text-text-secondary">Описание
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={5} className="mt-1 w-full px-3 py-2 bg-bg-tertiary border border-border-primary rounded text-sm text-text-primary outline-none focus:border-accent resize-y" />

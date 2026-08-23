@@ -95,8 +95,8 @@ describe("EventCreateModal scheduling assistant", () => {
       />,
     );
     fireEvent.click(await screen.findByTestId("scheduling-suggestion"));
-    expect((screen.getByLabelText("Start") as HTMLInputElement).value).toBe("2026-03-16T14:30");
-    expect((screen.getByLabelText("End") as HTMLInputElement).value).toBe("2026-03-16T15:00");
+    expect((screen.getByLabelText("Начало") as HTMLInputElement).value).toBe("2026-03-16T14:30");
+    expect((screen.getByLabelText("Окончание") as HTMLInputElement).value).toBe("2026-03-16T15:00");
     expect(onCreate).not.toHaveBeenCalled();
   });
 
@@ -114,13 +114,41 @@ describe("EventCreateModal scheduling assistant", () => {
       />,
     );
     await waitFor(() => expect(planMeeting).toHaveBeenCalledTimes(1));
-    fireEvent.change(screen.getByLabelText("Participants"), { target: { value: "ivan@example.test" } });
+    fireEvent.change(screen.getByLabelText("Адрес участника"), { target: { value: "ivan@example.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Добавить" }));
     await waitFor(() => expect(planMeeting).toHaveBeenCalledTimes(2));
     const request = planMeeting.mock.calls[1]![0] as { requiredParticipants: Array<{ normalizedEmail: string | null }> };
     expect(request.requiredParticipants.map((item) => item.normalizedEmail)).toEqual([
       "self@example.test",
       "ivan@example.test",
     ]);
+  });
+
+  it("moves a required attendee into optional ranking without a page reload", async () => {
+    const planMeeting = vi.fn(async () => result());
+    render(
+      <EventCreateModal
+        timeZone="UTC"
+        selfEmail="self@example.test"
+        initialValues={{ startTime: "2026-03-16T10:00", endTime: "2026-03-16T10:30" }}
+        onClose={vi.fn()}
+        onCreate={vi.fn()}
+        planMeeting={planMeeting}
+        debounceMs={0}
+      />,
+    );
+    await waitFor(() => expect(planMeeting).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByLabelText("Адрес участника"), { target: { value: "anna@example.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Добавить" }));
+    await waitFor(() => expect(planMeeting).toHaveBeenCalledTimes(2));
+    fireEvent.change(screen.getByLabelText("Роль anna@example.test"), { target: { value: "optional" } });
+    await waitFor(() => expect(planMeeting).toHaveBeenCalledTimes(3));
+    const request = planMeeting.mock.calls[2]![0] as {
+      requiredParticipants: Array<{ normalizedEmail: string | null }>;
+      optionalParticipants: Array<{ normalizedEmail: string | null }>;
+    };
+    expect(request.requiredParticipants.map((item) => item.normalizedEmail)).toEqual(["self@example.test"]);
+    expect(request.optionalParticipants.map((item) => item.normalizedEmail)).toEqual(["anna@example.test"]);
   });
 
   it("hydrates an all-day grid draft and does not save on Cancel", () => {
@@ -140,9 +168,11 @@ describe("EventCreateModal scheduling assistant", () => {
       />,
     );
     expect((screen.getByTestId("event-all-day") as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByLabelText("Start") as HTMLInputElement).value).toBe("2026-08-27");
+    expect((screen.getByLabelText("Начало") as HTMLInputElement).value).toBe("2026-08-27");
     expect(screen.queryByTestId("scheduling-empty")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByTestId("recurrence-editor")).toBeInTheDocument();
+    expect(screen.getByTestId("participant-authoring")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Отмена" }));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onCreate).not.toHaveBeenCalled();
   });
@@ -157,8 +187,8 @@ describe("EventCreateModal scheduling assistant", () => {
         onCreate={onCreate}
       />,
     );
-    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Grid draft" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Grid draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Создать" }));
     await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
     expect(onCreate.mock.calls[0]![0]).toMatchObject({
       summary: "Grid draft",
@@ -181,8 +211,8 @@ describe("EventCreateModal scheduling assistant", () => {
       />,
     );
     expect(screen.getByLabelText("Политика напоминаний")).toHaveValue("inherit");
-    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Grid with default" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Grid with default" } });
+    fireEvent.click(screen.getByRole("button", { name: "Создать" }));
     await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ reminders: { kind: "inherit" } })));
   });
 });

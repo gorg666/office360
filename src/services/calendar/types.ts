@@ -34,6 +34,8 @@ export interface CalendarEventData {
   isRecurrenceMaster: boolean;
   transparency: "opaque" | "transparent" | null;
   sequence: number;
+  /** Present when the provider returned an RRULE and no ICS payload exists. */
+  recurrenceRule?: string | null;
   participants: ParticipantRef[];
   reminders: CalendarReminderPolicy;
   reminderDiagnostics?: CalendarReminderDiagnostic[];
@@ -57,6 +59,8 @@ export interface CreateEventInput {
   status?: string;
   sequence?: number;
   reminders?: CalendarReminderPolicy;
+  /** RRULE value without the `RRULE:` prefix. */
+  recurrenceRule?: string | null;
 }
 
 export interface UpdateEventInput {

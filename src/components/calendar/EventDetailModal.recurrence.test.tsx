@@ -311,6 +311,66 @@ describe("EventDetailModal recurring mutation errors", () => {
   });
 });
 
+const SERIES_ICS = [
+  "BEGIN:VCALENDAR", "BEGIN:VEVENT", "UID:series-1",
+  "DTSTART:20270115T080000Z", "DTEND:20270115T090000Z",
+  "RRULE:FREQ=WEEKLY;BYDAY=TU,TH", "SUMMARY:Weekly",
+  "END:VEVENT", "END:VCALENDAR",
+].join("\r\n");
+
+describe("EventDetailModal series RRULE and participant role authoring", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAccountStore.setState({
+      activeAccountId: "account-1",
+      accounts: [{ id: "account-1", email: "self@example.com", displayName: "Self", avatarUrl: null, isActive: true, provider: "caldav" }],
+    });
+    mocks.capabilities.mockResolvedValue(fullCapabilities);
+    updateMock.mockResolvedValue({ status: "success", value: { id: "ok" } });
+  });
+
+  it("loads the current series RRULE and can replace it on series save", async () => {
+    const onUpdated = await openEditor({ ...master, ical_data: SERIES_ICS });
+    expect(screen.getByLabelText("Правило повторения")).toHaveValue("custom");
+    expect(screen.getByTestId("recurrence-summary")).toHaveTextContent("вторник");
+    fireEvent.change(screen.getByLabelText("Правило повторения"), { target: { value: "daily" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    await confirmScope("series");
+    await waitFor(() => expect(updateMock).toHaveBeenCalledTimes(1));
+    expect(updateMock.mock.calls[0]![1]).toMatchObject({ recurrenceRule: "FREQ=DAILY" });
+    expect(onUpdated).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not send the master RRULE when saving a single occurrence", async () => {
+    await openEditor({
+      ...occurrence,
+      ical_data: SERIES_ICS,
+    });
+    expect(screen.getByText("Правило серии нельзя изменить при правке одного повторения.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Правило повторения")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    await confirmScope("single");
+    await waitFor(() => expect(updateMock).toHaveBeenCalledTimes(1));
+    expect(updateMock.mock.calls[0]![1]).not.toHaveProperty("recurrenceRule");
+  });
+
+  it("persists an in-place required to optional role change", async () => {
+    const attendees_json = serializeCalendarParticipants({
+      organizer: calendarOrganizerFromInput({ email: "owner@example.com" }),
+      attendees: dedupeCalendarAttendees([
+        { email: "req@example.com", role: "required" },
+      ]),
+    });
+    await openEditor({ ...plain, attendees_json, organizer_email: "owner@example.com" });
+    fireEvent.change(screen.getByLabelText("Роль req@example.com"), { target: { value: "optional" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalledTimes(1));
+    expect(updateMock.mock.calls[0]![1].attendees).toEqual([
+      expect.objectContaining({ role: "optional" }),
+    ]);
+  });
+});
+
 describe("EventDetailModal participant envelope still renders with recurrence helpers", () => {
   it("keeps canonical attendees when opening a recurring occurrence", async () => {
     mocks.capabilities.mockResolvedValue(fullCapabilities);

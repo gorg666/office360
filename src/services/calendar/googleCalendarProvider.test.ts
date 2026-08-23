@@ -298,6 +298,34 @@ describe("GoogleCalendarProvider", () => {
       const body = JSON.parse(mockClient.request.mock.calls[0][1].body as string);
       expect(body.attendees).toEqual([{ email: "bob@example.com" }]);
     });
+
+    it("sends RRULE on create and keeps it when Google omits recurrence in the response", async () => {
+      mockClient.request.mockResolvedValue({
+        id: "recurring-evt",
+        summary: "Weekly",
+        start: { dateTime: "2026-09-08T10:00:00Z" },
+        end: { dateTime: "2026-09-08T11:00:00Z" },
+      });
+
+      const result = await provider.createEvent("cal-1", {
+        summary: "Weekly",
+        startTime: "2026-09-08T10:00:00Z",
+        endTime: "2026-09-08T11:00:00Z",
+        recurrenceRule: "FREQ=WEEKLY;BYDAY=TU,TH",
+        attendees: [
+          { email: "req@example.com", role: "required" },
+          { email: "opt@example.com", role: "optional" },
+        ],
+      });
+
+      const body = JSON.parse(mockClient.request.mock.calls[0][1].body as string);
+      expect(body.recurrence).toEqual(["RRULE:FREQ=WEEKLY;BYDAY=TU,TH"]);
+      expect(body.attendees).toEqual([
+        { email: "req@example.com" },
+        { email: "opt@example.com", optional: true },
+      ]);
+      expect(result.recurrenceRule).toBe("FREQ=WEEKLY;BYDAY=TU,TH");
+    });
   });
 
   describe("updateEvent", () => {

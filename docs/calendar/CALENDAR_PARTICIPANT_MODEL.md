@@ -41,6 +41,8 @@ Calendar RSVP and Mail invitation projection both use the normalized attendee se
 
 Calendar event details render the normalized organizer and attendees, show optional/chair/informational roles, and locate the current attendee through identity helpers. Mail invitation ingestion uses the same codec/domain projection. Required/optional ROLE, PARTSTAT, participant identity and organizer/SENT-BY now survive the application iTIP delivery path described in `CALENDAR_INVITATION_LIFECYCLE.md`.
 
+CAL-125 adds persistent required/optional authoring in create and edit (`ParticipantAuthoring`). New attendees default to required. The user can change required ↔ optional in place without removing the row. Organizer is excluded from the editable list. Duplicate identity is still blocked by this model. Scheduling Assistant consumes the same authored roles immediately; directory/picker remains out of scope. Details: `CALENDAR_RECURRING_CREATE.md`.
+
 ## Future Free/Busy boundary
 
 Free/Busy is not implemented by CAL-106. Its future request contract must accept:

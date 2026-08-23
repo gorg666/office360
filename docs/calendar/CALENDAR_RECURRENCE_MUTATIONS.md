@@ -48,5 +48,6 @@ Successful mutations do not write directly to the cache. React triggers the exis
 ## Deliberate limitations
 
 - `this-and-future` is explicitly unsupported for every current provider.
-- Recurring-series creation and the final scope prompt/editor are outside CAL-111.
+- Recurring-series creation is owned by CAL-125 (`CALENDAR_RECURRING_CREATE.md`); CAL-111 remains the mutation/provider contract.
+- The final scope prompt/editor for existing series is CAL-112.
 - Live cloud recurrence mutations are not used for acceptance; provider adapters are verified with deterministic fixtures and conditional-write mocks.

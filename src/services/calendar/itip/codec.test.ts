@@ -1,5 +1,6 @@
 import ICAL from "ical.js";
 import { describe, expect, it } from "vitest";
+import { generateVEvent } from "../icalHelper";
 import { prepareItipCalendar } from "./codec";
 
 const request = [
@@ -66,5 +67,30 @@ describe("iTIP codec", () => {
     });
     const event = ICAL.Component.fromString(output).getFirstSubcomponent("vevent")!;
     expect(String(event.getFirstPropertyValue("organizer"))).toBe("mailto:self@example.com");
+  });
+
+  it("keeps RRULE and required/optional roles when wrapping a generated create payload as REQUEST", () => {
+    const source = generateVEvent({
+      summary: "Weekly sync",
+      startTime: "2026-09-08T10:00:00Z",
+      endTime: "2026-09-08T11:00:00Z",
+      recurrenceRule: "FREQ=WEEKLY;BYDAY=TU,TH",
+      attendees: [
+        { email: "req@example.com", role: "required" },
+        { email: "opt@example.com", role: "optional" },
+      ],
+    }, "recurring-invite");
+    const output = prepareItipCalendar({
+      source,
+      method: "REQUEST",
+      sequence: 0,
+      organizerEmail: "owner@example.com",
+    });
+    const root = ICAL.Component.fromString(output);
+    const event = root.getFirstSubcomponent("vevent")!;
+    expect(String(root.getFirstPropertyValue("method"))).toBe("REQUEST");
+    expect(String(event.getFirstPropertyValue("rrule"))).toContain("FREQ=WEEKLY");
+    expect(event.getAllProperties("attendee").map((property) => property.getParameter("role")))
+      .toEqual(["REQ-PARTICIPANT", "OPT-PARTICIPANT"]);
   });
 });

@@ -3,11 +3,24 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
 import type { DbCalendar } from "@/services/db/calendars";
-import type { CalendarEventTime, CalendarProviderCapabilities, CalendarReminderPolicy } from "@/services/calendar/domain";
+import type { CalendarEventTime, CalendarProviderCapabilities, CalendarReminderPolicy, RecurrenceDraft } from "@/services/calendar/domain";
+import {
+  emptyRecurrenceDraft,
+  participantRefFromEmail,
+  recurrenceContextFromForm,
+  serializeRecurrenceRule,
+  validateRecurrenceDraft,
+} from "@/services/calendar/domain";
 import { SchedulingAssistant, type PlanMeetingFn } from "./scheduling/SchedulingAssistant";
 import { buildEditorSchedulingParticipants } from "./scheduling/schedulingView";
 import { eventTimeFromFormFields } from "./createSelection";
 import { ReminderEditor } from "./ReminderEditor";
+import { RecurrenceRuleEditor } from "./recurrence/RecurrenceRuleEditor";
+import { ParticipantAuthoring } from "./participants/ParticipantAuthoring";
+import {
+  hydrateAuthoredParticipants,
+  type AuthoredParticipant,
+} from "./participants/authoredParticipants";
 
 interface EventCreateModalProps {
   calendars?: DbCalendar[];
@@ -29,11 +42,12 @@ export interface EventCreateInput {
   location: string;
   startTime: string;
   endTime: string;
-  attendees: string[];
+  attendees: AuthoredParticipant[];
   calendarId?: string;
   allDay?: boolean;
   time?: CalendarEventTime;
   reminders?: CalendarReminderPolicy;
+  recurrenceRule?: string | null;
 }
 
 export function EventCreateModal({
@@ -54,10 +68,11 @@ export function EventCreateModal({
   const [location, setLocation] = useState(initialValues?.location ?? "");
   const [startTime, setStartTime] = useState(initialValues?.startTime ?? getDefaultStart());
   const [endTime, setEndTime] = useState(initialValues?.endTime ?? getDefaultEnd());
-  const [attendees, setAttendees] = useState((initialValues?.attendees ?? []).join(", "));
+  const [attendees, setAttendees] = useState<AuthoredParticipant[]>(() => hydrateAuthoredParticipants(initialValues?.attendees));
   const [allDay, setAllDay] = useState(Boolean(initialValues?.allDay));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recurrence, setRecurrence] = useState<RecurrenceDraft>(emptyRecurrenceDraft);
   const [reminders, setReminders] = useState<CalendarReminderPolicy | null>(
     initialValues?.reminders ?? (capabilities
       ? (capabilities.reminders.defaults === "inherit" ? { kind: "inherit" } : { kind: "none" })
@@ -70,7 +85,10 @@ export function EventCreateModal({
     () => buildEditorSchedulingParticipants({
       selfEmail,
       selfDisplayName,
-      attendeeEmails: parseAttendees(attendees),
+      attendees: attendees.map((row) => ({
+        participant: participantRefFromEmail(row.email),
+        role: row.role,
+      })),
     }),
     [attendees, selfDisplayName, selfEmail],
   );
@@ -92,6 +110,25 @@ export function EventCreateModal({
       return;
     }
 
+    const eventStartDate = startTime.slice(0, 10);
+    const recurrenceErrors = validateRecurrenceDraft(recurrence, eventStartDate);
+    if (recurrenceErrors.length > 0) {
+      setError(recurrenceErrors[0] ?? "Проверьте правило повторения.");
+      return;
+    }
+
+    let recurrenceRule: string | null = null;
+    try {
+      recurrenceRule = serializeRecurrenceRule(recurrence, recurrenceContextFromForm({
+        startTime,
+        allDay,
+        timeZone,
+      }));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Проверьте правило повторения.");
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
     try {
@@ -101,10 +138,11 @@ export function EventCreateModal({
         location,
         startTime,
         endTime,
-        attendees: parseAttendees(attendees),
+        attendees,
         calendarId: calendarId || undefined,
         allDay,
         time,
+        recurrenceRule,
         ...(reminders ? { reminders } : {}),
       });
     } catch (err) {
@@ -112,17 +150,17 @@ export function EventCreateModal({
     } finally {
       setSubmitting(false);
     }
-  }, [summary, description, location, startTime, endTime, attendees, calendarId, allDay, timeZone, reminders, onCreate]);
+  }, [summary, description, location, startTime, endTime, attendees, calendarId, allDay, timeZone, reminders, recurrence, onCreate]);
 
   return (
-    <Modal isOpen={true} onClose={onClose} title="Create Event" width="w-full max-w-5xl" panelClassName="max-h-[90vh] overflow-hidden">
+    <Modal isOpen={true} onClose={onClose} title="Новое событие" width="w-full max-w-5xl" panelClassName="max-h-[90vh] overflow-hidden">
       <form onSubmit={handleSubmit} className="max-h-[calc(90vh-3.5rem)] space-y-3 overflow-y-auto p-4">
         <TextField
-          label="Title"
+          label="Название"
           type="text"
           value={summary}
           onChange={(e) => setSummary(e.target.value)}
-          placeholder="Event title"
+          placeholder="Название события"
           autoFocus
         />
 
@@ -130,7 +168,7 @@ export function EventCreateModal({
 
         {calendars && calendars.length > 1 && (
           <div>
-            <label htmlFor="event-calendar" className="text-xs text-text-secondary block mb-1">Calendar</label>
+            <label htmlFor="event-calendar" className="text-xs text-text-secondary block mb-1">Календарь</label>
             <select
               id="event-calendar"
               value={calendarId}
@@ -139,8 +177,8 @@ export function EventCreateModal({
             >
               {calendars.map((cal) => (
                 <option key={cal.id} value={cal.id}>
-                  {cal.display_name ?? "Calendar"}
-                  {cal.is_primary ? " (Primary)" : ""}
+                  {cal.display_name ?? "Календарь"}
+                  {cal.is_primary ? " (основной)" : ""}
                 </option>
               ))}
             </select>
@@ -164,38 +202,42 @@ export function EventCreateModal({
               }
             }}
           />
-          All day
+          Весь день
         </label>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <TextField
-            label="Start"
+            label="Начало"
             type={allDay ? "date" : "datetime-local"}
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
           />
           <TextField
-            label="End"
+            label="Окончание"
             type={allDay ? "date" : "datetime-local"}
             value={endTime}
             onChange={(e) => setEndTime(e.target.value)}
           />
         </div>
 
-        <TextField
-          label="Location"
-          type="text"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-          placeholder="Add location"
+        <RecurrenceRuleEditor
+          value={recurrence}
+          eventStartDate={startTime.slice(0, 10)}
+          onChange={setRecurrence}
         />
 
         <TextField
-          label="Participants"
+          label="Место"
           type="text"
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          placeholder="Добавить место"
+        />
+
+        <ParticipantAuthoring
           value={attendees}
-          onChange={(e) => setAttendees(e.target.value)}
-          placeholder="name@example.com, colleague@example.com"
+          organizerEmail={selfEmail}
+          onChange={setAttendees}
         />
 
         {!allDay ? (
@@ -215,11 +257,12 @@ export function EventCreateModal({
         ) : null}
 
         <div>
-          <label className="text-xs text-text-secondary block mb-1">Description</label>
+          <label className="text-xs text-text-secondary block mb-1" htmlFor="event-description">Описание</label>
           <textarea
+            id="event-description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Add description"
+            placeholder="Добавить описание"
             rows={3}
             className="w-full px-3 py-1.5 bg-bg-tertiary border border-border-primary rounded text-sm text-text-primary outline-none focus:border-accent resize-none"
           />
@@ -227,7 +270,7 @@ export function EventCreateModal({
 
         <div className="flex justify-end gap-2 pt-2">
           {error && (
-            <div className="mr-auto max-w-[60%] text-xs text-danger">
+            <div className="mr-auto max-w-[60%] text-xs text-danger" role="alert">
               {error}
             </div>
           )}
@@ -238,7 +281,7 @@ export function EventCreateModal({
             onClick={onClose}
             disabled={submitting}
           >
-            Cancel
+            Отмена
           </Button>
           <Button
             type="submit"
@@ -246,16 +289,12 @@ export function EventCreateModal({
             size="md"
             disabled={submitting || !summary.trim()}
           >
-            {submitting ? "Создание..." : "Create"}
+            {submitting ? "Создание..." : "Создать"}
           </Button>
         </div>
       </form>
     </Modal>
   );
-}
-
-function parseAttendees(value: string): string[] {
-  return [...new Set(value.split(/[;,\s]+/).map((email) => email.trim().toLowerCase()).filter(Boolean))];
 }
 
 function getDefaultStart(): string {

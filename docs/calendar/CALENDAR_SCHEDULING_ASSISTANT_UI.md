@@ -37,7 +37,7 @@ Tests inject `planMeeting`. The request is built from:
 
 | Editor state | Request field |
 | --- | --- |
-| self + attendee emails / parsed attendees | `requiredParticipants` / `optionalParticipants` |
+| self + authored required/optional attendees (CAL-125) | `requiredParticipants` / `optionalParticipants` |
 | current start/end | `durationSeconds` |
 | IANA zone of the datetime-local fields | `timeZone` |
 | selected day (event date or prev/next/today) | `range` (one local calendar day) |
@@ -46,6 +46,9 @@ Tests inject `planMeeting`. The request is built from:
 `AbortSignal` and a generation counter drop late responses. Debounce is 200 ms in
 production (`debounceMs={0}` in tests). Changing participants, required/optional,
 duration, day or granularity re-runs the engine without a page reload.
+
+Recurring create (CAL-125) uses the current occurrence start/end only. The assistant
+does not expand future RRULE instances for availability.
 
 Working-hours constraints are **not** invented in the UI. Bands and captions appear
 only when the engine returns `workingHoursApplied` / `outsideWorkingHoursParticipants`.

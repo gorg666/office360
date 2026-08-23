@@ -142,6 +142,10 @@ export function serializeNewICalendarEvent(event: CreateEventInput | UpdateEvent
     component.addProperty(property);
   }
   if (event.reminders !== undefined) applyReminderChanges(component, event.reminders);
+  if (event.recurrenceRule) {
+    if (/\r|\n|^RRULE:/i.test(event.recurrenceRule)) throw new Error("Invalid RRULE value");
+    component.addPropertyWithValue("rrule", ICAL.Recur.fromString(event.recurrenceRule));
+  }
   return calendar.toString();
 }
 
