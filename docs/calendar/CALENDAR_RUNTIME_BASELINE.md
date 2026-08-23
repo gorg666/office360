@@ -507,15 +507,21 @@ Graphify refresh: 6,760 nodes / 17,358 edges / 414 communities. Integrity: 0 unv
 
 Product surface: `EventCreateModal` RecurrenceRuleEditor + ParticipantAuthoring; series RRULE on `scope=series`; occurrence editor read-only for RRULE. Canonical doc: `CALENDAR_RECURRING_CREATE.md`.
 
+CAL-125-FINAL: **PASS** (live Create → Cancel on running Office360; no Save).
+
 | Проверка | Статус |
 | --- | --- |
-| Recurrence presets / custom / all-day | AUTOMATED PASS |
-| Required/optional authoring and in-place role change | AUTOMATED PASS |
-| Scheduling Assistant role re-query | AUTOMATED PASS |
+| Recurrence presets / custom / all-day | LIVE PASS + AUTOMATED PASS |
+| Required/optional authoring and in-place role change | LIVE PASS + AUTOMATED PASS |
+| Role selector mouse (native dropdown → Необязательный) | LIVE PASS |
+| Role selector keyboard (focus + Alt+Down / Home|End / Enter) | LIVE PASS |
+| Scheduling Assistant role re-query | LIVE PASS + AUTOMATED PASS |
 | Outbound REQUEST RRULE + ROLE | AUTOMATED PASS |
 | Series edit vs occurrence RRULE safety | AUTOMATED PASS |
-| Create-by-selection recurrence/role UI | AUTOMATED PASS |
-| Live Tauri Create → Cancel (toolbar + selection) | NOT RUN — no Tauri session in this closure; Save on real Yandex event remains forbidden |
+| Create-by-selection recurrence/role UI | LIVE PASS + AUTOMATED PASS |
+| Reminders control with recurrence/participants | LIVE PASS |
+| Responsive narrow create (~900×780) | LIVE PASS |
+| Live Tauri Create → Cancel (toolbar + selection) | PASS — forms closed via Отмена only; Save/Создать not used |
 | Cloud mutations | NONE |
 
 Graphify: `graphify update .` → 6,844 nodes / 17,606 edges / 406 communities. Integrity: 0 unverified code nodes, missing/dangling endpoints, self-loops or exact duplicate edges. Saved labels are stale relative to current communities.

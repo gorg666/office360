@@ -2,7 +2,9 @@
 
 Status: **PASS** on `feat/calendar-yandex360`.
 Migration: **NONE**.
-Live smoke: Create → Cancel only; no real Yandex Save.
+Live smoke: **PASS** (2026-08-23, Asia/Bangkok) — Create → Cancel only; no real Yandex Save.
+
+Live role selector: mouse native dropdown Required ↔ Optional **PASS**; keyboard focus + Alt+Down / Home|End / Enter **PASS**. No code fix required — control is interactive for users.
 
 ## Boundary
 
