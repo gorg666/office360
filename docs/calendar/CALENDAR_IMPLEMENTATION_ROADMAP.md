@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: CAL-101A through CAL-123 are completed (including CAL-102F); CAL-120 is the delivered parity audit. CAL-122 closes the Mail/iTIP P0 lifecycle gap, and CAL-123 closes the Yandex participant Free/Busy P0 through the exposed RFC 6638 provider contract. This document is the source of truth for Calendar ticket numbering and remaining priority, while `CALENDAR_FINAL_PARITY_AUDIT.md` records the parity verdict and addenda.
+Roadmap state: delivered work now reaches CAL-124 (including CAL-102F; CAL-115/116 remain historical roadmap scopes rather than separately closed tickets). CAL-121 closes reminder delivery, CAL-122 closes the Mail/iTIP lifecycle, CAL-123 closes Yandex participant Free/Busy through the exposed RFC 6638 provider contract, and CAL-124 is the post-closure parity re-audit. This document is the source of truth for Calendar ticket numbering and remaining priority; `CALENDAR_FINAL_PARITY_AUDIT.md` is the current parity and merge verdict.
 
 **Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
 
@@ -36,10 +36,13 @@ CAL-102/105/112  ->  CAL-113 Day/Week timed drag/resize (delivered)
                  ->  CAL-114 Month/all-day/conversion (delivered)
 CAL-115 application service/UI state  ->  CAL-116 layout engine  ->  CAL-117 create-by-selection / auto-scroll
 CAL-102/103/104/105                   ->  CAL-118 provider-neutral reminder metadata (delivered)
-Outbound iTIP/RSVP  (pending backlog; previously outlined as CAL-114 before Month/all-day took that number)
 CAL-119 shared calendars/permissions (delivered: read-only discovery/enforcement/reconciliation)
 CAL-120 final parity audit (delivered; docs-only)
-Remaining P0/P1 gaps and post-parity backlog are intentionally unnumbered until the owner selects scope.
+CAL-118 -> CAL-121 durable reminder delivery (delivered)
+CAL-103/105/106 + Mail queue -> CAL-122 application iTIP lifecycle (delivered)
+CAL-110 -> CAL-123 Yandex RFC 6638 decision (delivered)
+CAL-120/121/122/123 -> CAL-124 final parity re-audit (delivered; docs-only)
+Remaining P1 gaps and post-parity backlog are intentionally unnumbered until the owner selects scope.
 ```
 
 ## CAL-101 — Approve clean baseline and reproduce Calendar runtime
@@ -252,9 +255,6 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 These scopes were previously labeled CAL-111/CAL-112 before the explicit owner handoff assigned those numbers to recurrence backend/UI. They stay pending and must receive new numbers before implementation; completed ticket history is unchanged.
 
-- Mail inbound calendar MIME ingestion (previously listed as CAL-113 before the owner handoff assigned CAL-113 to Day/Week drag/resize).
-
-
 ## CAL-113 (delivered) — Event drag and resize
 
 
@@ -278,28 +278,7 @@ These scopes were previously labeled CAL-111/CAL-112 before the explicit owner h
 
 **Acceptance (2026-08-23):** Month timed/all-day/multi-day drag with wall-clock or exclusive-date preservation; Week all-day row drag; timed → all-day and all-day → timed (60-minute default duration, CAL-113 snap); CAL-112 occurrence scope dialog; cancel/network/conflict/permission rollback; capability-gated read-only; 6 px click threshold; Event Edit as keyboard move/resize equivalent; DST/floating coverage in `dateShift.test.ts` / `npm run test:calendar-tz`. No migration and no live cloud mutation. Canonical contract: `CALENDAR_MONTH_ALLDAY_INTERACTIONS.md`.
 
-**Owner note:** an earlier outline used CAL-114 for outbound iTIP/RSVP. That work is **pending backlog** (do not implement mail here) and must take a later unused number when scheduled — do not reuse CAL-114.
-
-
-## Pending backlog — Outbound invitations, updates, cancellations and RSVP
-
-Formerly outlined under CAL-114 before Month/all-day took that number. Not started.
-
-**Цель:** объединить direct provider and iMIP delivery with truthful queue states.
-
-**Основные файлы/модули:** invitations service, Calendar provider capabilities, email builder, composer/send orchestrator, pending operations/Outbox/Sent.
-
-**Зависимости:** CAL-103, CAL-105; mail inbound MIME ingestion remains pending backlog.
-
-**Definition of Done:**
-
-- generate/send `METHOD:REQUEST|REPLY|CANCEL` with correct UID/SEQUENCE/RECURRENCE-ID;
-- direct API/CalDAV scheduling when supported, iMIP fallback otherwise;
-- local RSVP state reconciled only after confirmed delivery;
-- organizer update/cancel flows and retries visible;
-- provider + MIME integration tests; safe dry-run fixtures.
-
-**Риски:** duplicate invitations, incorrect sequence semantics, mail deliverability.
+**Owner note:** an earlier outline used CAL-114 for outbound iTIP/RSVP. The number remained assigned to Month/all-day; the Mail/iTIP work was later delivered as CAL-122.
 
 
 ## CAL-115 — Calendar application service and UI state
@@ -439,9 +418,21 @@ The audit does **not** start notification delivery, ACL management, recurrence s
 
 **Cloud safety:** delivery/snooze/dismiss are local only and never write provider event metadata or ACLs. Canonical details: `CALENDAR_REMINDER_DELIVERY.md`.
 
+## CAL-122 (delivered) — Application Mail/iTIP lifecycle
+
+**Status:** PASS (automated lifecycle acceptance and local v39 schema verification; no real send).
+
+REQUEST, REPLY and CANCEL now share a durable per-recipient lifecycle. Gmail/IMAP ingestion invokes the lifecycle at message-storage time rather than requiring ThreadView. UID, RECURRENCE-ID, SEQUENCE, DTSTAMP, sender/organizer validation and deterministic action keys protect reconciliation. Calendar create/update/delete and Mail RSVP queue iTIP through the existing Mail pending-operation/send path; organizer-side REPLY and inbound CANCEL update the normalized Calendar state without delivery loops. Canonical contract: `CALENDAR_INVITATION_LIFECYCLE.md`.
+
 ## CAL-123 (delivered) — Yandex remote participant Free/Busy decision
 
 **Status:** PASS. Read-only DAV discovery proved an exposed RFC 6638 scheduling contract for both available personal-domain and custom-domain Yandex accounts. The existing CAL-110 adapter is enabled by discovery, not by provider-name hardcoding. Root, principal, calendar home, calendar collection, inbox and outbox were probed; calendar-query/multiget and calendar-auto-schedule were observed. No live scheduling POST or cloud mutation was performed. Canonical decision: `CALENDAR_YANDEX_FREE_BUSY_DECISION.md`.
+
+## CAL-124 (delivered) — Post-P0 final parity re-audit
+
+**Status:** PASS as a docs-only audit; verdict **P0 CLOSED / P1 FOLLOW-UP / MERGE YES WITH CONDITIONS**.
+
+CAL-124 reconciled CAL-121/122/123 with the full user-flow matrix, removed stale Mail/P0 claims, reran TypeScript, full Vitest, four-zone TZ matrix, production build and `cargo check`, and separated literal Yandex parity from a scoped provider-neutral release candidate. No production feature code, migration, runtime DB, cloud event, mail, RSVP or ACL mutation was performed. Canonical verdict: `CALENDAR_FINAL_PARITY_AUDIT.md`.
 
 ## Remaining P0/P1 gaps
 
@@ -453,16 +444,16 @@ None. CAL-122 closed Mail invitation lifecycle and CAL-123 closed Yandex partici
 
 ### P1 — important parity gaps
 
-- recurring-series creation; keep `this-and-future` documented unless the owner expands product scope beyond current single/all parity evidence;
+- recurring-series creation/editor; keep `this-and-future` documented unless product scope expands;
 - participant directory/picker and persistent required/optional authoring;
-- shared-calendar/ACL management plus an isolated live read-only/shared fixture;
+- shared-calendar subscription/share/ACL management plus an isolated live read-only/shared fixture;
 - account/permission-filtered Calendar search;
-- Month overflow details and locale/configurable week start;
-- durable Google sync-token / CalDAV delta state and explicit offline-write policy.
+- Month overflow details and locale/configurable Monday-first week;
+- consolidate provider sync ownership and durable delta policy: Google token/capability/410 recovery consistency, CalDAV sync-token/ctag strategy and explicit offline-write policy.
 
 ## Post-parity backlog
 
-- current-time indicator and consistent RU editor copy;
+- current-time indicator, richer date navigation and consistent RU editor/time copy;
 - auto-scroll, multi-day all-day create selection and optional keyboard drag-selection;
 - WCAG, responsive, dark/light and measured performance/bundle hardening;
 - consolidate duplicated calendar discovery/application orchestration before expanding sync behavior;

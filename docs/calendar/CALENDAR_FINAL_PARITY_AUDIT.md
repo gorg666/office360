@@ -1,266 +1,256 @@
-# CAL-120 — Office360 Calendar final parity audit
+# CAL-124 — Office360 Calendar final parity re-audit
 
 Дата: 2026-08-23 (Asia/Bangkok)
 
 Ветка: `feat/calendar-yandex360`
 
-Production baseline: `4be8742`
+Production HEAD: `ff9e5fa`
 
-Docs-only runtime closure: `8e5201d`
+Предыдущий audit: `cf16a16` (CAL-120)
 
-## Executive summary
+Закрывающие P0 commits: `7839344` (reminder delivery), `c559ccc` (Mail/iTIP lifecycle), `ff9e5fa` (Yandex remote Free/Busy).
 
-Office360 Calendar уже является полноценным provider-neutral календарным клиентом: Month/Week/Day, несколько календарей, create/edit/delete, single/series recurrence mutations, participant semantics, reminders metadata, Free/Busy foundation, Scheduling Assistant, drag/resize, all-day conversion, shared-calendar access enforcement, timezone/DST-safe domain, iCalendar codec и cache-first sync работают через единые service boundaries.
+## Executive verdict
 
-Это ещё не полный функциональный паритет с веб-версией Яндекс 360 Календаря, но оба P0 из первоначального CAL-120 закрыты. CAL-121 закрыл reminder delivery, CAL-122 — Mail/iTIP lifecycle, а CAL-123 подтвердил live exposed RFC 6638 contract и подключил существующий remote Free/Busy adapter для Yandex без private API.
+Все три P0 из предыдущего аудита закрыты. Office360 Calendar имеет provider-neutral Month/Week/Day, CRUD, безопасные single/series recurrence mutations, participant semantics, Scheduling Assistant, Google и discovery-confirmed CalDAV/Yandex remote Free/Busy, application Mail iTIP lifecycle и durable local reminder delivery.
 
-Вердикт после CAL-123: **P0 CLOSED; P1 FOLLOW-UP**. Calendar является сильным provider-neutral release candidate. Оставшиеся различия — product interaction/management scope, а не отсутствующий Yandex provider outcome.
+Буквальный продуктовый паритет с Yandex 360 Calendar ещё **не достигнут**: отсутствуют recurring-series authoring, сохраняемое required/optional authoring, Calendar search и ACL/share management; Month overflow и RU week-start остаются незавершёнными. Поэтому итог: **P0 CLOSED; P1 FOLLOW-UP; MERGE YES WITH CONDITIONS**. Ветку можно merge как scoped Calendar release candidate, но нельзя называть полностью parity-complete без явно принятой P1 boundary.
 
-### Scores
+### Recalculated scores
 
-Численные scores ниже — исторический снимок CAL-120 и не пересчитывались механически после CAL-121/CAL-122; актуальные строковые verdicts в матрице уже включают оба closure ticket.
-
-| Dimension | Score | Meaning |
+| Dimension | Score | Evidence-based interpretation |
 |---|---:|---|
-| Functional parity | **79%** | Historical CAL-120 score; subsequent CAL-122/CAL-123 closed its two recorded P0 outcomes |
-| Interaction parity | **74%** | Grid interactions сильные; recurring create, optional attendee authoring, Month overflow, search и sharing management отсутствуют |
-| Visual parity | **66%** | Office360 использует собственную coherent theme; это не pixel clone, но Calendar остаётся проще Яндекса и местами смешивает RU/EN copy |
-| Production readiness | **72%** | Test/build health высокий; provider write/live-fixture coverage, iTIP lifecycle и several UX/accessibility gaps мешают parity release |
+| Functional parity | **88%** | Все P0 outcomes работают; несколько самостоятельных authoring/management/search outcomes остаются P1 |
+| Interaction parity | **81%** | Grid, recurrence scope, scheduling, reminders и invitations сильные; missing editor/picker/search/overflow/share interactions заметны |
+| Visual parity | **71%** | Coherent Office360 surface, но не pixel clone; смешанный RU/EN copy, нет current-time line и полной visual matrix |
+| Production readiness | **84%** | Clean full battery и durable local lifecycles; live destructive/shared fixtures и provider delta/offline policy остаются gaps |
 
-Оценки — evidence-weighted audit judgment, а не coverage percentage. `PASS` требует работающий runtime path или автоматический contract с честно указанным provenance; mocks не называются live evidence.
+Scores пересчитаны с нуля по текущей матрице. Это audit judgment, а не test-coverage percentage.
 
-## Evidence model
+## Evidence rules
 
-| Mark | Evidence |
+| Mark | Meaning |
 |---|---|
-| LIVE | Tauri runtime evidence from `CALENDAR_RUNTIME_BASELINE.md` |
-| AUTOMATED | unit/integration/provider-conformance/TZ tests |
-| CODE | current production source inspection on `8e5201d` |
-| PROVIDER DOC | official Yandex 360 help, used only to define comparison capability |
+| LIVE | Sanitized Tauri/provider runtime evidence из `CALENDAR_RUNTIME_BASELINE.md` |
+| AUTOMATED | Unit/integration/provider-conformance/TZ acceptance |
+| CODE | Production source inspection на `ff9e5fa` |
 
-Official comparison anchors:
+Automated fixture не называется live. CAL-123 live evidence подтверждает discovery contract; VFREEBUSY scheduling POST не выполнялся из-за возможного provider-side effect.
 
-- [Создать событие](https://yandex.ru/support/yandex-360/customers/calendar/web/ru/plan-events/events/event-create)
-- [Ответить на приглашение](https://yandex.ru/support/yandex-360/customers/calendar/web/ru/plan-events/events/event-invite)
-- [Выдать доступ к календарю](https://yandex.ru/support/yandex-360/customers/calendar/web/ru/collaboration/sharing)
-- [Найти событие](https://yandex.ru/support/yandex-360/customers/calendar/web/ru/event-search)
-- [События и напоминания](https://yandex.ru/support/yandex-360/customers/calendar/app/ru/events-and-notifications)
-- [Повторяющиеся события](https://yandex.ru/support/yandex-360/customers/calendar/app/ru/series)
+## P0 recheck
+
+| Former P0 | Status | Evidence |
+|---|---|---|
+| Reminder delivery | **CLOSED** | CAL-121: v38 durable ledger, deterministic dedupe, lease/catch-up, snooze/dismiss, mutation reconciliation, privacy-safe Tauri notification path |
+| Mail invitation lifecycle | **CLOSED** | CAL-122: REQUEST/REPLY/CANCEL, Gmail/IMAP automatic ingestion, delivered RSVP, organizer reconciliation, per-recipient outbound lifecycle through existing Mail queue |
+| Yandex participant Free/Busy | **CLOSED** | CAL-123: complete RFC 6638 discovery on two account classes; transport/routing/privacy automated; no unsafe live VFREEBUSY POST |
 
 ## Parity matrix
 
-| Area | Verdict | Evidence and delta |
+| Area | Verdict | Current evidence and remaining delta |
 |---|---|---|
-| Navigation / sidebar | PASS | LIVE route/sidebar, Today, previous/next and view switching; Office360 chrome differs visually by design |
-| Month | PASS | LIVE render/navigation; AUTOMATED multi-day spans, drag and all-day projection. `+N` overflow has no open action (P1 interaction delta) |
-| Week | PASS | LIVE grid; AUTOMATED continuous duration/overlap/drag/resize. RU week is hard-coded Sunday-first (P1 delta) |
-| Day | PASS | LIVE grid and event details; AUTOMATED continuous timed layout and selection |
-| Create event | PARTIAL | CODE/AUTOMATED provider create, grid draft, participants and reminders; no recurring-series authoring, optional-role authoring or invitation delivery; live smoke cancelled before Save |
-| Edit event | PASS | CODE/AUTOMATED typed mutation, ETag conflict, reminder preservation, Scheduling Assistant; live detail/edit shell exists |
-| Delete event | PASS | AUTOMATED provider delete, explicit recurrence scope and CalDAV resource safety; destructive live smoke intentionally absent |
-| Recurring events | PARTIAL | Full read/expansion and single/series update/delete; recurring create and `this-and-future` absent |
-| Participants | PARTIAL | Normalized identity/status/type/delegation and provider conformance; create input is comma-separated email text, no directory/picker or invitation delivery |
-| Required / optional | PARTIAL | Existing roles survive provider/domain/codec round-trip and scheduler distinguishes them; create UI cannot persist optional role explicitly |
-| RSVP | PASS | Provider-backed Calendar RSVP is direct and ledgered; Mail RSVP queues METHOD:REPLY with explicit delivery state |
-| Free/Busy | PASS | Self local-derived; Google remote automated; CalDAV/Yandex remote only after complete RFC 6638 discovery; Yandex contract confirmed LIVE by CAL-123 |
-| Scheduling Assistant | PASS | LIVE create/edit assistant; AUTOMATED provider-neutral privacy-safe timeline and stale-response cancellation |
-| Suggested slots | PASS | AUTOMATED deterministic required/optional ranking and working-hours-aware engine; result quality depends on availability reliability |
-| Multiple calendars | PASS | LIVE two-calendar list, visibility toggle and create target; provider reads are paginated/bounded as applicable |
-| Shared calendars | PARTIAL | Discovery/read and removed reconciliation implemented; no live shared fixture, subscriptions or sharing management |
-| Permissions | PASS | AUTOMATED Google roles and DAV privilege normalization; service + UI gates; live account only covered owned calendars |
-| Read-only behavior | PASS | AUTOMATED no create/edit/delete/drag/resize plus free-busy-only privacy; no live read-only fixture |
-| Drag/drop | PASS | AUTOMATED Day/Week cross-day wall-clock move, recurrence prompt and rollback; one earlier live non-recurring move proved remote path |
-| Resize | PASS | AUTOMATED top/bottom handles, snap/min duration, rollback; Event Edit is keyboard equivalent |
-| Month drag | PASS | AUTOMATED timed/all-day/multi-day moves, recurrence and DST semantics |
-| All-day interactions | PASS | AUTOMATED all-day row moves and timed ↔ all-day conversion; multi-day all-day create drag is absent |
-| Create by selection | PASS | LIVE Day/Week click+drag, Month/all-day click and keyboard slot/cell activation; no auto-scroll or keyboard drag-selection |
-| Reminders | PASS | Provider-neutral metadata, Google/VALARM persistence, durable desktop delivery, snooze/dismiss, bounded catch-up, local v38 schema and native Tauri toast smoke are covered by CAL-118/CAL-121 |
-| Timezone | PASS | Provider-neutral TZID and IANA `Intl` resolver; editor uses explicit Calendar timezone on submit |
-| DST | PASS | Explicit gap shift-forward / overlap earlier-offset plus four-zone matrix including Lord Howe |
-| All-day | PASS | Exclusive date model, Google exclusive end and provider/codec/UI tests |
-| Floating time | PASS | Explicit floating domain; resolution assumptions are diagnostic/reliability-aware |
-| ICS / iCalendar | PASS | `ical.js` codec covers VEVENT, VTIMEZONE, recurrence, participants, VALARM and malformed isolation |
-| Mail invite ingestion | PASS | REQUEST/CANCEL/REPLY ingest at Gmail/IMAP store boundary; ThreadView is not required; sender and sequence are reconciled |
-| Mail ↔ Calendar | PASS | Delivered RSVP, organizer-side REPLY, inbound CANCEL and outbound REQUEST/update/CANCEL share one durable lifecycle |
-| Provider sync | PARTIAL | Cache-first bounded reconciliation and Google pagination; Google sync token and CalDAV delta/ctag durability remain ephemeral/range-refresh |
-| Offline / cache / stale | PARTIAL | Cached stale state, retry and degraded parse preservation work; offline event writes/queue are absent |
-| Errors / conflicts | PASS | Typed auth/permission/conflict/network states, ETag when available, rollback and safe user copy; legacy no-ETag writes remain unconditional |
-| Accessibility | PARTIAL | Keyboard create/open/edit, modal/radio semantics, ARIA labels/live regions; no keyboard drag-selection, no dedicated WCAG audit, pointer resize handles are hidden |
-| Responsive | PARTIAL | LIVE create/assistant usable around 720 px with local scrolling; narrow toolbar/sidebar and dense Month/Week states lack complete matrix |
-| Dark mode | PARTIAL | Calendar consistently uses Office360 semantic color tokens; no dedicated light/dark visual acceptance matrix |
+| Navigation / sidebar | PASS | LIVE Calendar route, Today, previous/next, view switching and calendar-list toggle |
+| Month | PASS | LIVE render/navigation; AUTOMATED spans, all-day projection and moves |
+| Week | PASS | LIVE render/navigation; AUTOMATED continuous layout, overlaps, drag/resize |
+| Day | PASS | LIVE render/navigation/details; AUTOMATED timed and all-day interaction |
+| Create event | PARTIAL | Provider create, grid drafts, participants, reminders, assistant and outbound REQUEST work; no RRULE authoring or persistent optional role UI |
+| Edit event | PASS | Typed provider mutation, ETag when present, attendees/reminders, assistant and outbound update lifecycle |
+| Delete event | PASS | Plain/series/single safe paths plus outbound CANCEL; destructive live acceptance intentionally limited |
+| Recurring create | MISSING | `EventCreateInput` and create UI have no recurrence rule; recurrence write exists only for series mutations |
+| Recurring edit | PASS | Explicit single/series scopes and safe provider mapping; `this-and-future` intentionally unsupported |
+| Participants | PARTIAL | Domain/provider/write lifecycle complete; authoring remains comma-separated email input without directory/picker |
+| Required / optional | PARTIAL | Round-trip and Scheduling Assistant roles work; role toggle is assistant-local and is not persisted by create/edit authoring |
+| RSVP | PASS | Provider direct response and Mail METHOD:REPLY use one normalized attendee state with explicit delivery state |
+| Mail REQUEST | PASS | Automatic Gmail/IMAP ingestion, trust/sequence/idempotency and projection covered |
+| Mail REPLY | PASS | Organizer-side attendee reconciliation and stale/suspicious handling covered |
+| Mail CANCEL | PASS | Series/occurrence cancellation reconciliation covered without unsafe whole-series fallback |
+| Outbound invitations | PASS | Per-recipient REQUEST/update/CANCEL goes through existing Mail pending-operation queue |
+| Free/Busy | PASS | Local self, Google remote and discovery-gated RFC 6638 adapters; unknown/denied never become free |
+| Yandex Free/Busy | PASS | LIVE protocol discovery + AUTOMATED transport; live VFREEBUSY POST intentionally not executed |
+| Scheduling Assistant | PASS | LIVE create/edit UI; privacy-safe provider-neutral timeline |
+| Suggested slots | PASS | Deterministic required/optional ranking and working-hours-aware engine |
+| Multiple calendars | PASS | LIVE list, visibility and create target; provider pagination/bounded reads as supported |
+| Shared calendars | PARTIAL | Read/discovery/presence and permission semantics implemented; no live shared fixture or subscription management |
+| Permissions | PASS | Effective access normalization and service/UI write gates; live owned fixture plus automated shared roles |
+| ACL management | MISSING | No add user/change role/remove access/share-management UI or provider mutation adapter |
+| Drag/drop | PASS | Day/Week and date-grid moves, recurrence prompt, rollback and DST semantics |
+| Resize | PASS | Top/bottom handles, snap/min-duration and rollback; Event Edit is keyboard equivalent |
+| Month drag | PASS | Timed/all-day/multi-day moves and timed↔all-day conversions |
+| All-day interactions | PASS | Move/conversion/create-click work; multi-day all-day create drag is deferred polish |
+| Create by selection | PASS | LIVE Day/Week click+drag, Month/all-day click and keyboard activation |
+| Reminder metadata | PASS | Google and VALARM normalized policy with lazy legacy compatibility |
+| Desktop reminder delivery | PASS | Durable delivery while process/tray is alive and safe native notification integration |
+| Snooze | PASS | Linked local delivery row; provider reminder metadata unchanged |
+| Dismiss | PASS | Occurrence-local durable handling |
+| Catch-up | PASS | Bounded six-hour startup/resume catch-up and dedupe |
+| Timezone | PASS | Provider-neutral timed-zoned/floating/all-day and IANA resolution |
+| DST | PASS | Gap shift-forward, overlap earlier-offset and four-zone acceptance |
+| ICS / iCalendar | PASS | `ical.js` codec, recurrence, participants, VALARM, VTIMEZONE and malformed isolation |
+| Offline / cache | PARTIAL | Cache-first stale/read coverage works; offline event write queue does not exist |
+| Provider delta sync | PARTIAL | Google background sync persists tokens, but capability/read owners disagree and expired-token recovery retains stale state; CalDAV remains range refresh without sync-token/ctag delta |
+| Search | MISSING | No Calendar event search surface or account/permission-filtered Calendar query path |
+| Accessibility | PARTIAL | Keyboard create/open/edit, modal/radio semantics and ARIA exist; no WCAG audit or keyboard drag-selection |
+| Responsive | PARTIAL | LIVE ~720 px create/assistant smoke; dense Month/Week and toolbar matrix incomplete |
+| Dark mode | PARTIAL | Semantic theme tokens are used; dedicated light/dark visual regression is absent |
 
-## User flow verdicts
+## Core user flows
 
-### Flow A — Open Calendar → Month/Week/Day → choose/hide/show calendar
+### Flow A — Open Calendar → Month/Week/Day → calendars visibility
 
-**PASS (LIVE).** Route, views, list, two present calendars and reversible local visibility toggle were exercised. Visibility does not mutate provider ACL/subscription state.
+**PASS (LIVE).** Navigation, multiple calendars and reversible local visibility are confirmed. Visibility is not ACL/subscription mutation.
 
-### Flow B — grid click/drag → create → participants → reminder → Save
+### Flow B — Create → participants → required/optional → reminders → Scheduling Assistant → Save → outbound invitation
 
-**PARTIAL.** Grid draft, event editor, attendees, reminder policy, provider create path and local reminder delivery are covered. Live event creation smoke stopped at Cancel. Required-only email entry is available, but optional-role authoring, participant directory and actual invitation delivery are missing.
+**PARTIAL.** Create, reminders, assistant, Save and outbound REQUEST are implemented. The flow cannot author RRULE and cannot persist optional attendee role from the current create UI.
 
-### Flow C — open existing → edit → move → drag/resize
+### Flow C — Edit → drag/resize → participants/reminders → send update
 
-**PASS with mixed evidence.** Existing details are LIVE; edit/provider mutation, drag/resize, rollback and conflicts are primarily AUTOMATED. A previous live non-recurring drag wrote remotely, but comprehensive destructive smoke was intentionally not repeated.
+**PASS with mixed evidence.** Typed edit, drag/resize, reminder preservation and outbound attendee update are automated; prior runtime proved details and one real non-recurring move. A complete destructive provider matrix was not repeated.
 
-### Flow D — recurring occurrence → only this / whole series
+### Flow D — Recurring occurrence → edit/delete → single/series
 
-**PARTIAL.** `single` and `series` edit/delete are AUTOMATED and capability-driven. No safe live recurring fixture was available. `this-and-future` and recurring-series creation are unsupported.
+**PASS for existing series; PARTIAL end-to-end recurrence product flow.** Single/series update/delete are safe and explicit. Creating the series in Office360 and `this-and-future` are unavailable.
 
-### Flow E — participants → availability → suggested slot → select time
+### Flow E — Add Yandex participant → remote Free/Busy → suggestion → choose slot
 
-**PASS within provider permissions.** Assistant UI and selection are LIVE/AUTOMATED. Google and discovery-confirmed CalDAV/Yandex use remote adapters; per-recipient denial/error remains unknown and can never be promoted to free.
+**PASS.** CAL-123 confirmed the live RFC 6638 discovery gate; request transport, privacy, errors and slot selection are automated. No live VFREEBUSY POST was sent.
 
-### Flow F — shared/read-only calendar → view → attempt edit
+### Flow F — Shared/read-only calendar → view → permission enforcement
 
-**PARTIAL evidence, functionally implemented.** Automated role/privacy/write-gate tests pass and service enforcement precedes provider I/O. No live shared/read-only/free-busy-only calendar was available.
+**PASS functionally / PARTIAL live evidence.** Automated roles, privacy and pre-provider write gates pass. No isolated live shared/read-only/free-busy-only fixture was available.
 
-### Flow G — incoming Mail invite → RSVP → Calendar state
+### Flow G — Incoming REQUEST → automatic ingestion → RSVP → delivered REPLY → organizer reconciliation → CANCEL
 
-**PASS (automated, no live send).** Incoming ICS is ingested at message storage, renders an invitation card and updates Calendar participant semantics. RSVP uses the existing Mail queue with separate local and delivery state; fixtures cover success/retry/failure without sending real mail.
+**PASS (AUTOMATED).** Ingestion is outside ThreadView and reuses the existing Mail queue. Real send/RSVP/cancel was intentionally not executed.
 
-## Functional, interaction and visual parity
+### Flow H — Reminder due → notification → snooze/dismiss → restart catch-up
 
-- **Functional parity** asks whether the same outcome is possible. Grid CRUD, recurrence single/series, time semantics, provider sync, local reminder delivery, application iTIP lifecycle and discovery-gated Yandex participant availability are real. Remaining deltas are listed as P1/P2 product scope.
-- **Interaction parity** asks whether the user can discover and complete the workflow safely. Office360 intentionally differs in layout, but grid selection, drag/resize, scope prompts and scheduler are equivalent. Missing Month overflow action, search, recurring create and participant/ACL editors are interaction gaps.
-- **Visual parity** does not require Yandex branding or exact CSS. Office360 has a coherent semantic theme and readable calendar surfaces, but less dense feature chrome, mixed Russian/English editor copy, no dedicated current-time indicator and incomplete light/dark/responsive visual acceptance.
+**PASS within desktop process contract.** Native toast integration was smoked locally; due-event lifecycle is fixture-tested. Fully exited app delivery is not supported; restart catch-up is.
 
-## Provider matrix
+## Provider summary
 
 | Capability | Google | Generic CalDAV | Yandex CalDAV |
 |---|---|---|---|
-| Read | PASS, paginated | PASS, bounded range | PASS LIVE read-only |
-| Write | PASS contract | PASS contract | PASS contract; destructive live suite not run |
-| Recurrence | Full read; partial write | Full read; partial write | Same as CalDAV |
-| Single occurrence | Update/delete | Update/delete; EXDATE for delete | Same as CalDAV |
-| This-and-future | MISSING | MISSING | MISSING |
-| Reminders | Full defaults/overrides | Partial DISPLAY/EMAIL read; DISPLAY write | Same as CalDAV |
-| Remote Free/Busy others | PASS AUTOMATED | Conditional after RFC 6638 discovery | PASS LIVE DISCOVERY / AUTOMATED QUERY |
-| Shared calendars | Read | Read | Read discovery |
-| Effective permissions | Full role mapping | Partial DAV privileges | Partial DAV privileges; LIVE owned only |
+| Read / CRUD | PASS contract | PASS contract | PASS read LIVE; writes contract-tested |
+| Recurrence | Read + single/series mutations | Read + single/series mutations | Same as CalDAV |
+| Attendees / RSVP | PASS normalized/direct | PASS normalized/direct | Same as CalDAV |
+| Application Mail iTIP | PASS | PASS | PASS |
+| Remote participant Free/Busy | PASS automated | Conditional RFC 6638 | PASS discovery LIVE / query automated |
+| Shared/effective access | PASS mapping | PASS partial DAV mapping | Same as CalDAV; owned live only |
 | ACL management | MISSING | MISSING | MISSING |
-| Calendar-event RSVP | Direct | Direct | Direct contract; organizer side effects not live-confirmed |
-| Mail-invite RSVP | MISSING delivery | MISSING delivery | MISSING delivery |
-| ICS | Provider mapping | Full codec/resource path | Full codec/resource path |
+| Delta durability | PARTIAL/inconsistent | MISSING | MISSING |
 
-## Mail ↔ Calendar audit
+## Mail lifecycle
 
-| Method / flow | Status | Evidence |
-|---|---|---|
-| `METHOD:REQUEST` parse/card | PARTIAL | Parsed and persisted when ThreadView inspects body/attachment; not a sync-time MIME ingestion pipeline |
-| `METHOD:REPLY` parse | PARTIAL | Codec fixture/parser accepts it; no organizer-side attendee reconciliation/delivery lifecycle |
-| `METHOD:CANCEL` parse/card | PARTIAL | Cancellation status is shown; no complete removal/update propagation to provider Calendar state |
-| Mail RSVP UI | PARTIAL | Accept/tentative/decline updates local invitation participant state |
-| Remote RSVP delivery | MISSING | Pending operation intentionally terminates `unsupported` and removes provisional projection |
-| Calendar projection | PARTIAL | Provisional accepted/tentative projection exists only until unsupported queue execution |
-| Outbound invite/update/cancel | MISSING | Provider capabilities declare invitation delivery `none`; no iMIP REQUEST/REPLY/CANCEL Outbox/Sent path |
+CAL-122 closes the previous contradictory `PARTIAL/MISSING` rows. REQUEST, REPLY and CANCEL are ingested at Gmail/IMAP storage boundaries; UID/RECURRENCE-ID/SEQUENCE/DTSTAMP and sender/organizer validation drive durable idempotent reconciliation. Mail RSVP and outbound create/update/cancel use per-recipient `calendar_itip_actions` linked to the existing `sendMessage` queue. Automated acceptance covers delivery/retry/failure; no real email or cloud RSVP was sent.
 
-## Notifications audit
+## Reminder delivery
 
-| Layer | Verdict |
+CAL-121 closes delivery, snooze, dismiss, catch-up and dedupe. Delivery is supported while the Tauri process remains alive in tray/background. If the application is fully terminated, real-time delivery is impossible because Office360 has no OS background service; on restart, the bounded catch-up window runs. This is a declared desktop architecture limitation, not a P0 under the approved tray-resident product contract.
+
+## Remaining gaps
+
+### P0
+
+None.
+
+### P1 — material parity or release-readiness gaps
+
+1. Recurring-series creation/editor; `this-and-future` remains a declared limitation.
+2. Participant picker/directory and persistent required↔optional authoring.
+3. Shared-calendar subscription/share/ACL management plus isolated live shared/read-only acceptance.
+4. Account- and permission-filtered Calendar event search.
+5. Month `+N` details interaction and locale/configurable Monday-first week.
+6. Consolidated durable provider delta sync and explicit offline-write policy, including Google expired-token recovery and CalDAV sync-token/ctag strategy.
+
+### P2 — polish and hardening
+
+1. Current-time indicator, richer date navigation and consistent RU editor/time labels.
+2. Auto-scroll, multi-day all-day create drag and optional keyboard drag-selection.
+3. Full responsive-density, light/dark visual regression and WCAG audit.
+4. Bundle/code-splitting and Calendar orchestration cleanup.
+
+### Explicitly out of parity scope
+
+1. Pixel-identical Yandex branding/CSS.
+2. Organization directory rewrite, room booking/availability, tasks/templates and Alice.
+3. Touch/mobile-first behavior unless separately promised.
+4. OS-level reminders after full process termination without a background service.
+
+## Focused P1 findings
+
+- **Recurring create: MISSING.** Create UI/provider input has no recurrence rule; existing series mutation support does not close authoring.
+- **Participant authoring: PARTIAL.** Email entry adds required attendees. Scheduling Assistant role toggles are local planning state and do not persist optional roles.
+- **ACL management: MISSING.** Effective permission discovery/enforcement is PASS, but provider sharing mutations and management UI are absent.
+- **Calendar search: MISSING.** Mail/global search is not a Calendar event search substitute.
+- **Month overflow: PARTIAL.** `+N ещё` renders but its click only stops propagation and opens no details surface.
+- **RU localization/week-start: PARTIAL.** Russian day/month labels exist, but Month/Week arrays and range math are Sunday-first; editor still mixes Russian and English copy.
+- **Current-time indicator: MISSING/P2.** Today header styling exists; no Day/Week horizontal current-time marker.
+- **Delta sync/offline: PARTIAL.** Cached reads and stale UI are strong. Google background delta token persistence exists but is inconsistent with capabilities and foreground ownership; CalDAV has no delta; offline writes are unsupported.
+
+## Test health on clean `ff9e5fa`
+
+| Check | Result |
 |---|---|
-| Reminder model | PASS |
-| Google/CalDAV/Yandex persistence | PASS within documented capability limits |
-| Desktop delivery | PASS |
-| Snooze | PASS |
-| Dismiss / acknowledge | PASS |
-| Background scheduling | PASS while tray process is alive |
-| Restart/sleep catch-up and dedupe | PASS (6-hour bounded catch-up) |
+| TypeScript `npx tsc --noEmit` | PASS |
+| Full Vitest | PASS — 250 files / 2473 tests |
+| TZ matrix | PASS — 15 files / 186 tests in each of UTC, Europe/Moscow, America/New_York, Australia/Lord_Howe |
+| Frontend production build | PASS — main 2,102.51 kB / 623.57 kB gzip; Calendar 120.84 kB / 35.60 kB gzip |
+| `cargo check` | PASS — two pre-existing unused-variable warnings at `src/lib.rs:378` |
 
-Concrete notification reminders now have a local Office360 delivery guarantee while the tray process is alive, plus bounded startup catch-up. Fully terminated real-time delivery remains explicitly unsupported without an OS background service.
+Known non-failing test/build noise: existing React `act(...)` warnings, externalized `stream` warning from transitive `sax`, mixed static/dynamic import warnings and main chunk >500 kB.
 
-## Shared calendars and ACL
+## Live evidence boundary
 
-Discovery, role normalization, local persistence, removed-calendar reconciliation, read-only enforcement and free-busy-only privacy are implemented. Management is not: Office360 cannot invite a user, change a role, remove access, subscribe/unsubscribe, reorder provider calendars or change provider color. The official Yandex web product exposes role-based sharing management, so this is a real parity delta, not a provider capability already hidden elsewhere.
+- Month/Week/Day, calendar list, event details and local visibility: LIVE from prior read-only Tauri smokes.
+- Shared-calendar read: production semantics automated; no live shared/read-only fixture.
+- Native notification toast path: LIVE local CAL-121 hook; real due event absent.
+- Invitation lifecycle: AUTOMATED only; no live mail/RSVP send.
+- Yandex RFC 6638 discovery: LIVE on two account classes.
+- VFREEBUSY transport: AUTOMATED; live scheduling POST not executed.
 
-## Remaining gaps and priority
+No new Tauri runtime was required for this docs-only re-audit because `ff9e5fa` already has recorded runtime evidence and the current full production-code battery passed unchanged.
 
-### P0 — blocks full functional parity
+## Code health
 
-None. CAL-122 closed Mail invitation lifecycle. CAL-123 closed Yandex participant availability through the exposed privacy-safe RFC 6638 provider contract. See `CALENDAR_INVITATION_LIFECYCLE.md` and `CALENDAR_YANDEX_FREE_BUSY_DECISION.md`.
+- `CalendarPage.tsx` remains a 736-line presentation/orchestration owner.
+- Foreground `CalendarSyncService` and background `gmail/syncManager` duplicate calendar discovery/reconciliation responsibilities.
+- Google delta tokens are stored by the background path, but capabilities say ephemeral and 410 recovery does not clear the stored token.
+- `src/services/google/calendar.ts` remains an unreferenced legacy candidate.
+- Main bundle is 2,102.51 kB raw / 623.57 kB gzip; existing chunk warnings remain.
+- Graphify index is healthy at 6,760 nodes / 17,358 edges / 414 communities, but saved community labels are stale; query tooling package warns that skill 0.9.33 is newer than interpreter package 0.9.31.
+- Rust retains two pre-existing unused-variable warnings.
 
-### P1 — important parity gaps
+These are technical debt unless they directly map to the P1 delta/offline item above.
 
-1. Recurring-series creation/editor. Keep `this-and-future` as a documented limitation unless product scope expands beyond the currently evidenced Yandex single/all interaction.
-2. Participant directory/picker and persistent required/optional authoring; organizer invitation delivery is coupled to P0 #2.
-3. Shared-calendar/ACL management and live shared/read-only acceptance fixture.
-4. Calendar event search with account/permission filtering.
-5. Month `+N` details surface; currently the button stops propagation and performs no action.
-6. Locale/configurable week start; RU Month/Week are currently Sunday-first.
-7. Durable Google sync-token and CalDAV delta state, plus explicit offline-write policy.
+## Release boundary and merge recommendation
 
-### P2 — polish / hardening
+### Must before merge
 
-1. Current-time indicator, richer date navigation and consistent RU editor copy.
-2. Auto-scroll during selection/drag, multi-day all-day create drag and optional keyboard drag-selection.
-3. Full responsive density matrix, light/dark visual regression and WCAG audit.
-4. Provider/live destructive test fixtures isolated from personal calendars.
+1. Owner explicitly accepts that this merge is a scoped provider-neutral Calendar release candidate, not a literal full Yandex Calendar parity claim.
+2. Preserve the green CI/build gate and docs-only audit commit; no additional P0 code blocker is known.
 
-### P3 — intentional or separately scoped
+### Must before broad release
 
-1. Pixel-perfect Yandex branding/CSS clone.
-2. Room search/booking, organization directory rewrite, tasks/templates/Alice parity.
-3. Touch-first/mobile interaction parity unless Office360 defines it as a desktop requirement.
-4. Unsupported VALARM shapes and CalDAV EMAIL authoring until provider delivery is validated.
+1. Run isolated non-personal live acceptance for provider create/edit/delete/recurrence/RSVP/outbound invitation and shared/read-only roles, or explicitly ship those as automated-only evidence.
+2. Select and close or explicitly defer the promised P1 product boundary: recurring create, persistent participant roles, search and ACL management.
+3. Resolve/document the Google token-recovery/capability inconsistency and the CalDAV/offline sync policy before claiming robust offline/delta behavior.
 
-## Known limitations classification
+### Acceptable post-merge
 
-| Known limitation | Classification | Blocking? |
-|---|---|---|
-| `this-and-future` unsupported | Documented limitation | No for the currently evidenced Yandex single/all interaction; no silent fallback exists |
-| All-day create drag-selection absent | P2 | No; click create is understandable equivalent |
-| Keyboard drag-selection absent | P2 | No; slot/cell create and Event Edit provide accessible completion |
-| Auto-scroll absent | P2 | No for normal viewport; friction for long drag |
-| Fully terminated real-time reminder delivery | Documented platform limitation | No; tray runtime plus startup catch-up is the approved contract |
-| Live Google Free/Busy fixture unavailable | Evidence gap | Not a code blocker; blocks live claim |
-| Live shared/read-only fixture unavailable | Evidence gap / P1 acceptance | Blocks production confidence for shared roles, not automated semantics |
-| Yandex RFC 6638 remote Free/Busy | Closed by CAL-123 | No; complete discovery contract confirmed on personal-domain and custom-domain accounts |
+1. Month overflow, Monday/configurable week start and current-time line if they are not part of the first release promise.
+2. Auto-scroll, multi-day all-day selection and keyboard drag-selection.
+3. WCAG, responsive, dark/light and bundle hardening.
 
-## Regression and code health
+### Final classification
 
-CAL-123 changes the CalDAV discovery gate, diagnostics, scheduler limitation copy and tests. Its current production-code battery is recorded in `CALENDAR_RUNTIME_BASELINE.md`; the older CAL-119 figures below remain historical context:
-
-- TypeScript: PASS.
-- Targeted CAL-119: 13 files / 188 tests PASS.
-- Full Vitest: 241 files / 2409 tests PASS.
-- TZ matrix: 168/168 in each of UTC, Europe/Moscow, America/New_York and Australia/Lord_Howe.
-- Frontend production build: PASS; main 2,047.06 kB raw / 609.64 kB gzip, Calendar chunk 126.92 kB / 37.04 kB gzip; existing large-chunk warnings remain.
-- `cargo check`: PASS with two pre-existing unused-variable warnings in `src/lib.rs:360`.
-- Tauri CAL-119: Month/Week/Day/list/create-cancel/details/visibility PASS; live shared/read-only fixture unavailable; cloud event/ACL mutations NONE.
-
-Technical debt, not parity blockers by itself:
-
-- `src/services/google/calendar.ts` is unreferenced legacy candidate code.
-- Calendar discovery/upsert/reconciliation logic exists in `CalendarSyncService`, `calendarAccessService` and background `syncManager`; ownership should be consolidated before expanding sync policy.
-- `CalendarPage` still owns substantial presentation orchestration despite `CalendarSyncService`; the old CAL-115 application-state cleanup remains incomplete.
-- Graphify graph integrity is clean, but saved community labels are stale relative to 401 communities.
-- React tests emit some pre-existing `act(...)` warnings even though the suite passes.
-- Main bundle retains existing dynamic-import/chunk-size warnings.
-
-## Production readiness and merge recommendation
-
-### Feature complete?
-
-**No** for literal full Yandex 360 Calendar product parity because P1/P2 interaction and management scope remains. **Yes** as a provider-neutral Calendar release candidate with no open P0 provider outcome.
-
-### Merge recommendation
-
-**YES for the current scoped Calendar foundation/release candidate.** A literal feature-complete Yandex product claim still requires an explicit P1 release boundary, but no P0 provider waiver remains.
-
-### Required before parity merge
-
-1. Run isolated live provider acceptance for create/edit/delete/RSVP/recurrence and shared/read-only roles without personal-calendar risk.
-2. Decide the P1 release boundary for recurring create, participant role authoring, search and ACL management.
-
-### Post-merge backlog
-
-- Search, Monday/configurable week start, Month overflow details and current-time indicator.
-- Consolidate Calendar application/discovery orchestration and durable provider delta state.
-- WCAG, dark/light, narrow-window and performance/bundle hardening.
-- Optional interaction polish: auto-scroll, multi-day all-day selection and keyboard drag-selection.
+- Literal Yandex 360 parity-complete: **NO**.
+- Open P0: **NONE**.
+- Scoped Calendar foundation/release-candidate merge: **YES WITH CONDITIONS**.
+- Feature-complete: **NO** for the literal parity claim; strong release candidate with declared P1 limitations.
 
 ## Audit constraints
 
-- No production feature code changed.
-- No migration, runtime DB mutation, cloud event mutation, ACL mutation, deploy or secret access.
-- Graphify was queried for navigation; update is not required for docs-only output.
+- Production feature code unchanged.
+- No migration, DB mutation, cloud event/RSVP/mail/ACL mutation, deploy or secret access.
+- Graphify queried for navigation; no index update is required for docs-only changes.
