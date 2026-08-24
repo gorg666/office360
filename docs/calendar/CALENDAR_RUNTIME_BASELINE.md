@@ -608,3 +608,13 @@ Live Tauri CAL-130-FINAL (2026-08-24, Asia/Bangkok): WebView2 CDP on running `np
 CAL-130-FINAL: **PARTIAL** (`+N` fixture N/A). Canonical polish notes: `CALENDAR_FINAL_UI_POLISH.md`. Final parity verdict remains CAL-131. Screenshots not in git.
 
 Graphify: `graphify update .` → 7,085 nodes / 18,309 edges / 417 communities. `graphify diagnose multigraph` PASS: 0 unverified code nodes, missing/dangling endpoints, self-loops or exact duplicate edges. Saved community labels are stale (430 saved vs 417 communities); `graphify label` was not run (LLM). Semantic `--update` / openai extra not used. `graphify-out/` gitignored.
+
+### CAL-131 final parity audit baseline
+
+Дата: 2026-08-24 (Asia/Bangkok). Audit-only. Audited HEAD: `e627460`. Migration: NONE. Product/Rust code: unchanged. Runtime DB, production, deploy, secrets and cloud event/Mail/RSVP/ACL state: untouched.
+
+CAL-131 reconciled the complete post-CAL-130 evidence instead of carrying forward the earlier audit percentages. Final scoped verdict: **PASS**, Functional 96%, Interaction 91%, Visual 89%, Production readiness 90%; P0 none; feature-complete YES inside the provider-neutral boundary; literal Yandex 360 parity NO; merge YES WITH CONDITIONS. Canonical details and P1/P2/provider/platform classifications: `CALENDAR_FINAL_PARITY_AUDIT.md`.
+
+No new destructive or live smoke was needed. The current verification basis remains the final CAL-130 battery: TypeScript PASS; targeted Calendar UI PASS; Calendar battery 75 files / 672 tests PASS; full Vitest 264 files / 2,564 tests PASS; TZ matrix 15 files / 186 tests in each of UTC, Europe/Moscow, America/New_York and Australia/Lord_Howe; frontend production build PASS; `cargo check` PASS with the same two pre-existing unused-variable warnings in `src/lib.rs:378`. Safe Tauri A–H was PASS except live Month `+N` N/A for missing fixture density and inconclusive CDP observation of opener-focus restoration; both paths have automated coverage.
+
+Graphify-first audit query covered Calendar UX, recurrence, participants, Free/Busy, ACL, reminders, search and delta/offline. Read-only `graphify diagnose multigraph`: 7,085 nodes / 18,309 edges, 0 unverified nodes, missing/dangling endpoints, self-loops or exact duplicate edges. Docs-only changes do not require a graph refresh.

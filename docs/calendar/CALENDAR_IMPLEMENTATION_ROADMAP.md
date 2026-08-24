@@ -467,13 +467,19 @@ Provider-neutral `CalendarSearchService` searches title, description, location, 
 
 ## CAL-130 (delivered) — Final Calendar UI / accessibility / responsive polish
 
-**Status:** PASS for polish-class UI (automated). Live WebView2 A–H not CDP-automatable in this session.
+**Status:** PASS for polish-class UI; safe WebView2 A–H smoke completed, with live `+N` N/A because the fixture had no day with more than three events.
 
 **Цель:** довести существующий Calendar UI до цельного production polish перед CAL-131, без новых больших features и без смены provider/sync архитектуры.
 
 **Основные файлы:** `CalendarToolbar`, `CalendarList`, `CalendarPage`, `CalendarSearch`, `CalendarAclDialog`, `EventCreateModal`, `EventDetailModal`, `MonthOverflowPopover`, `MonthView`, `EventCard`, `Modal`, `focusTrap.ts`, `recurrenceEditScope.ts`.
 
-**Acceptance (2026-08-24):** wrap/overflow, focus trap/restore, RU user-visible copy, token-based light/dark, distinct offline/stale/error/syncing banners, narrow-window create/detail/ACL. Mini calendar не добавлялся. Keyboard DnD не реализовывался. Cloud mutations: NONE. Canonical notes: `CALENDAR_FINAL_UI_POLISH.md`. Финальный parity verdict — CAL-131.
+**Acceptance (2026-08-24):** wrap/overflow, focus trap/restore, RU user-visible copy, token-based light/dark, distinct offline/stale/error/syncing banners, narrow-window create/detail/ACL. Month/Week/Day, search, ACL unsupported-state, theme, 900×780 responsive layout and focus trap/Escape passed read-only live smoke. Mini calendar не добавлялся. Keyboard DnD не реализовывался. Cloud mutations: NONE. Canonical notes: `CALENDAR_FINAL_UI_POLISH.md`.
+
+## CAL-131 (delivered) — Final Calendar parity audit
+
+**Status:** PASS — **DONE as provider-neutral Office360 Calendar release**; literal Yandex 360 parity: NO; merge: YES WITH CONDITIONS.
+
+CAL-131 заново сверил CAL-125…CAL-130 с core flows A–J, provider evidence, privacy/permissions, Mail/reminder lifecycles, ACL, search, delta/offline, accessibility и responsive/theme. Fresh scores: Functional 96%, Interaction 91%, Visual 89%, Production readiness 90%. Remaining P0: none. Audit-only: product code, schema, runtime DB, cloud data, production, deploy and secrets untouched. Canonical verdict: `CALENDAR_FINAL_PARITY_AUDIT.md`.
 
 ## Remaining P0/P1 gaps
 
@@ -486,16 +492,20 @@ None. CAL-122 closed Mail invitation lifecycle and CAL-123 closed Yandex partici
 ### P1 — important parity gaps
 
 - `this-and-future` remains documented-unsupported unless product scope expands;
-- shared-calendar subscription management and an isolated live shared/read-only fixture (share/ACL management delivered by CAL-128);
-- participant directory/picker and isolated shared/read-only fixtures remain product follow-ups; durable delta/offline policy closed by CAL-129.
+- participant directory/picker remains a product follow-up;
+- shared-calendar subscription management and an isolated live shared/read-only/free-busy-only fixture remain; share/ACL management itself was delivered by CAL-128.
 
 ## Post-parity backlog
 
 - richer date navigation beyond current RU Monday-first / EN Sunday-first;
-- auto-scroll, multi-day all-day create selection and optional keyboard drag-selection;
+- drag auto-scroll and keyboard drag-selection;
+- full RFC 5545 nth-weekday recurrence editor and fuzzy/FTS search;
+- cursor-last idempotent replay is used instead of one full SQLite rollback transaction;
 - WCAG AA certification and measured performance/bundle hardening (obvious visual/a11y/responsive polish closed by CAL-130);
 - measure large-calendar initial snapshot and RFC 6578 server truncation behavior on isolated provider fixtures;
 - room booking, directory rewrite, tasks/templates and other product extensions only by separate scope.
+
+Accepted limits: no sync/native reminder delivery while the process is fully terminated; Yandex ACL writes remain unsupported without a confirmed standard DAV contract; bounded CalDAV fallback cannot observe tombstones outside its covered range; CAL-130 live `+N` fixture was absent while automated coverage passed. Mini calendar and literal Yandex visual/product cloning are out of scope.
 
 
 ## Historical note — first implementation ticket
