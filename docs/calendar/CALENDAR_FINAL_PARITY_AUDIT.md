@@ -160,7 +160,7 @@ None.
 
 1. `this-and-future` remains a declared limitation (not offered as a working option).
 2. Participant picker/directory (required/optional authoring is delivered by CAL-125).
-3. Shared-calendar subscription/share/ACL management plus isolated live shared/read-only acceptance.
+3. Shared-calendar subscription management plus isolated live shared/read-only acceptance (share/ACL management delivered by CAL-128).
 4. Consolidated durable provider delta sync and explicit offline-write policy, including Google expired-token recovery and CalDAV sync-token/ctag strategy.
 
 ### P2 — polish and hardening
@@ -181,7 +181,7 @@ None.
 
 - **Recurring create: PASS (CAL-125).** Presets, custom weekly days, until/count, all-day and series RRULE edit; occurrence cannot overwrite master.
 - **Participant authoring: PARTIAL.** Required/optional persist from create/edit rows. Directory/picker is still absent.
-- **ACL management: MISSING.** Effective permission discovery/enforcement is PASS, but provider sharing mutations and management UI are absent.
+- **ACL management: PASS (CAL-128, automated mutations/read-only live policy).** Effective permissions remain CAL-119-owned; provider-neutral list/grant/update/revoke, owner protection, Google scope gates, RFC 3744 conditional CalDAV/Yandex support and capability-driven UI are implemented. No real cloud ACL was mutated.
 - **Calendar search: PASS (CAL-127).** Dedicated bounded local-cache query with account/calendar/date filters; hidden readable calendars included; removed/cancelled/free-busy-only excluded; existing detail modal reused.
 - **Month overflow: PASS (CAL-126).** `+N ещё` opens popover with hidden day events; event click routes to detail; create-by-selection guarded.
 - **RU localization/week-start: PASS (CAL-126) for grid.** RU Month/Week start Monday via `weekLocale`; non-RU Sunday-first preserved. Editor copy still mixes RU/EN outside recurrence/role surfaces.
@@ -234,7 +234,7 @@ These are technical debt unless they directly map to the P1 delta/offline item a
 ### Must before broad release
 
 1. Run isolated non-personal live acceptance for provider create/edit/delete/recurrence/RSVP/outbound invitation and shared/read-only roles, or explicitly ship those as automated-only evidence.
-2. Select and close or explicitly defer the remaining P1 product boundary: ACL/share management (search closed by CAL-127; recurring create and persistent participant roles closed by CAL-125).
+2. Select and close or explicitly defer the remaining P1 product boundary: shared-calendar subscription and participant directory (ACL/share management closed by CAL-128; search closed by CAL-127; recurring create and persistent participant roles closed by CAL-125).
 3. Resolve/document the Google token-recovery/capability inconsistency and the CalDAV/offline sync policy before claiming robust offline/delta behavior.
 
 ### Acceptable post-merge

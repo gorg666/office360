@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: delivered work now reaches CAL-127 (including CAL-102F; CAL-115/116 remain historical roadmap scopes rather than separately closed tickets). CAL-121 closes reminder delivery, CAL-122 closes the Mail/iTIP lifecycle, CAL-123 closes Yandex participant Free/Busy through the exposed RFC 6638 provider contract, CAL-124 is the post-closure parity re-audit, CAL-125 closes recurring create plus persistent required/optional authoring, CAL-126 closes Month overflow popover, RU Monday-first week start and Day/Week current-time indicator, and CAL-127 closes account/permission-filtered local Calendar event search. This document is the source of truth for Calendar ticket numbering and remaining priority; `CALENDAR_FINAL_PARITY_AUDIT.md` is the current parity and merge verdict.
+Roadmap state: delivered work now reaches CAL-128 (including CAL-102F; CAL-115/116 remain historical roadmap scopes rather than separately closed tickets). CAL-121 closes reminder delivery, CAL-122 closes the Mail/iTIP lifecycle, CAL-123 closes Yandex participant Free/Busy through the exposed RFC 6638 provider contract, CAL-124 is the post-closure parity re-audit, CAL-125 closes recurring create plus persistent required/optional authoring, CAL-126 closes Month overflow popover, CAL-127 closes account/permission-filtered local Calendar event search, and CAL-128 closes provider-neutral Calendar share management with dynamic provider capability gates. This document is the source of truth for Calendar ticket numbering and remaining priority; `CALENDAR_FINAL_PARITY_AUDIT.md` is the current parity and merge verdict.
 
 **Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
 
@@ -455,6 +455,12 @@ Month `+N` opens `MonthOverflowPopover` for hidden same-day events without trigg
 
 Provider-neutral `CalendarSearchService` searches title, description, location, organizer and normalized participants through one bounded account/calendar-scoped SQLite query. Hidden readable calendars are included, removed/cancelled and free-busy-only data are excluded, recurrence produces one deterministic representative occurrence, and result resolution repeats the permission boundary. Toolbar UI provides 220 ms debounce, calendar/date filters, explicit states and Arrow/Enter/Escape navigation into the existing detail modal. Migration: NONE. Canonical contract: `CALENDAR_SEARCH.md`.
 
+## CAL-128 (delivered) — Calendar share / ACL management
+
+**Status:** PASS (automated provider/service/UI acceptance; live smoke is read-only by policy).
+
+`CalendarAclService` exposes provider-neutral list/grant/updateRole/revoke operations over normalized owner/writer/reader/free-busy-only roles. Google uses official ACL list/insert/update/delete endpoints behind persisted OAuth-scope checks. Generic CalDAV/Yandex use only RFC 3744 discovery and ACL methods; incomplete/unknown discovery remains unsupported. The UI is capability-driven, protects owner/current-user entries and refreshes CAL-119 metadata through normal provider discovery after a successful mutation. Migration: NONE. Cloud ACL mutations: NONE. Canonical contract: `CALENDAR_ACL_MANAGEMENT.md`.
+
 ## Remaining P0/P1 gaps
 
 No new ticket numbers are assigned automatically.
@@ -467,7 +473,7 @@ None. CAL-122 closed Mail invitation lifecycle and CAL-123 closed Yandex partici
 
 - `this-and-future` remains documented-unsupported unless product scope expands;
 - participant directory/picker (required/optional authoring is delivered by CAL-125);
-- shared-calendar subscription/share/ACL management plus an isolated live read-only/shared fixture;
+- shared-calendar subscription management and an isolated live shared/read-only fixture (share/ACL management delivered by CAL-128);
 - consolidate provider sync ownership and durable delta policy: Google token/capability/410 recovery consistency, CalDAV sync-token/ctag strategy and explicit offline-write policy.
 
 ## Post-parity backlog

@@ -7,6 +7,7 @@ const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const OAUTH_CALLBACK_PORT = 17248;
 const OAUTH_CALLBACK_TIMEOUT_MS = 45_000;
 const OAUTH_LISTENING_TIMEOUT_MS = 15_000;
+export const GOOGLE_CALENDAR_ACL_SCOPE = "https://www.googleapis.com/auth/calendar.acls";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -17,6 +18,7 @@ const SCOPES = [
   "https://www.googleapis.com/auth/userinfo.profile",
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
+  GOOGLE_CALENDAR_ACL_SCOPE,
 ].join(" ");
 
 interface OAuthServerResult {

@@ -1,5 +1,12 @@
 # Журнал изменений
 
+## 2026-08-24 — Calendar share management (CAL-128)
+
+- Добавлены provider-neutral ACL list/grant/update/revoke и роли owner/writer/reader/free-busy-only поверх CAL-119 effective permissions.
+- Google использует официальный ACL API и persisted OAuth scope gate; generic CalDAV/Yandex включают read/write только после полного RFC 3744 discovery.
+- Calendar UI capability-driven, защищает owner/current user, нормализует email и обновляет access metadata только обычным provider refresh.
+- Migration: NONE. Реальные Google/Yandex ACL и production не изменялись.
+
 ## 2026-08-23 — Shared calendar access (CAL-119)
 
 - Добавлен provider-neutral `CalendarAccess`: ownership, effective role и независимые read/write/free-busy permissions.

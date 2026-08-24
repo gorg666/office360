@@ -1,6 +1,6 @@
 # Calendar provider capabilities and write paths
 
-Дата: 2026-08-23 (Asia/Bangkok)
+Дата: 2026-08-24 (Asia/Bangkok)
 Контракт: `src/services/calendar/domain/capabilities.ts` (`version: 5`)
 
 Этот документ фиксирует только реально подключённые runtime-paths. Capability не означает, что provider API теоретически умеет функцию: она означает, что Office360 имеет работающий adapter и service boundary для этой функции.
@@ -32,8 +32,8 @@ Yandex использует тот же `CalDAVProvider`, что generic CalDAV,
 | Free/Busy (others) | `remote` | `none` → `remote` after RFC 6638 discovery | `none` → `remote` after RFC 6638 discovery |
 | Effective calendar access | `full` | `partial` | `partial` |
 | Ownership | `partial` | `partial` | `partial` |
-| ACL read / write | `none` / `none` | `partial` / `none` | `partial` / `none` |
-| Shared calendars | `read` | `read` | `read` |
+| ACL read / write | `partial` / `partial` after OAuth scope check | `partial` / `partial` after RFC 3744 discovery | `partial` / `partial` after RFC 3744 discovery |
+| Shared calendars | `manage` when ACL scope is granted | `read`; manage only after discovery | `read`; manage only after discovery |
 | Reminder read/write | `full` / `full` | `partial` / `partial` | `partial` / `partial` |
 | Reminder methods | notification, email | notification write; DISPLAY/EMAIL read | notification write; DISPLAY/EMAIL read |
 | Reminder defaults | `inherit` | `none` | `none` |
@@ -48,7 +48,7 @@ Yandex использует тот же `CalDAVProvider`, что generic CalDAV,
 
 `version: 4` adds structured reminder facts. Google supports provider defaults, explicit none and up to five popup/email overrides. CalDAV/Yandex can read multiple DISPLAY/EMAIL `VALARM` values, but Office360 only writes DISPLAY/notification alarms; RFC EMAIL support alone is not evidence of provider delivery. Mutation service validation rejects unsupported defaults, methods, multiplicity and counts before provider I/O. Details: `CALENDAR_REMINDERS.md`.
 
-`version: 5` adds per-calendar access discovery facts. Google CalendarList effective roles are full; ownership is partial because CalendarList is not a complete owner/ACL directory. CalDAV/Yandex privilege discovery is partial because servers may omit or incompletely implement WebDAV ACL properties. ACL mutations remain unsupported. Details: `CALENDAR_SHARED_ACCESS.md`.
+`version: 5` adds per-calendar access discovery facts. Google CalendarList effective roles are full; ownership is partial because CalendarList is not a complete owner/ACL directory. CalDAV/Yandex privilege discovery is partial because servers may omit or incompletely implement WebDAV ACL properties. CAL-128 adds dynamic ACL management without changing that static contract: Google requires a saved compatible OAuth grant; generic CalDAV/Yandex require the complete RFC 3744 read/write discovery contract. Unknown is never writable. Details: `CALENDAR_SHARED_ACCESS.md` and `CALENDAR_ACL_MANAGEMENT.md`.
 
 ## Runtime ownership
 
@@ -94,7 +94,7 @@ This is critical for CalDAV/Yandex: expanded occurrences share the series `.ics`
 
 ## Deliberate unsupported states
 
-- Remote Free/Busy exists for Google and discovery-confirmed CalDAV/Yandex. Missing discovery properties remain an intentional provider limitation. ACL management and provider-native invitation delivery remain unsupported. Application email iTIP is supported by CAL-122 through Mail queue semantics. Reminder metadata and desktop delivery follow CAL-118/CAL-121.
+- Remote Free/Busy exists for Google and discovery-confirmed CalDAV/Yandex. Missing discovery properties remain an intentional provider limitation. ACL management is dynamic: Google is scope-gated and CalDAV/Yandex are RFC 3744 discovery-gated. Provider-native invitation delivery remains unsupported. Application email iTIP is supported by CAL-122 through Mail queue semantics. Reminder metadata and desktop delivery follow CAL-118/CAL-121.
 - Mail invitation queue items use UID, recurrence identity, sequence and per-recipient durable action keys. Provider-backed Calendar RSVP uses direct provider delivery; Mail invitations use METHOD:REPLY rather than fabricating a provider resource locator.
 - Google sync tokens and CalDAV delta state are not durably adopted yet. Google fetch pagination remains complete, while the capability honestly reports ephemeral sync state; CalDAV reports bounded `range-refresh`.
 - `src/services/google/calendar.ts` has no imports in the current application graph and is legacy candidate code. It remains untouched to avoid unrelated destructive cleanup. The proven unreachable duplicate Gmail branch in `calendar/providerFactory.ts` was removed.

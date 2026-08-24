@@ -63,3 +63,14 @@ Remote GitHub: `gorg666/office360`
 - CAL-105: PASS locally. Capability v2 truthfully declares Google/CalDAV/Yandex CRUD, recurrence scopes, attendee/RSVP, sync durability, Free/Busy/ACL/reminders and ETag behavior. Typed mutation service blocks unsupported scopes, protects CalDAV occurrence delete, sanitizes write results and reconciles successful writes through CAL-104. Mail RSVP without remote locator is terminal unsupported without retry. No migration or real cloud mutation.
 - CAL-105 verification: TypeScript PASS; targeted 13 files / 215 tests; four-host-TZ matrix 45/45 per zone; full Vitest 205 files / 2071 tests; production build and cargo check PASS; read-only Yandex Month/Week/Day/two-calendar-list/capability-resolution Tauri smoke PASS.
 - Next Calendar step after CAL-105 acceptance: CAL-106 only by explicit instruction; do not start automatically.
+
+## Calendar CAL-128 checkpoint
+
+2026-08-24 (Asia/Bangkok) — branch `feat/calendar-yandex360`.
+
+- CAL-128: PASS locally. Provider-neutral ACL list/grant/update/revoke, normalized roles, Google official ACL adapter with persisted OAuth-scope gating, RFC 3744 conditional CalDAV/Yandex adapter, owner/current-user protection, capability-driven UI and CAL-119 refresh reconciliation are implemented.
+- Migration: NONE. ACL entries remain provider-owned; no production/deploy/secrets or real cloud ACL mutation.
+- Verification: TypeScript PASS; targeted 22 files / 207 tests; TZ matrix 186/186 per zone; full Vitest 263 files / 2548 tests; production build and cargo check PASS.
+- Read-only Tauri: Month/Week/Day and two Yandex collections PASS; live RFC 3744 discovery returned unsupported and UI disabled all mutation controls.
+- Graphify: 7028 nodes / 18173 edges / 419 communities; integrity PASS.
+- Next Calendar step: delta/offline sync only by explicit instruction; do not start automatically.

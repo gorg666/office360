@@ -100,7 +100,8 @@ describe("Calendar provider semantic conformance", () => {
       rsvp: { local: "projection", remote: "direct" },
       invitations: "none", freeBusy: { self: "local-derived", others: "remote" }, conflictDetection: "etag",
       sync: { mode: "sync-token", pagination: true, durability: "ephemeral" },
-      calendarAccess: { discovery: "full", ownership: "partial", effectivePermissions: "full", aclRead: "none", aclWrite: "none" },
+      sharedCalendars: "manage",
+      calendarAccess: { discovery: "full", ownership: "partial", effectivePermissions: "full", aclRead: "partial", aclWrite: "partial" },
       reminders: { read: "full", write: "full", multiple: true, methods: ["notification", "email"], defaults: "inherit", maxCount: 5 },
     });
     expect(new CalDAVProvider("account").capabilities).toMatchObject({
@@ -114,7 +115,7 @@ describe("Calendar provider semantic conformance", () => {
       rsvp: { local: "projection", remote: "direct" },
       invitations: "none", freeBusy: { self: "local-derived", others: "none" }, conflictDetection: "etag",
       sync: { mode: "range-refresh", pagination: false, durability: "ephemeral" },
-      calendarAccess: { discovery: "full", ownership: "partial", effectivePermissions: "partial", aclRead: "partial", aclWrite: "none" },
+      calendarAccess: { discovery: "full", ownership: "partial", effectivePermissions: "partial", aclRead: "partial", aclWrite: "partial" },
       reminders: { read: "partial", write: "partial", multiple: true, methods: ["notification"], defaults: "none", maxCount: null },
     });
   });

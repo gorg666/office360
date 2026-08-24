@@ -129,12 +129,13 @@ export async function insertAccount(account: {
   accessToken: string;
   refreshToken: string;
   tokenExpiresAt: number;
+  oauthGrantedScopes?: string | null;
 }): Promise<void> {
   const encAccessToken = await encryptValue(account.accessToken);
   const encRefreshToken = await encryptValue(account.refreshToken);
   await executeWrite(
-    `INSERT INTO accounts (id, email, display_name, avatar_url, access_token, refresh_token, token_expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    `INSERT INTO accounts (id, email, display_name, avatar_url, access_token, refresh_token, token_expires_at, oauth_granted_scopes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [
       account.id,
       account.email,
@@ -143,6 +144,7 @@ export async function insertAccount(account: {
       encAccessToken,
       encRefreshToken,
       account.tokenExpiresAt,
+      account.oauthGrantedScopes ?? null,
     ],
   );
 }
@@ -194,12 +196,13 @@ export async function updateAccountAllTokens(
   accessToken: string,
   refreshToken: string,
   tokenExpiresAt: number,
+  oauthGrantedScopes?: string | null,
 ): Promise<void> {
   const encAccessToken = await encryptValue(accessToken);
   const encRefreshToken = await encryptValue(refreshToken);
   await executeWrite(
-    "UPDATE accounts SET access_token = $1, refresh_token = $2, token_expires_at = $3, updated_at = unixepoch() WHERE id = $4",
-    [encAccessToken, encRefreshToken, tokenExpiresAt, id],
+    "UPDATE accounts SET access_token = $1, refresh_token = $2, token_expires_at = $3, oauth_granted_scopes = COALESCE($4, oauth_granted_scopes), updated_at = unixepoch() WHERE id = $5",
+    [encAccessToken, encRefreshToken, tokenExpiresAt, oauthGrantedScopes ?? null, id],
   );
 }
 

@@ -561,4 +561,14 @@ Read-only Tauri acceptance PASS: fresh development runtime opened Month, Week an
 
 Automated CAL-127 acceptance: TypeScript `npx tsc --noEmit` PASS; final targeted search/service/UI — 3 files / 8 tests PASS; expanded Calendar integration regression — 7 files / 27 tests PASS; full Vitest — 259 files / 2529 tests PASS; four-zone Calendar TZ matrix — 15 files / 186 tests in each of UTC, Europe/Moscow, America/New_York and Australia/Lord_Howe; production build PASS (main 2,110.54 kB raw / 626.59 kB gzip; CalendarPage 145.50 kB raw / 42.45 kB gzip); `cargo check` PASS with the same two pre-existing unused-variable warnings in `src/lib.rs:378`. Rust was not changed.
 
+### CAL-128 Calendar share / ACL management
+
+Дата: 2026-08-24 (Asia/Bangkok). Migration: NONE. Production/deploy/secrets: untouched. Cloud ACL mutations: NONE.
+
+Live Tauri read-only acceptance PASS. Month loaded existing Yandex events and exposed two calendar collections. Week (`24–30 августа 2026`) and Day (`24 августа 2026`) completed remote refresh without loading/error/stale state. Opening «Управление доступом» for the primary Yandex calendar executed only generic RFC 3744 discovery and returned `unsupported`; the dialog displayed an informational unsupported state with no add/change/remove controls. No Google live account fixture was available, and no real Google or Yandex ACL was changed.
+
+Automated CAL-128 acceptance: TypeScript PASS; targeted ACL/CAL-119/search/privacy/drag regression — 22 files / 207 tests PASS; Google list/grant/update/revoke, owner/current-user protection, duplicate principal, permission denial, free-busy-only role and refresh-after-mutation are covered; generic CalDAV supported/unsupported discovery and safe ACL rewrites are covered. Four-zone Calendar TZ matrix — 15 files / 186 tests in each of UTC, Europe/Moscow, America/New_York and Australia/Lord_Howe. Full Vitest — 263 files / 2548 tests PASS. Production build PASS (main 2,123.16 kB raw / 630.34 kB gzip; CalendarPage 155.20 kB raw / 45.12 kB gzip). `cargo check` PASS with the same two pre-existing unused-variable warnings in `src/lib.rs:378`; Rust was not changed.
+
+Graphify AST index: 7028 nodes / 18173 edges / 419 communities. Integrity PASS: 0 missing endpoints, self-loops, unverified edges and duplicate relation edges.
+
 Graphify code-index refresh: `graphify update .` → 6,909 nodes / 17,818 edges / 422 communities. Read-only graph integrity: 0 missing endpoints, self-loops or exact duplicate typed undirected edges. The optional semantic docs/image extraction refresh was unavailable because the local Graphify CLI environment lacks its `openai` backend package; no dependency was installed and code graph integrity is unaffected.

@@ -67,4 +67,10 @@ describe("startOAuthFlow", () => {
     const tokenRequest = mockFetch.mock.calls[0]![1] as { body: URLSearchParams };
     expect(tokenRequest.body.get("client_secret")).toBe("client-secret");
   });
+
+  it("requests the narrow Google Calendar ACL scope", async () => {
+    await startOAuthFlow("client-id");
+    const authUrl = new URL(mockOpenUrl.mock.calls[0]![0] as string);
+    expect(authUrl.searchParams.get("scope")?.split(" ")).toContain("https://www.googleapis.com/auth/calendar.acls");
+  });
 });

@@ -41,6 +41,7 @@ import type { RecurrenceWriteScope } from "@/services/calendar/domain";
 import { useUIStore } from "@/stores/uiStore";
 import { endOfWeek, monthGridRange, startOfWeek } from "./weekLocale";
 import { CalendarSearch } from "./CalendarSearch";
+import { CalendarAclDialog } from "./CalendarAclDialog";
 
 type CalendarLoadState =
   | { status: "loading" }
@@ -69,6 +70,7 @@ export function CalendarPage() {
   const [needsReauth, setNeedsReauth] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [showCalendarList, setShowCalendarList] = useState(false);
+  const [sharingCalendar, setSharingCalendar] = useState<DbCalendar | null>(null);
   const [hasCalendar, setHasCalendar] = useState(true);
   const [providerCapabilities, setProviderCapabilities] = useState<CalendarProviderCapabilities | null>(null);
   const [pendingEventIds, setPendingEventIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -660,12 +662,22 @@ export function CalendarPage() {
         {showCalendarList && calendars.length > 1 && (
           <CalendarList
             calendars={calendars}
+            onManageSharing={setSharingCalendar}
             onVisibilityChange={async (calendarId, visible) => {
               const { setCalendarVisibility } = await import("@/services/db/calendars");
               await setCalendarVisibility(calendarId, visible);
               await loadCalendars();
               loadEvents();
             }}
+          />
+        )}
+
+        {sharingCalendar && (
+          <CalendarAclDialog
+            accountId={activeAccountId}
+            calendar={sharingCalendar}
+            onClose={() => setSharingCalendar(null)}
+            onPermissionsRefreshed={loadCalendars}
           />
         )}
 

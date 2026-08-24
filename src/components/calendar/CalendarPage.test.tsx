@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   loadRange: vi.fn(),
   upsertCalendarEvent: vi.fn(),
   getCalendarsForAccount: vi.fn(),
+  getCalendarById: vi.fn(),
   upsertCalendar: vi.fn(),
   getCalendarProvider: vi.fn(),
   getCapabilities: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock("@/services/db/calendarEvents", () => ({
 }));
 vi.mock("@/services/db/calendars", () => ({
   getCalendarsForAccount: mocks.getCalendarsForAccount,
+  getCalendarById: mocks.getCalendarById,
   upsertCalendar: mocks.upsertCalendar,
 }));
 vi.mock("@/services/calendar/providerFactory", () => ({ getCalendarProvider: mocks.getCalendarProvider }));

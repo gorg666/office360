@@ -11,7 +11,14 @@ import type {
   CalendarReadDiagnostics,
   RecurringMutationContext,
 } from "./types";
-import { collectDavPrivilegeNames, davCalendarAccess, type CalendarProviderCapabilities } from "./domain";
+import {
+  collectDavPrivilegeNames,
+  davCalendarAccess,
+  type CalendarAclCapabilities,
+  type CalendarProviderCapabilities,
+  type CalendarShareEntry,
+  type CalendarShareRole,
+} from "./domain";
 import { excludeVEventOccurrence, generateVEvent, parseVEvent, parseVEventsInRangeDetailed, updateAttendeeParticipation, updateVEventFields, updateVEventOccurrence } from "./icalHelper";
 import { getAccount, type DbAccount } from "@/services/db/accounts";
 import { ensureFreshToken, OAUTH_TOKEN_REFRESH_BUFFER_MS } from "@/services/oauth/oauthTokenManager";
@@ -21,6 +28,7 @@ import { createConnectionDiagnostic, redactLogIdentifier } from "@/services/diag
 import { calDavSessionFetch, isCalDavAuthFailure } from "./caldavAuthFailure";
 import { decodeVFreeBusy, encodeVFreeBusyRequest } from "./ical/freeBusyCodec";
 import type { BusyInterval } from "./freeBusy/types";
+import { discoverDavAcl, grantDavShare, revokeDavShare, updateDavShare } from "./caldavAcl";
 
 export { isCalDavAuthFailure } from "./caldavAuthFailure";
 
@@ -114,7 +122,7 @@ export class CalDAVProvider implements CalendarProvider {
       freeBusy: { self: "local-derived", others: this.remoteFreeBusyCapability },
       permissions: "none",
       sharedCalendars: "read",
-      calendarAccess: { discovery: "full", ownership: "partial", effectivePermissions: "partial", aclRead: "partial", aclWrite: "none" },
+      calendarAccess: { discovery: "full", ownership: "partial", effectivePermissions: "partial", aclRead: "partial", aclWrite: "partial" },
       reminders: {
         read: "partial",
         write: "partial",
@@ -461,6 +469,44 @@ export class CalDAVProvider implements CalendarProvider {
         primary: index === 0,
       }),
     }));
+  }
+
+  /** Read-only RFC 3744 discovery; no provider-name assumption enables ACL writes. */
+  async discoverCalendarAcl(calendarRemoteId: string): Promise<CalendarAclCapabilities> {
+    return this.withClient("acl_discovery", async (client) => (
+      await discoverDavAcl(client, calendarRemoteId, client.account?.principalUrl ?? null)
+    ).capabilities);
+  }
+
+  async listCalendarShares(calendarRemoteId: string): Promise<CalendarShareEntry[]> {
+    return this.withClient("acl_list", async (client) => {
+      const snapshot = await discoverDavAcl(client, calendarRemoteId, client.account?.principalUrl ?? null);
+      if (snapshot.capabilities.read !== "supported") return [];
+      return snapshot.entries;
+    });
+  }
+
+  async grantCalendarShare(
+    calendarRemoteId: string,
+    email: string,
+    role: CalendarShareRole,
+  ): Promise<CalendarShareEntry> {
+    return this.withClient("acl_grant", (client) =>
+      grantDavShare(client, calendarRemoteId, client.account?.principalUrl ?? null, email, role));
+  }
+
+  async updateCalendarShareRole(
+    calendarRemoteId: string,
+    entryId: string,
+    role: CalendarShareRole,
+  ): Promise<CalendarShareEntry> {
+    return this.withClient("acl_update", (client) =>
+      updateDavShare(client, calendarRemoteId, client.account?.principalUrl ?? null, entryId, role));
+  }
+
+  async revokeCalendarShare(calendarRemoteId: string, entryId: string): Promise<void> {
+    return this.withClient("acl_revoke", (client) =>
+      revokeDavShare(client, calendarRemoteId, client.account?.principalUrl ?? null, entryId));
   }
 
   async fetchEvents(calendarRemoteId: string, timeMin: string, timeMax: string): Promise<CalendarEventData[]> {

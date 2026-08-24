@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { vi } from "vitest";
 import { CalendarList } from "./CalendarList";
 import type { DbCalendar } from "@/services/db/calendars";
+import { googleCalendarAccess, serializeCalendarAccess } from "@/services/calendar/domain";
 
 function makeCalendar(overrides: Partial<DbCalendar> = {}): DbCalendar {
   return {
@@ -131,5 +132,17 @@ describe("CalendarList", () => {
     );
 
     expect(screen.getByText("Calendar")).toBeInTheDocument();
+  });
+
+  it("shows sharing control only when CAL-119 permits management", () => {
+    const onManageSharing = vi.fn();
+    const calendars = [
+      makeCalendar({ id: "owner", display_name: "Owned", access_json: serializeCalendarAccess(googleCalendarAccess("owner", true)) }),
+      makeCalendar({ id: "reader", display_name: "Read only", access_json: serializeCalendarAccess(googleCalendarAccess("reader")) }),
+    ];
+    render(<CalendarList calendars={calendars} onVisibilityChange={vi.fn()} onManageSharing={onManageSharing} />);
+    fireEvent.click(screen.getByRole("button", { name: "Управление доступом Owned" }));
+    expect(onManageSharing).toHaveBeenCalledWith(calendars[0]);
+    expect(screen.queryByRole("button", { name: "Управление доступом Read only" })).not.toBeInTheDocument();
   });
 });
