@@ -304,6 +304,29 @@ describe("MonthView create selection", () => {
     expect(screen.queryByTestId("month-overflow-popover")).toBeNull();
   });
 
+  it("returns focus to the overflow control after Escape", () => {
+    const crowded = Array.from({ length: 5 }, (_, index) => event({
+      id: `hidden-${index + 1}`,
+      summary: `Hidden ${index + 1}`,
+      start_time: localUnix(2026, 8, 24, 9 + index),
+      end_time: localUnix(2026, 8, 24, 10 + index),
+    }));
+    render(<MonthView
+      currentDate={august}
+      displayTimeZone="UTC"
+      events={crowded}
+      capabilities={capabilities}
+      onEventClick={vi.fn()}
+    />);
+    const overflow = screen.getByTestId("month-overflow");
+    overflow.focus();
+    fireEvent.click(overflow);
+    expect(screen.getByTestId("month-overflow-popover")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("month-overflow-popover")).toBeNull();
+    expect(overflow).toHaveFocus();
+  });
+
   it("does not create when the calendar is read-only for create", () => {
     const onCreate = vi.fn();
     render(<MonthView

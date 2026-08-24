@@ -53,9 +53,9 @@ describe("CalendarList", () => {
       <CalendarList calendars={calendars} onVisibilityChange={vi.fn()} />,
     );
 
-    expect(screen.getByText("Primary")).toBeInTheDocument();
+    expect(screen.getByText("Основной")).toBeInTheDocument();
     // Only one Primary badge
-    expect(screen.getAllByText("Primary")).toHaveLength(1);
+    expect(screen.getAllByText("Основной")).toHaveLength(1);
   });
 
   it("checkboxes reflect is_visible state", () => {
@@ -131,7 +131,7 @@ describe("CalendarList", () => {
       <CalendarList calendars={calendars} onVisibilityChange={vi.fn()} />,
     );
 
-    expect(screen.getByText("Calendar")).toBeInTheDocument();
+    expect(screen.getByText("Календарь")).toBeInTheDocument();
   });
 
   it("shows sharing control only when CAL-119 permits management", () => {

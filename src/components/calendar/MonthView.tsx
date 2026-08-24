@@ -250,7 +250,9 @@ export function MonthView({
                   <button
                     type="button"
                     data-testid="month-overflow"
-                    className="text-[0.625rem] text-text-tertiary pl-1 hover:text-text-secondary"
+                    aria-haspopup="dialog"
+                    aria-expanded={overflow?.date === cell.key}
+                    className="pl-1 text-[0.625rem] text-text-tertiary hover:text-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
                     onClick={(mouseEvent) => {
                       mouseEvent.stopPropagation();
                       setOverflow({

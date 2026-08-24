@@ -126,7 +126,7 @@ export function CalendarAclDialog({ accountId, calendar, onClose, onPermissionsR
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm text-text-primary">{entry.displayName || entry.participant?.displayName || entry.principalValue || "Системный доступ"}</div>
                     <div className="text-[11px] text-text-tertiary">
-                      {entry.isCurrentUser ? "Вы · " : ""}{entry.principalType}
+                      {entry.isCurrentUser ? "Вы · " : ""}{principalTypeLabel(entry.principalType)}
                       {entry.isOwner ? " · владелец" : ""}
                     </div>
                   </div>
@@ -135,7 +135,7 @@ export function CalendarAclDialog({ accountId, calendar, onClose, onPermissionsR
                     value={entry.role}
                     disabled={!canWrite || entry.isProtected || busyKey === entry.id}
                     onChange={(event) => void updateRole(entry, event.target.value as CalendarShareRole)}
-                    className="rounded border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-text-primary disabled:opacity-60"
+                    className="rounded border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-text-primary disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
                   >
                     {entry.role === "owner" && <option value="owner">Владелец</option>}
                     {ASSIGNABLE_ROLES.map((role) => <option key={role} value={role}>{roleLabel(role)}</option>)}
@@ -158,7 +158,7 @@ export function CalendarAclDialog({ accountId, calendar, onClose, onPermissionsR
             {canWrite ? (
               <form onSubmit={(event) => void grant(event)} className="mt-4 border-t border-border-primary pt-4">
                 <label className="mb-1 block text-xs font-medium text-text-secondary" htmlFor="calendar-acl-email">Добавить человека</label>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row">
                   <input
                     id="calendar-acl-email"
                     type="email"
@@ -184,7 +184,7 @@ export function CalendarAclDialog({ accountId, calendar, onClose, onPermissionsR
                 </div>
               </form>
             ) : (
-              <AclNotice tone="neutral">Изменение доступа недоступно для текущего provider grant.</AclNotice>
+              <AclNotice tone="neutral">Изменение доступа недоступно для этого календаря.</AclNotice>
             )}
           </>
         )}
@@ -207,13 +207,48 @@ function roleLabel(role: CalendarShareRole): string {
 }
 
 function supportMessage(capabilities: CalendarAclCapabilities | null): string {
-  if (capabilities?.read === "permission-denied") return "Provider запретил просмотр настроек доступа.";
+  if (capabilities?.read === "permission-denied") return "Провайдер запретил просмотр настроек доступа.";
   if (capabilities?.read === "reauthorization-required") return "Переподключите аккаунт, чтобы разрешить управление доступом.";
-  if (capabilities?.reason === "write-acl-contract-incomplete") return "Сервер не подтвердил полный стандартный DAV ACL contract.";
+  if (capabilities?.reason === "write-acl-contract-incomplete") return "Сервер не подтвердил полный стандартный контракт доступа DAV.";
   return "Управление доступом не поддерживается этим календарём.";
 }
 
+function principalTypeLabel(type: CalendarShareEntry["principalType"]): string {
+  if (type === "user") return "Пользователь";
+  if (type === "group") return "Группа";
+  if (type === "domain") return "Домен";
+  if (type === "public") return "Публичный";
+  return "Системный";
+}
+
 function aclErrorMessage(cause: unknown): string {
-  if (cause instanceof CalendarAclError) return cause.message;
+  if (cause instanceof CalendarAclError) {
+    switch (cause.code) {
+      case "offline":
+        return "Изменение доступа недоступно без сети. Ничего не было сохранено или поставлено в очередь.";
+      case "unsupported":
+        return "Управление доступом не поддерживается этим календарём.";
+      case "permission-denied":
+        return "Недостаточно прав, чтобы менять доступ к этому календарю.";
+      case "reauthorization-required":
+        return "Переподключите аккаунт, чтобы разрешить управление доступом.";
+      case "duplicate-principal":
+        return "У этого человека уже есть доступ к календарю.";
+      case "invalid-principal":
+        return "Введите корректный адрес электронной почты.";
+      case "entry-not-found":
+        return "Запись доступа больше недоступна.";
+      case "owner-protected":
+        return "Доступ владельца нельзя изменить здесь.";
+      case "current-user-protected":
+        return "Свой доступ нельзя изменить здесь.";
+      case "refresh-failed":
+        return "Не удалось обновить список доступа.";
+      case "provider-error":
+        return "Провайдер не смог изменить доступ. Обновите данные и попробуйте снова.";
+      default:
+        return "Не удалось изменить доступ. Обновите данные и попробуйте снова.";
+    }
+  }
   return "Не удалось изменить доступ. Обновите данные и попробуйте снова.";
 }

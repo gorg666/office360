@@ -41,6 +41,7 @@ import {
   type AuthoredParticipant,
 } from "./participants/authoredParticipants";
 import { canMutateRecurring, classifyRecurringEditTarget, recurrenceScopeChoices, writeFailureCopy } from "./recurrence/recurrenceEditScope";
+import { trapTabKey } from "./focusTrap";
 import { SchedulingAssistant, type PlanMeetingFn } from "./scheduling/SchedulingAssistant";
 import { buildEditorSchedulingParticipants } from "./scheduling/schedulingView";
 import { formatReminderPolicy, ReminderEditor } from "./ReminderEditor";
@@ -80,6 +81,10 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
   ));
   const [providerCapabilities, setProviderCapabilities] = useState<CalendarProviderCapabilities | null>(null);
   const inFlightRef = useRef(false);
+  const detailPanelRef = useRef<HTMLElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const pendingIntentRef = useRef(pendingIntent);
+  pendingIntentRef.current = pendingIntent;
   const accounts = useAccountStore((state) => state.accounts);
   const account = accounts.find((item) => item.id === accountId);
   const accountEmail = account?.email ?? "";
@@ -121,6 +126,33 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
       .catch(() => { if (current) setProviderCapabilities(null); });
     return () => { current = false; };
   }, [accountId]);
+
+  useEffect(() => {
+    if (editing) return;
+    restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const panel = () => detailPanelRef.current;
+    requestAnimationFrame(() => {
+      const first = panel()?.querySelector<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      (first ?? panel())?.focus();
+    });
+    function onKeyDown(event: KeyboardEvent) {
+      if (pendingIntentRef.current) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      const current = panel();
+      if (current) trapTabKey(current, event);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      restoreFocusRef.current?.focus();
+    };
+  }, [editing, onClose]);
 
   const remoteIds = useCallback(() => ({
     calendarRemoteId: calendar?.remote_id ?? "primary",
@@ -349,16 +381,18 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
     <>
     <div className="fixed inset-0 z-50" onMouseDown={(mouseEvent) => mouseEvent.target === mouseEvent.currentTarget && onClose()}>
       <section
+        ref={detailPanelRef}
         role="dialog"
-        aria-modal="false"
+        aria-modal="true"
+        tabIndex={-1}
         aria-label={canSeeDetails ? (event.summary ?? "Событие") : "Занято"}
-        className="fixed w-[min(42rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-border-primary bg-bg-primary shadow-2xl"
+        className="fixed w-[min(42rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-border-primary bg-bg-primary shadow-2xl outline-none"
         style={{ left: panelLeft, top: panelTop, maxHeight: "calc(100vh - 24px)" }}
         onMouseDown={(mouseEvent) => mouseEvent.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-border-primary px-5 py-3">
           <h2 className="truncate text-base font-semibold text-text-primary">{canSeeDetails ? (event.summary ?? "Событие") : "Занято"}</h2>
-          <button type="button" className="rounded p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary" onClick={onClose} aria-label="Закрыть"><X size={17} /></button>
+          <button type="button" className="rounded p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent" onClick={onClose} aria-label="Закрыть"><X size={17} /></button>
         </header>
         <div className="max-h-[calc(100vh-80px)] overflow-y-auto">
       <div className="p-5 space-y-4">
@@ -379,8 +413,8 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
         {calendar && <InfoRow label="Календарь"><span className="inline-flex items-center gap-2"><i className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: calendar.color ?? "var(--color-accent)" }} />{calendar.display_name}</span></InfoRow>}
 
         {error && <ErrorNotice>{error}</ErrorNotice>}
-        <div className="flex items-center justify-between gap-3 pt-3 border-t border-border-primary">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-3 pt-3 border-t border-border-primary sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
             {selfAttendee && canRsvp && (
               <select value={normalizeResponse(selfAttendee.status)} onChange={(e) => void handleRsvp(e.target.value as CalendarParticipationStatus)} disabled={busyAction !== null} className="px-3 py-2 rounded-md bg-bg-tertiary text-sm font-medium text-text-primary border border-border-primary outline-none">
                 <option value="accepted">Пойду</option><option value="tentative">Возможно</option><option value="declined">Не пойду</option>
@@ -389,7 +423,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
             {canSeeDetails && meetingUrl && <Button variant="primary" size="md" icon={<ExternalLink size={15} />} onClick={openMeeting}>Открыть в Телемосте</Button>}
             {canSeeDetails && meetingUrl && <Button variant="secondary" size="md" icon={<Copy size={15} />} onClick={() => void navigator.clipboard.writeText(meetingUrl)}>Копировать ссылку</Button>}
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             {canSeeDetails && event.organizer_email && <Button variant="secondary" size="md" icon={<Mail size={15} />} iconOnly aria-label="Написать организатору" onClick={() => void openUrl(`mailto:${event.organizer_email}`)} />}
             {canDelete && (recurring
               ? <Button variant="ghost" size="md" icon={<Trash2 size={15} />} iconOnly aria-label="Удалить" onClick={requestDelete} disabled={busyAction !== null} />
@@ -410,7 +444,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
 }
 
 function InfoRow({ icon, label, children }: { icon?: ReactNode; label: string; children: ReactNode }) {
-  return <div className="grid grid-cols-[132px_1fr] gap-3 text-sm"><div className="flex items-center gap-2 text-text-tertiary">{icon}{label}</div><div className="flex items-center gap-2 text-text-secondary min-w-0">{children}</div></div>;
+  return <div className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-[132px_1fr] sm:gap-3"><div className="flex items-center gap-2 text-text-tertiary">{icon}{label}</div><div className="flex items-center gap-2 text-text-secondary min-w-0">{children}</div></div>;
 }
 
 function PersonChip({ attendee }: { attendee: CalendarAttendee }) {

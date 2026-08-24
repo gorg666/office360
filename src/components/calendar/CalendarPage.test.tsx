@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAccountStore } from "@/stores/accountStore";
+import { useUIStore } from "@/stores/uiStore";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { CalendarPage } from "./CalendarPage";
 import { googleCalendarAccess, serializeCalendarAccess } from "@/services/calendar/domain";
@@ -100,6 +101,7 @@ describe("CalendarPage load states", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
+    useUIStore.setState({ isOnline: true });
     useAccountStore.setState({
       activeAccountId: "account-1",
       accounts: [{
@@ -176,6 +178,15 @@ describe("CalendarPage load states", () => {
     expect(screen.getByText("Новый диапазон")).toBeInTheDocument();
     await act(async () => first.resolve(loadResult("fresh", [makeDbEvent("Старый диапазон")])));
     expect(screen.queryByText("Старый диапазон")).not.toBeInTheDocument();
+  });
+
+  it("shows an offline banner even when cached data is fresh", async () => {
+    useUIStore.setState({ isOnline: false });
+    render(<CalendarPage />);
+    expect(await screen.findByTestId("calendar-offline-banner")).toBeInTheDocument();
+    expect(screen.getByText("Нет сети")).toBeInTheDocument();
+    expect(await screen.findByText("Свежее событие")).toBeInTheDocument();
+    expect(screen.queryByText("Не удалось обновить календарь")).not.toBeInTheDocument();
   });
 
   it("G: an old account response cannot overwrite the active account", async () => {

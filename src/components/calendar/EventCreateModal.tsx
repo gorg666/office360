@@ -268,29 +268,31 @@ export function EventCreateModal({
           />
         </div>
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:items-center sm:justify-end">
           {error && (
-            <div className="mr-auto max-w-[60%] text-xs text-danger" role="alert">
+            <div className="w-full min-w-0 text-xs text-danger sm:mr-auto sm:max-w-[60%]" role="alert">
               {error}
             </div>
           )}
-          <Button
-            type="button"
-            variant="secondary"
-            size="md"
-            onClick={onClose}
-            disabled={submitting}
-          >
-            Отмена
-          </Button>
-          <Button
-            type="submit"
-            variant="primary"
-            size="md"
-            disabled={submitting || !summary.trim()}
-          >
-            {submitting ? "Создание..." : "Создать"}
-          </Button>
+          <div className="flex shrink-0 justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={onClose}
+              disabled={submitting}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              disabled={submitting || !summary.trim()}
+            >
+              {submitting ? "Создание..." : "Создать"}
+            </Button>
+          </div>
         </div>
       </form>
     </Modal>

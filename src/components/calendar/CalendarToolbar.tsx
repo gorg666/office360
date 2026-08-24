@@ -16,6 +16,7 @@ interface CalendarToolbarProps {
   canCreateEvent?: boolean;
   onToggleCalendarList?: () => void;
   showCalendarListButton?: boolean;
+  calendarListOpen?: boolean;
   search?: ReactNode;
 }
 
@@ -30,6 +31,7 @@ export function CalendarToolbar({
   canCreateEvent = true,
   onToggleCalendarList,
   showCalendarListButton,
+  calendarListOpen,
   search,
 }: CalendarToolbarProps) {
   const locale = useUIStore((state) => state.locale);
@@ -37,15 +39,16 @@ export function CalendarToolbar({
   const viewLabels: Record<CalendarView, string> = locale === "ru"
     ? { day: "День", week: "Неделя", month: "Месяц" }
     : { day: "Day", week: "Week", month: "Month" };
+  const focus = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent";
 
   return (
-    <div className="flex items-center justify-between px-6 py-3 border-b border-border-primary">
-      <div className="flex min-w-0 items-center gap-3">
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border-primary px-3 py-3 sm:px-6">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             onClick={onPrev}
-            className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
+            className={`rounded p-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary ${focus}`}
             aria-label={locale === "ru" ? "Предыдущий период" : "Previous period"}
           >
             <ChevronLeft size={16} />
@@ -53,14 +56,14 @@ export function CalendarToolbar({
           <button
             type="button"
             onClick={onToday}
-            className="px-2.5 py-1 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
+            className={`rounded px-2.5 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary ${focus}`}
           >
             {locale === "ru" ? "Сегодня" : "Today"}
           </button>
           <button
             type="button"
             onClick={onNext}
-            className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
+            className={`rounded p-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary ${focus}`}
             aria-label={locale === "ru" ? "Следующий период" : "Next period"}
           >
             <ChevronRight size={16} />
@@ -68,31 +71,34 @@ export function CalendarToolbar({
         </div>
         <h2
           data-no-translate
-          className="min-w-0 shrink-0 whitespace-nowrap text-lg font-semibold normal-case tracking-normal text-text-primary"
+          className="min-w-0 truncate text-lg font-semibold normal-case tracking-normal text-text-primary"
+          title={title}
         >
           {title}
         </h2>
       </div>
 
-      <div className="flex items-center gap-2">
-        {search}
+      <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
+        {search ? <div className="min-w-0 max-w-full">{search}</div> : null}
         {showCalendarListButton && onToggleCalendarList && (
           <button
             type="button"
             onClick={onToggleCalendarList}
-            className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
-            title="Toggle calendar list"
+            aria-pressed={calendarListOpen}
+            aria-label={locale === "ru" ? "Список календарей" : "Calendar list"}
+            className={`rounded p-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary ${focus}`}
           >
             <CalendarDays size={16} />
           </button>
         )}
-        <div className="flex bg-bg-tertiary rounded-md p-0.5">
+        <div className="flex rounded-md bg-bg-tertiary p-0.5" role="group" aria-label={locale === "ru" ? "Представление" : "Calendar view"}>
           {(["day", "week", "month"] as CalendarView[]).map((v) => (
             <button
               type="button"
               key={v}
               onClick={() => onViewChange(v)}
-              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+              aria-pressed={view === v}
+              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${focus} ${
                 view === v
                   ? "bg-bg-primary text-text-primary shadow-sm"
                   : "text-text-tertiary hover:text-text-secondary"
@@ -107,7 +113,7 @@ export function CalendarToolbar({
           onClick={onCreateEvent}
           disabled={!canCreateEvent}
           title={!canCreateEvent ? (locale === "ru" ? "Создание событий недоступно" : "Event creation unavailable") : undefined}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50 rounded-md transition-colors"
+          className={`flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50 ${focus}`}
         >
           <Plus size={14} />
           {locale === "ru" ? "Создать" : "Create"}

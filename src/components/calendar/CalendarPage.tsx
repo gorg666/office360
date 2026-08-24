@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Loader2, RefreshCw, WifiOff } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { getCalendarsForAccount, upsertCalendar, type DbCalendar } from "@/services/db/calendars";
@@ -532,6 +532,7 @@ export function CalendarPage() {
         canCreateEvent={canCreateEvent}
         onToggleCalendarList={() => setShowCalendarList((v) => !v)}
         showCalendarListButton={calendars.length > 1}
+        calendarListOpen={showCalendarList}
         search={(
           <CalendarSearch
             accountId={activeAccountId}
@@ -560,7 +561,26 @@ export function CalendarPage() {
         />
       )}
 
-      {(loadState.status === "stale" || loadState.status === "error") && !needsReauth && (
+      {!isOnline && !needsReauth && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="calendar-offline-banner"
+          className="mx-6 my-4 p-4 rounded-lg border border-border-primary bg-bg-secondary flex items-start gap-3"
+        >
+          <WifiOff size={18} aria-hidden="true" className="shrink-0 mt-0.5 text-text-tertiary" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-text-primary">Нет сети</p>
+            <p className="text-xs text-text-secondary mt-1">
+              {events.length > 0
+                ? "Показаны кешированные данные. Создание, изменение и RSVP недоступны до подключения."
+                : "Календарь недоступен без сети. Подключитесь и повторите попытку."}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {(loadState.status === "stale" || loadState.status === "error") && isOnline && !needsReauth && (
         <div
           role={loadState.status === "error" ? "alert" : "status"}
           aria-live="polite"
@@ -578,14 +598,12 @@ export function CalendarPage() {
           <div className="flex-1">
             <p className="text-sm font-medium text-text-primary">
               {loadState.status === "stale"
-                ? (isOnline ? "Не удалось обновить календарь" : "Календарь открыт без сети")
+                ? "Не удалось обновить календарь"
                 : "Не удалось загрузить календарь"}
             </p>
             <p className="text-xs text-text-secondary mt-1">
               {loadState.status === "stale"
-                ? (isOnline
-                  ? "Показаны ранее загруженные данные."
-                  : "Показаны кешированные данные; изменения и RSVP недоступны до подключения.")
+                ? "Показаны ранее загруженные данные."
                 : "События недоступны. Проверьте подключение и повторите попытку."}
             </p>
             {calendarError && (

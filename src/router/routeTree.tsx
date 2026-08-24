@@ -78,7 +78,7 @@ function SettingsTabPage() {
 function CalendarPageWrapper() {
   return (
     <ErrorBoundary name="CalendarPage">
-      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading calendar...</div>}>
+      <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Загрузка календаря…</div>}>
         <CalendarPage />
       </Suspense>
     </ErrorBoundary>

@@ -103,10 +103,13 @@ export function CalendarSearch({
   };
 
   return (
-    <div className="relative w-56 xl:w-72" data-testid="calendar-search">
+    <div className="relative min-w-0 w-40 sm:w-56 xl:w-72" data-testid="calendar-search">
       <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary" />
       <input
         type="search"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-haspopup="listbox"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         onKeyDown={handleKeyDown}
@@ -114,14 +117,15 @@ export function CalendarSearch({
         aria-label={locale === "ru" ? "Поиск событий календаря" : "Search calendar events"}
         aria-expanded={isOpen}
         aria-controls="calendar-search-results"
-        className="h-8 w-full rounded-md border border-border-primary bg-bg-secondary pl-8 pr-8 text-xs text-text-primary outline-none transition-colors placeholder:text-text-tertiary focus:border-accent"
+        aria-activedescendant={isOpen && results[activeIndex] ? `calendar-search-option-${activeIndex}` : undefined}
+        className="h-8 w-full rounded-md border border-border-primary bg-bg-secondary pl-8 pr-8 text-xs text-text-primary outline-none transition-colors placeholder:text-text-tertiary focus:border-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
       />
       {query && (
         <button
           type="button"
           aria-label={locale === "ru" ? "Очистить поиск" : "Clear search"}
           onClick={() => setQuery("")}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary"
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-text-tertiary hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
         >
           <X size={14} />
         </button>
@@ -165,11 +169,12 @@ export function CalendarSearch({
               <button
                 type="button"
                 role="option"
+                id={`calendar-search-option-${index}`}
                 aria-selected={index === activeIndex}
                 key={`${result.eventId}:${result.occurrenceKey ?? ""}`}
                 onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => void openResult(result)}
-                className={`flex w-full gap-3 rounded-md px-3 py-2 text-left ${index === activeIndex ? "bg-bg-hover" : "hover:bg-bg-hover"}`}
+                className={`flex w-full gap-3 rounded-md px-3 py-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${index === activeIndex ? "bg-bg-hover" : "hover:bg-bg-hover"}`}
               >
                 <CalendarClock size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-accent" />
                 <span className="min-w-0 flex-1">

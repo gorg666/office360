@@ -582,3 +582,15 @@ Live Tauri read-only acceptance PASS. A fresh `npm run tauri -- dev` runtime com
 Automated CAL-129 acceptance: TypeScript PASS; targeted provider/coordinator/DB/offline/ACL and ownership suites — 8 files / 149 tests PASS; recurrence/search/reminder/Mail/iTIP/Calendar UI regression — 13 files / 123 tests PASS; full Vitest — 264 files / 2562 tests PASS. Four-zone Calendar TZ matrix — 15 files / 186 tests in each of UTC, Europe/Moscow, America/New_York and Australia/Lord_Howe. Production build PASS (CalendarPage 155.91 kB raw / 45.32 kB gzip; main 2,130.30 kB raw / 631.99 kB gzip). `cargo check` PASS with the same two pre-existing unused-variable warnings in `src/lib.rs:378`; Rust was not changed.
 
 Graphify code-index refresh: `graphify update .` → 7,068 nodes / 18,278 edges / 430 communities. `graphify diagnose multigraph` PASS: 0 unverified code nodes, missing/dangling endpoints, self-loops or exact duplicate edges. Saved labels are stale relative to the current community set; graph integrity is unaffected.
+
+### CAL-130 final Calendar UI / accessibility / responsive polish
+
+Дата: 2026-08-24 (Asia/Bangkok). Migration: NONE. Production/deploy/secrets: untouched. Cloud event, RSVP, Mail and ACL mutations: NONE.
+
+CAL-130: **PASS** for polish-class UI. Month overflow, toolbar/list wrap, modal/popover focus trap, RU ACL/offline/recurrence copy, offline banner vs stale/error, and Create/Detail/ACL narrow-window layout were tightened without provider/sync architecture changes. Mini calendar is not in the product and was not added. Keyboard drag-selection remains an accepted limitation.
+
+Automated CAL-130 acceptance: TypeScript `npx tsc --noEmit` PASS after the Calendar suspense copy tweak in `routeTree.tsx`; targeted Calendar UI suites PASS; full Calendar battery — 75 files / 672 tests PASS; full Vitest — 264 files / 2564 tests PASS. Four-zone Calendar TZ matrix — 15 files / 186 tests in each of UTC, Europe/Moscow, America/New_York and Australia/Lord_Howe. Production build PASS (CalendarPage 162.86 kB raw / 47.11 kB gzip; main 2,131.41 kB raw / 632.35 kB gzip). `cargo check` PASS with the same two pre-existing unused-variable warnings in `src/lib.rs:378`; Rust was not changed.
+
+Live Tauri: `npm run tauri -- dev` ran in this session; Yandex CalDAV read traffic was observed. Interactive WebView2 A–H was not CDP-automatable. Chrome against the Vite URL has no Tauri SQL/accounts. Canonical polish notes: `CALENDAR_FINAL_UI_POLISH.md`. Final parity verdict remains CAL-131.
+
+Graphify: `graphify update .` → 7,085 nodes / 18,309 edges / 417 communities. `graphify diagnose multigraph` PASS: 0 unverified code nodes, missing/dangling endpoints, self-loops or exact duplicate edges. Saved community labels are stale (430 saved vs 417 communities); `graphify label` was not run (LLM). Semantic `--update` / openai extra not used. `graphify-out/` gitignored.

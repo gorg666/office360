@@ -10,7 +10,7 @@ Production HEAD: `ff9e5fa`
 
 Закрывающие P0 commits: `7839344` (reminder delivery), `c559ccc` (Mail/iTIP lifecycle), `ff9e5fa` (Yandex remote Free/Busy).
 
-CAL-125 (2026-08-23) закрывает recurring create UI и persistent required/optional authoring. CAL-126 (2026-08-24) закрывает Month overflow popover, RU Monday-first week start и Day/Week current-time indicator (display timezone). CAL-127 (2026-08-24) закрывает account/permission-filtered Calendar event search по локальному provider-neutral cache. Этот файл остаётся каноническим parity verdict; дельты CAL-125/126/127 отмечены ниже. Live Save на real Yandex event по-прежнему запрещён.
+CAL-125 (2026-08-23) закрывает recurring create UI и persistent required/optional authoring. CAL-126 (2026-08-24) закрывает Month overflow popover, RU Monday-first week start и Day/Week current-time indicator (display timezone). CAL-127 (2026-08-24) закрывает account/permission-filtered Calendar event search по локальному provider-neutral cache. CAL-128 закрывает ACL management UI/service. CAL-129 закрывает durable delta sync и offline write policy. CAL-130 (2026-08-24) закрывает polish-класс UI (focus, RU copy, responsive, offline/stale banners) без финального parity verdict — это CAL-131. Этот файл остаётся каноническим parity verdict; дельты отмечены ниже. Live Save на real Yandex event по-прежнему запрещён.
 
 ## Executive verdict
 
@@ -161,14 +161,14 @@ None.
 1. `this-and-future` remains a declared limitation (not offered as a working option).
 2. Participant picker/directory (required/optional authoring is delivered by CAL-125).
 3. Shared-calendar subscription management plus isolated live shared/read-only acceptance (share/ACL management delivered by CAL-128).
-4. Consolidated durable provider delta sync and explicit offline-write policy, including Google expired-token recovery and CalDAV sync-token/ctag strategy.
+4. Durable provider delta sync and explicit offline-write policy — **closed by CAL-129**. Isolated large-calendar/provider fixtures remain a broad-release validation item, not a P1 code gap.
 
 ### P2 — polish and hardening
 
-1. Richer date navigation and consistent RU editor/time labels (current-time line delivered CAL-126).
+1. Richer date navigation beyond RU Monday-first / EN Sunday-first (current-time line delivered CAL-126).
 2. Auto-scroll, multi-day all-day create drag and optional keyboard drag-selection.
-3. Full responsive-density, light/dark visual regression and WCAG audit.
-4. Bundle/code-splitting and Calendar orchestration cleanup.
+3. Full WCAG AA certification and visual-regression suite (obvious responsive/focus/RU/offline polish delivered CAL-130; see `CALENDAR_FINAL_UI_POLISH.md`).
+4. Measured bundle/code-splitting; CAL-130 only did safe Calendar-local cleanup (`focusTrap`, no `CalendarPage` rewrite).
 
 ### Explicitly out of parity scope
 
@@ -186,7 +186,8 @@ None.
 - **Month overflow: PASS (CAL-126).** `+N ещё` opens popover with hidden day events; event click routes to detail; create-by-selection guarded.
 - **RU localization/week-start: PASS (CAL-126) for grid.** RU Month/Week start Monday via `weekLocale`; non-RU Sunday-first preserved. Editor copy still mixes RU/EN outside recurrence/role surfaces.
 - **Current-time indicator: PASS (CAL-126).** Day/Week horizontal marker from display timezone; hidden outside visible today column.
-- **Delta sync/offline: PARTIAL.** Cached reads and stale UI are strong. Google background delta token persistence exists but is inconsistent with capabilities and foreground ownership; CalDAV has no delta; offline writes are unsupported.
+- **Delta sync/offline: PASS (CAL-129).** Coordinator-owned delta, durable Google/CalDAV cursors, explicit offline write block. Isolated large-calendar fixtures remain broad-release validation.
+- **UI polish: PASS (CAL-130, automated).** Focus, RU copy, responsive wrap, offline vs stale banners. WCAG AA certification and WebView2 interactive A–H remain outside this ticket. Final parity verdict is CAL-131.
 
 ## Test health after CAL-126
 
@@ -241,7 +242,7 @@ These are technical debt unless they directly map to the P1 delta/offline item a
 
 1. Configurable week-start beyond RU Monday / EN Sunday if product expands locale matrix (CAL-126 delivered RU Monday-first).
 2. Auto-scroll, multi-day all-day selection and keyboard drag-selection.
-3. WCAG, responsive, dark/light and bundle hardening.
+3. WCAG AA certification and measured bundle hardening (CAL-130 closed obvious visual/a11y/responsive polish; not a final parity verdict).
 
 ### Final classification
 

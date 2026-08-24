@@ -82,6 +82,15 @@ export function writeFailureCopy(
       return "Сессия календаря истекла. Подключите аккаунт повторно.";
     case "network-error":
       return "Не удалось связаться с сервером календаря. Повторите попытку.";
+    case "offline":
+      return result.message || "Изменения календаря недоступны без сети. Ничего не было сохранено или поставлено в очередь.";
+    case "read-only":
+      return "Этот календарь доступен только для чтения.";
+    case "calendar-unavailable":
+      return "Календарь недоступен.";
+    case "partial":
+    case "provider-error":
+      return result.message || "Не удалось выполнить операцию с календарём.";
     default:
       return "Не удалось выполнить операцию с календарём.";
   }

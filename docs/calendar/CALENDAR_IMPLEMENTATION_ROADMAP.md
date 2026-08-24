@@ -465,6 +465,16 @@ Provider-neutral `CalendarSearchService` searches title, description, location, 
 
 **Status:** PASS. `CalendarSyncCoordinator` now owns foreground/background/startup/manual/reconnect Calendar refresh with per-account delta single-flight. Google `nextSyncToken` pagination, tombstones and one-shot 410 recovery are durable. Generic CalDAV/Yandex use RFC 6578 `sync-collection` only when advertised and otherwise keep the bounded range fallback. Cache application precedes cursor commit; a crash replays idempotently. Offline reads/search/reminders remain local; event/RSVP/ACL writes are explicitly blocked and never silently queued. Migration: NONE. Canonical contract: `CALENDAR_DELTA_OFFLINE_SYNC.md`.
 
+## CAL-130 (delivered) — Final Calendar UI / accessibility / responsive polish
+
+**Status:** PASS for polish-class UI (automated). Live WebView2 A–H not CDP-automatable in this session.
+
+**Цель:** довести существующий Calendar UI до цельного production polish перед CAL-131, без новых больших features и без смены provider/sync архитектуры.
+
+**Основные файлы:** `CalendarToolbar`, `CalendarList`, `CalendarPage`, `CalendarSearch`, `CalendarAclDialog`, `EventCreateModal`, `EventDetailModal`, `MonthOverflowPopover`, `MonthView`, `EventCard`, `Modal`, `focusTrap.ts`, `recurrenceEditScope.ts`.
+
+**Acceptance (2026-08-24):** wrap/overflow, focus trap/restore, RU user-visible copy, token-based light/dark, distinct offline/stale/error/syncing banners, narrow-window create/detail/ACL. Mini calendar не добавлялся. Keyboard DnD не реализовывался. Cloud mutations: NONE. Canonical notes: `CALENDAR_FINAL_UI_POLISH.md`. Финальный parity verdict — CAL-131.
+
 ## Remaining P0/P1 gaps
 
 No new ticket numbers are assigned automatically.
@@ -481,9 +491,9 @@ None. CAL-122 closed Mail invitation lifecycle and CAL-123 closed Yandex partici
 
 ## Post-parity backlog
 
-- richer date navigation and consistent RU editor/time copy;
+- richer date navigation beyond current RU Monday-first / EN Sunday-first;
 - auto-scroll, multi-day all-day create selection and optional keyboard drag-selection;
-- WCAG, responsive, dark/light and measured performance/bundle hardening;
+- WCAG AA certification and measured performance/bundle hardening (obvious visual/a11y/responsive polish closed by CAL-130);
 - measure large-calendar initial snapshot and RFC 6578 server truncation behavior on isolated provider fixtures;
 - room booking, directory rewrite, tasks/templates and other product extensions only by separate scope.
 

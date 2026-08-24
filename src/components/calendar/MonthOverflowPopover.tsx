@@ -4,6 +4,7 @@ import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import type { CalendarDate } from "@/services/calendar/domain";
 import { EventCard } from "./EventCard";
 import { formatEventAriaLabel } from "./dateGrid";
+import { trapTabKey } from "./focusTrap";
 
 interface MonthOverflowPopoverProps {
   date: CalendarDate;
@@ -23,24 +24,34 @@ export function MonthOverflowPopover({
   onEventClick,
 }: MonthOverflowPopoverProps) {
   const panelRef = useRef<HTMLElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
 
   useEffect(() => {
+    const panel = panelRef.current;
+    requestAnimationFrame(() => panel?.focus());
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (panel) trapTabKey(panel, event);
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
-  useEffect(() => {
     function onPointerDown(event: PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (panelRef.current?.contains(target)) return;
       onClose();
     }
+    window.addEventListener("keydown", onKeyDown);
     window.addEventListener("pointerdown", onPointerDown);
-    return () => window.removeEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+      restoreFocusRef.current?.focus();
+    };
   }, [onClose]);
 
   const viewportWidth = typeof window === "undefined" ? 1280 : window.innerWidth;
@@ -53,9 +64,11 @@ export function MonthOverflowPopover({
     <section
       ref={panelRef}
       role="dialog"
+      aria-modal="true"
+      tabIndex={-1}
       aria-label={locale === "ru" ? `События ${date}` : `Events ${date}`}
       data-testid="month-overflow-popover"
-      className="fixed z-50 max-h-64 w-60 overflow-y-auto rounded-lg border border-border-primary bg-bg-primary p-2 shadow-xl"
+      className="fixed z-50 max-h-64 w-60 overflow-y-auto rounded-lg border border-border-primary bg-bg-primary p-2 shadow-xl outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
       style={{ left, top }}
       onClick={(mouseEvent) => mouseEvent.stopPropagation()}
     >
