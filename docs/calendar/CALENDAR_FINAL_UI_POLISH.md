@@ -80,9 +80,22 @@ User-visible Calendar copy для locale `ru` (default): toolbar, list badges, E
 
 ## Live Tauri
 
-`npm run tauri -- dev` поднят; Yandex CalDAV read traffic наблюдался (PROPFIND/REPORT, без write). Интерактивные сценарии A–H в WebView2 не CDP-attached. Chrome против `http://localhost:1420` не имеет Tauri SQL/аккаунтов, Calendar остаётся на loading — это не desktop webview. Cloud mutations: NONE.
+Дата live smoke: 2026-08-24 (Asia/Bangkok). Runtime: `npm run tauri -- dev` + WebView2 CDP `127.0.0.1:9222` (не Chrome на Vite). Chrome против `http://localhost:1420` по-прежнему не считается desktop webview. Production code в CAL-130-FINAL не менялся. Cloud event / RSVP / Mail / ACL write: **NONE**. Save/Create/Delete в модалках не нажимались; Create-формы закрывались **Отмена**. Скриншоты только в `%TEMP%/cal130-smoke/`, в git не коммитились. Account id / email / calendar names / event titles в этот отчёт не копировались.
 
-Скриншоты runtime в git не коммитились.
+| Letter | Result | Observation |
+|---|---|---|
+| A Month | PARTIAL | Event detail с карточки открылся и закрылся. Live `+N` N/A: в текущем месяце и ±4 соседних ни один день не имел >3 событий (`month-overflow=0`). Overflow → Create live не воспроизводился; guard остаётся в `MonthView` + unit tests |
+| B Week | PASS | `current-time-indicator` виден. Toolbar **Создать** → **Отмена** |
+| C Day | PASS | Create form: recurrence, participant role (local `example.com`, без save), reminders. Footer `flex-col-reverse` class присутствует. **Отмена** |
+| D Search | PASS | Combobox нашёл существующее событие, открыл detail, закрыл |
+| E ACL | PASS | Список календарей → «Управление доступом» → RU unsupported copy, без Добавить/Сохранить/Отозвать. Закрыто без write |
+| F Theme | PASS | Settings **Тема**: Светлая ↔ Тёмная (`html.dark`). Календарь остался RU. Тема возвращена на Светлая |
+| G Narrow | PASS | Window 900×780: horizontal overflow нет, Create footer `flex-col-reverse`, **Отмена** доступна. Ширина возвращена 1200 |
+| H Keyboard | PASS with note | Tab / Shift+Tab остаются внутри dialog; Escape закрывает. Restore на opener в CDP после Escape даёт `BODY` (не toolbar **Создать**). `Modal.tsx` restore path не менялся; не трактовалось как пользовательский баг без ручного Tab с клавиатуры |
+
+Focus trap: PASS. Focus restore: not confirmed to opener via CDP. Responsive: PASS. RU Calendar chrome: PASS (Сегодня / День / Неделя / Месяц / Создать / Поиск событий / Пн-first; случайных EN toolbar strings нет). Syncing vs loading различимы («Обновление календаря…» vs «Загрузка календаря…»). Offline/stale/error banners в этой online-сессии не всплывали.
+
+CAL-130-FINAL: **PARTIAL** только из-за live `+N` N/A. Код не менялся.
 
 ## Graphify
 

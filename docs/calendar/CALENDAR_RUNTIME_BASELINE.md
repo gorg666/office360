@@ -591,6 +591,20 @@ CAL-130: **PASS** for polish-class UI. Month overflow, toolbar/list wrap, modal/
 
 Automated CAL-130 acceptance: TypeScript `npx tsc --noEmit` PASS after the Calendar suspense copy tweak in `routeTree.tsx`; targeted Calendar UI suites PASS; full Calendar battery — 75 files / 672 tests PASS; full Vitest — 264 files / 2564 tests PASS. Four-zone Calendar TZ matrix — 15 files / 186 tests in each of UTC, Europe/Moscow, America/New_York and Australia/Lord_Howe. Production build PASS (CalendarPage 162.86 kB raw / 47.11 kB gzip; main 2,131.41 kB raw / 632.35 kB gzip). `cargo check` PASS with the same two pre-existing unused-variable warnings in `src/lib.rs:378`; Rust was not changed.
 
-Live Tauri: `npm run tauri -- dev` ran in this session; Yandex CalDAV read traffic was observed. Interactive WebView2 A–H was not CDP-automatable. Chrome against the Vite URL has no Tauri SQL/accounts. Canonical polish notes: `CALENDAR_FINAL_UI_POLISH.md`. Final parity verdict remains CAL-131.
+Live Tauri CAL-130-FINAL (2026-08-24, Asia/Bangkok): WebView2 CDP on running `npm run tauri -- dev` (`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222`). Chrome against Vite is not this smoke. Production code unchanged. Cloud mutations: NONE.
+
+| Letter | Status |
+|---|---|
+| A Month detail | PASS |
+| A Month `+N` | N/A live (no day with >3 events in scanned months) |
+| B Week current-time + Create/Cancel | PASS |
+| C Day recurrence / role / reminders / Cancel | PASS |
+| D Search → detail | PASS |
+| E ACL unsupported, no writes | PASS |
+| F Light ↔ Dark, restored Light | PASS |
+| G 900px footer wrap, restored 1200 | PASS |
+| H Tab trap + Escape | PASS; CDP focus restore to opener not confirmed |
+
+CAL-130-FINAL: **PARTIAL** (`+N` fixture N/A). Canonical polish notes: `CALENDAR_FINAL_UI_POLISH.md`. Final parity verdict remains CAL-131. Screenshots not in git.
 
 Graphify: `graphify update .` → 7,085 nodes / 18,309 edges / 417 communities. `graphify diagnose multigraph` PASS: 0 unverified code nodes, missing/dangling endpoints, self-loops or exact duplicate edges. Saved community labels are stale (430 saved vs 417 communities); `graphify label` was not run (LLM). Semantic `--update` / openai extra not used. `graphify-out/` gitignored.
