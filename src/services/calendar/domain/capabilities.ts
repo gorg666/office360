@@ -28,9 +28,9 @@ export interface CalendarProviderCapabilities {
   };
   readonly invitations: "provider-native" | "email-itip" | "none";
   readonly sync: {
-    mode: "sync-token" | "ctag" | "range-refresh";
+    mode: "sync-token" | "ctag" | "range-refresh" | "sync-token-or-range-refresh";
     pagination: boolean;
-    durability: "ephemeral" | "durable";
+    durability: "ephemeral" | "durable" | "conditional";
   };
   readonly freeBusy: {
     /**

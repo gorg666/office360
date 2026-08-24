@@ -13,6 +13,7 @@ import { getCalendarRangeCoverage } from "@/services/db/calendarSyncCoverage";
 import { getCalendarProvider, hasCalendarSupport } from "./providerFactory";
 import type { CalendarProvider, CalendarReadDiagnostics } from "./types";
 import { eventReadableCalendars } from "./calendarAccessService";
+import { calendarSyncCoordinator } from "./calendarSyncCoordinator";
 
 export type CalendarRangeLoadStatus = "fresh" | "fresh-with-warnings" | "stale" | "error";
 export type CalendarLoadErrorCategory = "calendar-api-disabled" | "permission" | "other" | null;
@@ -47,6 +48,7 @@ interface CalendarSyncDependencies {
   getCalendarEventsInRangeMulti: typeof getCalendarEventsInRangeMulti;
   getCalendarRangeCoverage: typeof getCalendarRangeCoverage;
   reconcileCalendarEventsRange: typeof reconcileCalendarEventsRange;
+  refreshRange?: typeof calendarSyncCoordinator.refreshRange;
 }
 
 const defaultDependencies: CalendarSyncDependencies = {
@@ -58,6 +60,7 @@ const defaultDependencies: CalendarSyncDependencies = {
   getCalendarEventsInRangeMulti,
   getCalendarRangeCoverage,
   reconcileCalendarEventsRange,
+  refreshRange: calendarSyncCoordinator.refreshRange.bind(calendarSyncCoordinator),
 };
 
 export class CalendarSyncService {
@@ -102,28 +105,41 @@ export class CalendarSyncService {
       }
 
       const provider = await this.dependencies.getCalendarProvider(request.accountId);
-      await this.discoverCalendars(request.accountId, provider);
+      if (!this.dependencies.refreshRange) {
+        await this.discoverCalendars(request.accountId, provider);
+      }
       calendars = await this.dependencies.getCalendarsForAccount(request.accountId);
       visibleCalendars = eventReadableCalendars(calendars).filter((calendar) => calendar.is_visible === 1);
-      const diagnostics = emptyDiagnostics();
+      let diagnostics = emptyDiagnostics();
 
-      for (const calendar of visibleCalendars) {
-        const events = await provider.fetchEvents(
-          calendar.remote_id,
-          request.rangeStart.toISOString(),
-          request.rangeEnd.toISOString(),
-        );
-        const calendarDiagnostics = provider.lastReadDiagnostics ?? emptyDiagnostics();
-        diagnostics.unreadableComponentCount += calendarDiagnostics.unreadableComponentCount;
-        diagnostics.unreadableObjectCount += calendarDiagnostics.unreadableObjectCount;
-        await this.dependencies.reconcileCalendarEventsRange({
+      if (this.dependencies.refreshRange) {
+        diagnostics = (await this.dependencies.refreshRange({
           accountId: request.accountId,
-          calendarId: calendar.id,
-          rangeStart,
-          rangeEnd,
-          events,
-          diagnostics: { ...calendarDiagnostics },
-        });
+          rangeStart: request.rangeStart,
+          rangeEnd: request.rangeEnd,
+          reason: "foreground",
+        })).diagnostics;
+        calendars = await this.dependencies.getCalendarsForAccount(request.accountId);
+        visibleCalendars = eventReadableCalendars(calendars).filter((calendar) => calendar.is_visible === 1);
+      } else {
+        for (const calendar of visibleCalendars) {
+          const events = await provider.fetchEvents(
+            calendar.remote_id,
+            request.rangeStart.toISOString(),
+            request.rangeEnd.toISOString(),
+          );
+          const calendarDiagnostics = provider.lastReadDiagnostics ?? emptyDiagnostics();
+          diagnostics.unreadableComponentCount += calendarDiagnostics.unreadableComponentCount;
+          diagnostics.unreadableObjectCount += calendarDiagnostics.unreadableObjectCount;
+          await this.dependencies.reconcileCalendarEventsRange({
+            accountId: request.accountId,
+            calendarId: calendar.id,
+            rangeStart,
+            rangeEnd,
+            events,
+            diagnostics: { ...calendarDiagnostics },
+          });
+        }
       }
 
       const calendarIds = visibleCalendars.map((calendar) => calendar.id);

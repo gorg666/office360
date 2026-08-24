@@ -26,8 +26,8 @@ Yandex использует тот же `CalDAVProvider`, что generic CalDAV,
 | Remote RSVP | `direct` | `direct` | `direct` |
 | Provider-native invitation delivery | `none` | `none` | `none` |
 | Application Mail iTIP | `email-itip` | `email-itip` | `email-itip` |
-| Sync mode | `sync-token`, paginated | `range-refresh`, not paginated | `range-refresh`, not paginated |
-| Sync durability | `ephemeral` | `ephemeral` | `ephemeral` |
+| Sync mode | `sync-token`, paginated | RFC 6578 `sync-token` when advertised; bounded fallback | same standard CalDAV discovery/fallback |
+| Sync durability | `durable` | `durable` when RFC 6578 is available | `durable` when RFC 6578 is available |
 | Free/Busy (self) | `local-derived` | `local-derived` | `local-derived` |
 | Free/Busy (others) | `remote` | `none` → `remote` after RFC 6638 discovery | `none` → `remote` after RFC 6638 discovery |
 | Effective calendar access | `full` | `partial` | `partial` |
@@ -74,6 +74,7 @@ There is no new optimistic Calendar write path. Provider failure therefore canno
 - `auth-required`;
 - `conflict`;
 - `network-error`;
+- `offline` (explicitly not queued);
 - `partial`;
 - `provider-error`.
 
@@ -96,7 +97,7 @@ This is critical for CalDAV/Yandex: expanded occurrences share the series `.ics`
 
 - Remote Free/Busy exists for Google and discovery-confirmed CalDAV/Yandex. Missing discovery properties remain an intentional provider limitation. ACL management is dynamic: Google is scope-gated and CalDAV/Yandex are RFC 3744 discovery-gated. Provider-native invitation delivery remains unsupported. Application email iTIP is supported by CAL-122 through Mail queue semantics. Reminder metadata and desktop delivery follow CAL-118/CAL-121.
 - Mail invitation queue items use UID, recurrence identity, sequence and per-recipient durable action keys. Provider-backed Calendar RSVP uses direct provider delivery; Mail invitations use METHOD:REPLY rather than fabricating a provider resource locator.
-- Google sync tokens and CalDAV delta state are not durably adopted yet. Google fetch pagination remains complete, while the capability honestly reports ephemeral sync state; CalDAV reports bounded `range-refresh`.
+- CAL-129 durably adopts Google sync tokens and discovery-confirmed RFC 6578 CalDAV/Yandex tokens. Servers without `sync-collection` retain a bounded fallback that is authoritative only inside a successfully parsed coverage window. Details: `CALENDAR_DELTA_OFFLINE_SYNC.md`.
 - `src/services/google/calendar.ts` has no imports in the current application graph and is legacy candidate code. It remains untouched to avoid unrelated destructive cleanup. The proven unreachable duplicate Gmail branch in `calendar/providerFactory.ts` was removed.
 
 ## Conformance coverage

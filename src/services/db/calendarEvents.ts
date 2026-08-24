@@ -1,7 +1,7 @@
 import type Database from "@tauri-apps/plugin-sql";
 import { getDb, selectFirstBy, withTransaction } from "./connection";
 import { parseVEvent } from "@/services/calendar/icalHelper";
-import type { CalendarEventData, CalendarReadDiagnostics } from "@/services/calendar/types";
+import type { CalendarEventData, CalendarReadDiagnostics, CalendarSyncResult } from "@/services/calendar/types";
 import { recordCalendarRangeCoverage } from "./calendarSyncCoverage";
 import {
   calendarDateFromUnixSecondsUtc,
@@ -213,6 +213,63 @@ export async function deleteEventByRemoteId(
 export async function deleteCalendarEvent(eventId: string): Promise<void> {
   const db = await getDb();
   await db.execute("DELETE FROM calendar_events WHERE id = $1", [eventId]);
+}
+
+/**
+ * Applies one complete provider batch under the process-wide write lock. The
+ * opaque cursor is deliberately written last: a crash before that point only
+ * causes an idempotent replay, never a skipped provider page set.
+ */
+export async function applyCalendarSyncBatch(input: {
+  accountId: string;
+  calendarId: string;
+  result: CalendarSyncResult;
+}): Promise<void> {
+  await withTransaction(async (db) => {
+    const events = [...input.result.created, ...input.result.updated];
+    for (const remoteId of input.result.replacedRemoteIds ?? []) {
+      await db.execute(
+        "DELETE FROM calendar_events WHERE calendar_id = $1 AND remote_event_id = $2",
+        [input.calendarId, remoteId],
+      );
+    }
+    for (const event of events) {
+      await upsertCalendarEventWithDb(db, calendarEventDataToUpsert(input.accountId, input.calendarId, event));
+    }
+    await removeMatchedProjectionsWithDb(db, input.accountId, events);
+
+    for (const remoteId of input.result.deletedRemoteIds) {
+      await db.execute(
+        "DELETE FROM calendar_events WHERE calendar_id = $1 AND remote_event_id = $2",
+        [input.calendarId, remoteId],
+      );
+    }
+
+    if (input.result.authoritativeSnapshot && input.result.complete !== false) {
+      const remoteIds = [...new Set(events.map((event) => event.remoteEventId).filter(Boolean))];
+      if (remoteIds.length === 0) {
+        await db.execute(
+          "DELETE FROM calendar_events WHERE calendar_id = $1 AND (origin IS NULL OR origin = 'remote')",
+          [input.calendarId],
+        );
+      } else {
+        const placeholders = remoteIds.map((_, index) => `$${index + 2}`).join(", ");
+        await db.execute(
+          `DELETE FROM calendar_events
+           WHERE calendar_id = $1 AND (origin IS NULL OR origin = 'remote')
+             AND remote_event_id NOT IN (${placeholders})`,
+          [input.calendarId, ...remoteIds],
+        );
+      }
+    }
+
+    if (input.result.complete !== false && (input.result.newSyncToken || input.result.newCtag)) {
+      await db.execute(
+        "UPDATE calendars SET sync_token = $1, ctag = $2, updated_at = unixepoch() WHERE id = $3",
+        [input.result.newSyncToken, input.result.newCtag, input.calendarId],
+      );
+    }
+  });
 }
 
 export async function getCalendarEventByUid(

@@ -461,6 +461,10 @@ Provider-neutral `CalendarSearchService` searches title, description, location, 
 
 `CalendarAclService` exposes provider-neutral list/grant/updateRole/revoke operations over normalized owner/writer/reader/free-busy-only roles. Google uses official ACL list/insert/update/delete endpoints behind persisted OAuth-scope checks. Generic CalDAV/Yandex use only RFC 3744 discovery and ACL methods; incomplete/unknown discovery remains unsupported. The UI is capability-driven, protects owner/current-user entries and refreshes CAL-119 metadata through normal provider discovery after a successful mutation. Migration: NONE. Cloud ACL mutations: NONE. Canonical contract: `CALENDAR_ACL_MANAGEMENT.md`.
 
+## CAL-129 (delivered) — Durable delta sync and offline write policy
+
+**Status:** PASS. `CalendarSyncCoordinator` now owns foreground/background/startup/manual/reconnect Calendar refresh with per-account delta single-flight. Google `nextSyncToken` pagination, tombstones and one-shot 410 recovery are durable. Generic CalDAV/Yandex use RFC 6578 `sync-collection` only when advertised and otherwise keep the bounded range fallback. Cache application precedes cursor commit; a crash replays idempotently. Offline reads/search/reminders remain local; event/RSVP/ACL writes are explicitly blocked and never silently queued. Migration: NONE. Canonical contract: `CALENDAR_DELTA_OFFLINE_SYNC.md`.
+
 ## Remaining P0/P1 gaps
 
 No new ticket numbers are assigned automatically.
@@ -472,16 +476,15 @@ None. CAL-122 closed Mail invitation lifecycle and CAL-123 closed Yandex partici
 ### P1 — important parity gaps
 
 - `this-and-future` remains documented-unsupported unless product scope expands;
-- participant directory/picker (required/optional authoring is delivered by CAL-125);
 - shared-calendar subscription management and an isolated live shared/read-only fixture (share/ACL management delivered by CAL-128);
-- consolidate provider sync ownership and durable delta policy: Google token/capability/410 recovery consistency, CalDAV sync-token/ctag strategy and explicit offline-write policy.
+- participant directory/picker and isolated shared/read-only fixtures remain product follow-ups; durable delta/offline policy closed by CAL-129.
 
 ## Post-parity backlog
 
 - richer date navigation and consistent RU editor/time copy;
 - auto-scroll, multi-day all-day create selection and optional keyboard drag-selection;
 - WCAG, responsive, dark/light and measured performance/bundle hardening;
-- consolidate duplicated calendar discovery/application orchestration before expanding sync behavior;
+- measure large-calendar initial snapshot and RFC 6578 server truncation behavior on isolated provider fixtures;
 - room booking, directory rewrite, tasks/templates and other product extensions only by separate scope.
 
 

@@ -101,8 +101,20 @@ export interface CalendarSyncResult {
   created: CalendarEventData[];
   updated: CalendarEventData[];
   deletedRemoteIds: string[];
+  /** Provider resource keys whose cached occurrences must be replaced as one unit. */
+  replacedRemoteIds?: string[];
   newSyncToken: string | null;
   newCtag: string | null;
+  /** The provider rejected the supplied opaque cursor and requires one controlled initial sync. */
+  cursorInvalidated?: boolean;
+  /** False means valid changes may be applied, but the cursor must not advance. */
+  complete?: boolean;
+  /** True only when the result enumerates the complete current collection. */
+  authoritativeSnapshot?: boolean;
+  strategy?: "sync-token" | "ctag" | "range-refresh";
+  /** Bounded authoritative window for providers without a durable delta cursor. */
+  coverageRange?: { start: number; end: number };
+  diagnostics?: CalendarReadDiagnostics;
 }
 
 export interface CalendarProvider {

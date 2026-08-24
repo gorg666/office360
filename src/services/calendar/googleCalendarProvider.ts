@@ -125,7 +125,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
     attendees: { read: "partial", write: "partial" },
     rsvp: { local: "projection", remote: "direct" },
     invitations: "none",
-    sync: { mode: "sync-token", pagination: true, durability: "ephemeral" },
+    sync: { mode: "sync-token", pagination: true, durability: "durable" },
     freeBusy: { self: "local-derived", others: "remote" },
     permissions: "none",
     sharedCalendars: "manage",
@@ -434,14 +434,9 @@ export class GoogleCalendarProvider implements CalendarProvider {
       if (syncToken) {
         params.set("syncToken", syncToken);
       } else {
-        // Initial sync: fetch last 90 days to 365 days forward
-        const timeMin = new Date();
-        timeMin.setDate(timeMin.getDate() - 90);
-        params.set("timeMin", timeMin.toISOString());
-        const timeMax = new Date();
-        timeMax.setFullYear(timeMax.getFullYear() + 1);
-        params.set("timeMax", timeMax.toISOString());
-        params.set("singleEvents", "true");
+        // An unfiltered initial collection snapshot is required for deterministic
+        // 410 recovery. Recurrence masters and overrides remain provider resources.
+        params.set("showDeleted", "false");
       }
       if (pageToken) params.set("pageToken", pageToken);
 
@@ -453,8 +448,11 @@ export class GoogleCalendarProvider implements CalendarProvider {
       } catch (err) {
         const message = err instanceof Error ? err.message : "";
         if (message.includes("410") || message.includes("sync token")) {
-          // Sync token expired — caller should do full sync
-          return { created: [], updated: [], deletedRemoteIds: [], newSyncToken: null, newCtag: null };
+          return {
+            created: [], updated: [], deletedRemoteIds: [], newSyncToken: null, newCtag: null,
+            cursorInvalidated: true, complete: false, authoritativeSnapshot: false,
+            strategy: "sync-token",
+          };
         }
         throw err;
       }
@@ -475,7 +473,10 @@ export class GoogleCalendarProvider implements CalendarProvider {
       }
     } while (pageToken);
 
-    return { created, updated, deletedRemoteIds, newSyncToken: nextSyncToken, newCtag: null };
+    return {
+      created, updated, deletedRemoteIds, newSyncToken: nextSyncToken, newCtag: null,
+      complete: Boolean(nextSyncToken), authoritativeSnapshot: !syncToken, strategy: "sync-token",
+    };
   }
 
   async testConnection(): Promise<{ success: boolean; message: string }> {

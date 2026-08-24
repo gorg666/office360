@@ -21,6 +21,7 @@ import type {
   RecurringMutationContext,
 } from "./types";
 import type { CalendarProvider } from "./types";
+import { isCalendarOffline } from "./calendarOfflinePolicy";
 
 export type CalendarWriteFailureStatus =
   | "unsupported"
@@ -30,6 +31,7 @@ export type CalendarWriteFailureStatus =
   | "auth-required"
   | "conflict"
   | "network-error"
+  | "offline"
   | "partial"
   | "provider-error";
 
@@ -61,6 +63,7 @@ export class CalendarMutationService {
     calendarRemoteId: string,
     event: CreateEventInput,
   ): Promise<CalendarWriteResult<CalendarEventData>> {
+    if (isCalendarOffline()) return offlineWriteUnsupported();
     try {
       const provider = await getCalendarProvider(accountId);
       if (provider.capabilities.events.create !== "remote") {
@@ -89,6 +92,7 @@ export class CalendarMutationService {
     target: CalendarMutationTarget,
     event: UpdateEventInput,
   ): Promise<CalendarWriteResult<CalendarEventData>> {
+    if (isCalendarOffline()) return offlineWriteUnsupported();
     try {
       const provider = await getCalendarProvider(target.accountId);
       if (provider.capabilities.events.update !== "remote") {
@@ -152,6 +156,7 @@ export class CalendarMutationService {
   }
 
   async delete(target: CalendarMutationTarget): Promise<CalendarWriteResult<void>> {
+    if (isCalendarOffline()) return offlineWriteUnsupported();
     try {
       const provider = await getCalendarProvider(target.accountId);
       if (provider.capabilities.events.delete !== "remote") {
@@ -194,6 +199,7 @@ export class CalendarMutationService {
     attendeeEmail: string,
     status: CalendarParticipationStatus,
   ): Promise<CalendarWriteResult<void>> {
+    if (isCalendarOffline()) return offlineWriteUnsupported();
     try {
       const provider = await getCalendarProvider(target.accountId);
       if (provider.capabilities.rsvp.remote !== "direct") {
@@ -335,6 +341,13 @@ export function classifyWriteFailure(error: unknown): CalendarWriteResult<never>
 
 function unsupported(message: string): CalendarWriteResult<never> {
   return { status: "unsupported", message };
+}
+
+function offlineWriteUnsupported(): CalendarWriteResult<never> {
+  return {
+    status: "offline",
+    message: "Изменения календаря недоступны без сети. Ничего не было сохранено или поставлено в очередь.",
+  };
 }
 
 async function deliverInvitation<T>(

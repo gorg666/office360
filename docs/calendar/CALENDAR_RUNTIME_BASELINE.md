@@ -572,3 +572,13 @@ Automated CAL-128 acceptance: TypeScript PASS; targeted ACL/CAL-119/search/priva
 Graphify AST index: 7028 nodes / 18173 edges / 419 communities. Integrity PASS: 0 missing endpoints, self-loops, unverified edges and duplicate relation edges.
 
 Graphify code-index refresh: `graphify update .` → 6,909 nodes / 17,818 edges / 422 communities. Read-only graph integrity: 0 missing endpoints, self-loops or exact duplicate typed undirected edges. The optional semantic docs/image extraction refresh was unavailable because the local Graphify CLI environment lacks its `openai` backend package; no dependency was installed and code graph integrity is unaffected.
+
+### CAL-129 durable delta sync and offline write policy
+
+Дата: 2026-08-24 (Asia/Bangkok). Migration: NONE. Production/deploy/secrets: untouched. Cloud event, RSVP, Mail and ACL mutations: NONE.
+
+Live Tauri read-only acceptance PASS. A fresh `npm run tauri -- dev` runtime completed Yandex CalDAV discovery and remote fetch, rendered existing cached/provider events in Month, and completed Week (`24–30 августа 2026`) and Day (`24 августа 2026`) loading without an error state. No create/save/delete control, RSVP action, Mail send or sharing mutation was used. Google destructive delta and CalDAV tombstone/recovery cases remained fixture-only by policy.
+
+Automated CAL-129 acceptance: TypeScript PASS; targeted provider/coordinator/DB/offline/ACL and ownership suites — 8 files / 149 tests PASS; recurrence/search/reminder/Mail/iTIP/Calendar UI regression — 13 files / 123 tests PASS; full Vitest — 264 files / 2562 tests PASS. Four-zone Calendar TZ matrix — 15 files / 186 tests in each of UTC, Europe/Moscow, America/New_York and Australia/Lord_Howe. Production build PASS (CalendarPage 155.91 kB raw / 45.32 kB gzip; main 2,130.30 kB raw / 631.99 kB gzip). `cargo check` PASS with the same two pre-existing unused-variable warnings in `src/lib.rs:378`; Rust was not changed.
+
+Graphify code-index refresh: `graphify update .` → 7,068 nodes / 18,278 edges / 430 communities. `graphify diagnose multigraph` PASS: 0 unverified code nodes, missing/dangling endpoints, self-loops or exact duplicate edges. Saved labels are stale relative to the current community set; graph integrity is unaffected.

@@ -48,9 +48,24 @@ function provider(): CalendarProvider {
 
 describe("CalendarMutationService", () => {
   beforeEach(() => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
     vi.mocked(getCalendarByRemoteId).mockResolvedValue({ access_json: "writable" } as never);
     mockAccessForCalendar.mockReturnValue({ permissions: { canCreate: true, canUpdate: true, canDelete: true } });
     vi.mocked(refreshCalendarAccess).mockResolvedValue([]);
+  });
+
+  it("blocks offline writes without provider I/O or silent queueing", async () => {
+    const mockProvider = provider();
+    vi.mocked(getCalendarProvider).mockResolvedValue(mockProvider);
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+
+    const result = await calendarMutationService.create("acc-1", "cal", {
+      summary: "Offline", startTime: "2026-01-01T10:00:00Z", endTime: "2026-01-01T11:00:00Z",
+    });
+
+    expect(result).toMatchObject({ status: "offline" });
+    expect(mockProvider.createEvent).not.toHaveBeenCalled();
+    expect(getCalendarProvider).not.toHaveBeenCalled();
   });
 
   it("blocks a read-only calendar before provider I/O", async () => {

@@ -118,7 +118,7 @@ export class CalDAVProvider implements CalendarProvider {
       attendees: { read: "partial", write: "partial" },
       rsvp: { local: "projection", remote: "direct" },
       invitations: "none",
-      sync: { mode: "range-refresh", pagination: false, durability: "ephemeral" },
+      sync: { mode: "sync-token-or-range-refresh", pagination: false, durability: "conditional" },
       freeBusy: { self: "local-derived", others: this.remoteFreeBusyCapability },
       permissions: "none",
       sharedCalendars: "read",
@@ -624,18 +624,100 @@ export class CalDAVProvider implements CalendarProvider {
     });
   }
 
-  async syncEvents(calendarRemoteId: string, _syncToken?: string): Promise<CalendarSyncResult> {
-    const created: CalendarEventData[] = [];
+  async syncEvents(calendarRemoteId: string, syncToken?: string): Promise<CalendarSyncResult> {
+    const syncCollectionResult = await this.withClient("sync_events", async (client) => {
+      const calendars = await client.fetchCalendars() ?? [];
+      const calendar = calendars.find((candidate) => sameDavResource(candidate.url, calendarRemoteId));
+      const supportsSyncCollection = Boolean(calendar?.reports?.includes("syncCollection"));
+      if (!calendar || !supportsSyncCollection) return null;
 
-    // Full fetch — tsdav's syncCalendars doesn't reliably expose per-object deltas,
-    // so we do a time-range fetch and let the DB upsert logic handle deduplication.
+      try {
+        const responses = await client.syncCollection({
+          url: calendar.url,
+          syncToken: syncToken ?? "",
+          syncLevel: 1,
+          props: {
+            "d:getetag": {},
+            "c:calendar-data": {},
+          },
+        });
+        const invalid = responses.some((response) =>
+          response.status === 403 && davValueContains(response.error, "valid-sync-token"));
+        if (invalid) return { invalid: true } as const;
+
+        const deletedRemoteIds: string[] = [];
+        const changedResponses = responses.filter((response) => {
+          if (response.status === 404 && response.href && !sameDavResource(response.href, calendar.url)) {
+            deletedRemoteIds.push(resolveDavHref(response.href, calendar.url) ?? response.href);
+            return false;
+          }
+          return response.ok && Boolean(response.href) && !sameDavResource(response.href!, calendar.url);
+        });
+        const directObjects: DAVObject[] = changedResponses
+          .filter((response) => response.props?.calendarData)
+          .map((response) => ({
+            url: resolveDavHref(response.href, calendar.url) ?? response.href!,
+            etag: response.props?.getetag,
+            data: davCalendarData(response.props?.calendarData),
+          }));
+        const missingDataUrls = changedResponses
+          .filter((response) => !response.props?.calendarData)
+          .map((response) => resolveDavHref(response.href, calendar.url) ?? response.href!);
+        const fetchedObjects = missingDataUrls.length > 0
+          ? await client.fetchCalendarObjects({ calendar, objectUrls: missingDataUrls, useMultiGet: true })
+          : [];
+        const objects = [...directObjects, ...fetchedObjects];
+        const now = new Date();
+        const timeMin = new Date(now);
+        timeMin.setDate(timeMin.getDate() - 90);
+        const timeMax = new Date(now);
+        timeMax.setFullYear(timeMax.getFullYear() + 1);
+        const parsed = this.parseCalendarObjectsForDelta(objects, timeMin, timeMax);
+        const newSyncToken = davSyncToken(responses);
+        const failedResponse = responses.some((response) => !response.ok && response.status !== 404);
+        const diagnostics = { ...this._lastReadDiagnostics };
+        const complete = !failedResponse
+          && diagnostics.unreadableComponentCount === 0
+          && diagnostics.unreadableObjectCount === 0
+          && Boolean(newSyncToken);
+        return {
+          invalid: false,
+          result: {
+            created: parsed.events,
+            updated: [] as CalendarEventData[],
+            deletedRemoteIds,
+            replacedRemoteIds: parsed.replacedRemoteIds,
+            newSyncToken,
+            newCtag: calendar.ctag ?? null,
+            complete,
+            authoritativeSnapshot: !syncToken,
+            strategy: "sync-token" as const,
+            diagnostics,
+          } satisfies CalendarSyncResult,
+        } as const;
+      } catch (error) {
+        if (syncToken && isDavSyncTokenInvalid(error)) return { invalid: true } as const;
+        throw error;
+      }
+    });
+
+    if (syncCollectionResult?.invalid) {
+      return {
+        created: [], updated: [], deletedRemoteIds: [], newSyncToken: null, newCtag: null,
+        cursorInvalidated: true, complete: false, authoritativeSnapshot: false,
+        strategy: "sync-token",
+      };
+    }
+    if (syncCollectionResult?.result) return syncCollectionResult.result;
+
+    // RFC 6578 was not advertised: retain the bounded, non-authoritative fallback.
     const now = new Date();
     const timeMin = new Date(now);
     timeMin.setDate(timeMin.getDate() - 90);
     const timeMax = new Date(now);
     timeMax.setFullYear(timeMax.getFullYear() + 1);
 
-    const objects = await this.withClient("sync_events", (client) => client.fetchCalendarObjects({
+    const objects = await this.withClient("sync_events_fallback", (client) => client.fetchCalendarObjects({
       calendar: { url: calendarRemoteId } as DAVCalendar,
       timeRange: {
         start: timeMin.toISOString(),
@@ -643,9 +725,19 @@ export class CalDAVProvider implements CalendarProvider {
       },
     }));
 
-    created.push(...this.parseCalendarObjects(objects, timeMin, timeMax));
-
-    return { created, updated: [], deletedRemoteIds: [], newSyncToken: null, newCtag: null };
+    const created = this.parseCalendarObjects(objects, timeMin, timeMax);
+    return {
+      created, updated: [], deletedRemoteIds: [], newSyncToken: null, newCtag: null,
+      complete: this._lastReadDiagnostics.unreadableComponentCount === 0
+        && this._lastReadDiagnostics.unreadableObjectCount === 0,
+      authoritativeSnapshot: false,
+      strategy: "range-refresh",
+      coverageRange: {
+        start: Math.floor(timeMin.getTime() / 1000),
+        end: Math.floor(timeMax.getTime() / 1000),
+      },
+      diagnostics: { ...this._lastReadDiagnostics },
+    };
   }
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
@@ -692,6 +784,33 @@ export class CalDAVProvider implements CalendarProvider {
       });
     }
     return events;
+  }
+
+  private parseCalendarObjectsForDelta(
+    objects: DAVObject[],
+    rangeStart: Date,
+    rangeEnd: Date,
+  ): { events: CalendarEventData[]; replacedRemoteIds: string[] } {
+    const diagnostics = emptyReadDiagnostics();
+    const events: CalendarEventData[] = [];
+    const replacedRemoteIds: string[] = [];
+    for (const object of objects) {
+      if (!object.data) {
+        diagnostics.unreadableObjectCount += 1;
+        continue;
+      }
+      try {
+        const parsed = parseVEventsInRangeDetailed(String(object.data), object.url, rangeStart, rangeEnd);
+        diagnostics.unreadableComponentCount += parsed.diagnostics.unreadableComponentCount;
+        diagnostics.unreadableObjectCount += parsed.diagnostics.unreadableObjectCount;
+        if (parsed.diagnostics.unreadableObjectCount === 0) replacedRemoteIds.push(object.url);
+        events.push(...parsed.events.map((event) => ({ ...event, etag: object.etag ?? null })));
+      } catch {
+        diagnostics.unreadableObjectCount += 1;
+      }
+    }
+    this._lastReadDiagnostics = diagnostics;
+    return { events, replacedRemoteIds };
   }
 }
 
@@ -763,6 +882,45 @@ function joinCalendarObjectUrl(calendarRemoteId: string, filename: string): stri
     const separator = calendarRemoteId.endsWith("/") ? "" : "/";
     return `${calendarRemoteId}${separator}${filename}`;
   }
+}
+
+function sameDavResource(left: string, right: string): boolean {
+  try {
+    const normalize = (value: string) => decodeURIComponent(new URL(value, "https://office360.invalid").pathname)
+      .replace(/\/+$/, "");
+    return normalize(left) === normalize(right);
+  } catch {
+    return left.replace(/\/+$/, "") === right.replace(/\/+$/, "");
+  }
+}
+
+function davCalendarData(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const compact = value as { _cdata?: unknown; _text?: unknown };
+    if (typeof compact._cdata === "string") return compact._cdata;
+    if (typeof compact._text === "string") return compact._text;
+  }
+  return undefined;
+}
+
+function davSyncToken(responses: readonly { raw?: unknown }[]): string | null {
+  for (const response of responses) {
+    const raw = response.raw as { multistatus?: { syncToken?: unknown } } | undefined;
+    const token = raw?.multistatus?.syncToken;
+    if (typeof token === "string" && token.length > 0) return token;
+    if (token && typeof token === "object") {
+      const compact = token as { _text?: unknown; _cdata?: unknown };
+      const value = compact._text ?? compact._cdata;
+      if (typeof value === "string" && value.length > 0) return value;
+    }
+  }
+  return null;
+}
+
+function isDavSyncTokenInvalid(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /valid-sync-token|invalid sync token|sync token.*(invalid|expired)|\b410\b/i.test(message);
 }
 
 function emptyFreeBusyDiscovery(reason: CalDavFreeBusyDiscovery["reason"]): CalDavFreeBusyDiscovery {
@@ -943,7 +1101,7 @@ function davHrefs(value: unknown): string[] {
 }
 
 function resolveDavHref(value: unknown, base?: string): string | null {
-  const href = davHrefs(value)[0];
+  const href = typeof value === "string" ? value : davHrefs(value)[0];
   if (!href) return null;
   try { return new URL(href, base).href; } catch { return null; }
 }

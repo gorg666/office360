@@ -9,6 +9,7 @@ import {
 import { refreshCalendarAccess } from "./calendarAccessService";
 import { getCalendarProvider } from "./providerFactory";
 import { accessForCalendar, getCalendarById } from "@/services/db/calendars";
+import { isCalendarOffline } from "./calendarOfflinePolicy";
 
 export interface CalendarAclTarget {
   accountId: string;
@@ -93,6 +94,12 @@ export class CalendarAclService {
   }
 
   private async mutableContext(target: CalendarAclTarget, operation: "read" | "write") {
+    if (operation === "write" && isCalendarOffline()) {
+      throw new CalendarAclError(
+        "offline",
+        "Calendar sharing changes are unavailable offline and were not queued.",
+      );
+    }
     const { calendar, provider } = await this.context(target);
     const permissions = accessForCalendar(calendar).permissions;
     if (operation === "write" && !permissions.canManageSharing || operation === "read" && !permissions.canRead) {

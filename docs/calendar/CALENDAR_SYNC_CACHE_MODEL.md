@@ -50,7 +50,7 @@ For an authoritative snapshot the repository:
 
 For a degraded response, valid events are upserted and matching projections may reconcile, but missing cached events are retained and coverage is recorded as partial. Parser warnings therefore never trigger destructive reconciliation.
 
-Google bounded fetch follows every `nextPageToken`; any page failure rejects the entire fetch, so partial pages cannot be marked authoritative. Google `syncEvents` retains its existing cancelled-marker and sync-token handling. CalDAV declares `range-refresh`, not token/full-collection sync: current runtime performs bounded `calendar-query` refresh and has no `sync-collection` token.
+Google bounded fetch follows every `nextPageToken`; any page failure rejects the entire fetch, so partial pages cannot be marked authoritative. CAL-129 adds durable provider delta ownership: Google and discovery-confirmed RFC 6578 CalDAV/Yandex cursors are stored in `calendars.sync_token`, provider tombstones converge the cache, and cursor commit happens only after the complete batch applies. CalDAV servers without `sync-collection` retain bounded `calendar-query` refresh.
 
 ## Failure safety and atomicity
 
@@ -86,6 +86,6 @@ Rows without semantic v34 fields are normalized through the CAL-103 codec. A bou
 ## Known limitations and follow-ups
 
 1. Coverage intervals are compact exact/covering records; CAL-104 does not merge adjacent intervals or implement a general offline interval database.
-2. Google visible-range fetch is paginated, but durable adoption/recovery of `nextSyncToken` remains CAL-105 provider readiness work.
-3. Generic CalDAV does not yet use `sync-collection`, ctag deletion deltas, or tombstones outside an authoritative bounded refresh.
+2. The SQLite/Tauri pool does not expose a safely pinned multi-statement transaction; delta crash safety is idempotent replay with cursor-last ordering.
+3. Generic CalDAV without advertised RFC 6578 support cannot observe tombstones outside an authoritative bounded refresh.
 4. True multi-statement SQLite transactions need a DB access path that guarantees one pooled connection; current fallback semantics are deliberately non-destructive.

@@ -40,6 +40,7 @@ export type CalendarAclErrorCode =
   | "owner-protected"
   | "current-user-protected"
   | "refresh-failed"
+  | "offline"
   | "provider-error";
 
 export class CalendarAclError extends Error {

@@ -57,6 +57,7 @@ export function CalendarPage() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const accounts = useAccountStore((s) => s.accounts);
   const locale = useUIStore((state) => state.locale);
+  const isOnline = useUIStore((state) => state.isOnline);
   const activeAccount = accounts.find((a) => a.id === activeAccountId) ?? null;
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<CalendarView>("month");
@@ -577,12 +578,14 @@ export function CalendarPage() {
           <div className="flex-1">
             <p className="text-sm font-medium text-text-primary">
               {loadState.status === "stale"
-                ? "Не удалось обновить календарь"
+                ? (isOnline ? "Не удалось обновить календарь" : "Календарь открыт без сети")
                 : "Не удалось загрузить календарь"}
             </p>
             <p className="text-xs text-text-secondary mt-1">
               {loadState.status === "stale"
-                ? "Показаны ранее загруженные данные."
+                ? (isOnline
+                  ? "Показаны ранее загруженные данные."
+                  : "Показаны кешированные данные; изменения и RSVP недоступны до подключения.")
                 : "События недоступны. Проверьте подключение и повторите попытку."}
             </p>
             {calendarError && (

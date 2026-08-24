@@ -30,6 +30,7 @@ import {
   clearCalendarEventNormalizationCache,
   reconcileCalendarEventsRange,
   calendarEventDataToUpsert,
+  applyCalendarSyncBatch,
   type DbCalendarEvent,
 } from "./calendarEvents";
 import { createMockDb } from "@/test/mocks";
@@ -488,6 +489,67 @@ describe("calendarEvents service", () => {
       const [sql, params] = mockDb.execute.mock.calls[0] as [string, unknown[]];
       expect(sql).toBe("DELETE FROM calendar_events WHERE id = $1");
       expect(params).toEqual(["evt-1"]);
+    });
+  });
+
+  describe("applyCalendarSyncBatch", () => {
+    it("applies tombstones before committing the new opaque cursor", async () => {
+      await applyCalendarSyncBatch({
+        accountId: "acc-1",
+        calendarId: "cal-1",
+        result: {
+          created: [], updated: [], deletedRemoteIds: ["gone.ics"],
+          newSyncToken: "cursor-2", newCtag: null, complete: true,
+        },
+      });
+
+      expect(mockDb.execute).toHaveBeenCalledTimes(2);
+      expect(mockDb.execute.mock.calls[0]?.[0]).toContain("DELETE FROM calendar_events");
+      expect(mockDb.execute.mock.calls[1]?.[0]).toContain("UPDATE calendars SET sync_token");
+    });
+
+    it("never advances the cursor when local batch application fails", async () => {
+      mockDb.execute.mockRejectedValueOnce(new Error("disk full"));
+      await expect(applyCalendarSyncBatch({
+        accountId: "acc-1",
+        calendarId: "cal-1",
+        result: {
+          created: [], updated: [], deletedRemoteIds: ["gone.ics"],
+          newSyncToken: "cursor-2", newCtag: null, complete: true,
+        },
+      })).rejects.toThrow("disk full");
+
+      expect(mockDb.execute).toHaveBeenCalledTimes(1);
+      expect(String(mockDb.execute.mock.calls[0]?.[0])).not.toContain("UPDATE calendars SET sync_token");
+    });
+
+    it("replaces all cached occurrences for a changed CalDAV resource before cursor commit", async () => {
+      await applyCalendarSyncBatch({
+        accountId: "acc-1",
+        calendarId: "cal-1",
+        result: {
+          created: [], updated: [], deletedRemoteIds: [], replacedRemoteIds: ["series.ics"],
+          newSyncToken: "cursor-2", newCtag: null, complete: true,
+        },
+      });
+
+      expect(mockDb.execute.mock.calls[0]?.[1]).toEqual(["cal-1", "series.ics"]);
+      expect(mockDb.execute.mock.calls.at(-1)?.[0]).toContain("UPDATE calendars SET sync_token");
+    });
+
+    it("removes stale legacy remote rows during an authoritative collection recovery", async () => {
+      await applyCalendarSyncBatch({
+        accountId: "acc-1",
+        calendarId: "cal-1",
+        result: {
+          created: [], updated: [], deletedRemoteIds: [],
+          newSyncToken: "cursor-2", newCtag: null, complete: true,
+          authoritativeSnapshot: true,
+        },
+      });
+
+      expect(mockDb.execute.mock.calls[0]?.[0]).toContain("origin IS NULL OR origin = 'remote'");
+      expect(mockDb.execute.mock.calls.at(-1)?.[0]).toContain("UPDATE calendars SET sync_token");
     });
   });
 });

@@ -215,8 +215,8 @@ No new Tauri runtime was required for this docs-only re-audit because `ff9e5fa` 
 ## Code health
 
 - `CalendarPage.tsx` remains a 736-line presentation/orchestration owner.
-- Foreground `CalendarSyncService` and background `gmail/syncManager` duplicate calendar discovery/reconciliation responsibilities.
-- Google delta tokens are stored by the background path, but capabilities say ephemeral and 410 recovery does not clear the stored token.
+- CAL-129 consolidated foreground/background/startup/manual/reconnect ownership in `CalendarSyncCoordinator`; delta cursor consumption is single-flight per account.
+- Google and discovery-confirmed RFC 6578 CalDAV/Yandex cursors are durable. Google 410 clears the cursor and performs one controlled authoritative recovery before replacement-token commit.
 - `src/services/google/calendar.ts` remains an unreferenced legacy candidate.
 - Main bundle is 2,102.51 kB raw / 623.57 kB gzip; existing chunk warnings remain.
 - Graphify index after CAL-125 `graphify update .`: 6,844 nodes / 17,606 edges / 406 communities; 0 unverified/missing/dangling/self-loop/duplicate edges. Saved community labels are stale (414 saved vs 406 communities). Semantic `--update` was not used (openai extra unavailable); code AST index was refreshed.
@@ -235,7 +235,7 @@ These are technical debt unless they directly map to the P1 delta/offline item a
 
 1. Run isolated non-personal live acceptance for provider create/edit/delete/recurrence/RSVP/outbound invitation and shared/read-only roles, or explicitly ship those as automated-only evidence.
 2. Select and close or explicitly defer the remaining P1 product boundary: shared-calendar subscription and participant directory (ACL/share management closed by CAL-128; search closed by CAL-127; recurring create and persistent participant roles closed by CAL-125).
-3. Resolve/document the Google token-recovery/capability inconsistency and the CalDAV/offline sync policy before claiming robust offline/delta behavior.
+3. Durable delta/recovery and explicit offline write policy are closed by CAL-129; broad-release validation should still include isolated large-calendar/provider fixtures.
 
 ### Acceptable post-merge
 

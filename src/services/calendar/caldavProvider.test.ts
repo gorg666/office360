@@ -15,6 +15,7 @@ const MOCK_ICAL_DATA_2 =
 const mockLogin = vi.fn().mockResolvedValue(undefined);
 const mockFetchCalendars = vi.fn();
 const mockFetchCalendarObjects = vi.fn();
+const mockSyncCollection = vi.fn();
 const mockCreateCalendarObject = vi.fn().mockResolvedValue(new Response(null, { status: 201 }));
 const mockUpdateCalendarObject = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
 const mockDeleteCalendarObject = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
@@ -27,6 +28,7 @@ vi.mock("tsdav", () => {
     this.login = mockLogin;
     this.fetchCalendars = mockFetchCalendars;
     this.fetchCalendarObjects = mockFetchCalendarObjects;
+    this.syncCollection = mockSyncCollection;
     this.createCalendarObject = mockCreateCalendarObject;
     this.updateCalendarObject = mockUpdateCalendarObject;
     this.deleteCalendarObject = mockDeleteCalendarObject;
@@ -115,6 +117,7 @@ describe("CalDAVProvider", () => {
     mockLogin.mockReset().mockResolvedValue(undefined);
     mockFetchCalendars.mockReset();
     mockFetchCalendarObjects.mockReset();
+    mockSyncCollection.mockReset();
     mockCreateCalendarObject.mockReset().mockResolvedValue(new Response(null, { status: 201 }));
     mockUpdateCalendarObject.mockReset().mockResolvedValue(new Response(null, { status: 204 }));
     mockDeleteCalendarObject.mockReset().mockResolvedValue(new Response(null, { status: 204 }));
@@ -757,6 +760,8 @@ BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VFREEBUSY\r\nFREEBUSY:20260822T100000Z/2
       expect(result.deletedRemoteIds).toEqual([]);
       expect(result.newSyncToken).toBeNull();
       expect(result.newCtag).toBeNull();
+      expect(result.strategy).toBe("range-refresh");
+      expect(result.coverageRange).toEqual({ start: expect.any(Number), end: expect.any(Number) });
     });
 
     it("uses the same malformed-object isolation as fetchEvents", async () => {
@@ -771,6 +776,73 @@ BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VFREEBUSY\r\nFREEBUSY:20260822T100000Z/2
       expect(result.created).toHaveLength(1);
       expect(result.created[0]?.uid).toBe("test-uid-2");
       expect(provider.lastReadDiagnostics).toEqual({ unreadableComponentCount: 0, unreadableObjectCount: 1 });
+    });
+
+    it("uses RFC 6578 changed/deleted hrefs and returns the new opaque token", async () => {
+      mockFetchCalendars.mockResolvedValue([{
+        url: "https://caldav.example.com/cal/personal/",
+        reports: ["syncCollection"],
+        ctag: "ctag-2",
+      }]);
+      mockSyncCollection.mockResolvedValue([
+        {
+          ok: true, status: 200, statusText: "OK", href: "/cal/personal/changed.ics",
+          props: { getetag: '"etag-2"', calendarData: MOCK_ICAL_DATA },
+          raw: { multistatus: { syncToken: "urn:sync:2" } },
+        },
+        {
+          ok: false, status: 404, statusText: "Not Found", href: "/cal/personal/gone.ics",
+          raw: { multistatus: { syncToken: "urn:sync:2" } },
+        },
+      ]);
+
+      const result = await provider.syncEvents("/cal/personal/", "urn:sync:1");
+
+      expect(mockSyncCollection).toHaveBeenCalledWith(expect.objectContaining({
+        syncToken: "urn:sync:1", syncLevel: 1,
+      }));
+      expect(result.created).toHaveLength(1);
+      expect(result.created[0]?.etag).toBe('"etag-2"');
+      expect(result.replacedRemoteIds).toEqual(["https://caldav.example.com/cal/personal/changed.ics"]);
+      expect(result.deletedRemoteIds).toEqual(["https://caldav.example.com/cal/personal/gone.ics"]);
+      expect(result.newSyncToken).toBe("urn:sync:2");
+      expect(result.complete).toBe(true);
+      expect(result.strategy).toBe("sync-token");
+    });
+
+    it("isolates malformed RFC 6578 resources and refuses cursor advancement", async () => {
+      mockFetchCalendars.mockResolvedValue([{
+        url: "https://caldav.example.com/cal/personal/", reports: ["syncCollection"],
+      }]);
+      mockSyncCollection.mockResolvedValue([
+        {
+          ok: true, status: 200, statusText: "OK", href: "/cal/personal/bad.ics",
+          props: { calendarData: "broken" }, raw: { multistatus: { syncToken: "urn:sync:2" } },
+        },
+        {
+          ok: true, status: 200, statusText: "OK", href: "/cal/personal/good.ics",
+          props: { calendarData: MOCK_ICAL_DATA_2 }, raw: { multistatus: { syncToken: "urn:sync:2" } },
+        },
+      ]);
+
+      const result = await provider.syncEvents("/cal/personal/", "urn:sync:1");
+      expect(result.created).toHaveLength(1);
+      expect(result.complete).toBe(false);
+      expect(result.diagnostics?.unreadableObjectCount).toBe(1);
+    });
+
+    it("surfaces RFC 6578 cursor invalidation for controlled recovery", async () => {
+      mockFetchCalendars.mockResolvedValue([{
+        url: "https://caldav.example.com/cal/personal/", reports: ["syncCollection"],
+      }]);
+      mockSyncCollection.mockResolvedValue([{
+        ok: false, status: 403, statusText: "Forbidden", href: "/cal/personal/",
+        error: { validSyncToken: true },
+      }]);
+
+      const result = await provider.syncEvents("/cal/personal/", "urn:expired");
+      expect(result.cursorInvalidated).toBe(true);
+      expect(result.complete).toBe(false);
     });
   });
 

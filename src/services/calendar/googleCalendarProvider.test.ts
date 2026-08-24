@@ -545,7 +545,7 @@ describe("GoogleCalendarProvider", () => {
       expect(result.newCtag).toBeNull();
     });
 
-    it("sets time range for initial sync without syncToken", async () => {
+    it("uses an unfiltered authoritative collection snapshot for initial sync", async () => {
       mockClient.request.mockResolvedValue({
         items: [],
         nextSyncToken: "initial-token",
@@ -554,9 +554,10 @@ describe("GoogleCalendarProvider", () => {
       const result = await provider.syncEvents("cal-1");
 
       const calledUrl = mockClient.request.mock.calls[0][0] as string;
-      expect(calledUrl).toContain("timeMin=");
-      expect(calledUrl).toContain("timeMax=");
-      expect(calledUrl).toContain("singleEvents=true");
+      expect(calledUrl).not.toContain("timeMin=");
+      expect(calledUrl).not.toContain("timeMax=");
+      expect(calledUrl).not.toContain("singleEvents=true");
+      expect(calledUrl).toContain("showDeleted=false");
       expect(calledUrl).not.toContain("syncToken");
 
       expect(result.newSyncToken).toBe("initial-token");
@@ -567,13 +568,7 @@ describe("GoogleCalendarProvider", () => {
 
       const result = await provider.syncEvents("cal-1", "expired-token");
 
-      expect(result).toEqual({
-        created: [],
-        updated: [],
-        deletedRemoteIds: [],
-        newSyncToken: null,
-        newCtag: null,
-      });
+      expect(result).toMatchObject({ cursorInvalidated: true, complete: false, newSyncToken: null });
     });
 
     it("handles 'sync token' message in error gracefully", async () => {
@@ -581,13 +576,7 @@ describe("GoogleCalendarProvider", () => {
 
       const result = await provider.syncEvents("cal-1", "bad-token");
 
-      expect(result).toEqual({
-        created: [],
-        updated: [],
-        deletedRemoteIds: [],
-        newSyncToken: null,
-        newCtag: null,
-      });
+      expect(result).toMatchObject({ cursorInvalidated: true, complete: false, newSyncToken: null });
     });
 
     it("rethrows non-sync-token errors", async () => {
