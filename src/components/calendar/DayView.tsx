@@ -7,10 +7,12 @@ import { eventOccursOnDate } from "./eventTimeProjection";
 import { DAY_HOUR_HEIGHT_PX, TimedGridOverlay, type TimedDraft, type TimedVisualOverride } from "./timedGrid";
 import { AllDayLane, type DateGridDraft } from "./dateGrid";
 import type { GridCreateDraft } from "./createSelection";
+import { isTodayInDisplayTimeZone } from "./displayTimeIndicator";
 
 interface DayViewProps {
   currentDate: Date;
   events: DbCalendarEvent[];
+  displayTimeZone: string;
   onEventClick: (event: DbCalendarEvent, anchor: { x: number; y: number }) => void;
   capabilities?: CalendarProviderCapabilities | null;
   pendingEventIds?: ReadonlySet<string>;
@@ -26,6 +28,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 export function DayView({
   currentDate,
   events,
+  displayTimeZone,
   onEventClick,
   capabilities = null,
   pendingEventIds,
@@ -41,7 +44,7 @@ export function DayView({
   dayStart.setHours(0, 0, 0, 0);
   const pending = pendingEventIds ?? new Set<string>();
   const [conversionHighlight, setConversionHighlight] = useState<CalendarDate | null>(null);
-  const isToday = new Date().toDateString() === currentDate.toDateString();
+  const isToday = isTodayInDisplayTimeZone(currentDate, displayTimeZone);
 
   const layoutEvents = useMemo(() => {
     return events.map((event) => {
@@ -116,6 +119,7 @@ export function DayView({
             <TimedGridOverlay
               days={[dayStart]}
               hourHeightPx={DAY_HOUR_HEIGHT_PX}
+              displayTimeZone={displayTimeZone}
               events={layoutEvents}
               capabilities={capabilities}
               pendingEventIds={pending}

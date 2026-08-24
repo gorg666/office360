@@ -7,10 +7,13 @@ import { eventOccursOnDate } from "./eventTimeProjection";
 import { TimedGridOverlay, WEEK_HOUR_HEIGHT_PX, type TimedDraft, type TimedVisualOverride } from "./timedGrid";
 import { AllDayLane, type DateGridDraft } from "./dateGrid";
 import type { GridCreateDraft } from "./createSelection";
+import { isTodayInDisplayTimeZone } from "./displayTimeIndicator";
+import { orderedDayNames, startOfWeek } from "./weekLocale";
 
 interface WeekViewProps {
   currentDate: Date;
   events: DbCalendarEvent[];
+  displayTimeZone: string;
   onEventClick: (event: DbCalendarEvent, anchor: { x: number; y: number }) => void;
   capabilities?: CalendarProviderCapabilities | null;
   pendingEventIds?: ReadonlySet<string>;
@@ -22,14 +25,11 @@ interface WeekViewProps {
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
-const DAY_NAMES = {
-  en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-  ru: ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"],
-} as const;
 
 export function WeekView({
   currentDate,
   events,
+  displayTimeZone,
   onEventClick,
   capabilities = null,
   pendingEventIds,
@@ -40,20 +40,16 @@ export function WeekView({
   canUpdateEvent = () => true,
 }: WeekViewProps) {
   const locale = useUIStore((state) => state.locale);
-  const weekStart = new Date(currentDate);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-  weekStart.setHours(0, 0, 0, 0);
+  const weekStart = startOfWeek(currentDate, locale);
   const pending = pendingEventIds ?? new Set<string>();
   const [conversionHighlight, setConversionHighlight] = useState<CalendarDate | null>(null);
+  const dayNames = orderedDayNames(locale);
 
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
     d.setDate(d.getDate() + i);
     return d;
   });
-
-  const today = new Date();
-  const todayStr = today.toDateString();
 
   const layoutEvents = useMemo(() => {
     return events.map((event) => {
@@ -82,10 +78,10 @@ export function WeekView({
       <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
         <div className="border-r border-border-secondary" />
         {days.map((day, i) => {
-          const isToday = day.toDateString() === todayStr;
+          const isToday = isTodayInDisplayTimeZone(day, displayTimeZone);
           return (
             <div key={i} className="px-2 py-2 text-center border-r border-border-secondary">
-              <div className="text-xs text-text-tertiary">{DAY_NAMES[locale][day.getDay()]}</div>
+              <div className="text-xs text-text-tertiary">{dayNames[i]}</div>
               <div className={`text-sm font-medium mt-0.5 w-7 h-7 flex items-center justify-center mx-auto rounded-full ${
                 isToday ? "bg-accent text-white" : "text-text-primary"
               }`}>
@@ -155,6 +151,7 @@ export function WeekView({
             <TimedGridOverlay
               days={days}
               hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+              displayTimeZone={displayTimeZone}
               events={layoutEvents}
               capabilities={capabilities}
               pendingEventIds={pending}

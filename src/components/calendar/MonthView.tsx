@@ -19,10 +19,14 @@ import {
   type DateGridDraft,
 } from "./dateGrid";
 import { allDayClickDraft, canCreateCalendarEvent, formatCreateAriaLabel, type GridCreateDraft } from "./createSelection";
+import { isTodayInDisplayTimeZone } from "./displayTimeIndicator";
+import { MonthOverflowPopover } from "./MonthOverflowPopover";
+import { monthGridStartOffset, orderedDayNames } from "./weekLocale";
 
 interface MonthViewProps {
   currentDate: Date;
   events: DbCalendarEvent[];
+  displayTimeZone: string;
   onEventClick: (event: DbCalendarEvent, anchor: { x: number; y: number }) => void;
   capabilities?: CalendarProviderCapabilities | null;
   pendingEventIds?: ReadonlySet<string>;
@@ -32,10 +36,11 @@ interface MonthViewProps {
   canUpdateEvent?: (event: DbCalendarEvent) => boolean;
 }
 
-const DAY_NAMES = {
-  en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-  ru: ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"],
-} as const;
+interface OverflowState {
+  date: CalendarDate;
+  events: DbCalendarEvent[];
+  anchor: DOMRect;
+}
 
 interface MonthGesture {
   event: DbCalendarEvent;
@@ -49,6 +54,7 @@ interface MonthGesture {
 export function MonthView({
   currentDate,
   events,
+  displayTimeZone,
   onEventClick,
   capabilities = null,
   pendingEventIds,
@@ -62,14 +68,13 @@ export function MonthView({
   const month = currentDate.getMonth();
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
-  const startOffset = firstDay.getDay();
+  const startOffset = monthGridStartOffset(firstDay, locale);
   const totalDays = lastDay.getDate();
-  const today = new Date();
-  const todayKey = calendarDateFromLocalDate(today);
   const pending = pendingEventIds ?? new Set<string>();
   const suppressClickRef = useRef(false);
   const gestureRef = useRef<MonthGesture | null>(null);
   const [gesture, setGesture] = useState<MonthGesture | null>(null);
+  const [overflow, setOverflow] = useState<OverflowState | null>(null);
 
   const cells = useMemo(() => {
     const gridStart = new Date(year, month, 1 - startOffset);
@@ -154,6 +159,7 @@ export function MonthView({
     if (!canCreate || !onCreateDraft) return;
     if (!(mouseEvent.target instanceof Element)) return;
     if (mouseEvent.target.closest("[data-testid='month-overflow']")) return;
+    if (mouseEvent.target.closest("[data-testid='month-overflow-popover']")) return;
     if (mouseEvent.target.closest("button") && !mouseEvent.target.closest("[data-testid='month-create-day']")) return;
     onCreateDraft(allDayClickDraft(date));
   }
@@ -161,7 +167,7 @@ export function MonthView({
   return (
     <div className="flex flex-col flex-1 overflow-hidden" data-testid="month-view">
       <div className="grid grid-cols-7 border-b border-border-primary">
-        {DAY_NAMES[locale].map((name) => (
+        {orderedDayNames(locale).map((name) => (
           <div key={name} className="px-2 py-2 text-xs font-medium text-text-tertiary text-center">
             {name}
           </div>
@@ -170,7 +176,7 @@ export function MonthView({
 
       <div className="grid grid-cols-7 flex-1 auto-rows-fr overflow-y-auto">
         {cells.map((cell) => {
-          const isToday = cell.key === todayKey;
+          const isToday = isTodayInDisplayTimeZone(cell.date, displayTimeZone);
           const dayEvents = eventsByDay.get(cell.key) ?? [];
           const isTarget = previewDate === cell.key && gesture?.dragging;
 
@@ -244,8 +250,15 @@ export function MonthView({
                   <button
                     type="button"
                     data-testid="month-overflow"
-                    className="text-[0.625rem] text-text-tertiary pl-1"
-                    onClick={(mouseEvent) => mouseEvent.stopPropagation()}
+                    className="text-[0.625rem] text-text-tertiary pl-1 hover:text-text-secondary"
+                    onClick={(mouseEvent) => {
+                      mouseEvent.stopPropagation();
+                      setOverflow({
+                        date: cell.key,
+                        events: dayEvents.slice(3),
+                        anchor: mouseEvent.currentTarget.getBoundingClientRect(),
+                      });
+                    }}
                   >
                     +{dayEvents.length - 3} {locale === "ru" ? "ещё" : "more"}
                   </button>
@@ -264,6 +277,16 @@ export function MonthView({
           );
         })}
       </div>
+      {overflow ? (
+        <MonthOverflowPopover
+          date={overflow.date}
+          events={overflow.events}
+          anchor={overflow.anchor}
+          locale={locale}
+          onClose={() => setOverflow(null)}
+          onEventClick={onEventClick}
+        />
+      ) : null}
     </div>
   );
 }

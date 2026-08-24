@@ -59,6 +59,7 @@ describe("TimedGridOverlay", () => {
     render(<TimedGridOverlay
       days={[day]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[event()]}
       capabilities={capabilities}
       pendingEventIds={new Set()}
@@ -81,6 +82,7 @@ describe("TimedGridOverlay", () => {
     render(<TimedGridOverlay
       days={[day]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[event()]}
       capabilities={capabilities}
       pendingEventIds={new Set()}
@@ -107,6 +109,7 @@ describe("TimedGridOverlay", () => {
     render(<TimedGridOverlay
       days={[day, nextDay]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[event()]}
       capabilities={capabilities}
       pendingEventIds={new Set()}
@@ -129,6 +132,7 @@ describe("TimedGridOverlay", () => {
     render(<TimedGridOverlay
       days={[day]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[event()]}
       capabilities={capabilities}
       pendingEventIds={new Set()}
@@ -150,6 +154,7 @@ describe("TimedGridOverlay", () => {
     render(<TimedGridOverlay
       days={[day]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[event()]}
       capabilities={capabilities}
       pendingEventIds={new Set()}
@@ -171,6 +176,7 @@ describe("TimedGridOverlay", () => {
     render(<TimedGridOverlay
       days={[day]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[event()]}
       capabilities={{ ...capabilities, events: { create: "remote", update: "unsupported", delete: "remote" } }}
       pendingEventIds={new Set()}
@@ -190,6 +196,7 @@ describe("TimedGridOverlay", () => {
     render(<TimedGridOverlay
       days={[day]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[event()]}
       capabilities={capabilities}
       pendingEventIds={new Set(["event-1"])}
@@ -216,6 +223,7 @@ describe("TimedGridOverlay", () => {
         <TimedGridOverlay
           days={[day]}
           hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
           events={[event()]}
           capabilities={capabilities}
           pendingEventIds={new Set()}
@@ -251,6 +259,7 @@ describe("TimedGridOverlay", () => {
         <TimedGridOverlay
           days={[day]}
           hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
           events={[event()]}
           capabilities={capabilities}
           pendingEventIds={new Set()}
@@ -289,6 +298,7 @@ describe("TimedGridOverlay create selection", () => {
     render(<TimedGridOverlay
       days={[day]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[]}
       capabilities={capabilities}
       pendingEventIds={new Set()}
@@ -314,6 +324,7 @@ describe("TimedGridOverlay create selection", () => {
     render(<TimedGridOverlay
       days={[day]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[]}
       capabilities={capabilities}
       pendingEventIds={new Set()}
@@ -341,6 +352,7 @@ describe("TimedGridOverlay create selection", () => {
     render(<TimedGridOverlay
       days={[day]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[]}
       capabilities={capabilities}
       pendingEventIds={new Set()}
@@ -362,6 +374,7 @@ describe("TimedGridOverlay create selection", () => {
     render(<TimedGridOverlay
       days={[day, nextDay]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[]}
       capabilities={capabilities}
       pendingEventIds={new Set()}
@@ -387,6 +400,7 @@ describe("TimedGridOverlay create selection", () => {
     render(<TimedGridOverlay
       days={[day, nextDay]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[]}
       capabilities={capabilities}
       pendingEventIds={new Set()}
@@ -413,6 +427,7 @@ describe("TimedGridOverlay create selection", () => {
     render(<TimedGridOverlay
       days={[day]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[event()]}
       capabilities={capabilities}
       pendingEventIds={new Set()}
@@ -439,6 +454,7 @@ describe("TimedGridOverlay create selection", () => {
     render(<TimedGridOverlay
       days={[day]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[]}
       capabilities={{ ...capabilities, events: { create: "unsupported", update: "remote", delete: "remote" } }}
       pendingEventIds={new Set()}
@@ -458,6 +474,7 @@ describe("TimedGridOverlay create selection", () => {
     render(<TimedGridOverlay
       days={[day]}
       hourHeightPx={WEEK_HOUR_HEIGHT_PX}
+      displayTimeZone="UTC"
       events={[]}
       capabilities={capabilities}
       pendingEventIds={new Set()}

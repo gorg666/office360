@@ -38,6 +38,7 @@ import {
   timedDragDraft,
   type GridCreateDraft,
 } from "../createSelection";
+import { CurrentTimeIndicator } from "../CurrentTimeIndicator";
 
 export interface TimedVisualOverride {
   start_time: number;
@@ -50,6 +51,7 @@ export interface TimedVisualOverride {
 interface TimedGridOverlayProps {
   days: Date[];
   hourHeightPx: number;
+  displayTimeZone: string;
   events: DbCalendarEvent[];
   capabilities: CalendarProviderCapabilities | null;
   pendingEventIds: ReadonlySet<string>;
@@ -94,6 +96,7 @@ function isExistingTimedEventTarget(target: EventTarget | null): boolean {
 export function TimedGridOverlay({
   days,
   hourHeightPx,
+  displayTimeZone,
   events,
   capabilities,
   pendingEventIds,
@@ -520,6 +523,7 @@ export function TimedGridOverlay({
           </span>
         </div>
       ) : null}
+      <CurrentTimeIndicator days={days} hourHeightPx={hourHeightPx} displayTimeZone={displayTimeZone} />
     </div>
   );
 }

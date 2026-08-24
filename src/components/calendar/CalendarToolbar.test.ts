@@ -24,6 +24,16 @@ describe("formatCalendarToolbarTitle", () => {
     expect(title).toMatch(/^August 2026/);
   });
 
+  it("formats RU week titles from Monday through Sunday", () => {
+    const title = formatCalendarToolbarTitle(new Date(2026, 7, 26), "week", "ru");
+    expect(title).toBe("24-30 август 2026");
+  });
+
+  it("formats EN week titles from Sunday through Saturday", () => {
+    const title = formatCalendarToolbarTitle(new Date(2026, 7, 26), "week", "en");
+    expect(title).toBe("August 23-29, 2026");
+  });
+
   it("updates year when navigating across year boundary", () => {
     expect(formatCalendarToolbarTitle(new Date(2025, 11, 1), "month", "ru")).toMatch(/2025/);
     expect(formatCalendarToolbarTitle(new Date(2026, 0, 1), "month", "ru")).toMatch(/2026/);

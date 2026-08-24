@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, Plus, CalendarDays } from "lucide-react";
 import { useUIStore } from "@/stores/uiStore";
+import { endOfWeek, startOfWeek } from "./weekLocale";
 
 export type CalendarView = "day" | "week" | "month";
 
@@ -134,10 +135,8 @@ export function formatCalendarToolbarTitle(
     return capitalizeFirstLetter(raw, intlLocale);
   }
   if (view === "week") {
-    const start = new Date(date);
-    start.setDate(start.getDate() - start.getDay());
-    const end = new Date(start);
-    end.setDate(end.getDate() + 6);
+    const start = startOfWeek(date, locale);
+    const end = endOfWeek(date, locale);
     const monthLong = new Intl.DateTimeFormat(intlLocale, { month: "long" });
     const monthShort = new Intl.DateTimeFormat(intlLocale, { month: "short" });
     if (start.getMonth() === end.getMonth()) {

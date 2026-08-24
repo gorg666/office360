@@ -38,6 +38,8 @@ import {
 import { toEventCreateInput, type GridCreateDraft } from "./createSelection";
 import { Button } from "@/components/ui/Button";
 import type { RecurrenceWriteScope } from "@/services/calendar/domain";
+import { useUIStore } from "@/stores/uiStore";
+import { endOfWeek, monthGridRange, startOfWeek } from "./weekLocale";
 
 type CalendarLoadState =
   | { status: "loading" }
@@ -52,6 +54,7 @@ type PendingGridMutation =
 export function CalendarPage() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const accounts = useAccountStore((s) => s.accounts);
+  const locale = useUIStore((state) => state.locale);
   const activeAccount = accounts.find((a) => a.id === activeAccountId) ?? null;
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<CalendarView>("month");
@@ -91,20 +94,11 @@ export function CalendarPage() {
   const getRange = useCallback((): { start: Date; end: Date } => {
     const d = new Date(currentDate);
     if (view === "month") {
-      const start = new Date(d.getFullYear(), d.getMonth(), 1);
-      start.setDate(start.getDate() - start.getDay());
-      const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-      end.setDate(end.getDate() + (6 - end.getDay()));
-      end.setHours(23, 59, 59, 999);
-      return { start, end };
+      return monthGridRange(d, locale);
     }
     if (view === "week") {
-      const start = new Date(d);
-      start.setDate(start.getDate() - start.getDay());
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setDate(end.getDate() + 6);
-      end.setHours(23, 59, 59, 999);
+      const start = startOfWeek(d, locale);
+      const end = endOfWeek(d, locale);
       return { start, end };
     }
     const start = new Date(d);
@@ -112,7 +106,7 @@ export function CalendarPage() {
     const end = new Date(d);
     end.setHours(23, 59, 59, 999);
     return { start, end };
-  }, [currentDate, view]);
+  }, [currentDate, locale, view]);
 
   const loadCalendars = useCallback(async () => {
     if (!activeAccountId) return;
@@ -655,6 +649,7 @@ export function CalendarPage() {
             <MonthView
               currentDate={currentDate}
               events={events}
+              displayTimeZone={displayTimeZone}
               onEventClick={handleEventClick}
               capabilities={providerCapabilities}
               pendingEventIds={pendingEventIds}
@@ -668,6 +663,7 @@ export function CalendarPage() {
             <WeekView
               currentDate={currentDate}
               events={events}
+              displayTimeZone={displayTimeZone}
               onEventClick={handleEventClick}
               capabilities={providerCapabilities}
               pendingEventIds={pendingEventIds}
@@ -682,6 +678,7 @@ export function CalendarPage() {
             <DayView
               currentDate={currentDate}
               events={events}
+              displayTimeZone={displayTimeZone}
               onEventClick={handleEventClick}
               capabilities={providerCapabilities}
               pendingEventIds={pendingEventIds}

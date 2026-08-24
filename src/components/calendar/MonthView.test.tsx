@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import type { CalendarProviderCapabilities } from "@/services/calendar/domain";
@@ -75,6 +75,7 @@ describe("MonthView date drag", () => {
     const onDateCommit = vi.fn();
     render(<MonthView
       currentDate={august}
+      displayTimeZone="UTC"
       events={[event()]}
       capabilities={capabilities}
       onEventClick={onEventClick}
@@ -95,6 +96,7 @@ describe("MonthView date drag", () => {
     const onDateCommit = vi.fn();
     render(<MonthView
       currentDate={august}
+      displayTimeZone="UTC"
       events={[event()]}
       capabilities={capabilities}
       onEventClick={vi.fn()}
@@ -116,6 +118,7 @@ describe("MonthView date drag", () => {
     const onDateCommit = vi.fn();
     render(<MonthView
       currentDate={august}
+      displayTimeZone="UTC"
       events={[event()]}
       capabilities={capabilities}
       onEventClick={vi.fn()}
@@ -135,6 +138,7 @@ describe("MonthView date drag", () => {
     const onDateCommit = vi.fn();
     render(<MonthView
       currentDate={august}
+      displayTimeZone="UTC"
       events={[allDay("span-1", "2026-08-20", "2026-08-23", "Offsite")]}
       capabilities={capabilities}
       onEventClick={vi.fn()}
@@ -159,6 +163,7 @@ describe("MonthView date drag", () => {
     }));
     render(<MonthView
       currentDate={august}
+      displayTimeZone="UTC"
       events={crowded}
       capabilities={capabilities}
       onEventClick={vi.fn()}
@@ -177,6 +182,7 @@ describe("MonthView date drag", () => {
     const onDateCommit = vi.fn();
     render(<MonthView
       currentDate={august}
+      displayTimeZone="UTC"
       events={[event()]}
       capabilities={{ ...capabilities, events: { create: "remote", update: "unsupported", delete: "remote" } }}
       onEventClick={vi.fn()}
@@ -195,6 +201,7 @@ describe("MonthView date drag", () => {
   it("keeps month event cards keyboard-focusable with an aria-label", () => {
     render(<MonthView
       currentDate={august}
+      displayTimeZone="UTC"
       events={[event()]}
       capabilities={capabilities}
       onEventClick={vi.fn()}
@@ -215,6 +222,7 @@ describe("MonthView create selection", () => {
     const onCreate = vi.fn();
     render(<MonthView
       currentDate={august}
+      displayTimeZone="UTC"
       events={[]}
       capabilities={capabilities}
       onEventClick={vi.fn()}
@@ -232,13 +240,14 @@ describe("MonthView create selection", () => {
     const onCreate = vi.fn();
     render(<MonthView
       currentDate={august}
+      displayTimeZone="UTC"
       events={[]}
       capabilities={capabilities}
       onEventClick={vi.fn()}
       onCreateDraft={onCreate}
     />);
-    fireEvent.click(screen.getByTestId("month-cell-2026-07-26"));
-    expect(onCreate.mock.calls[0]![0]).toMatchObject({ startDate: "2026-07-26" });
+    fireEvent.click(screen.getByTestId("month-cell-2026-07-27"));
+    expect(onCreate.mock.calls[0]![0]).toMatchObject({ startDate: "2026-07-27" });
   });
 
   it("does not create from an event card or overflow control", () => {
@@ -252,6 +261,7 @@ describe("MonthView create selection", () => {
     }));
     render(<MonthView
       currentDate={august}
+      displayTimeZone="UTC"
       events={[event(), ...crowded]}
       capabilities={capabilities}
       onEventClick={onEventClick}
@@ -263,10 +273,42 @@ describe("MonthView create selection", () => {
     expect(onCreate).not.toHaveBeenCalled();
   });
 
+  it("opens overflow popover with hidden events and routes event clicks", () => {
+    const onEventClick = vi.fn();
+    const onCreate = vi.fn();
+    const crowded = Array.from({ length: 5 }, (_, index) => event({
+      id: `hidden-${index + 1}`,
+      summary: `Hidden ${index + 1}`,
+      start_time: localUnix(2026, 8, 24, 9 + index),
+      end_time: localUnix(2026, 8, 24, 10 + index),
+    }));
+    render(<MonthView
+      currentDate={august}
+      displayTimeZone="UTC"
+      events={crowded}
+      capabilities={capabilities}
+      onEventClick={onEventClick}
+      onCreateDraft={onCreate}
+    />);
+    fireEvent.click(screen.getByTestId("month-overflow"));
+    const popover = screen.getByTestId("month-overflow-popover");
+    expect(popover).toBeInTheDocument();
+    const popoverScope = within(popover);
+    expect(popoverScope.getByRole("button", { name: /Hidden 4/ })).toBeInTheDocument();
+    expect(popoverScope.getByRole("button", { name: /Hidden 5/ })).toBeInTheDocument();
+    expect(popoverScope.queryByRole("button", { name: /Hidden 1/ })).toBeNull();
+    fireEvent.click(popoverScope.getByRole("button", { name: /Hidden 4/ }));
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+    expect(onEventClick.mock.calls[0]![0].summary).toBe("Hidden 4");
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("month-overflow-popover")).toBeNull();
+  });
+
   it("does not create when the calendar is read-only for create", () => {
     const onCreate = vi.fn();
     render(<MonthView
       currentDate={august}
+      displayTimeZone="UTC"
       events={[]}
       capabilities={{ ...capabilities, events: { create: "unsupported", update: "remote", delete: "remote" } }}
       onEventClick={vi.fn()}

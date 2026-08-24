@@ -525,3 +525,28 @@ CAL-125-FINAL: **PASS** (live Create → Cancel on running Office360; no Save).
 | Cloud mutations | NONE |
 
 Graphify: `graphify update .` → 6,844 nodes / 17,606 edges / 406 communities. Integrity: 0 unverified code nodes, missing/dangling endpoints, self-loops or exact duplicate edges. Saved labels are stale relative to current communities.
+
+### CAL-126 Month polish and current-time UX
+
+Дата: 2026-08-24 (Asia/Bangkok). Migration: NONE. Recurrence/provider/sync architecture: unchanged. Cloud event/mail/RSVP/ACL mutations: NONE.
+
+Product surface: Month `+N ещё` opens `MonthOverflowPopover` with hidden day events (slice after first three visible chips); overflow/popover clicks do not trigger create-by-selection. RU locale (`uiStore.locale=ru`) drives Monday-first Month grid and Week range math via `weekLocale.ts`; non-RU keeps Sunday-first. Day/Week render `CurrentTimeIndicator` through `TimedGridOverlay`, positioned from Calendar display timezone (`displayTimeIndicator.ts`), hidden when today is outside visible day columns; 1-minute refresh tick.
+
+| Проверка | Статус | Observation |
+| --- | --- | --- |
+| Month +N popover lists hidden events | AUTOMATED PASS | `MonthView.test.tsx` opens popover, asserts events 4+ inside popover only |
+| Overflow event opens detail like normal | AUTOMATED PASS | popover event click invokes `onEventClick` |
+| +N click does not create-by-selection | AUTOMATED PASS | guards on `month-overflow` / `month-overflow-popover` |
+| Month spillover dates | AUTOMATED PASS | spillover cell uses actual calendar date (Monday-first grid offset) |
+| RU Monday-first Month/Week | AUTOMATED PASS | `weekLocale.test.ts`, toolbar week title RU |
+| non-RU Sunday-first preserved | AUTOMATED PASS | `weekLocale.test.ts` EN branch |
+| Day current-time indicator | AUTOMATED PASS | `CurrentTimeIndicator.test.tsx`, `TimedGridOverlay` integration |
+| Week current-time indicator | AUTOMATED PASS | same component in multi-column grid |
+| Display timezone (not host TZ) | AUTOMATED PASS | `displayTimeIndicator.test.ts` + four-zone `test:calendar-tz` |
+| Indicator hidden outside today/range | AUTOMATED PASS | returns null when today column absent |
+| Day/Week drag/resize/create regression | AUTOMATED PASS | CAL-113/114/117 suites in full battery |
+| Live Tauri Month +N / Monday / indicator | NOT RUN | no active `tauri dev` session at closure |
+
+CAL-126: **PASS** (automated acceptance). Live Tauri re-smoke deferred until next desktop session.
+
+Автоматические проверки CAL-126: TypeScript `npx tsc --noEmit` PASS; targeted CAL-126 — 5 files / 29 tests PASS; full Calendar UI/provider/db battery — 69 files / 660 tests PASS; `npm run test:calendar-tz` — 186/186 in each of UTC, Europe/Moscow, America/New_York, Australia/Lord_Howe; production build PASS (main 2,110.48 kB / 626.54 kB gzip; CalendarPage 134.94 kB / 39.25 kB gzip). Provider/sync/recurrence code untouched.

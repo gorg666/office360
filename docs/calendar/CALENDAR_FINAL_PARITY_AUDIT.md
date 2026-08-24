@@ -10,21 +10,21 @@ Production HEAD: `ff9e5fa`
 
 Закрывающие P0 commits: `7839344` (reminder delivery), `c559ccc` (Mail/iTIP lifecycle), `ff9e5fa` (Yandex remote Free/Busy).
 
-CAL-125 (2026-08-23) закрывает recurring create UI и persistent required/optional authoring. Этот файл остаётся каноническим parity verdict; дельта CAL-125 отмечена ниже. Live Save на real Yandex event по-прежнему запрещён.
+CAL-125 (2026-08-23) закрывает recurring create UI и persistent required/optional authoring. CAL-126 (2026-08-24) закрывает Month overflow popover, RU Monday-first week start и Day/Week current-time indicator (display timezone). Этот файл остаётся каноническим parity verdict; дельты CAL-125/126 отмечены ниже. Live Save на real Yandex event по-прежнему запрещён.
 
 ## Executive verdict
 
 Все три P0 из предыдущего аудита закрыты. Office360 Calendar имеет provider-neutral Month/Week/Day, CRUD, безопасные single/series recurrence mutations, recurring create и series RRULE editor, persistent required/optional authoring, participant semantics, Scheduling Assistant, Google и discovery-confirmed CalDAV/Yandex remote Free/Busy, application Mail iTIP lifecycle и durable local reminder delivery.
 
-Буквальный продуктовый паритет с Yandex 360 Calendar ещё **не достигнут**: отсутствуют Calendar search и ACL/share management; Month overflow и RU week-start остаются незавершёнными; `this-and-future` намеренно unsupported. Поэтому итог: **P0 CLOSED; P1 FOLLOW-UP; MERGE YES WITH CONDITIONS**. Ветку можно merge как scoped Calendar release candidate, но нельзя называть полностью parity-complete без явно принятой P1 boundary.
+Буквальный продуктовый паритет с Yandex 360 Calendar ещё **не достигнут**: отсутствуют Calendar search и ACL/share management; `this-and-future` намеренно unsupported. Month overflow, RU Monday-first и current-time line закрыты CAL-126 (automated). Поэтому итог: **P0 CLOSED; P1 FOLLOW-UP; MERGE YES WITH CONDITIONS**. Ветку можно merge как scoped Calendar release candidate, но нельзя называть полностью parity-complete без явно принятой P1 boundary.
 
 ### Recalculated scores
 
 | Dimension | Score | Evidence-based interpretation |
 |---|---:|---|
-| Functional parity | **90%** | P0 + recurring create + required/optional authoring закрыты; search/ACL/overflow/week-start остаются P1 |
-| Interaction parity | **84%** | Grid, recurrence create/edit, role controls, scheduling, reminders и invitations сильные; picker/search/overflow/share interactions остаются |
-| Visual parity | **71%** | Coherent Office360 surface, но не pixel clone; смешанный RU/EN copy вне recurrence/role editor, нет current-time line и полной visual matrix |
+| Functional parity | **92%** | P0 + recurring create + required/optional authoring + Month overflow + RU week-start закрыты; search/ACL остаются P1 |
+| Interaction parity | **87%** | Grid, recurrence create/edit, role controls, scheduling, reminders, overflow popover и invitations сильные; picker/search/share interactions остаются |
+| Visual parity | **74%** | Coherent Office360 surface, current-time line и RU week grid; не pixel clone; смешанный RU/EN copy вне recurrence/role editor |
 | Production readiness | **85%** | Clean full battery и durable local lifecycles; live destructive/shared fixtures и provider delta/offline policy остаются gaps |
 
 Scores пересчитаны с нуля по текущей матрице. Это audit judgment, а не test-coverage percentage.
@@ -162,12 +162,11 @@ None.
 2. Participant picker/directory (required/optional authoring is delivered by CAL-125).
 3. Shared-calendar subscription/share/ACL management plus isolated live shared/read-only acceptance.
 4. Account- and permission-filtered Calendar event search.
-5. Month `+N` details interaction and locale/configurable Monday-first week.
 6. Consolidated durable provider delta sync and explicit offline-write policy, including Google expired-token recovery and CalDAV sync-token/ctag strategy.
 
 ### P2 — polish and hardening
 
-1. Current-time indicator, richer date navigation and consistent RU editor/time labels.
+1. Richer date navigation and consistent RU editor/time labels (current-time line delivered CAL-126).
 2. Auto-scroll, multi-day all-day create drag and optional keyboard drag-selection.
 3. Full responsive-density, light/dark visual regression and WCAG audit.
 4. Bundle/code-splitting and Calendar orchestration cleanup.
@@ -185,22 +184,21 @@ None.
 - **Participant authoring: PARTIAL.** Required/optional persist from create/edit rows. Directory/picker is still absent.
 - **ACL management: MISSING.** Effective permission discovery/enforcement is PASS, but provider sharing mutations and management UI are absent.
 - **Calendar search: MISSING.** Mail/global search is not a Calendar event search substitute.
-- **Month overflow: PARTIAL.** `+N ещё` renders but its click only stops propagation and opens no details surface.
-- **RU localization/week-start: PARTIAL.** Russian day/month labels exist, but Month/Week arrays and range math are Sunday-first; editor still mixes Russian and English copy.
-- **Current-time indicator: MISSING/P2.** Today header styling exists; no Day/Week horizontal current-time marker.
+- **Month overflow: PASS (CAL-126).** `+N ещё` opens popover with hidden day events; event click routes to detail; create-by-selection guarded.
+- **RU localization/week-start: PASS (CAL-126) for grid.** RU Month/Week start Monday via `weekLocale`; non-RU Sunday-first preserved. Editor copy still mixes RU/EN outside recurrence/role surfaces.
+- **Current-time indicator: PASS (CAL-126).** Day/Week horizontal marker from display timezone; hidden outside visible today column.
 - **Delta sync/offline: PARTIAL.** Cached reads and stale UI are strong. Google background delta token persistence exists but is inconsistent with capabilities and foreground ownership; CalDAV has no delta; offline writes are unsupported.
 
-## Test health after CAL-125
+## Test health after CAL-126
 
 | Check | Result |
 |---|---|
 | TypeScript `npx tsc --noEmit` | PASS |
-| Targeted recurrence/participant/SA/iTIP/reminder | PASS — 15 files / 187 tests |
-| Full Vitest | PASS — 253 files / 2507 tests |
+| Targeted CAL-126 (overflow/week/current-time) | PASS — 5 files / 29 tests |
+| Full Calendar UI/provider battery | PASS — 69 files / 660 tests |
 | TZ matrix | PASS — 15 files / 186 tests in each of UTC, Europe/Moscow, America/New_York, Australia/Lord_Howe |
-| Frontend production build | PASS — main 2,110.48 kB / 626.55 kB gzip; Calendar 132.18 kB / 38.33 kB gzip |
-| `cargo check` | PASS — two pre-existing unused-variable warnings at `src/lib.rs:378` |
-| Live Tauri Create → Cancel | NOT RUN — no Tauri session at closure |
+| Frontend production build | PASS — main 2,110.48 kB / 626.54 kB gzip; CalendarPage 134.94 kB / 39.25 kB gzip |
+| Live Tauri CAL-126 smoke | NOT RUN — no Tauri session at closure |
 
 Known non-failing test/build noise: existing React `act(...)` warnings, externalized `stream` warning from transitive `sax`, mixed static/dynamic import warnings and main chunk >500 kB.
 
@@ -242,7 +240,7 @@ These are technical debt unless they directly map to the P1 delta/offline item a
 
 ### Acceptable post-merge
 
-1. Month overflow, Monday/configurable week start and current-time line if they are not part of the first release promise.
+1. Configurable week-start beyond RU Monday / EN Sunday if product expands locale matrix (CAL-126 delivered RU Monday-first).
 2. Auto-scroll, multi-day all-day selection and keyboard drag-selection.
 3. WCAG, responsive, dark/light and bundle hardening.
 
