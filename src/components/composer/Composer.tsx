@@ -511,11 +511,11 @@ export function Composer() {
             selectedEmail={fromEmail ?? activeAccount?.email ?? ""}
             onChange={(alias) => setFromEmail(alias.email)}
           />
-          <AddressInput label="Кому" addresses={to} onChange={setTo} />
+          <AddressInput accountId={activeAccountId} label="Кому" addresses={to} onChange={setTo} />
           {showCcBcc ? (
             <>
-              <AddressInput label="Копия" addresses={cc} onChange={setCc} />
-              <AddressInput label="Скрытая копия" addresses={bcc} onChange={setBcc} />
+              <AddressInput accountId={activeAccountId} label="Копия" addresses={cc} onChange={setCc} />
+              <AddressInput accountId={activeAccountId} label="Скрытая копия" addresses={bcc} onChange={setBcc} />
             </>
           ) : (
             <button

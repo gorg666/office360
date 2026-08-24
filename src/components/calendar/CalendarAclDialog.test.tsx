@@ -43,6 +43,7 @@ describe("CalendarAclDialog", () => {
     ));
 
     fireEvent.change(screen.getByLabelText("Добавить человека"), { target: { value: "new@example.com" } });
+    fireEvent.keyDown(screen.getByLabelText("Добавить человека"), { key: "Enter" });
     fireEvent.change(screen.getByLabelText("Новая роль"), { target: { value: "free-busy-only" } });
     fireEvent.click(screen.getByRole("button", { name: "Добавить" }));
     await waitFor(() => expect(aclMocks.grant).toHaveBeenCalledWith(

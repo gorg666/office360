@@ -352,6 +352,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
           />
           <TextField label="Место" type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Добавить место" />
           <ParticipantAuthoring
+            accountId={accountId}
             value={authoredParticipants}
             organizerEmail={participantSet.organizer?.participant.normalizedEmail ?? event.organizer_email}
             onChange={setAuthoredParticipants}

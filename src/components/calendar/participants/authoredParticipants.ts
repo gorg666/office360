@@ -14,6 +14,7 @@ export type AuthoringAttendanceRole = "required" | "optional";
 export interface AuthoredParticipant {
   email: string;
   role: AuthoringAttendanceRole;
+  displayName?: string;
 }
 
 export function defaultAuthoringRole(): AuthoringAttendanceRole {
@@ -28,6 +29,7 @@ export function addAuthoredParticipant(
   list: readonly AuthoredParticipant[],
   rawEmail: string,
   organizerEmail?: string | null,
+  displayName?: string,
 ): { list: AuthoredParticipant[]; error: string | null } {
   const email = rawEmail.trim().replace(/^mailto:/i, "");
   if (!email || !email.includes("@")) {
@@ -41,7 +43,11 @@ export function addAuthoredParticipant(
     return { list: [...list], error: "Этот участник уже добавлен." };
   }
   return {
-    list: [...list, { email: participant.value, role: defaultAuthoringRole() }],
+    list: [...list, {
+      email: participant.value,
+      role: defaultAuthoringRole(),
+      ...(displayName?.trim() ? { displayName: displayName.trim() } : {}),
+    }],
     error: null,
   };
 }
@@ -71,9 +77,14 @@ export function hydrateAuthoredParticipants(value: unknown): AuthoredParticipant
       continue;
     }
     if (!item || typeof item !== "object") continue;
-    const record = item as { email?: unknown; role?: unknown };
+    const record = item as { email?: unknown; role?: unknown; displayName?: unknown };
     if (typeof record.email !== "string") continue;
-    const added = addAuthoredParticipant(result, record.email);
+    const added = addAuthoredParticipant(
+      result,
+      record.email,
+      null,
+      typeof record.displayName === "string" ? record.displayName : undefined,
+    );
     if (added.error) continue;
     const role = record.role === "optional" ? "optional" : "required";
     result.splice(0, result.length, ...setAuthoredParticipantRole(added.list, record.email, role));
@@ -82,7 +93,7 @@ export function hydrateAuthoredParticipants(value: unknown): AuthoredParticipant
 }
 
 export function authoredParticipantsToInputs(list: readonly AuthoredParticipant[]): CalendarAttendeeInput[] {
-  return list.map((row) => ({ email: row.email, role: row.role }));
+  return list.map((row) => ({ email: row.email, role: row.role, displayName: row.displayName }));
 }
 
 export function attendeesToInputs(attendees: readonly CalendarAttendee[]): CalendarAttendeeInput[] {
@@ -107,7 +118,11 @@ export function attendeesToAuthoredParticipants(
     if (organizer && sameParticipant(attendee.participant, organizer)) return [];
     const email = attendee.participant.normalizedEmail ?? attendee.participant.value;
     if (!email.includes("@")) return [];
-    return [{ email: attendee.participant.value, role: authoringRoleFromAttendance(attendee.role) }];
+    return [{
+      email: attendee.participant.value,
+      role: authoringRoleFromAttendance(attendee.role),
+      ...(attendee.participant.displayName ? { displayName: attendee.participant.displayName } : {}),
+    }];
   });
 }
 
@@ -123,13 +138,24 @@ export function applyAuthoringRoles(
     const key = attendee.participant.normalizedEmail ?? normalizeParticipantEmail(attendee.participant.value);
     const authoredRow = byEmail.get(key);
     if (!authoredRow) continue;
-    next.push({ ...attendee, role: authoredRow.role });
+    next.push({
+      ...attendee,
+      role: authoredRow.role,
+      participant: authoredRow.displayName && !attendee.participant.displayName
+        ? { ...attendee.participant, displayName: authoredRow.displayName }
+        : attendee.participant,
+    });
     byEmail.delete(key);
   }
   for (const row of authored) {
     const key = normalizeParticipantEmail(row.email);
     if (!byEmail.has(key)) continue;
-    const created = calendarAttendeeFromInput({ email: row.email, role: row.role, rsvpRequested: true });
+    const created = calendarAttendeeFromInput({
+      email: row.email,
+      displayName: row.displayName,
+      role: row.role,
+      rsvpRequested: true,
+    });
     if (created) next.push(created);
   }
   return next;

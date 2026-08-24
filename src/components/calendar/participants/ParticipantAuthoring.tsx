@@ -1,100 +1,78 @@
-import { useState } from "react";
+import { X } from "lucide-react";
+import { PeoplePicker, type PeopleSearch } from "@/components/people/PeoplePicker";
+import { normalizePersonEmail, personDisplayName, personIdentityFromEmail, type PersonIdentity } from "@/services/people";
 import type { AuthoredParticipant, AuthoringAttendanceRole } from "./authoredParticipants";
-import { addAuthoredParticipant, removeAuthoredParticipant, setAuthoredParticipantRole } from "./authoredParticipants";
 
 const SELECT_CLASS =
-  "rounded border border-border-primary bg-bg-tertiary px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent";
+  "rounded border border-border-primary bg-bg-tertiary px-2 py-1 text-xs text-text-primary outline-none focus:border-accent";
 
 interface ParticipantAuthoringProps {
   value: readonly AuthoredParticipant[];
   organizerEmail?: string | null;
+  accountId?: string | null;
   onChange: (next: AuthoredParticipant[]) => void;
+  search?: PeopleSearch;
 }
 
-export function ParticipantAuthoring({ value, organizerEmail, onChange }: ParticipantAuthoringProps) {
-  const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string | null>(null);
+export function ParticipantAuthoring({
+  value,
+  organizerEmail,
+  accountId,
+  onChange,
+  search,
+}: ParticipantAuthoringProps) {
+  const selected = value.map((row) => personIdentityFromEmail(row.email, { displayName: row.displayName }));
 
-  const add = () => {
-    const result = addAuthoredParticipant(value, draft, organizerEmail);
-    setError(result.error);
-    if (!result.error) {
-      onChange(result.list);
-      setDraft("");
-    }
+  const reconcile = (people: PersonIdentity[]) => {
+    const existing = new Map(value.map((row) => [normalizePersonEmail(row.email), row]));
+    onChange(people.map((person) => {
+      const row = existing.get(person.normalizedEmail);
+      return {
+        email: person.email,
+        role: row?.role ?? "required",
+        ...(person.displayName || row?.displayName ? { displayName: person.displayName ?? row?.displayName } : {}),
+      };
+    }));
   };
 
   return (
     <fieldset className="space-y-2 rounded-md border border-border-primary p-3" data-testid="participant-authoring">
       <legend className="px-1 text-xs text-text-secondary">Участники</legend>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <label className="block min-w-0 flex-1 text-xs text-text-secondary">
-          Адрес участника
-          <input
-            type="email"
-            aria-label="Адрес участника"
-            placeholder="name@example.com"
-            className={`${SELECT_CLASS} mt-1 w-full px-3 py-2`}
-            value={draft}
-            onChange={(event) => {
-              setDraft(event.target.value);
-              setError(null);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                add();
-              }
-            }}
-          />
-        </label>
-        <button
-          type="button"
-          className="mt-auto rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none hover:border-accent focus:border-accent"
-          onClick={add}
-        >
-          Добавить
-        </button>
-      </div>
-      {error ? <p role="alert" className="text-xs text-danger">{error}</p> : null}
-      {value.length === 0 ? (
-        <p className="text-xs text-text-tertiary">Организатор не показывается в этом списке.</p>
-      ) : (
-        <ul className="space-y-2">
-          {value.map((row) => (
-            <li
-              key={row.email}
-              className="flex flex-col gap-2 rounded border border-border-primary bg-bg-secondary p-2 sm:flex-row sm:items-center"
-              data-testid="participant-row"
-            >
-              <span className="min-w-0 flex-1 truncate text-sm text-text-primary">{row.email}</span>
-              <label className="text-xs text-text-secondary">
-                Роль
-                <select
-                  aria-label={`Роль ${row.email}`}
-                  className={`${SELECT_CLASS} ml-2`}
-                  value={row.role}
-                  onChange={(event) => onChange(setAuthoredParticipantRole(
-                    value,
-                    row.email,
-                    event.target.value as AuthoringAttendanceRole,
-                  ))}
-                >
-                  <option value="required">Обязательный</option>
-                  <option value="optional">Необязательный</option>
-                </select>
-              </label>
-              <button
-                type="button"
-                className="rounded border border-border-primary px-2 py-1 text-xs text-text-secondary outline-none hover:border-accent focus:border-accent"
-                aria-label={`Удалить ${row.email}`}
-                onClick={() => onChange(removeAuthoredParticipant(value, row.email))}
+      <PeoplePicker
+        accountId={accountId}
+        label="Адрес участника"
+        selected={selected}
+        onChange={reconcile}
+        excludedEmails={organizerEmail ? [organizerEmail] : []}
+        placeholder="Имя, должность или email"
+        {...(search ? { search } : {})}
+        renderSelectedPerson={(person, remove) => {
+          const row = value.find((item) => normalizePersonEmail(item.email) === person.normalizedEmail);
+          return (
+            <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-bg-tertiary px-1.5 py-1" data-testid="participant-row">
+              <span className="max-w-40 truncate text-xs text-text-primary" title={person.email}>{personDisplayName(person)}</span>
+              <select
+                aria-label={`Роль ${person.email}`}
+                className={SELECT_CLASS}
+                value={row?.role ?? "required"}
+                onChange={(event) => onChange(value.map((item) => (
+                  normalizePersonEmail(item.email) === person.normalizedEmail
+                    ? { ...item, role: event.target.value as AuthoringAttendanceRole }
+                    : item
+                )))}
               >
-                Удалить
+                <option value="required">Обязательный</option>
+                <option value="optional">Необязательный</option>
+              </select>
+              <button type="button" onClick={remove} className="p-0.5 text-text-tertiary hover:text-danger" aria-label={`Удалить ${person.email}`}>
+                <X size={12} />
               </button>
-            </li>
-          ))}
-        </ul>
+            </span>
+          );
+        }}
+      />
+      {value.length === 0 && (
+        <p className="text-xs text-text-tertiary">Организатор не показывается в этом списке.</p>
       )}
     </fieldset>
   );

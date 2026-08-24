@@ -251,12 +251,12 @@ Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas wer
 
 **Не входит:** backend split-series / this-and-future implementation, recurrence rule builder on create, participant directory, room booking.
 
-### Pending backlog without a reassigned ticket number
+### Follow-up scopes without a reassigned ticket number
 
-- Participant picker/directory over CAL-106 identity (debounced multi-source search, roles, dedupe, privacy and account isolation).
-- Yandex/CalDAV production readiness (reproducible auth/discovery/list/fetch/CRUD and provider diagnostics).
+- Participant picker/directory over CAL-106 identity was delivered by PEOPLE-001 (debounced multi-source search, roles, dedupe, privacy and account isolation).
+- Yandex/CalDAV production readiness remains covered by the Calendar provider/runtime baseline (reproducible auth/discovery/list/fetch/CRUD and provider diagnostics).
 
-These scopes were previously labeled CAL-111/CAL-112 before the explicit owner handoff assigned those numbers to recurrence backend/UI. They stay pending and must receive new numbers before implementation; completed ticket history is unchanged.
+These scopes were previously labeled CAL-111/CAL-112 before the explicit owner handoff assigned those numbers to recurrence backend/UI. Completed ticket history is unchanged.
 
 ## CAL-113 (delivered) — Event drag and resize
 
@@ -492,7 +492,7 @@ None. CAL-122 closed Mail invitation lifecycle and CAL-123 closed Yandex partici
 ### P1 — important parity gaps
 
 - `this-and-future` remains documented-unsupported unless product scope expands;
-- participant directory/picker remains a product follow-up;
+- unified participant directory/picker delivered by PEOPLE-001;
 - shared-calendar subscription management and an isolated live shared/read-only/free-busy-only fixture remain; share/ACL management itself was delivered by CAL-128.
 
 ## Post-parity backlog
@@ -503,7 +503,7 @@ None. CAL-122 closed Mail invitation lifecycle and CAL-123 closed Yandex partici
 - cursor-last idempotent replay is used instead of one full SQLite rollback transaction;
 - WCAG AA certification and measured performance/bundle hardening (obvious visual/a11y/responsive polish closed by CAL-130);
 - measure large-calendar initial snapshot and RFC 6578 server truncation behavior on isolated provider fixtures;
-- room booking, directory rewrite, tasks/templates and other product extensions only by separate scope.
+- room booking, full contacts/directory synchronization, tasks/templates and other product extensions only by separate scope.
 
 Accepted limits: no sync/native reminder delivery while the process is fully terminated; Yandex ACL writes remain unsupported without a confirmed standard DAV contract; bounded CalDAV fallback cannot observe tombstones outside its covered range; CAL-130 live `+N` fixture was absent while automated coverage passed. Mini calendar and literal Yandex visual/product cloning are out of scope.
 

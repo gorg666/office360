@@ -86,13 +86,12 @@ describe("EventCreateModal recurring create", () => {
   it("keeps required/optional roles on the create payload and rejects duplicates", async () => {
     const onCreate = renderCreate();
     fireEvent.change(screen.getByLabelText("Адрес участника"), { target: { value: "req@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Добавить" }));
+    fireEvent.keyDown(screen.getByLabelText("Адрес участника"), { key: "Enter" });
     fireEvent.change(screen.getByLabelText("Адрес участника"), { target: { value: "opt@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Добавить" }));
+    fireEvent.keyDown(screen.getByLabelText("Адрес участника"), { key: "Enter" });
     fireEvent.change(screen.getByLabelText("Роль opt@example.com"), { target: { value: "optional" } });
     fireEvent.change(screen.getByLabelText("Адрес участника"), { target: { value: "REQ@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Добавить" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Этот участник уже добавлен.");
+    fireEvent.keyDown(screen.getByLabelText("Адрес участника"), { key: "Enter" });
     expect(screen.getAllByTestId("participant-row")).toHaveLength(2);
     const payload = await submit(onCreate);
     expect(payload.attendees).toEqual([

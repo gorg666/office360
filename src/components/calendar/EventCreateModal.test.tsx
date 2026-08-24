@@ -115,7 +115,7 @@ describe("EventCreateModal scheduling assistant", () => {
     );
     await waitFor(() => expect(planMeeting).toHaveBeenCalledTimes(1));
     fireEvent.change(screen.getByLabelText("Адрес участника"), { target: { value: "ivan@example.test" } });
-    fireEvent.click(screen.getByRole("button", { name: "Добавить" }));
+    fireEvent.keyDown(screen.getByLabelText("Адрес участника"), { key: "Enter" });
     await waitFor(() => expect(planMeeting).toHaveBeenCalledTimes(2));
     const request = planMeeting.mock.calls[1]![0] as { requiredParticipants: Array<{ normalizedEmail: string | null }> };
     expect(request.requiredParticipants.map((item) => item.normalizedEmail)).toEqual([
@@ -139,7 +139,7 @@ describe("EventCreateModal scheduling assistant", () => {
     );
     await waitFor(() => expect(planMeeting).toHaveBeenCalledTimes(1));
     fireEvent.change(screen.getByLabelText("Адрес участника"), { target: { value: "anna@example.test" } });
-    fireEvent.click(screen.getByRole("button", { name: "Добавить" }));
+    fireEvent.keyDown(screen.getByLabelText("Адрес участника"), { key: "Enter" });
     await waitFor(() => expect(planMeeting).toHaveBeenCalledTimes(2));
     fireEvent.change(screen.getByLabelText("Роль anna@example.test"), { target: { value: "optional" } });
     await waitFor(() => expect(planMeeting).toHaveBeenCalledTimes(3));

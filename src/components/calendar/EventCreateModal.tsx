@@ -86,7 +86,7 @@ export function EventCreateModal({
       selfEmail,
       selfDisplayName,
       attendees: attendees.map((row) => ({
-        participant: participantRefFromEmail(row.email),
+        participant: participantRefFromEmail(row.email, row.displayName),
         role: row.role,
       })),
     }),
@@ -235,6 +235,7 @@ export function EventCreateModal({
         />
 
         <ParticipantAuthoring
+          accountId={accountId}
           value={attendees}
           organizerEmail={selfEmail}
           onChange={setAttendees}

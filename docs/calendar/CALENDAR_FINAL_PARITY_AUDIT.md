@@ -21,7 +21,7 @@
 
 | Измерение | Весовые группы | Итог | Главные deductions |
 | --- | --- | ---: | --- |
-| Functional parity | Views/CRUD/recurrence 25; participants/scheduling 20; Mail/reminders 20; permissions/ACL 10; search/time/interactions 15; sync/offline 10 | **96%** | no this-and-future; no directory picker/subscription management; Yandex ACL write unsupported |
+| Functional parity | Views/CRUD/recurrence 25; participants/scheduling 20; Mail/reminders 20; permissions/ACL 10; search/time/interactions 15; sync/offline 10 | **96%** | no this-and-future; no shared-calendar subscription management; Yandex ACL write unsupported |
 | Interaction parity | authoring/manipulation 35; navigation/search 20; keyboard/focus 20; responsive 15; locale/state feedback 10 | **91%** | keyboard drag-selection, drag auto-scroll, live opener-focus evidence gap, limited recurrence authoring |
 | Visual parity | hierarchy/consistency 30; light/dark 20; responsive 20; state clarity 15; locale/a11y presentation 15 | **89%** | no formal visual-regression/WCAG certification; no exhaustive density/device matrix; literal Yandex visual parity not targeted |
 | Production readiness | correctness/tests 30; provider safety 20; privacy/permissions 15; sync/offline 15; runtime evidence 10; operability/performance 10 | **90%** | safe-smoke policy leaves destructive cloud paths fixture-only; no full DB rollback transaction; terminated-process limits; bundle hardening remains |
@@ -115,8 +115,7 @@
 ### P1
 
 1. Recurring edit has no `this-and-future` scope.
-2. Participant authoring has no organization directory/picker; identities are entered directly.
-3. Shared-calendar subscription management and an isolated live shared/read-only/free-busy-only acceptance fixture remain absent. Share/ACL management itself is delivered.
+2. Shared-calendar subscription management and an isolated live shared/read-only/free-busy-only acceptance fixture remain absent. Share/ACL management itself is delivered.
 
 ### P2
 
@@ -137,7 +136,7 @@
 ### Out of scope
 
 - Mini calendar, literal Yandex branding/pixel clone and complete Yandex proprietary feature parity.
-- Mobile-native/touch redesign, organization directory rewrite, room booking, tasks/templates and provider-private APIs.
+- Mobile-native/touch redesign, full contacts/directory synchronization, room booking, tasks/templates and provider-private APIs.
 
 ## Merge boundary
 
@@ -151,7 +150,7 @@ There is no required feature fix or P0 code change before merge.
 
 ### Acceptable post-merge
 
-- The three P1 items and P2 hardening above.
+- The two remaining P1 items and P2 hardening above.
 - Isolated provider fixtures for destructive delta/ACL/Mail scenarios, plus large-calendar performance measurement.
 - Broader accessibility/device/visual-regression certification.
 

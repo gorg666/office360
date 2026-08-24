@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Trash2, UserPlus } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { PeoplePicker } from "@/components/people/PeoplePicker";
 import { calendarAclService } from "@/services/calendar/calendarAclService";
 import { CalendarAclError, type CalendarAclCapabilities, type CalendarShareEntry, type CalendarShareRole } from "@/services/calendar/domain";
 import type { DbCalendar } from "@/services/db/calendars";
+import type { PersonIdentity } from "@/services/people";
 
 interface CalendarAclDialogProps {
   accountId: string;
@@ -18,7 +20,7 @@ const ASSIGNABLE_ROLES: CalendarShareRole[] = ["writer", "reader", "free-busy-on
 export function CalendarAclDialog({ accountId, calendar, onClose, onPermissionsRefreshed }: CalendarAclDialogProps) {
   const [capabilities, setCapabilities] = useState<CalendarAclCapabilities | null>(null);
   const [entries, setEntries] = useState<CalendarShareEntry[]>([]);
-  const [email, setEmail] = useState("");
+  const [selectedPeople, setSelectedPeople] = useState<PersonIdentity[]>([]);
   const [newRole, setNewRole] = useState<CalendarShareRole>("reader");
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -59,12 +61,13 @@ export function CalendarAclDialog({ accountId, calendar, onClose, onPermissionsR
 
   const grant = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!email.trim()) return;
+    const person = selectedPeople[0];
+    if (!person) return;
     setBusyKey("grant");
     setError(null);
     try {
-      await calendarAclService.grant(target, email, newRole);
-      setEmail("");
+      await calendarAclService.grant(target, person.email, newRole);
+      setSelectedPeople([]);
       await afterMutation();
     } catch (cause) {
       setError(aclErrorMessage(cause));
@@ -157,15 +160,17 @@ export function CalendarAclDialog({ accountId, calendar, onClose, onPermissionsR
 
             {canWrite ? (
               <form onSubmit={(event) => void grant(event)} className="mt-4 border-t border-border-primary pt-4">
-                <label className="mb-1 block text-xs font-medium text-text-secondary" htmlFor="calendar-acl-email">Добавить человека</label>
+                <label className="mb-1 block text-xs font-medium text-text-secondary">Добавить человека</label>
                 <div className="flex flex-col gap-2 sm:flex-row">
-                  <input
-                    id="calendar-acl-email"
-                    type="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="name@example.com"
-                    className="min-w-0 flex-1 rounded border border-border-primary bg-bg-secondary px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+                  <PeoplePicker
+                    accountId={accountId}
+                    label="Добавить человека"
+                    selected={selectedPeople}
+                    onChange={setSelectedPeople}
+                    mode="single"
+                    placeholder="Имя или email"
+                    excludedEmails={entries.flatMap((entry) => entry.principalValue ? [entry.principalValue] : [])}
+                    className="min-w-0 flex-1"
                   />
                   <select
                     aria-label="Новая роль"
@@ -178,7 +183,7 @@ export function CalendarAclDialog({ accountId, calendar, onClose, onPermissionsR
                   <Button
                     type="submit"
                     variant="primary"
-                    disabled={!email.trim() || busyKey !== null}
+                    disabled={selectedPeople.length === 0 || busyKey !== null}
                     icon={busyKey === "grant" ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
                   >Добавить</Button>
                 </div>

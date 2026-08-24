@@ -49,6 +49,13 @@ describe("participant authoring", () => {
     expect(attendees.map((item) => item.role)).toEqual(["required", "optional"]);
   });
 
+  it("preserves a selected display name through attendee authoring", () => {
+    const authored = addAuthoredParticipant([], "ada@example.com", null, "Ada Lovelace").list;
+    expect(authoredParticipantsToInputs(authored)).toEqual([{
+      email: "ada@example.com", role: "required", displayName: "Ada Lovelace",
+    }]);
+  });
+
   it("preserves existing RSVP while changing role", () => {
     const existing = dedupeCalendarAttendees([
       { email: "req@example.com", role: "required", responseStatus: "accepted" },
