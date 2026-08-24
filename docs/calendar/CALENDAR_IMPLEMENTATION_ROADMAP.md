@@ -1,7 +1,7 @@
 # CAL-AUDIT-001 — Calendar implementation roadmap
 
 Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
-Roadmap state: delivered work now reaches CAL-126 (including CAL-102F; CAL-115/116 remain historical roadmap scopes rather than separately closed tickets). CAL-121 closes reminder delivery, CAL-122 closes the Mail/iTIP lifecycle, CAL-123 closes Yandex participant Free/Busy through the exposed RFC 6638 provider contract, CAL-124 is the post-closure parity re-audit, CAL-125 closes recurring create plus persistent required/optional authoring, and CAL-126 closes Month overflow popover, RU Monday-first week start and Day/Week current-time indicator. This document is the source of truth for Calendar ticket numbering and remaining priority; `CALENDAR_FINAL_PARITY_AUDIT.md` is the current parity and merge verdict.
+Roadmap state: delivered work now reaches CAL-127 (including CAL-102F; CAL-115/116 remain historical roadmap scopes rather than separately closed tickets). CAL-121 closes reminder delivery, CAL-122 closes the Mail/iTIP lifecycle, CAL-123 closes Yandex participant Free/Busy through the exposed RFC 6638 provider contract, CAL-124 is the post-closure parity re-audit, CAL-125 closes recurring create plus persistent required/optional authoring, CAL-126 closes Month overflow popover, RU Monday-first week start and Day/Week current-time indicator, and CAL-127 closes account/permission-filtered local Calendar event search. This document is the source of truth for Calendar ticket numbering and remaining priority; `CALENDAR_FINAL_PARITY_AUDIT.md` is the current parity and merge verdict.
 
 **Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
 
@@ -44,6 +44,7 @@ CAL-110 -> CAL-123 Yandex RFC 6638 decision (delivered)
 CAL-120/121/122/123 -> CAL-124 final parity re-audit (delivered; docs-only)
 CAL-112/106/109/118/122 -> CAL-125 recurring create + participant roles (delivered)
 CAL-125 -> CAL-126 Month overflow + RU week-start + current-time (delivered)
+CAL-126 -> CAL-127 account/permission-filtered Calendar search (delivered)
 Remaining P1 gaps and post-parity backlog are intentionally unnumbered until the owner selects scope.
 ```
 
@@ -448,6 +449,12 @@ Create and series-edit now author RRULE through `recurrenceRule.ts` presets/cust
 
 Month `+N` opens `MonthOverflowPopover` for hidden same-day events without triggering create-by-selection. RU locale uses Monday-first Month grid and Week boundaries (`weekLocale.ts`); non-RU keeps Sunday-first. Day/Week show a display-timezone current-time line via `CurrentTimeIndicator` / `displayTimeIndicator.ts`. Recurrence/provider/sync architecture unchanged. Migration: NONE. Canonical evidence: `CALENDAR_RUNTIME_BASELINE.md` § CAL-126.
 
+## CAL-127 (delivered) — Calendar event search
+
+**Status:** PASS (automated; safe local-cache Tauri smoke recorded in runtime baseline).
+
+Provider-neutral `CalendarSearchService` searches title, description, location, organizer and normalized participants through one bounded account/calendar-scoped SQLite query. Hidden readable calendars are included, removed/cancelled and free-busy-only data are excluded, recurrence produces one deterministic representative occurrence, and result resolution repeats the permission boundary. Toolbar UI provides 220 ms debounce, calendar/date filters, explicit states and Arrow/Enter/Escape navigation into the existing detail modal. Migration: NONE. Canonical contract: `CALENDAR_SEARCH.md`.
+
 ## Remaining P0/P1 gaps
 
 No new ticket numbers are assigned automatically.
@@ -461,7 +468,6 @@ None. CAL-122 closed Mail invitation lifecycle and CAL-123 closed Yandex partici
 - `this-and-future` remains documented-unsupported unless product scope expands;
 - participant directory/picker (required/optional authoring is delivered by CAL-125);
 - shared-calendar subscription/share/ACL management plus an isolated live read-only/shared fixture;
-- account/permission-filtered Calendar search;
 - consolidate provider sync ownership and durable delta policy: Google token/capability/410 recovery consistency, CalDAV sync-token/ctag strategy and explicit offline-write policy.
 
 ## Post-parity backlog

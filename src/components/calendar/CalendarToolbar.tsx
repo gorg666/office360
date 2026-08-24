@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, Plus, CalendarDays } from "lucide-react";
 import { useUIStore } from "@/stores/uiStore";
 import { endOfWeek, startOfWeek } from "./weekLocale";
+import type { ReactNode } from "react";
 
 export type CalendarView = "day" | "week" | "month";
 
@@ -15,6 +16,7 @@ interface CalendarToolbarProps {
   canCreateEvent?: boolean;
   onToggleCalendarList?: () => void;
   showCalendarListButton?: boolean;
+  search?: ReactNode;
 }
 
 export function CalendarToolbar({
@@ -28,6 +30,7 @@ export function CalendarToolbar({
   canCreateEvent = true,
   onToggleCalendarList,
   showCalendarListButton,
+  search,
 }: CalendarToolbarProps) {
   const locale = useUIStore((state) => state.locale);
   const title = formatCalendarToolbarTitle(currentDate, view, locale);
@@ -72,6 +75,7 @@ export function CalendarToolbar({
       </div>
 
       <div className="flex items-center gap-2">
+        {search}
         {showCalendarListButton && onToggleCalendarList && (
           <button
             type="button"

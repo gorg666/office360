@@ -10,20 +10,20 @@ Production HEAD: `ff9e5fa`
 
 Закрывающие P0 commits: `7839344` (reminder delivery), `c559ccc` (Mail/iTIP lifecycle), `ff9e5fa` (Yandex remote Free/Busy).
 
-CAL-125 (2026-08-23) закрывает recurring create UI и persistent required/optional authoring. CAL-126 (2026-08-24) закрывает Month overflow popover, RU Monday-first week start и Day/Week current-time indicator (display timezone). Этот файл остаётся каноническим parity verdict; дельты CAL-125/126 отмечены ниже. Live Save на real Yandex event по-прежнему запрещён.
+CAL-125 (2026-08-23) закрывает recurring create UI и persistent required/optional authoring. CAL-126 (2026-08-24) закрывает Month overflow popover, RU Monday-first week start и Day/Week current-time indicator (display timezone). CAL-127 (2026-08-24) закрывает account/permission-filtered Calendar event search по локальному provider-neutral cache. Этот файл остаётся каноническим parity verdict; дельты CAL-125/126/127 отмечены ниже. Live Save на real Yandex event по-прежнему запрещён.
 
 ## Executive verdict
 
 Все три P0 из предыдущего аудита закрыты. Office360 Calendar имеет provider-neutral Month/Week/Day, CRUD, безопасные single/series recurrence mutations, recurring create и series RRULE editor, persistent required/optional authoring, participant semantics, Scheduling Assistant, Google и discovery-confirmed CalDAV/Yandex remote Free/Busy, application Mail iTIP lifecycle и durable local reminder delivery.
 
-Буквальный продуктовый паритет с Yandex 360 Calendar ещё **не достигнут**: отсутствуют Calendar search и ACL/share management; `this-and-future` намеренно unsupported. Month overflow, RU Monday-first и current-time line закрыты CAL-126 (automated). Поэтому итог: **P0 CLOSED; P1 FOLLOW-UP; MERGE YES WITH CONDITIONS**. Ветку можно merge как scoped Calendar release candidate, но нельзя называть полностью parity-complete без явно принятой P1 boundary.
+Буквальный продуктовый паритет с Yandex 360 Calendar ещё **не достигнут**: ACL/share management отсутствует, а `this-and-future` намеренно unsupported. Month overflow, RU Monday-first и current-time line закрыты CAL-126; Calendar search закрыт CAL-127. Поэтому итог: **P0 CLOSED; P1 FOLLOW-UP; MERGE YES WITH CONDITIONS**. Ветку можно merge как scoped Calendar release candidate, но нельзя называть полностью parity-complete без явно принятой P1 boundary.
 
 ### Recalculated scores
 
 | Dimension | Score | Evidence-based interpretation |
 |---|---:|---|
-| Functional parity | **92%** | P0 + recurring create + required/optional authoring + Month overflow + RU week-start закрыты; search/ACL остаются P1 |
-| Interaction parity | **87%** | Grid, recurrence create/edit, role controls, scheduling, reminders, overflow popover и invitations сильные; picker/search/share interactions остаются |
+| Functional parity | **94%** | P0 + recurring create + participant roles + Month/locale/current-time + Calendar search закрыты; ACL management остаётся P1 |
+| Interaction parity | **89%** | Grid, recurrence, roles, scheduling, reminders, overflow, search и invitations сильные; picker/share interactions остаются |
 | Visual parity | **74%** | Coherent Office360 surface, current-time line и RU week grid; не pixel clone; смешанный RU/EN copy вне recurrence/role editor |
 | Production readiness | **85%** | Clean full battery и durable local lifecycles; live destructive/shared fixtures и provider delta/offline policy остаются gaps |
 
@@ -90,7 +90,7 @@ Automated fixture не называется live. CAL-123 live evidence подт
 | ICS / iCalendar | PASS | `ical.js` codec, recurrence, participants, VALARM, VTIMEZONE and malformed isolation |
 | Offline / cache | PARTIAL | Cache-first stale/read coverage works; offline event write queue does not exist |
 | Provider delta sync | PARTIAL | Google background sync persists tokens, but capability/read owners disagree and expired-token recovery retains stale state; CalDAV remains range refresh without sync-token/ctag delta |
-| Search | MISSING | No Calendar event search surface or account/permission-filtered Calendar query path |
+| Search | PASS (CAL-127) | Toolbar search over provider-neutral local cache; title/description/location/participant matching, account/calendar/date filters, privacy boundary, deterministic recurrence result and keyboard navigation |
 | Accessibility | PARTIAL | Keyboard create/open/edit, modal/radio semantics and ARIA exist; no WCAG audit or keyboard drag-selection |
 | Responsive | PARTIAL | LIVE ~720 px create/assistant smoke; dense Month/Week and toolbar matrix incomplete |
 | Dark mode | PARTIAL | Semantic theme tokens are used; dedicated light/dark visual regression is absent |
@@ -161,8 +161,7 @@ None.
 1. `this-and-future` remains a declared limitation (not offered as a working option).
 2. Participant picker/directory (required/optional authoring is delivered by CAL-125).
 3. Shared-calendar subscription/share/ACL management plus isolated live shared/read-only acceptance.
-4. Account- and permission-filtered Calendar event search.
-6. Consolidated durable provider delta sync and explicit offline-write policy, including Google expired-token recovery and CalDAV sync-token/ctag strategy.
+4. Consolidated durable provider delta sync and explicit offline-write policy, including Google expired-token recovery and CalDAV sync-token/ctag strategy.
 
 ### P2 — polish and hardening
 
@@ -183,7 +182,7 @@ None.
 - **Recurring create: PASS (CAL-125).** Presets, custom weekly days, until/count, all-day and series RRULE edit; occurrence cannot overwrite master.
 - **Participant authoring: PARTIAL.** Required/optional persist from create/edit rows. Directory/picker is still absent.
 - **ACL management: MISSING.** Effective permission discovery/enforcement is PASS, but provider sharing mutations and management UI are absent.
-- **Calendar search: MISSING.** Mail/global search is not a Calendar event search substitute.
+- **Calendar search: PASS (CAL-127).** Dedicated bounded local-cache query with account/calendar/date filters; hidden readable calendars included; removed/cancelled/free-busy-only excluded; existing detail modal reused.
 - **Month overflow: PASS (CAL-126).** `+N ещё` opens popover with hidden day events; event click routes to detail; create-by-selection guarded.
 - **RU localization/week-start: PASS (CAL-126) for grid.** RU Month/Week start Monday via `weekLocale`; non-RU Sunday-first preserved. Editor copy still mixes RU/EN outside recurrence/role surfaces.
 - **Current-time indicator: PASS (CAL-126).** Day/Week horizontal marker from display timezone; hidden outside visible today column.
@@ -235,7 +234,7 @@ These are technical debt unless they directly map to the P1 delta/offline item a
 ### Must before broad release
 
 1. Run isolated non-personal live acceptance for provider create/edit/delete/recurrence/RSVP/outbound invitation and shared/read-only roles, or explicitly ship those as automated-only evidence.
-2. Select and close or explicitly defer the remaining P1 product boundary: search and ACL management (recurring create and persistent participant roles closed by CAL-125).
+2. Select and close or explicitly defer the remaining P1 product boundary: ACL/share management (search closed by CAL-127; recurring create and persistent participant roles closed by CAL-125).
 3. Resolve/document the Google token-recovery/capability inconsistency and the CalDAV/offline sync policy before claiming robust offline/delta behavior.
 
 ### Acceptable post-merge

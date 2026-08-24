@@ -40,6 +40,7 @@ import { Button } from "@/components/ui/Button";
 import type { RecurrenceWriteScope } from "@/services/calendar/domain";
 import { useUIStore } from "@/stores/uiStore";
 import { endOfWeek, monthGridRange, startOfWeek } from "./weekLocale";
+import { CalendarSearch } from "./CalendarSearch";
 
 type CalendarLoadState =
   | { status: "loading" }
@@ -83,6 +84,13 @@ export function CalendarPage() {
     "https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com";
   const writableCalendars = useMemo(
     () => calendars.filter((calendar) => parseCalendarAccess(calendar.access_json).permissions.canCreate),
+    [calendars],
+  );
+  const searchableCalendars = useMemo(
+    () => calendars.filter((calendar) => {
+      const permissions = parseCalendarAccess(calendar.access_json).permissions;
+      return permissions.canRead && permissions.canSeeEventDetails;
+    }),
     [calendars],
   );
   const canCreateEvent = providerCapabilities?.events.create === "remote" && writableCalendars.length > 0;
@@ -307,6 +315,11 @@ export function CalendarPage() {
     setEventAnchor(anchor);
   }, []);
 
+  const handleSearchEventOpen = useCallback((event: DbCalendarEvent) => {
+    setSelectedEvent(event);
+    setEventAnchor({ x: Math.round(window.innerWidth * 0.55), y: Math.round(window.innerHeight * 0.4) });
+  }, []);
+
   const clearTimedOverride = useCallback((eventId: string) => {
     timedInFlightRef.current.delete(eventId);
     setPendingEventIds(new Set(timedInFlightRef.current));
@@ -516,6 +529,18 @@ export function CalendarPage() {
         canCreateEvent={canCreateEvent}
         onToggleCalendarList={() => setShowCalendarList((v) => !v)}
         showCalendarListButton={calendars.length > 1}
+        search={(
+          <CalendarSearch
+            accountId={activeAccountId}
+            calendars={searchableCalendars}
+            currentRange={{
+              start: Math.floor(getRange().start.getTime() / 1000),
+              end: Math.ceil(getRange().end.getTime() / 1000),
+            }}
+            locale={locale}
+            onOpenEvent={handleSearchEventOpen}
+          />
+        )}
       />
 
       {needsReauth && activeAccount && (

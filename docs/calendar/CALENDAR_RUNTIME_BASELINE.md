@@ -550,3 +550,15 @@ Product surface: Month `+N ещё` opens `MonthOverflowPopover` with hidden day 
 CAL-126: **PASS** (automated acceptance). Live Tauri re-smoke deferred until next desktop session.
 
 Автоматические проверки CAL-126: TypeScript `npx tsc --noEmit` PASS; targeted CAL-126 — 5 files / 29 tests PASS; full Calendar UI/provider/db battery — 69 files / 660 tests PASS; `npm run test:calendar-tz` — 186/186 in each of UTC, Europe/Moscow, America/New_York, Australia/Lord_Howe; production build PASS (main 2,110.48 kB / 626.54 kB gzip; CalendarPage 134.94 kB / 39.25 kB gzip). Provider/sync/recurrence code untouched.
+
+### CAL-127 local event search
+
+Дата: 2026-08-24 (Asia/Bangkok). Migration: NONE. Cloud event/mail/RSVP/ACL mutations: NONE.
+
+Search path: provider-neutral `CalendarSearchService` executes one account-scoped, permission-scoped and hard-limited SQLite query over the local canonical cache. It matches title, description, location and normalized participant semantic fields; excludes cancelled events and calendars marked provider-removed; hidden but readable calendars remain searchable. Free/busy-only calendars never expose event details. Recurring series return one deterministic representative occurrence (nearest future, otherwise most recent past), while the result preserves resource, series and occurrence identities. Detail opening repeats the current permission/presence checks before loading the full event.
+
+Read-only Tauri acceptance PASS: fresh development runtime opened Month, Week and Day; a known cached Yandex event was found from the Calendar toolbar and Enter opened its existing detail modal. The first live Cyrillic probe exposed SQLite `lower()` ASCII-only behavior; the query was corrected to use deterministic case variants and the same live search then passed. No event was created, edited, deleted, RSVP'd or sent, and no provider/ACL mutation occurred.
+
+Automated CAL-127 acceptance: TypeScript `npx tsc --noEmit` PASS; final targeted search/service/UI — 3 files / 8 tests PASS; expanded Calendar integration regression — 7 files / 27 tests PASS; full Vitest — 259 files / 2529 tests PASS; four-zone Calendar TZ matrix — 15 files / 186 tests in each of UTC, Europe/Moscow, America/New_York and Australia/Lord_Howe; production build PASS (main 2,110.54 kB raw / 626.59 kB gzip; CalendarPage 145.50 kB raw / 42.45 kB gzip); `cargo check` PASS with the same two pre-existing unused-variable warnings in `src/lib.rs:378`. Rust was not changed.
+
+Graphify code-index refresh: `graphify update .` → 6,909 nodes / 17,818 edges / 422 communities. Read-only graph integrity: 0 missing endpoints, self-loops or exact duplicate typed undirected edges. The optional semantic docs/image extraction refresh was unavailable because the local Graphify CLI environment lacks its `openai` backend package; no dependency was installed and code graph integrity is unaffected.
