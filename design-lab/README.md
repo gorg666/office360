@@ -39,3 +39,34 @@ balance, and the gradient ramp.
 
 **Production logo and icon assets have not been replaced.** `src/assets/*` and
 `src-tauri/icons/**` are untouched pending sign-off on the comparison sheet.
+
+## Production icon mapping (DESIGN-002)
+
+Production assets are rendered from the masters above. The split follows how the
+mark actually behaves: B's material stops being resolvable below roughly 32 px,
+so small sizes get the flat A.
+
+| Target | Variant |
+|--------|---------|
+| `src-tauri/icons/32x32.png`, `Square30x30Logo.png` | A |
+| `src-tauri/icons/64x64.png`, `128x128.png`, `128x128@2x.png`, `icon.png` | B |
+| `Square44x44` … `Square310x310`, `StoreLogo.png` | B |
+| `icon.ico` | A at 16/20/24/32, B at 48/64/128/256 |
+| `icon.icns` | A at 16/32, B at 64…1024 |
+| `src/assets/logo_office_360.png` (titlebar, 20 px) | A, rendered at 128 |
+| `src/assets/icon.png` (About panel, 44 px) | B, rendered at 256 |
+| `public/logo_office_360.png` (splash, 180 px) | B, rendered at 512 |
+
+`icon.ico` and `icon.icns` are written by hand rather than by a converter,
+because a single-image writer cannot carry *different* artwork per size — which
+is the entire point of the split. Both were validated by decoding every entry
+back, and by confirming `tauri-build` embeds the new `.ico` into `resource.lib`
+as resource `32512 ICON`.
+
+Rasterisation went through the browser's own SVG renderer (canvas `drawImage` at
+each exact pixel size), since this host has no ImageMagick, cairosvg or sharp.
+
+`A Mono` has no production consumer today: the system tray reuses
+`default_window_icon()` in `src-tauri/src/lib.rs`, so pointing the tray at a
+dedicated monochrome asset would be a code change. It ships as a master for
+print, stencil and any future tray work.
