@@ -15,7 +15,8 @@ or typechecked by `tsc`. Verified: `dist/` contains no `styleguide*` output.
 | `mail.html` + `mail.tsx` | Mail visual smoke: the real ThreadCard, security banners, skeletons and PeoplePicker driven by fixture threads, including a deliberately hostile long-content row. |
 | `logo/office360-a-clean.svg` | Mark, variant **A — Clean**. Flat master: 16 px, monochrome, tray, favicon, print/export, and any surface where material effects do not read. |
 | `logo/office360-b-glass.svg` | Mark, variant **B — Glass**. The app icon. |
-| `logo/logo-final-ab.html` | A/B comparison at 16/32/64/128/256/512 on light and dark, plus 16/20 px in titlebar chrome. |
+| `logo/office360-a-mono.svg` | Flat monochrome master of A, in `currentColor`. The container carries the light value and the darker plane prints over it at full strength, so the internal division survives in a single ink. For tray, favicon, print and stencil contexts. |
+| `logo/logo-final-ab.html` | Final review sheet: A/B at 16/32/64/128/256/512 on light and dark, the monochrome ramp, the material detail, and 16/20 px in titlebar chrome. |
 
 ## Running the styleguide
 
