@@ -104,7 +104,7 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages }: AiAssistP
             }
           }}
           placeholder={isReplyMode ? "Инструкции для ответа (необязательно)..." : "Опишите, что написать..."}
-          className="flex-1 px-2 py-1 text-xs bg-bg-tertiary border border-border-primary rounded outline-none focus:border-accent text-text-primary placeholder:text-text-tertiary"
+          className="flex-1 focus-ring t-fast rounded-control border border-outline bg-surface-solid text-ink-primary placeholder:text-ink-tertiary px-2 py-1 text-control"
           disabled={loading}
         />
         {isReplyMode ? (

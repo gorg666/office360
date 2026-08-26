@@ -124,7 +124,7 @@ export function AskInbox() {
 
   return (
     <div ref={containerRef} className="relative w-full max-w-[520px]">
-      <div className="flex h-6 items-center gap-2 rounded-md border border-border-primary bg-bg-primary/85 px-2.5 shadow-sm backdrop-blur">
+      <div className="material-elevated flex h-6 items-center gap-2 rounded-control px-2.5">
         <Search size={13} className="shrink-0 text-text-tertiary" />
         <input
           ref={inputRef}
@@ -161,7 +161,7 @@ export function AskInbox() {
       </div>
 
       {dropdownOpen && hasDropdownContent ? (
-        <div className="absolute left-0 right-0 top-full z-[70] mt-2 max-h-[72vh] overflow-hidden rounded-xl border border-border-primary bg-bg-primary shadow-2xl glass-modal">
+        <div className="materialize material-elevated absolute left-0 right-0 top-full z-popover mt-2 max-h-[72vh] overflow-hidden rounded-panel">
           <div className="max-h-[72vh] overflow-y-auto">
             {loading && (
               <div className="flex items-center justify-center gap-2 px-4 py-8 text-text-tertiary">
@@ -217,7 +217,7 @@ export function AskInbox() {
                   </div>
                 )}
 
-                <section className="bg-bg-secondary/60 p-4">
+                <section className="surface-sunken p-4">
                   <div className="mb-2 flex items-center gap-2 text-[0.625rem] font-semibold uppercase tracking-wider text-text-tertiary">
                     <Sparkles size={12} className="text-accent" />
                     Ответ

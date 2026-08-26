@@ -7,6 +7,7 @@ import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { formatRelativeDate } from "@/utils/date";
 import { Paperclip, Star, Check, Pin, BellRing, VolumeX } from "lucide-react";
 import type { DragData } from "@/components/dnd/DndProvider";
+import { densityPadding, threadRowVisual } from "./threadRowVisual";
 import { ContactAvatar } from "@/components/ui/ContactAvatar";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -118,6 +119,14 @@ export const ThreadCard = memo(function ThreadCard({
       : "w-9 h-9 rounded-full shrink-0";
   const avatarTextClassName = emailDensity === "compact" ? "text-xs" : "text-sm";
 
+  const rowVisual = threadRowVisual({
+    isRead: thread.isRead,
+    isSelected,
+    isMultiSelected,
+    isDragging,
+    isSpam,
+  });
+
   return (
     <button
       ref={setNodeRef}
@@ -128,25 +137,13 @@ export const ThreadCard = memo(function ThreadCard({
       onContextMenu={handleContextMenu}
       aria-label={`${thread.isRead ? "" : "Unread "}email from ${thread.fromName ?? thread.fromAddress ?? "Unknown"}: ${thread.subject ?? "(No subject)"}`}
       aria-selected={isSelected}
-      className={`focus-ring group w-full border-b border-hairline text-left pressable t-fast ${
-        emailDensity === "compact" ? "px-3 py-1.5" : emailDensity === "spacious" ? "px-4 py-4" : "px-4 py-3"
-      } ${
-        isDragging
-          ? "opacity-50"
-          : isMultiSelected
-            ? "bg-accent/10"
-            : isSelected
-              ? "bg-bg-selected"
-              : !thread.isRead
-                ? "bg-accent/[0.04] hover:bg-bg-hover"
-                : "hover:bg-bg-hover"
-      } ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""}`}
+      className={`focus-ring-inset group relative w-full border-b border-hairline text-left t-fast ${densityPadding(emailDensity)} ${rowVisual.row}`}
       data-office360-context-menu-source
     >
       <div className="flex items-start gap-3">
         {/* Avatar */}
         {isMultiSelected ? (
-          <div className={`${avatarClassName} bg-accent text-white flex items-center justify-center`}>
+          <div className={`${avatarClassName} flex items-center justify-center bg-brand text-brand-contrast`}>
             <Check size={emailDensity === "compact" ? 14 : 16} />
           </div>
         ) : (
@@ -155,7 +152,7 @@ export const ThreadCard = memo(function ThreadCard({
             name={thread.fromName}
             className={avatarClassName}
             textClassName={avatarTextClassName}
-            fallbackClassName={thread.isRead ? "bg-text-tertiary text-white" : "bg-accent text-white"}
+            fallbackClassName={thread.isRead ? "bg-surface-sunken text-ink-secondary" : "bg-brand text-brand-contrast"}
             lookupExternalAvatar
           />
         )}
@@ -166,73 +163,65 @@ export const ThreadCard = memo(function ThreadCard({
           <div className="relative flex items-center gap-2">
             {!thread.isRead && (
               <span
-                className="absolute -left-2.5 w-1.5 h-1.5 rounded-full bg-accent"
+                className="absolute -left-2.5 h-1.5 w-1.5 rounded-full bg-brand"
                 aria-hidden
                 title="Unread"
               />
             )}
             <span
-              className={`min-w-0 flex-1 text-left text-sm truncate ${
-                thread.isRead
-                  ? "font-normal text-text-secondary"
-                  : "font-semibold text-text-primary"
-              }`}
+              className={`min-w-0 flex-1 truncate text-left text-meta ${rowVisual.sender}`}
             >
               {thread.fromName ?? thread.fromAddress ?? "Unknown"}
             </span>
-            <span className="text-xs text-text-tertiary whitespace-nowrap shrink-0">
+            <span className="shrink-0 whitespace-nowrap text-caption tabular-nums text-ink-tertiary">
               {formatRelativeDate(thread.lastMessageAt)}
             </span>
           </div>
 
           {/* Subject */}
           <div
-            className={`text-sm truncate mt-0.5 ${
-              thread.isRead
-                ? "font-normal text-text-secondary"
-                : "font-semibold text-text-primary"
-            }`}
+            className={`mt-0.5 truncate text-copy ${rowVisual.subject}`}
           >
             {thread.subject ?? "(No subject)"}
           </div>
 
           {/* Snippet + indicators */}
           <div className={`flex items-center gap-1.5 mt-0.5 ${emailDensity === "compact" ? "hidden" : ""}`}>
-            <span className="text-xs text-text-tertiary truncate flex-1">
+            <span className="flex-1 truncate text-caption text-ink-tertiary">
               {thread.snippet}
             </span>
             {showCategoryBadge && category && category !== "Primary" && CATEGORY_COLORS[category] && (
-              <span className={`shrink-0 text-[0.625rem] px-1.5 rounded-full leading-normal ${CATEGORY_COLORS[category]}`}>
+              <span className={`shrink-0 rounded-full px-1.5 text-caption leading-normal ${CATEGORY_COLORS[category]}`}>
                 {category}
               </span>
             )}
             {hasFollowUp && (
-              <span className="shrink-0 text-accent" title="Follow-up reminder set">
+              <span className="shrink-0 text-brand-text" title="Follow-up reminder set">
                 <BellRing size={12} />
               </span>
             )}
             {thread.isMuted && (
-              <span className="shrink-0 text-warning" title="Muted">
+              <span className="shrink-0 text-warning-text" title="Muted">
                 <VolumeX size={12} />
               </span>
             )}
             {thread.isPinned && (
-              <span className="shrink-0 text-accent" title="Pinned">
+              <span className="shrink-0 text-brand-text" title="Pinned">
                 <Pin size={12} className="fill-current" />
               </span>
             )}
             {thread.hasAttachments && (
-              <span className="shrink-0 text-text-tertiary" title="Has attachments">
+              <span className="shrink-0 text-ink-tertiary" title="Has attachments">
                 <Paperclip size={12} />
               </span>
             )}
             {thread.isStarred && (
-              <span className="shrink-0 text-warning star-animate" title="Starred">
+              <span className="star-animate shrink-0 text-warning-text" title="Starred">
                 <Star size={12} className="fill-current" />
               </span>
             )}
             {thread.messageCount > 1 && (
-              <span className="text-xs text-text-tertiary shrink-0 bg-bg-tertiary rounded-full px-1.5">
+              <span className="shrink-0 rounded-full bg-surface-sunken px-1.5 text-caption text-ink-tertiary">
                 {thread.messageCount}
               </span>
             )}

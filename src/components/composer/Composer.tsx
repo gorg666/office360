@@ -472,17 +472,17 @@ export function Composer() {
 
   return (
     <CSSTransition nodeRef={overlayRef} in={isOpen} timeout={200} classNames="slide-up" unmountOnExit>
-    <div ref={overlayRef} className={`fixed inset-0 z-50 flex ${isFullpage ? "items-stretch justify-center" : "items-end justify-center pb-4"} ${isFullpage && !isStandalone ? "p-4" : ""} pointer-events-none`}>
+    <div ref={overlayRef} className={`fixed inset-0 z-modal flex ${isFullpage ? "items-stretch justify-center" : "items-end justify-center pb-4"} ${isFullpage && !isStandalone ? "p-4" : ""} pointer-events-none`}>
       {/* No fullscreen dim/blur layer: avoids “disabled app” look while clicks pass through to the main UI */}
 
       {/* Composer window */}
       <div
-        className={`relative bg-bg-primary glass-modal pointer-events-auto flex flex-col slide-up-panel ${
+        className={`material-modal slide-up-panel pointer-events-auto relative flex flex-col ${
           isStandalone
             ? "w-full h-full border-0 rounded-none"
             : isFullpage
-              ? "w-full h-full max-w-5xl border rounded-lg"
-              : "w-full max-w-2xl max-h-[80vh] border rounded-lg"
+              ? "w-full h-full max-w-5xl border rounded-panel"
+              : "w-full max-w-2xl max-h-[80vh] border rounded-panel"
         } ${isDragging ? "border-accent border-2" : isStandalone ? "" : "border-border-primary"}`}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -490,8 +490,8 @@ export function Composer() {
         onDrop={handleDrop}
       >
         {isDragging && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-accent/10 rounded-lg pointer-events-none">
-            <span className="text-sm font-medium text-accent">Перетащите файлы, чтобы прикрепить</span>
+          <div className="pointer-events-none absolute inset-0 z-raised flex items-center justify-center rounded-panel bg-brand-tint-2 ring-2 ring-brand">
+            <span className="text-meta font-semibold text-brand-text">Перетащите файлы, чтобы прикрепить</span>
           </div>
         )}
 
@@ -505,7 +505,7 @@ export function Composer() {
         />
 
         {/* Address fields */}
-        <div className="px-3 py-2 space-y-1.5 border-b border-border-secondary">
+        <div className="space-y-1.5 border-b border-hairline px-3 py-2">
           <FromSelector
             aliases={aliases}
             selectedEmail={fromEmail ?? activeAccount?.email ?? ""}
@@ -520,7 +520,7 @@ export function Composer() {
           ) : (
             <button
               onClick={() => setShowCcBcc(true)}
-              className="text-xs text-accent hover:text-accent-hover ml-10"
+              className="focus-ring t-fast ml-10 rounded-tight text-control text-brand-text hover:underline"
             >
               Копия / Скрытая копия
             </button>
@@ -528,9 +528,9 @@ export function Composer() {
         </div>
 
         {/* Subject */}
-        <div className="px-3 py-1.5 border-b border-border-secondary">
+        <div className="border-b border-hairline px-3 py-1.5">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-text-tertiary w-8 shrink-0">
+            <span className="w-8 shrink-0 text-caption text-ink-tertiary">
               Тема
             </span>
             <input
@@ -576,7 +576,7 @@ export function Composer() {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-t border-border-primary bg-bg-secondary rounded-b-lg">
+        <div className="surface-sunken flex items-center justify-between rounded-b-panel border-t border-separator px-4 py-2.5">
           <div className="flex items-center gap-3">
             <div className="text-xs text-text-tertiary">
               {fromEmail ?? activeAccount?.email ?? "Нет аккаунта"}

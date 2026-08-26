@@ -616,10 +616,10 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
       </div>
 
       {/* Header */}
-      <div className="px-4 py-2 border-b border-border-primary flex items-center justify-between">
+      <div className="material-subtle flex items-center justify-between border-b border-separator px-4 py-2">
         <div>
-          <h2 className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
-            {isSmartFolder && <FolderSearch size={14} className="text-accent shrink-0" />}
+          <h2 className="flex items-center gap-1.5 text-section font-semibold text-ink-primary">
+            {isSmartFolder && <FolderSearch size={14} className="shrink-0 text-brand-text" />}
             {isOutbox
               ? "Messages waiting to be sent"
               : isSmartFolder
@@ -632,15 +632,15 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
           </h2>
           {isOutbox ? (
             <>
-              <p className="text-xs text-text-tertiary mt-0.5 max-w-md">
+              <p className="mt-0.5 max-w-md text-caption text-ink-tertiary">
                 Outbox keeps messages that are offline or waiting for retry after a temporary send error.
               </p>
-              <p className="text-xs text-text-tertiary mt-0.5 max-w-md">
+              <p className="mt-0.5 max-w-md text-caption text-ink-tertiary">
                 After a message is sent, it disappears from Outbox and appears in Sent after sync.
               </p>
             </>
           ) : (
-            <span className="text-xs text-text-tertiary">
+            <span className="text-caption text-ink-tertiary">
               {formatConversationCount(filteredThreads.length, locale)}
             </span>
           )}
@@ -652,7 +652,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
               type="button"
               onClick={handleMarkAllRead}
               disabled={!canMarkAllRead || markingAllRead}
-              className="inline-flex items-center gap-1.5 rounded border border-border-primary bg-bg-tertiary px-2 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-bg-tertiary disabled:hover:text-text-secondary"
+              className="focus-ring t-fast inline-flex items-center gap-1.5 rounded-control border border-outline bg-surface-solid px-2 py-1 text-control font-medium text-ink-secondary hover:bg-surface-sunken hover:text-ink-primary disabled:cursor-not-allowed disabled:opacity-50"
               title="Пометить все непрочитанные письма как прочитанные"
             >
               <CheckCheck size={13} />
@@ -663,7 +663,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
             value={readFilter}
             title="Read filter"
             onChange={(e) => setReadFilter(e.target.value as "all" | "read" | "unread")}
-            className="text-xs bg-bg-tertiary text-text-secondary px-2 py-1 rounded border border-border-primary"
+            className="focus-ring rounded-control border border-outline bg-surface-solid px-2 py-1 text-control text-ink-secondary"
           >
             <option value="all">All</option>
             <option value="unread">Unread</option>
@@ -684,15 +684,15 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
 
       {/* Multi-select action bar */}
       <CSSTransition nodeRef={multiSelectBarRef} in={multiSelectCount > 0} timeout={150} classNames="slide-down" unmountOnExit>
-        <div ref={multiSelectBarRef} className="px-3 py-2 border-b border-border-primary bg-accent/5 flex items-center justify-between">
+        <div ref={multiSelectBarRef} className="flex items-center justify-between border-b border-separator bg-brand-tint-1 px-3 py-2">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-text-primary">
+            <span className="text-control font-semibold text-ink-primary">
               {multiSelectCount} selected
             </span>
             {multiSelectCount < filteredThreads.length && (
               <button
                 onClick={selectAll}
-                className="text-xs text-accent hover:text-accent-hover transition-colors"
+                className="focus-ring t-fast rounded-tight text-control text-brand-text hover:underline"
               >
                 Select all
               </button>
@@ -702,28 +702,28 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
             <button
               onClick={handleBulkArchive}
               title="Archive selected"
-              className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
+              className="focus-ring t-fast rounded-control p-1.5 text-ink-secondary hover:bg-surface-sunken hover:text-ink-primary"
             >
               <Archive size={14} />
             </button>
             <button
               onClick={handleBulkDelete}
               title="Delete selected"
-              className="p-1.5 text-text-secondary hover:text-error hover:bg-bg-hover rounded transition-colors"
+              className="focus-ring t-fast rounded-control p-1.5 text-ink-secondary hover:bg-danger-surface hover:text-danger-text"
             >
               <Trash2 size={14} />
             </button>
             <button
               onClick={handleBulkSpam}
               title={activeLabel === "spam" ? "Not spam" : "Report spam"}
-              className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
+              className="focus-ring t-fast rounded-control p-1.5 text-ink-secondary hover:bg-surface-sunken hover:text-ink-primary"
             >
               <Ban size={14} />
             </button>
             <button
               onClick={clearMultiSelect}
               title="Clear selection"
-              className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
+              className="focus-ring t-fast rounded-control p-1.5 text-ink-secondary hover:bg-surface-sunken hover:text-ink-primary"
             >
               <X size={14} />
             </button>
@@ -766,14 +766,14 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
                         return next;
                       });
                     }}
-                    className="w-full text-left px-4 py-3 border-b border-border-secondary hover:bg-bg-hover transition-colors flex items-center gap-3"
+                    className="focus-ring t-fast flex w-full items-center gap-3 border-b border-hairline px-4 py-3 text-left hover:bg-surface-sunken"
                   >
-                    <div className="w-9 h-9 rounded-full bg-accent/15 flex items-center justify-center shrink-0">
-                      <Package size={16} className="text-accent" />
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-tint-2">
+                      <Package size={16} className="text-brand-text" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-text-primary">
+                        <span className="text-meta font-semibold text-ink-primary">
                           {rule.category}
                         </span>
                         <span className="text-xs bg-accent/15 text-accent px-1.5 rounded-full">
@@ -816,7 +816,7 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
                   style={idx < 15 ? { animationDelay: `${idx * 30}ms` } : undefined}
                 >
                   {showDivider && (
-                    <div className="px-4 py-1.5 text-xs font-medium text-text-tertiary uppercase tracking-wider bg-bg-tertiary/50 border-b border-border-secondary">
+                    <div className="surface-sunken border-b border-hairline px-4 py-1.5 text-caption font-semibold uppercase tracking-wider text-ink-tertiary">
                       Other emails
                     </div>
                   )}

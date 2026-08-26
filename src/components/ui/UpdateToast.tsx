@@ -45,7 +45,7 @@ export function UpdateToast() {
     >
       <div
         ref={toastRef}
-        className="fixed bottom-4 right-4 z-50 glass-panel rounded-lg shadow-lg overflow-hidden max-w-xs"
+        className="material-elevated materialize fixed bottom-4 right-4 z-toast max-w-xs overflow-hidden rounded-card"
       >
         <div className="px-4 py-3 space-y-2">
           <p className="text-sm font-medium text-text-primary">

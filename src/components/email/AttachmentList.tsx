@@ -51,8 +51,8 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
 
   return (
     <>
-      <div className="mt-3 pt-3 border-t border-border-secondary">
-        <div className="text-xs text-text-tertiary mb-2">
+      <div className="mt-3 border-t border-hairline pt-3">
+        <div className="mb-2 text-caption font-medium uppercase tracking-wider text-ink-tertiary">
           {fileAttachments.length} attachment{fileAttachments.length !== 1 ? "s" : ""}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -61,12 +61,12 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
             return (
               <div
                 key={att.id}
-                className="flex items-stretch gap-0 rounded-md border border-border-primary overflow-hidden hover:bg-bg-hover transition-colors"
+                className="surface-raised t-fast flex items-stretch gap-0 overflow-hidden rounded-control border border-separator hover:bg-surface-sunken"
               >
                 <button
                   type="button"
                   onClick={() => setPreview(att)}
-                  className="flex items-center gap-2 px-2 py-1.5 text-xs min-w-0 text-left"
+                  className="focus-ring-inset flex min-w-0 items-center gap-2 px-2 py-1.5 text-left text-control"
                 >
                   {showThumb ? (
                     <AttachmentImageThumb
@@ -75,16 +75,16 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
                       attachment={att}
                     />
                   ) : (
-                    <span className="text-text-tertiary shrink-0">
+                    <span className="shrink-0 text-ink-tertiary">
                       <FileTypeIcon mimeType={att.mime_type} filename={att.filename} size={16} />
                     </span>
                   )}
                   <span className="min-w-0">
-                    <span className="block text-text-secondary truncate max-w-[160px]">
+                    <span className="block max-w-[160px] truncate text-ink-primary">
                       {att.filename ?? "Unnamed"}
                     </span>
                     {att.size != null && (
-                      <span className="block text-text-tertiary whitespace-nowrap">
+                      <span className="block whitespace-nowrap text-caption text-ink-tertiary">
                         {formatFileSize(att.size)}
                       </span>
                     )}
@@ -93,7 +93,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
                 <button
                   type="button"
                   title="Download"
-                  className="px-2 border-l border-border-primary text-text-tertiary hover:text-text-primary"
+                  className="focus-ring-inset t-fast border-l border-separator px-2 text-ink-tertiary hover:bg-surface-sunken hover:text-ink-primary"
                   onClick={() => setPreview(att)}
                 >
                   <Download size={13} />
@@ -307,7 +307,7 @@ export function AttachmentPreview({
   const header = (
     <div className="px-4 py-3 border-b border-border-primary flex items-center justify-between shrink-0">
       <div className="flex items-center gap-2 min-w-0">
-        <span className="text-text-tertiary shrink-0">
+        <span className="shrink-0 text-ink-tertiary">
           <FileTypeIcon mimeType={attachment.mime_type} filename={attachment.filename} size={16} />
         </span>
         <span className="text-sm font-medium text-text-primary truncate">

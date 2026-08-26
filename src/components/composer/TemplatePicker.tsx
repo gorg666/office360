@@ -60,7 +60,7 @@ export function TemplatePicker({ editor }: TemplatePickerProps) {
       </button>
 
       {isOpen && (
-        <div className="absolute bottom-full mb-1 left-0 bg-bg-primary border border-border-primary rounded-md shadow-lg glass-modal w-56 max-h-48 overflow-y-auto z-10">
+        <div className="materialize material-elevated absolute bottom-full left-0 z-dropdown mb-1 max-h-48 w-56 overflow-y-auto rounded-card">
           {templates.map((tmpl) => (
             <button
               key={tmpl.id}

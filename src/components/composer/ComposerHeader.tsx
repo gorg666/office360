@@ -73,7 +73,7 @@ export function ComposerHeader({
           aria-hidden="true"
         />
       ) : null}
-      <span className="relative z-10 text-sm font-medium text-text-primary pointer-events-none">
+      <span className="pointer-events-none relative z-raised text-meta font-semibold text-ink-primary">
         {modeLabel}
       </span>
       <div className="relative z-10 flex items-center gap-1">
@@ -82,7 +82,7 @@ export function ComposerHeader({
             <button
               type="button"
               onClick={handleMinimizeWindow}
-              className="flex items-center justify-center rounded p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+              className="focus-ring t-fast flex items-center justify-center rounded-control p-1.5 text-ink-tertiary hover:bg-surface-sunken hover:text-ink-primary"
               title="Свернуть"
             >
               <Minus size={14} />
@@ -90,7 +90,7 @@ export function ComposerHeader({
             <button
               type="button"
               onClick={handleToggleMaximizeWindow}
-              className="flex items-center justify-center rounded p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+              className="focus-ring t-fast flex items-center justify-center rounded-control p-1.5 text-ink-tertiary hover:bg-surface-sunken hover:text-ink-primary"
               title={windowMaximized ? "Восстановить" : "Развернуть"}
             >
               {windowMaximized ? <Copy size={12} /> : <Square size={12} />}
@@ -98,7 +98,7 @@ export function ComposerHeader({
             <button
               type="button"
               onClick={onCloseStandalone}
-              className="flex items-center justify-center rounded p-1.5 text-text-tertiary transition-colors hover:bg-danger hover:text-white"
+              className="focus-ring t-fast flex items-center justify-center rounded-control p-1.5 text-ink-tertiary hover:bg-danger-solid hover:text-white"
               title="Закрыть"
             >
               <X size={14} />
@@ -109,7 +109,7 @@ export function ComposerHeader({
             <button
               type="button"
               onClick={onToggleViewMode}
-              className="rounded p-1 text-text-tertiary transition-colors hover:text-text-primary"
+              className="focus-ring t-fast rounded-control p-1 text-ink-tertiary hover:text-ink-primary"
               title={isFullpage ? "Свернуть" : "Развернуть"}
             >
               {isFullpage ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
@@ -117,7 +117,7 @@ export function ComposerHeader({
             <button
               type="button"
               onClick={onPopOut}
-              className="rounded p-1 text-text-tertiary transition-colors hover:text-text-primary"
+              className="focus-ring t-fast rounded-control p-1 text-ink-tertiary hover:text-ink-primary"
               title="Открыть в новом окне"
             >
               <ExternalLink size={14} />

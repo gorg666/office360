@@ -145,7 +145,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
       {/* Header — always visible, click to expand/collapse */}
       <button
         onClick={handleToggle}
-        className="w-full text-left px-4 py-3 hover:bg-bg-hover transition-colors"
+        className="focus-ring-inset t-fast w-full px-4 py-3 text-left hover:bg-surface-sunken"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
@@ -157,23 +157,23 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
               lookupExternalAvatar
             />
             <div className="min-w-0">
-              <span className="text-sm font-medium text-text-primary truncate flex items-center gap-1">
+              <span className="flex items-center gap-1 truncate text-meta font-semibold text-ink-primary">
                 {fromDisplay}
                 <AuthBadge authResults={message.auth_results} />
               </span>
               {!expanded && (
-                <span className="text-xs text-text-tertiary truncate block">
+                <span className="block truncate text-caption text-ink-tertiary">
                   {message.snippet}
                 </span>
               )}
             </div>
           </div>
-          <span className="text-xs text-text-tertiary whitespace-nowrap shrink-0 ml-2">
+          <span className="ml-2 shrink-0 whitespace-nowrap text-caption tabular-nums text-ink-tertiary">
             {formatFullDate(message.date)}
           </span>
         </div>
         {expanded && (
-          <div className="mt-1 text-xs text-text-tertiary">
+          <div className="mt-1 text-caption text-ink-tertiary">
             {message.to_addresses && (
               <span>To: {message.to_addresses}</span>
             )}
@@ -215,7 +215,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
           )}
 
           {!hasRenderableBody && message.imap_uid != null ? (
-            <div className="py-4 text-sm text-text-tertiary">
+            <div className="py-4 text-meta text-ink-tertiary">
               Загружаю тело письма...
             </div>
           ) : blockImages != null ? (
@@ -234,7 +234,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
               linkScanResult={phishingScanResult}
             />
           ) : (
-            <div className="py-8 text-center text-text-tertiary text-sm">Loading...</div>
+            <div className="py-8 text-center text-meta text-ink-tertiary">Loading...</div>
           )}
 
           <InlineAttachmentPreview

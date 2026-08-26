@@ -136,7 +136,7 @@ export function SendFeedbackToast() {
         data-testid="send-feedback-toast"
         data-send-toast="global"
         className={`fixed bottom-20 right-4 z-[60] max-w-sm rounded-lg shadow-lg overflow-hidden ${
-          isError ? "bg-danger/95 text-white" : "glass-panel"
+          isError ? "bg-danger-surface text-danger-text border border-danger-border" : "material-elevated"
         }`}
       >
         {payload ? (

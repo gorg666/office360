@@ -31,7 +31,7 @@ export function AddressInput({
 
   return (
     <div className="flex items-start gap-2">
-      <span className="w-14 shrink-0 pt-2 text-xs text-text-tertiary">{label}</span>
+      <span className="w-14 shrink-0 pt-2 text-caption font-medium text-ink-tertiary">{label}</span>
       <PeoplePicker
         accountId={accountId}
         label={label}

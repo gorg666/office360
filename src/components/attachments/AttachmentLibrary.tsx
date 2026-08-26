@@ -216,7 +216,7 @@ export function AttachmentLibrary() {
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="shrink-0 px-4 py-3 border-b border-border-primary">
+      <div className="material-subtle shrink-0 border-b border-separator px-4 py-3">
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <Paperclip size={18} className="text-text-secondary" />

@@ -33,10 +33,10 @@ export function AttachmentGridItem({ attachment, onPreview, onDownload, onJumpTo
   const isImageAttachment = isImage(attachment.mime_type, attachment.filename);
 
   return (
-    <div className="group relative flex flex-col border border-border-primary rounded-lg hover:border-border-secondary hover:bg-bg-hover transition-colors overflow-hidden">
+    <div className="group surface-raised t-fast relative flex flex-col overflow-hidden rounded-card border border-separator hover:bg-surface-sunken">
       <button
         onClick={previewable ? onPreview : onDownload}
-        className="flex items-center justify-center h-24 bg-bg-secondary text-3xl overflow-hidden"
+        className="surface-sunken flex h-24 items-center justify-center overflow-hidden text-3xl"
       >
         {isImageAttachment ? (
           <ImageThumbnail attachment={attachment} />
@@ -45,29 +45,29 @@ export function AttachmentGridItem({ attachment, onPreview, onDownload, onJumpTo
             mimeType={attachment.mime_type}
             filename={attachment.filename}
             size={32}
-            className="text-text-tertiary"
+            className="text-ink-tertiary"
           />
         )}
       </button>
 
       <div className="px-3 py-2 flex flex-col gap-0.5 min-w-0">
-        <span className="text-xs font-medium text-text-primary truncate" title={attachment.filename ?? undefined}>
+        <span className="truncate text-meta font-medium text-ink-primary" title={attachment.filename ?? undefined}>
           {attachment.filename ?? "Unnamed"}
         </span>
-        <span className="text-[0.6875rem] text-text-tertiary truncate" title={senderName}>
+        <span className="truncate text-caption text-ink-tertiary" title={senderName}>
           {senderName}
         </span>
-        <div className="flex items-center gap-2 text-[0.6875rem] text-text-tertiary">
+        <div className="flex items-center gap-2 text-caption text-ink-tertiary">
           {attachment.size != null && <span>{formatFileSize(attachment.size)}</span>}
           {attachment.date && <span>{formatRelativeDate(attachment.date)}</span>}
         </div>
       </div>
 
-      <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-0 t-fast focus-within:opacity-100 group-hover:opacity-100">
         {previewable && (
           <button
             onClick={onPreview}
-            className="p-1.5 rounded-md bg-bg-primary/90 border border-border-primary text-text-secondary hover:text-text-primary transition-colors"
+            className="focus-ring surface-raised t-fast rounded-control border border-separator p-1.5 text-ink-secondary shadow-e1 hover:text-ink-primary"
             title="Preview"
           >
             <Eye size={13} />
@@ -75,14 +75,14 @@ export function AttachmentGridItem({ attachment, onPreview, onDownload, onJumpTo
         )}
         <button
           onClick={onDownload}
-          className="p-1.5 rounded-md bg-bg-primary/90 border border-border-primary text-text-secondary hover:text-text-primary transition-colors"
+          className="focus-ring surface-raised t-fast rounded-control border border-separator p-1.5 text-ink-secondary shadow-e1 hover:text-ink-primary"
           title="Download"
         >
           <Download size={13} />
         </button>
         <button
           onClick={onJumpToEmail}
-          className="p-1.5 rounded-md bg-bg-primary/90 border border-border-primary text-text-secondary hover:text-text-primary transition-colors"
+          className="focus-ring surface-raised t-fast rounded-control border border-separator p-1.5 text-ink-secondary shadow-e1 hover:text-ink-primary"
           title="Jump to email"
         >
           <ExternalLink size={13} />
@@ -151,7 +151,7 @@ function ImageThumbnail({ attachment }: { attachment: AttachmentWithContext }) {
   }
 
   return (
-    <span ref={containerRef} className="text-text-tertiary flex items-center justify-center">
+    <span ref={containerRef} className="flex items-center justify-center text-ink-tertiary">
       <FileTypeIcon mimeType={attachment.mime_type} filename={attachment.filename} size={32} />
     </span>
   );

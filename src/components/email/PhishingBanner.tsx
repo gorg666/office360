@@ -23,12 +23,13 @@ export function PhishingBanner({
       warning={warning}
       className="mb-3"
       trailing={(
-      <button
-        onClick={onTrustSender}
-          className="shrink-0 rounded-md border border-warning/30 px-2.5 py-1 text-xs text-warning transition-colors hover:bg-warning/5 hover:text-warning/80"
-      >
-        Trust this sender
-      </button>
+        <button
+          type="button"
+          onClick={onTrustSender}
+          className="focus-ring t-fast shrink-0 self-start rounded-control border border-outline bg-surface-solid px-2.5 py-1 text-control font-medium text-ink-secondary hover:bg-surface-sunken hover:text-ink-primary"
+        >
+          Trust this sender
+        </button>
       )}
     />
   );

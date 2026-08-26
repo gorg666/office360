@@ -46,7 +46,7 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
   );
 
   return (
-    <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border-secondary bg-bg-secondary flex-wrap">
+    <div className="material-subtle flex flex-wrap items-center gap-0.5 border-b border-separator px-3 py-1.5">
       {btn("B", editor.isActive("bold"), () => editor.chain().focus().toggleBold().run(), "Жирный (Ctrl+B)")}
       {btn("I", editor.isActive("italic"), () => editor.chain().focus().toggleItalic().run(), "Курсив (Ctrl+I)")}
       {btn("U", editor.isActive("underline"), () => editor.chain().focus().toggleUnderline().run(), "Подчеркнутый (Ctrl+U)")}

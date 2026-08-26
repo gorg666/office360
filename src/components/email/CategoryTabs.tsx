@@ -52,14 +52,14 @@ export function CategoryTabs({ activeCategory, onCategoryChange, unreadCounts }:
   }, [activeCategory]);
 
   return (
-    <div className="relative border-b border-border-secondary shrink-0">
+    <div className="material-subtle relative shrink-0 border-b border-separator">
       {/* Left fade */}
       {canScrollLeft && (
-        <div className="absolute left-0 top-0 bottom-0 w-6 bg-gradient-to-r from-bg-secondary to-transparent z-10 pointer-events-none" />
+        <div className="pointer-events-none absolute bottom-0 left-0 top-0 z-raised w-6 bg-gradient-to-r from-surface-solid to-transparent" />
       )}
       {/* Right fade */}
       {canScrollRight && (
-        <div className="absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-bg-secondary to-transparent z-10 pointer-events-none" />
+        <div className="pointer-events-none absolute bottom-0 right-0 top-0 z-raised w-6 bg-gradient-to-l from-surface-solid to-transparent" />
       )}
       <div
         ref={scrollRef}
@@ -76,7 +76,7 @@ export function CategoryTabs({ activeCategory, onCategoryChange, unreadCounts }:
                 onCategoryChange(cat);
                 e.currentTarget.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
               }}
-              className={`px-2.5 py-1.5 text-xs font-medium transition-colors relative whitespace-nowrap flex items-center gap-1.5 ${
+              className={`focus-ring-inset t-fast relative flex items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-control font-medium ${
                 activeCategory === cat
                   ? "text-accent"
                   : "text-text-tertiary hover:text-text-primary"
@@ -85,7 +85,7 @@ export function CategoryTabs({ activeCategory, onCategoryChange, unreadCounts }:
               {Icon && <Icon size={13} />}
               {cat}
               {count > 0 && (
-                <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+                <span className="rounded-full bg-brand-tint-2 px-1.5 text-caption leading-normal text-brand-text">
                   {count}
                 </span>
               )}
@@ -95,7 +95,7 @@ export function CategoryTabs({ activeCategory, onCategoryChange, unreadCounts }:
         {/* Sliding indicator */}
         {indicatorStyle && (
           <span
-            className="absolute bottom-0 h-0.5 bg-accent rounded-full transition-all duration-200 ease-out pointer-events-none"
+            className="pointer-events-none absolute bottom-0 h-0.5 rounded-full bg-brand transition-all duration-200 ease-out"
             style={{ left: indicatorStyle.left, width: indicatorStyle.width }}
           />
         )}

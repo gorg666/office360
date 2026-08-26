@@ -10,6 +10,8 @@ interface BannerProps {
   /** Buttons or links; rendered under the message. */
   actions?: ReactNode;
   icon?: ReactNode;
+  /** Slot rendered at the trailing edge, before the dismiss control. */
+  trailing?: ReactNode;
   onDismiss?: () => void;
   dismissLabel?: string;
   className?: string;
@@ -52,6 +54,7 @@ export function Banner({
   children,
   actions,
   icon,
+  trailing,
   onDismiss,
   dismissLabel = "Закрыть",
   className = "",
@@ -76,6 +79,7 @@ export function Banner({
         )}
         {actions && <div className="mt-2 flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
+      {trailing}
       {onDismiss && (
         <button
           type="button"

@@ -33,7 +33,7 @@ interface ActionBarProps {
 }
 
 function Separator() {
-  return <div className="w-px h-5 bg-border-secondary mx-1 shrink-0" />;
+  return <div className="mx-1 h-5 w-px shrink-0 bg-separator" />;
 }
 
 export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply", contactSidebarVisible, taskSidebarVisible, onReply, onReplyAll, onForward, onPrint, onExport, onPopOut, onToggleContactSidebar, onToggleTaskSidebar }: ActionBarProps) {
@@ -203,7 +203,7 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
 
   return (
     <>
-      <div className="flex items-center gap-1 px-3 py-3 border-b border-border-secondary bg-bg-secondary">
+      <div className="material-subtle flex items-center gap-1 border-b border-separator px-3 py-2">
         {/* Reply / Forward group */}
         {hasLastMessage && (
           <>
@@ -214,7 +214,7 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
               onClick={defaultReplyMode === "replyAll" ? onReplyAll : onReply}
               disabled={noReply}
               title={noReply ? "This sender does not accept replies" : defaultReplyMode === "replyAll" ? "Reply All (r)" : "Reply (r)"}
-              className="disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+              className="disabled:opacity-40"
             />
             <Button
               variant="secondary"
@@ -223,7 +223,7 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
               onClick={defaultReplyMode === "replyAll" ? onReply : onReplyAll}
               disabled={noReply}
               title={noReply ? "This sender does not accept replies" : defaultReplyMode === "replyAll" ? "Reply (a)" : "Reply All (a)"}
-              className="disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+              className="disabled:opacity-40"
             />
             <Button
               variant="secondary"
@@ -295,7 +295,7 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
             icon={<BellRing size={15} className="fill-current" />}
             onClick={handleCancelFollowUp}
             title="Cancel follow-up reminder"
-            className="text-accent"
+            className="text-brand-text"
           />
         ) : (
           <Button

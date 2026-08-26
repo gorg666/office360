@@ -629,8 +629,8 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
         />
 
         {/* Thread subject */}
-        <div className="px-6 py-3 border-b border-border-primary">
-          <h1 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+        <div className="border-b border-separator px-6 py-3">
+          <h1 className="flex items-center gap-2 text-page font-semibold text-ink-primary">
             {thread.subject ?? "(No subject)"}
             {thread.isMuted && (
               <span className="text-warning shrink-0" title="Muted">
@@ -638,7 +638,7 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
               </span>
             )}
           </h1>
-          <div className="text-xs text-text-tertiary mt-1">
+          <div className="mt-1 text-caption text-ink-tertiary">
             {messages.length} message{messages.length !== 1 ? "s" : ""} in this thread
           </div>
         </div>

@@ -1,6 +1,7 @@
-import { AlertTriangle, ImageOff, Paperclip, ShieldAlert, ShieldX, X } from "lucide-react";
+import { AlertTriangle, ImageOff, Paperclip, ShieldAlert, ShieldX } from "lucide-react";
 import type { ReactNode } from "react";
 import type { SecurityWarning, SecurityWarningAction } from "@/services/security/securityWarnings";
+import { Banner, type BannerTone } from "@/components/ui/Banner";
 
 interface SecurityWarningBannerProps {
   warning: SecurityWarning;
@@ -20,6 +21,15 @@ const ACTION_LABELS: Record<SecurityWarningAction, string> = {
   dismiss: "Dismiss",
 };
 
+/**
+ * Security warnings on the shared Banner contract — DESIGN-001D.
+ *
+ * Visual layer only. Severity mapping, titles, icon selection, the action list
+ * and every handler are unchanged; what changed is that the banner now uses one
+ * tinted-surface treatment with dark text, instead of hand-rolled
+ * `border-danger/30 bg-danger/10 text-danger` triples that differed from every
+ * other banner in the app.
+ */
 export function SecurityWarningBanner({
   warning,
   onAction,
@@ -27,56 +37,47 @@ export function SecurityWarningBanner({
   trailing,
   className,
 }: SecurityWarningBannerProps) {
-  const isDanger = warning.severity === "danger";
-  const isWarning = warning.severity === "warning";
+  const tone = toneFor(warning.severity);
   const Icon = getIcon(warning.kind, warning.severity);
-  const color = isDanger ? "danger" : isWarning ? "warning" : "text-tertiary";
-  const borderClass = isDanger
-    ? "border-danger/30 bg-danger/10"
-    : isWarning
-      ? "border-warning/30 bg-warning/10"
-      : "border-border-secondary bg-bg-tertiary";
-  const textClass = isDanger ? "text-danger" : isWarning ? "text-warning" : "text-text-secondary";
+  const actions = onAction
+    ? warning.actions.filter((action) => action !== "dismiss")
+    : [];
 
   return (
-    <div className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 ${borderClass}${className ? ` ${className}` : ""}`}>
-      <Icon size={16} className={`shrink-0 mt-0.5 ${isDanger ? "text-danger" : isWarning ? "text-warning" : "text-text-tertiary"}`} />
-      <div className="min-w-0 flex-1">
-        <p className={`text-xs font-medium ${textClass}`}>
-          {getTitle(warning)}
-        </p>
-        <p className="mt-0.5 text-xs text-text-secondary">
-          {warning.reason}
-        </p>
-        <p className="mt-0.5 text-xs text-text-tertiary">
-          {warning.recommendedAction}
-        </p>
-        {onAction && warning.actions.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {warning.actions.filter((action) => action !== "dismiss").map((action) => (
+    <Banner
+      tone={tone}
+      role={warning.severity === "danger" ? "alert" : "status"}
+      icon={<Icon size={16} />}
+      title={getTitle(warning)}
+      trailing={trailing}
+      onDismiss={onDismiss}
+      dismissLabel="Dismiss warning"
+      className={className}
+      actions={
+        actions.length > 0
+          ? actions.map((action) => (
               <button
                 key={action}
-                onClick={() => onAction(action)}
-                className={`text-xs font-medium ${color === "danger" ? "text-danger hover:text-danger/80" : color === "warning" ? "text-warning hover:text-warning/80" : "text-accent hover:text-accent-hover"}`}
+                type="button"
+                onClick={() => onAction?.(action)}
+                className="focus-ring t-fast rounded-tight text-control font-semibold text-ink-primary underline-offset-2 hover:underline"
               >
                 {ACTION_LABELS[action]}
               </button>
-            ))}
-          </div>
-        )}
-      </div>
-      {trailing}
-      {onDismiss && (
-        <button
-          onClick={onDismiss}
-          className="shrink-0 rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
-          aria-label="Dismiss warning"
-        >
-          <X size={14} />
-        </button>
-      )}
-    </div>
+            ))
+          : undefined
+      }
+    >
+      <span className="block">{warning.reason}</span>
+      <span className="mt-0.5 block text-ink-tertiary">{warning.recommendedAction}</span>
+    </Banner>
   );
+}
+
+function toneFor(severity: SecurityWarning["severity"]): BannerTone {
+  if (severity === "danger") return "danger";
+  if (severity === "warning") return "warning";
+  return "info";
 }
 
 function getIcon(kind: SecurityWarning["kind"], severity: SecurityWarning["severity"]) {

@@ -192,7 +192,7 @@ export function MoveToFolderDialog({
       >
         <div className="glass-backdrop absolute inset-0" />
         <div
-          className="relative bg-bg-primary border border-border-primary rounded-lg glass-modal w-full max-w-md overflow-hidden"
+          className="material-modal relative w-full max-w-md overflow-hidden rounded-panel"
           onClick={(e) => e.stopPropagation()}
           onKeyDown={handleKeyDown}
         >

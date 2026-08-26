@@ -127,7 +127,11 @@
   border-radius: inherit;
 }
 /* For controls that sit flush against a container edge and cannot afford an
-   outward ring. */
+   outward ring. Resets the base outline like .focus-ring does, so both spell
+   the same contract rather than one of them falling through to the UA default. */
+.focus-ring-inset {
+  outline: none;
+}
 .focus-ring-inset:focus-visible {
   outline: 2px solid var(--color-focus-ring);
   outline-offset: -2px;

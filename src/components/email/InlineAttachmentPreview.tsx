@@ -61,7 +61,7 @@ export function InlineAttachmentPreview({
             <button
               key={att.id}
               onClick={() => onAttachmentClick(att)}
-              className="flex items-center gap-2 px-3 py-2 rounded-md bg-bg-tertiary/50 hover:bg-bg-hover transition-colors w-full text-left"
+              className="focus-ring t-fast surface-sunken flex w-full items-center gap-2 rounded-control px-3 py-2 text-left hover:bg-brand-tint-1"
             >
               <FileText size={16} className="text-danger shrink-0" />
               <div className="min-w-0">

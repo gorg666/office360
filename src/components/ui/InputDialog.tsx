@@ -81,7 +81,7 @@ export function InputDialog({
                 setValues((prev) => ({ ...prev, [field.key]: e.target.value }))
               }
               placeholder={field.placeholder}
-              className="w-full bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent focus:outline-none placeholder:text-text-tertiary"
+              className="w-full focus-ring t-fast rounded-control border border-outline bg-surface-solid text-ink-primary placeholder:text-ink-tertiary px-3 py-1.5 text-meta"
             />
           </div>
         ))}
