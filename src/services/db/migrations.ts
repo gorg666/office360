@@ -1110,7 +1110,7 @@ export const MIGRATIONS = [
     sql: `ALTER TABLE accounts ADD COLUMN oauth_granted_scopes TEXT;`,
   },
   {
-    version: 34,
+    version: 40,
     description: "Persist official Yandex UID from login/info, never derived from email",
     sql: `ALTER TABLE accounts ADD COLUMN yandex_uid TEXT;`,
   },
