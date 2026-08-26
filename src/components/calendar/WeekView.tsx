@@ -8,7 +8,9 @@ import { TimedGridOverlay, WEEK_HOUR_HEIGHT_PX, type TimedDraft, type TimedVisua
 import { AllDayLane, type DateGridDraft } from "./dateGrid";
 import type { GridCreateDraft } from "./createSelection";
 import { isTodayInDisplayTimeZone } from "./displayTimeIndicator";
-import { orderedDayNames, startOfWeek } from "./weekLocale";
+import { hourGutterLabel, orderedDayNames, startOfWeek } from "./weekLocale";
+import { useCalendarColors } from "./calendarColorContext";
+import { WORKING_HOUR_END, WORKING_HOUR_START } from "./workingHours";
 
 interface WeekViewProps {
   currentDate: Date;
@@ -40,6 +42,7 @@ export function WeekView({
   canUpdateEvent = () => true,
 }: WeekViewProps) {
   const locale = useUIStore((state) => state.locale);
+  const colorFor = useCalendarColors();
   const weekStart = startOfWeek(currentDate, locale);
   const pending = pendingEventIds ?? new Set<string>();
   const [conversionHighlight, setConversionHighlight] = useState<CalendarDate | null>(null);
@@ -75,15 +78,15 @@ export function WeekView({
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden" data-testid="week-view">
-      <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
-        <div className="border-r border-border-secondary" />
+      <div className="material-subtle grid shrink-0 grid-cols-[60px_repeat(7,1fr)] border-b border-separator">
+        <div className="cal-gutter" />
         {days.map((day, i) => {
           const isToday = isTodayInDisplayTimeZone(day, displayTimeZone);
           return (
-            <div key={i} className="px-2 py-2 text-center border-r border-border-secondary">
-              <div className="text-xs text-text-tertiary">{dayNames[i]}</div>
-              <div className={`text-sm font-medium mt-0.5 w-7 h-7 flex items-center justify-center mx-auto rounded-full ${
-                isToday ? "bg-accent text-white" : "text-text-primary"
+            <div key={i} className={`cal-day-boundary px-2 py-2 text-center ${isToday ? "cal-today-column" : ""}`}>
+              <div className="text-caption uppercase text-ink-tertiary">{dayNames[i]}</div>
+              <div className={`mx-auto mt-1 flex h-7 w-7 items-center justify-center rounded-full text-meta font-semibold ${
+                isToday ? "bg-brand text-brand-contrast" : "text-ink-primary"
               }`}>
                 {day.getDate()}
               </div>
@@ -107,20 +110,25 @@ export function WeekView({
           canUpdateEvent={canUpdateEvent}
         />
       ) : (
-        <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
-          <div className="border-r border-border-secondary px-1 py-1 text-[0.625rem] text-text-tertiary">
+        <div className="grid shrink-0 grid-cols-[60px_repeat(7,1fr)] border-b border-separator">
+          <div className="cal-gutter px-1 py-1 text-caption text-ink-tertiary">
             {locale === "ru" ? "весь день" : "all-day"}
           </div>
           {days.map((day, i) => {
             const allDay = allDayByDay.get(calendarDateFromLocalDate(day)) ?? [];
             return (
-              <div key={i} className="border-r border-border-secondary px-1 py-1 space-y-0.5">
+              <div key={i} className="cal-day-boundary space-y-0.5 px-1 py-1">
                 {allDay.map((event) => (
                   <button
                     key={event.id}
                     type="button"
                     onClick={(mouseEvent) => onEventClick(event, { x: mouseEvent.clientX, y: mouseEvent.clientY })}
-                    className="w-full text-left text-[0.625rem] px-1 py-0.5 rounded bg-accent/10 text-accent truncate hover:bg-accent/20 transition-colors"
+                    className="focus-ring t-fast w-full truncate rounded-tight border-l-[3px] py-0.5 pr-1 pl-1.5 text-left text-caption font-medium"
+                    style={{
+                      backgroundColor: colorFor(event).fill,
+                      borderLeftColor: colorFor(event).marker,
+                      color: colorFor(event).text,
+                    }}
                   >
                     {event.summary ?? (locale === "ru" ? "Событие" : "Event")}
                   </button>
@@ -134,18 +142,26 @@ export function WeekView({
       <div className="flex-1 overflow-y-auto">
         <div className="relative">
           <div className="grid grid-cols-[60px_repeat(7,1fr)]">
-            {HOURS.map((hour) => (
-              <div key={hour} className="contents">
-                <div className="border-r border-b border-border-secondary h-12 px-1 flex items-start justify-end">
-                  <span className="text-[0.625rem] text-text-tertiary -mt-1.5">
-                    {hour === 0 ? "" : `${hour % 12 || 12}${hour < 12 ? "am" : "pm"}`}
-                  </span>
+            {HOURS.map((hour) => {
+              const offHours = hour < WORKING_HOUR_START || hour >= WORKING_HOUR_END;
+              return (
+                <div key={hour} className="contents">
+                  <div className="cal-gutter cal-gutter-cell flex h-12 items-start justify-end px-1">
+                    <span className="-mt-1.5 text-caption tabular-nums text-ink-tertiary">
+                      {hourGutterLabel(hour, locale)}
+                    </span>
+                  </div>
+                  {days.map((day, di) => (
+                    <div
+                      key={di}
+                      className={`cal-hour-cell cal-day-boundary relative h-12 px-0.5
+                        ${offHours ? "cal-offhours" : ""}
+                        ${isTodayInDisplayTimeZone(day, displayTimeZone) ? "cal-today-column" : ""}`}
+                    />
+                  ))}
                 </div>
-                {days.map((_, di) => (
-                  <div key={di} className="border-r border-b border-border-secondary h-12 relative px-0.5" />
-                ))}
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div className="absolute top-0 right-0 bottom-0 left-[60px]">
             <TimedGridOverlay

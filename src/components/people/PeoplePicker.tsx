@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Loader2, X } from "lucide-react";
+import { calendarColorSet } from "@/constants/calendarColors";
 import {
   personDisplayName,
   isValidPersonEmail,
@@ -139,17 +140,23 @@ export function PeoplePicker({
 
   return (
     <div className={`relative ${className}`}>
-      <div className="flex min-h-9 flex-wrap items-center gap-1 rounded border border-border-primary bg-bg-secondary px-2 py-1 focus-within:border-accent">
+      <div className="t-fast flex min-h-9 flex-wrap items-center gap-1 rounded-control border border-outline bg-surface-solid px-2 py-1 focus-within:border-brand focus-within:ring-2 focus-within:ring-focus-halo">
         {selected.map((person) => renderSelectedPerson ? (
           <div key={person.normalizedEmail}>{renderSelectedPerson(person, () => remove(person))}</div>
         ) : (
           <span
             key={person.normalizedEmail}
             title={person.email}
-            className="inline-flex max-w-full items-center gap-1 rounded-full bg-accent-light px-2 py-0.5 text-xs text-accent"
+            className="group/chip inline-flex max-w-full items-center gap-1 rounded-full bg-brand-tint-1 p-0.5 pr-0.5 text-caption font-medium text-brand-text"
           >
-            <span className="truncate">{personDisplayName(person)}</span>
-            <button type="button" onClick={() => remove(person)} className="shrink-0 p-0.5 hover:text-danger" aria-label={`Удалить ${person.email}`}>
+            <PersonAvatar person={person} size={18} />
+            <span className="truncate pl-0.5">{personDisplayName(person)}</span>
+            <button
+              type="button"
+              onClick={() => remove(person)}
+              className="focus-ring t-fast shrink-0 rounded-full p-0.5 opacity-0 hover:bg-black/10 hover:opacity-100 group-hover/chip:opacity-70 focus-visible:opacity-100 dark:hover:bg-white/15"
+              aria-label={`Удалить ${person.email}`}
+            >
               <X size={11} />
             </button>
           </span>
@@ -183,14 +190,14 @@ export function PeoplePicker({
               }, 150);
             }}
             onKeyDown={onKeyDown}
-            className="min-w-28 flex-1 bg-transparent py-0.5 text-sm text-text-primary outline-none placeholder:text-text-tertiary"
+            className="min-w-28 flex-1 bg-transparent py-0.5 text-copy text-ink-primary outline-none placeholder:text-ink-tertiary"
           />
         )}
-        {loading && <Loader2 size={14} className="animate-spin text-text-tertiary" aria-label="Поиск" />}
+        {loading && <Loader2 size={14} className="animate-spin text-ink-tertiary" aria-label="Поиск" />}
       </div>
 
       {open && (
-        <div id={listboxId} role="listbox" className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full min-w-72 overflow-y-auto rounded-md border border-border-primary bg-bg-primary py-1 shadow-lg">
+        <div id={listboxId} role="listbox" className="materialize material-elevated absolute left-0 top-full z-dropdown mt-1.5 max-h-80 w-full min-w-72 overflow-y-auto rounded-card py-1">
           {suggestions.map((person, index) => (
             <button
               key={person.normalizedEmail}
@@ -201,27 +208,30 @@ export function PeoplePicker({
               onMouseDown={(event) => event.preventDefault()}
               onMouseEnter={() => setActiveIndex(index)}
               onClick={() => choose(person)}
-              className={`flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-bg-hover ${index === activeIndex ? "bg-bg-hover" : ""}`}
+              className={`t-fast relative flex w-full items-center gap-2.5 py-1.5 pr-3 pl-3 text-left
+                ${index === activeIndex
+                  ? "bg-brand-tint-1 before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-r-full before:bg-brand"
+                  : "hover:bg-surface-sunken"}`}
             >
               <PersonAvatar person={person} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm text-text-primary">{personDisplayName(person)}</span>
-                <span className="block truncate text-xs text-text-tertiary">{person.email}</span>
+                <span className="block truncate text-meta font-medium text-ink-primary">{personDisplayName(person)}</span>
+                <span className="block truncate text-caption text-ink-secondary">{person.email}</span>
                 {(person.jobTitle || person.department) && (
-                  <span className="block truncate text-[11px] text-text-tertiary">{[person.jobTitle, person.department].filter(Boolean).join(" · ")}</span>
+                  <span className="block truncate text-caption text-ink-tertiary">{[person.jobTitle, person.department].filter(Boolean).join(" · ")}</span>
                 )}
               </span>
-              {person.source === "manual" && <span className="shrink-0 text-[10px] text-text-tertiary">Использовать email</span>}
+              {person.source === "manual" && <span className="shrink-0 text-caption text-ink-tertiary">Использовать email</span>}
             </button>
           ))}
           {!loading && suggestions.length === 0 && (
-            <div className="px-3 py-2 text-xs text-text-tertiary">Ничего не найдено. Введите корректный email вручную.</div>
+            <div className="px-3 py-3 text-caption text-ink-tertiary">Ничего не найдено. Введите корректный email вручную.</div>
           )}
           {result?.directorySearch === "permission-denied" && (
-            <div role="status" className="border-t border-border-primary px-3 py-2 text-[11px] text-text-tertiary">Каталог организации недоступен; показаны локальные контакты и недавние адресаты.</div>
+            <div role="status" className="border-t border-separator px-3 py-2 text-caption text-ink-tertiary">Каталог организации недоступен; показаны локальные контакты и недавние адресаты.</div>
           )}
           {result?.directoryError && result.directorySearch !== "permission-denied" && (
-            <div role="status" className="border-t border-border-primary px-3 py-2 text-[11px] text-text-tertiary">Каталог временно недоступен; локальный поиск продолжает работать.</div>
+            <div role="status" className="border-t border-separator px-3 py-2 text-caption text-ink-tertiary">Каталог временно недоступен; локальный поиск продолжает работать.</div>
           )}
         </div>
       )}
@@ -229,13 +239,26 @@ export function PeoplePicker({
   );
 }
 
-function PersonAvatar({ person }: { person: PersonIdentity }) {
+function PersonAvatar({ person, size = 32 }: { person: PersonIdentity; size?: number }) {
   const source = personDisplayName(person);
   const initials = source.split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "?";
-  return person.avatarUrl ? (
-    <img src={person.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
-  ) : (
-    <span aria-hidden className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-light text-[11px] font-medium text-accent">{initials}</span>
+  const style = { width: size, height: size };
+
+  if (person.avatarUrl) {
+    return <img src={person.avatarUrl} alt="" style={style} className="shrink-0 rounded-full object-cover" />;
+  }
+
+  // Stable per-person hue: a directory of forty people should not render as
+  // forty identical grey circles.
+  const colors = calendarColorSet({ id: person.normalizedEmail, color: null }, false);
+  return (
+    <span
+      aria-hidden
+      style={{ ...style, backgroundColor: colors.fill, color: colors.text }}
+      className="flex shrink-0 items-center justify-center rounded-full text-caption font-semibold"
+    >
+      {initials}
+    </span>
   );
 }
 

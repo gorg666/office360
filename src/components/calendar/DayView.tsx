@@ -8,6 +8,8 @@ import { DAY_HOUR_HEIGHT_PX, TimedGridOverlay, type TimedDraft, type TimedVisual
 import { AllDayLane, type DateGridDraft } from "./dateGrid";
 import type { GridCreateDraft } from "./createSelection";
 import { isTodayInDisplayTimeZone } from "./displayTimeIndicator";
+import { hourGutterLabel } from "./weekLocale";
+import { WORKING_HOUR_END, WORKING_HOUR_START } from "./workingHours";
 
 interface DayViewProps {
   currentDate: Date;
@@ -95,7 +97,7 @@ export function DayView({
               key={event.id}
               type="button"
               onClick={(mouseEvent) => onEventClick(event, { x: mouseEvent.clientX, y: mouseEvent.clientY })}
-              className="w-full text-left text-xs px-2 py-1.5 rounded bg-accent/10 text-accent hover:bg-accent/20 transition-colors"
+              className="focus-ring t-fast w-full rounded-tight bg-brand-tint-1 px-2 py-1.5 text-left text-meta text-brand-text"
             >
               {event.summary ?? (locale === "ru" ? "Событие" : "Event")} · {locale === "ru" ? "весь день" : "All day"}
             </button>
@@ -105,16 +107,19 @@ export function DayView({
 
       <div className="flex-1 overflow-y-auto">
         <div className="relative">
-          {HOURS.map((hour) => (
-            <div key={hour} className="flex border-b border-border-secondary h-14">
-              <div className="w-[60px] shrink-0 px-2 flex items-start justify-end -mt-1.5">
-                <span className="text-[0.625rem] text-text-tertiary">
-                  {hour === 0 ? "" : `${hour % 12 || 12}${hour < 12 ? "am" : "pm"}`}
-                </span>
+          {HOURS.map((hour) => {
+            const offHours = hour < WORKING_HOUR_START || hour >= WORKING_HOUR_END;
+            return (
+              <div key={hour} className="flex h-14">
+                <div className="cal-gutter cal-gutter-cell -mt-1.5 flex w-[60px] shrink-0 items-start justify-end px-2">
+                  <span className="text-caption tabular-nums text-ink-tertiary">
+                    {hourGutterLabel(hour, locale)}
+                  </span>
+                </div>
+                <div className={`cal-hour-cell relative flex-1 px-1 ${offHours ? "cal-offhours" : ""}`} />
               </div>
-              <div className="flex-1 relative px-1" />
-            </div>
-          ))}
+            );
+          })}
           <div className="absolute top-0 right-0 bottom-0 left-[60px]">
             <TimedGridOverlay
               days={[dayStart]}

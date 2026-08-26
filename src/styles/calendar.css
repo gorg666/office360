@@ -1,0 +1,113 @@
+/*
+ * Calendar grid surfaces — DESIGN-001C.
+ *
+ * The grid stays SOLID. There is no backdrop-filter anywhere in this file: a
+ * blur under hour lines and event chips destroys exactly the readability the
+ * grid exists to provide. Glass belongs to the calendar's chrome (toolbar,
+ * popovers, modals), not to its data.
+ *
+ * The previous grid drew every line with one value — rgba(0,0,0,0.04) — so day
+ * boundaries, hour lines and half-hour marks were indistinguishable, and at 4%
+ * on a light pane nearly invisible. These are three deliberately different
+ * weights, plus a wash that separates working from non-working hours.
+ */
+
+:root {
+  --cal-day-line: rgba(0, 0, 0, 0.14); /* between day columns — strongest */
+  --cal-hour-line: rgba(0, 0, 0, 0.09); /* on the hour */
+  --cal-half-line: rgba(0, 0, 0, 0.045); /* on the half hour — a hint only */
+  --cal-offhours: rgba(15, 15, 30, 0.035); /* outside working hours */
+  --cal-today-wash: rgba(93, 85, 216, 0.05);
+  --cal-outside-month: rgba(15, 15, 30, 0.035);
+}
+
+.dark {
+  --cal-day-line: rgba(255, 255, 255, 0.16);
+  --cal-hour-line: rgba(255, 255, 255, 0.1);
+  --cal-half-line: rgba(255, 255, 255, 0.05);
+  --cal-offhours: rgba(0, 0, 0, 0.28);
+  --cal-today-wash: rgba(157, 150, 242, 0.09);
+  --cal-outside-month: rgba(0, 0, 0, 0.22);
+}
+
+/* ── Time grid ────────────────────────────────────────────────────────────*/
+
+/* One hour of one day. The half-hour mark is painted rather than added as an
+   extra element, so the row count and therefore the grid geometry is unchanged. */
+.cal-hour-cell {
+  border-bottom: 1px solid var(--cal-hour-line);
+  background-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(50% - 0.5px),
+    var(--cal-half-line) calc(50% - 0.5px),
+    var(--cal-half-line) calc(50% + 0.5px),
+    transparent calc(50% + 0.5px)
+  );
+}
+
+/* Vertical rule between day columns — heavier than the hour lines so the week
+   reads as seven columns first and twenty-four rows second. */
+.cal-day-boundary {
+  border-right: 1px solid var(--cal-day-line);
+}
+
+/* Hours outside the working day recede instead of competing for attention. */
+.cal-offhours {
+  background-color: var(--cal-offhours);
+}
+
+.cal-today-column {
+  background-color: var(--cal-today-wash);
+}
+
+/* The hour gutter is chrome, not data. */
+.cal-gutter {
+  border-right: 1px solid var(--cal-day-line);
+}
+
+.cal-gutter-cell {
+  border-bottom: 1px solid var(--cal-hour-line);
+}
+
+/* ── Month grid ───────────────────────────────────────────────────────────*/
+
+.cal-month-cell {
+  border-bottom: 1px solid var(--cal-hour-line);
+  border-right: 1px solid var(--cal-day-line);
+}
+
+.cal-outside-month {
+  background-color: var(--cal-outside-month);
+}
+
+/* ── Current time ─────────────────────────────────────────────────────────*/
+
+.cal-now-line {
+  background-color: var(--color-danger-solid);
+}
+
+.cal-now-dot {
+  background-color: var(--color-danger-solid);
+  box-shadow: 0 0 0 2px var(--color-surface-solid);
+}
+
+.cal-now-label {
+  background-color: var(--color-danger-solid);
+  color: #ffffff;
+}
+
+/* ── Reduced transparency / contrast ──────────────────────────────────────
+ * The grid is already opaque, so these only firm up the line weights. */
+@media (prefers-contrast: more) {
+  :root {
+    --cal-day-line: rgba(0, 0, 0, 0.5);
+    --cal-hour-line: rgba(0, 0, 0, 0.32);
+    --cal-half-line: rgba(0, 0, 0, 0.16);
+  }
+  .dark {
+    --cal-day-line: rgba(255, 255, 255, 0.55);
+    --cal-hour-line: rgba(255, 255, 255, 0.35);
+    --cal-half-line: rgba(255, 255, 255, 0.18);
+  }
+}

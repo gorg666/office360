@@ -47,7 +47,7 @@ export function RecurrenceScopeDialog({ intent, choices, busy, onCancel, onConfi
               <label
                 key={choice.scope}
                 className={`flex cursor-pointer gap-3 rounded-md border px-3 py-2 ${
-                  selected === choice.scope ? "border-accent bg-accent/10" : "border-border-primary bg-bg-tertiary"
+                  selected === choice.scope ? "border-brand bg-brand-tint-1" : "border-outline bg-surface-solid"
                 } ${choice.enabled ? "" : "cursor-not-allowed opacity-50"}`}
               >
                 <input

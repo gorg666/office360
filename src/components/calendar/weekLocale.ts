@@ -52,3 +52,21 @@ export function orderedDayNames(locale: CalendarUiLocale): readonly string[] {
   if (sunday) names.push(sunday);
   return names;
 }
+
+/**
+ * Hour-gutter label for the Week/Day time grid.
+ *
+ * Uses Intl rather than a hand-rolled formatter, so RU renders 24-hour ("13")
+ * and EN keeps 12-hour ("1 PM"). The previous inline expression hardcoded
+ * English am/pm and so showed "1am / 2pm" in the Russian UI.
+ *
+ * Midnight returns an empty string: the top gridline needs no label, and that
+ * matches the previous behaviour.
+ */
+export function hourGutterLabel(hour: number, locale: CalendarUiLocale): string {
+  if (hour === 0) return "";
+  const sample = new Date(2000, 0, 1, hour, 0, 0);
+  return new Intl.DateTimeFormat(locale === "ru" ? "ru-RU" : "en-US", {
+    hour: "numeric",
+  }).format(sample);
+}

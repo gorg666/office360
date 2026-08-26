@@ -3,6 +3,7 @@ import {
   endOfWeek,
   monthGridRange,
   monthGridStartOffset,
+  hourGutterLabel,
   orderedDayNames,
   startOfWeek,
   weekStartsOnMonday,
@@ -49,5 +50,26 @@ describe("weekLocale", () => {
     expect(ruRange.start.getMonth()).toBe(6);
     expect(ruRange.end.getDate()).toBe(6);
     expect(ruRange.end.getMonth()).toBe(8);
+  });
+});
+
+describe("hourGutterLabel", () => {
+  it("renders 24-hour labels in RU — the gutter used to show English am/pm", () => {
+    expect(hourGutterLabel(13, "ru")).toBe("13");
+    expect(hourGutterLabel(1, "ru")).toBe("1");
+    expect(hourGutterLabel(23, "ru")).toBe("23");
+    for (let hour = 1; hour < 24; hour += 1) {
+      expect(hourGutterLabel(hour, "ru")).not.toMatch(/am|pm/i);
+    }
+  });
+
+  it("keeps 12-hour labels in EN", () => {
+    expect(hourGutterLabel(13, "en")).toMatch(/^1\s?PM$/i);
+    expect(hourGutterLabel(9, "en")).toMatch(/^9\s?AM$/i);
+  });
+
+  it("labels midnight as empty in both locales", () => {
+    expect(hourGutterLabel(0, "ru")).toBe("");
+    expect(hourGutterLabel(0, "en")).toBe("");
   });
 });

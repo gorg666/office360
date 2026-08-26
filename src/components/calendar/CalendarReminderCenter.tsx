@@ -46,7 +46,7 @@ export function CalendarReminderCenter() {
   return (
     <div className="pointer-events-none fixed bottom-3 right-3 z-50 flex w-[min(24rem,calc(100vw-1.5rem))] flex-col gap-2">
       {notificationIssue && (
-        <div role="status" className="pointer-events-auto rounded-lg border border-warning/40 bg-bg-secondary px-3 py-2 text-xs text-text-primary shadow-lg">
+        <div role="status" className="material-elevated pointer-events-auto rounded-card px-3 py-2 text-caption text-ink-primary">
           <div className="flex items-start gap-2">
             <Bell className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             <span className="flex-1">{notificationIssue === "disabled"
@@ -59,7 +59,7 @@ export function CalendarReminderCenter() {
         </div>
       )}
       {deliveries.map((delivery) => (
-        <section key={delivery.deliveryKey} role="alert" aria-label="Напоминание календаря" className="pointer-events-auto rounded-xl border border-border-primary bg-bg-secondary p-3 text-sm text-text-primary shadow-xl">
+        <section key={delivery.deliveryKey} role="alert" aria-label="Напоминание календаря" className="material-elevated materialize pointer-events-auto rounded-panel p-3 text-meta text-ink-primary">
           <div className="flex items-start gap-2">
             <Bell className="mt-0.5 h-4 w-4 shrink-0 text-accent-primary" aria-hidden />
             <div className="min-w-0 flex-1">
@@ -70,14 +70,14 @@ export function CalendarReminderCenter() {
                   <button
                     type="button"
                     key={minutes}
-                    className="rounded-md border border-border-primary px-2 py-1 text-xs hover:bg-bg-tertiary"
+                    className="focus-ring t-fast rounded-control border border-outline px-2 py-1 text-control hover:bg-brand-tint-1"
                     onClick={() => void snoozeCalendarReminder(delivery.deliveryKey, minutes).then(() => remove(delivery.deliveryKey))}
                   >
                     {minutes === 60 ? "Через 1 ч" : `Через ${minutes} мин`}
                   </button>
                 ))}
-                <button type="button" className="rounded-md border border-border-primary px-2 py-1 text-xs hover:bg-bg-tertiary" onClick={() => navigateToLabel("calendar")}>Открыть</button>
-                <button type="button" className="rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-bg-tertiary" onClick={() => void dismissCalendarReminder(delivery.deliveryKey).then(() => remove(delivery.deliveryKey))}>Отклонить</button>
+                <button type="button" className="focus-ring t-fast rounded-control border border-outline px-2 py-1 text-control hover:bg-brand-tint-1" onClick={() => navigateToLabel("calendar")}>Открыть</button>
+                <button type="button" className="focus-ring t-fast rounded-control px-2 py-1 text-control text-ink-secondary hover:bg-brand-tint-1" onClick={() => void dismissCalendarReminder(delivery.deliveryKey).then(() => remove(delivery.deliveryKey))}>Отклонить</button>
               </div>
             </div>
           </div>

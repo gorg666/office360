@@ -17,7 +17,7 @@ export function CalendarList({ calendars, onVisibilityChange, onManageSharing }:
   const untitled = locale === "ru" ? "Календарь" : "Calendar";
 
   return (
-    <div className="w-44 min-w-[10.5rem] max-w-[13.5rem] shrink-0 overflow-y-auto border-r border-border-primary p-3 xl:w-52">
+    <div className="surface-solid w-44 min-w-[10.5rem] max-w-[13.5rem] shrink-0 overflow-y-auto border-r border-separator p-3 xl:w-52">
       <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-text-tertiary">
         {heading}
       </h3>
@@ -58,7 +58,7 @@ export function CalendarList({ calendars, onVisibilityChange, onManageSharing }:
                     type="button"
                     onClick={() => onManageSharing(cal)}
                     aria-label={locale === "ru" ? `Управление доступом ${name}` : `Manage access ${name}`}
-                    className="ml-1 shrink-0 rounded p-1 text-text-tertiary hover:bg-bg-secondary hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+                    className="focus-ring t-fast ml-1 shrink-0 rounded-control p-1 text-ink-tertiary hover:bg-brand-tint-1 hover:text-ink-primary"
                   >
                     <Users size={13} />
                   </button>

@@ -18,6 +18,7 @@ import {
   type TimedGestureMode,
 } from "./geometry";
 import { packOverlappingEvents } from "./overlapLayout";
+import { useCalendarColors } from "../calendarColorContext";
 import {
   applyTimedDraft,
   clampTimedDraft,
@@ -109,6 +110,7 @@ export function TimedGridOverlay({
   onCreateDraft,
   canUpdateEvent = () => true,
 }: TimedGridOverlayProps) {
+  const colorFor = useCalendarColors();
   const overlayRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<GestureState | null>(null);
   const createRef = useRef<CreateGesture | null>(null);
@@ -417,25 +419,29 @@ export function TimedGridOverlay({
             const widthPct = 100 / columnCount;
             const pending = pendingEventIds.has(event.id);
             const title = event.summary ?? (locale === "ru" ? "Событие" : "Event");
+            const eventColors = colorFor(event);
             return (
               <div
                 key={event.id}
                 data-testid={`timed-event-${event.id}`}
                 data-interactive={interactive ? "true" : "false"}
-                className={`absolute rounded text-left text-[0.625rem] leading-tight overflow-hidden ${
-                  interactive ? "bg-accent/20 text-accent" : "bg-accent/10 text-accent/80"
-                } ${pending || live ? "opacity-50" : ""}`}
+                className={`absolute overflow-hidden rounded-tight border-l-[3px] text-left text-caption leading-tight ${
+                  pending || live ? "opacity-50" : interactive ? "" : "opacity-80"
+                }`}
                 style={{
                   top: minutesToY(segment.top, hourHeightPx),
                   height: Math.max(minutesToY(segment.duration, hourHeightPx), 16),
                   left: `calc(${column * widthPct}% + 2px)`,
                   width: `calc(${widthPct}% - 4px)`,
+                  backgroundColor: eventColors.fill,
+                  borderLeftColor: eventColors.marker,
+                  color: eventColors.text,
                 }}
               >
                 <button
                   type="button"
                   aria-label={formatEventAriaLabel(event, locale)}
-                  className={`absolute inset-0 truncate px-1 pt-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${interactive ? "cursor-grab" : "cursor-pointer"} ${live ? "cursor-grabbing" : ""}`}
+                  className={`focus-ring-inset absolute inset-0 truncate px-1 pt-1.5 text-left ${interactive ? "cursor-grab" : "cursor-pointer"} ${live ? "cursor-grabbing" : ""}`}
                   onPointerDown={(pointerEvent) => {
                     pointerEvent.stopPropagation();
                     if (!interactive) return;
@@ -481,7 +487,7 @@ export function TimedGridOverlay({
         <div
           key={`preview-${index}`}
           data-testid="timed-drag-preview"
-          className="pointer-events-none absolute z-20 rounded bg-accent/40 text-[0.625rem] text-accent ring-1 ring-accent"
+          className="pointer-events-none absolute z-raised rounded-tight bg-brand-tint-3 text-caption text-brand-text ring-1 ring-brand"
           style={{
             left: `${(segment.dayIndex / days.length) * 100}%`,
             width: `${100 / days.length}%`,
@@ -498,7 +504,7 @@ export function TimedGridOverlay({
       {converting && preview ? (
         <div
           data-testid="timed-convert-preview"
-          className="pointer-events-none absolute z-20 left-1 top-1 rounded bg-accent/40 px-1 py-0.5 text-[0.625rem] text-accent ring-1 ring-accent"
+          className="pointer-events-none absolute left-1 top-1 z-raised rounded-tight bg-brand-tint-3 px-1 py-0.5 text-caption text-brand-text ring-1 ring-brand"
         >
           {preview.event.summary}
           {previewTimeText ? <span className="ml-1 opacity-80">{previewTimeText}</span> : null}
@@ -507,7 +513,7 @@ export function TimedGridOverlay({
       {createPreviewDraft && createPreviewDraft.kind === "timed" ? (
         <div
           data-testid="timed-create-preview"
-          className="pointer-events-none absolute z-20 rounded bg-accent/30 text-[0.625rem] text-accent ring-1 ring-accent"
+          className="pointer-events-none absolute z-raised rounded-tight bg-brand-tint-2 text-caption text-brand-text ring-1 ring-brand"
           style={{
             left: `${((createGesture?.originDayIndex ?? 0) / days.length) * 100}%`,
             width: `${100 / days.length}%`,

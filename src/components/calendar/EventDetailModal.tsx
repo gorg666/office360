@@ -359,7 +359,7 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
           />
           <ReminderEditor capabilities={providerCapabilities} value={reminders} onChange={setReminders} />
           <label className="block text-xs text-text-secondary">Описание
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={5} className="mt-1 w-full px-3 py-2 bg-bg-tertiary border border-border-primary rounded text-sm text-text-primary outline-none focus:border-accent resize-y" />
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={5} className="mt-1 w-full px-3 py-2 rounded-control border border-outline bg-surface-solid text-copy text-ink-primary focus-ring t-fast resize-y" />
           </label>
           {error && <ErrorNotice>{error}</ErrorNotice>}
           <div className="flex justify-end gap-2">
@@ -380,18 +380,18 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
 
   return createPortal(
     <>
-    <div className="fixed inset-0 z-50" onMouseDown={(mouseEvent) => mouseEvent.target === mouseEvent.currentTarget && onClose()}>
+    <div className="fixed inset-0 z-modal" onMouseDown={(mouseEvent) => mouseEvent.target === mouseEvent.currentTarget && onClose()}>
       <section
         ref={detailPanelRef}
         role="dialog"
         aria-modal="true"
         tabIndex={-1}
         aria-label={canSeeDetails ? (event.summary ?? "Событие") : "Занято"}
-        className="fixed w-[min(42rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-border-primary bg-bg-primary shadow-2xl outline-none"
+        className="material-modal materialize fixed w-[min(42rem,calc(100vw-1.5rem))] overflow-hidden rounded-panel outline-none"
         style={{ left: panelLeft, top: panelTop, maxHeight: "calc(100vh - 24px)" }}
         onMouseDown={(mouseEvent) => mouseEvent.stopPropagation()}
       >
-        <header className="flex items-center justify-between border-b border-border-primary px-5 py-3">
+        <header className="flex items-center justify-between border-b border-separator px-5 py-3">
           <h2 className="truncate text-base font-semibold text-text-primary">{canSeeDetails ? (event.summary ?? "Событие") : "Занято"}</h2>
           <button type="button" className="rounded p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent" onClick={onClose} aria-label="Закрыть"><X size={17} /></button>
         </header>
@@ -414,10 +414,10 @@ export function EventDetailModal({ event, calendars, accountId, anchor, timeZone
         {calendar && <InfoRow label="Календарь"><span className="inline-flex items-center gap-2"><i className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: calendar.color ?? "var(--color-accent)" }} />{calendar.display_name}</span></InfoRow>}
 
         {error && <ErrorNotice>{error}</ErrorNotice>}
-        <div className="flex flex-col gap-3 pt-3 border-t border-border-primary sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-t border-separator pt-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
             {selfAttendee && canRsvp && (
-              <select value={normalizeResponse(selfAttendee.status)} onChange={(e) => void handleRsvp(e.target.value as CalendarParticipationStatus)} disabled={busyAction !== null} className="px-3 py-2 rounded-md bg-bg-tertiary text-sm font-medium text-text-primary border border-border-primary outline-none">
+              <select value={normalizeResponse(selfAttendee.status)} onChange={(e) => void handleRsvp(e.target.value as CalendarParticipationStatus)} disabled={busyAction !== null} className="focus-ring rounded-control border border-outline bg-surface-solid px-3 py-2 text-meta font-medium text-ink-primary">
                 <option value="accepted">Пойду</option><option value="tentative">Возможно</option><option value="declined">Не пойду</option>
               </select>
             )}
@@ -452,7 +452,7 @@ function PersonChip({ attendee }: { attendee: CalendarAttendee }) {
   const status = attendee.status;
   const StatusIcon = status === "accepted" || status === "needs-action" ? (status === "accepted" ? Check : CircleHelp) : status === "declined" ? X : Clock;
   const role = attendee.role === "optional" ? "необязательно" : attendee.role === "chair" ? "председатель" : attendee.role === "non-participant" ? "информирование" : null;
-  return <span title={attendee.participant.value} className="inline-flex items-center gap-1.5 rounded-full bg-bg-tertiary px-2.5 py-1"><User size={13} /><span>{attendee.participant.displayName ?? attendee.participant.value}</span>{role && <span className="text-text-tertiary">({role})</span>}<StatusIcon size={13} className={status === "accepted" ? "text-success" : status === "declined" ? "text-danger" : "text-text-tertiary"} /></span>;
+  return <span title={attendee.participant.value} className="inline-flex items-center gap-1.5 rounded-full bg-surface-sunken px-2.5 py-1"><User size={13} /><span>{attendee.participant.displayName ?? attendee.participant.value}</span>{role && <span className="text-text-tertiary">({role})</span>}<StatusIcon size={13} className={status === "accepted" ? "text-success-text" : status === "declined" ? "text-danger-text" : "text-ink-tertiary"} /></span>;
 }
 function OrganizerChip({ organizer }: { organizer: CalendarOrganizer }) { return <span title={organizer.participant.value}>{organizer.participant.displayName ?? organizer.participant.value}</span>; }
 

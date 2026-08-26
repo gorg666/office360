@@ -166,9 +166,9 @@ export function MonthView({
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden" data-testid="month-view">
-      <div className="grid grid-cols-7 border-b border-border-primary">
+      <div className="material-subtle grid grid-cols-7 border-b border-separator">
         {orderedDayNames(locale).map((name) => (
-          <div key={name} className="px-2 py-2 text-xs font-medium text-text-tertiary text-center">
+          <div key={name} className="px-2 py-2 text-center text-caption font-semibold uppercase tracking-wider text-ink-tertiary">
             {name}
           </div>
         ))}
@@ -185,9 +185,11 @@ export function MonthView({
               key={cell.key}
               data-calendar-date={cell.key}
               data-testid={`month-cell-${cell.key}`}
-              className={`border-b border-r border-border-secondary p-1 min-h-[80px] ${
-                cell.inMonth ? "" : "bg-bg-tertiary/30"
-              } ${isTarget ? "bg-accent/10" : ""} ${canCreate ? "cursor-cell" : ""}`}
+              className={`cal-month-cell min-h-[80px] p-1 ${
+                cell.inMonth ? "" : "cal-outside-month"
+              } ${isToday ? "cal-today-column" : ""} ${isTarget ? "bg-brand-tint-2" : ""} ${
+                canCreate ? "cursor-cell" : ""
+              }`}
               onClick={(mouseEvent) => handleEmptyCellClick(cell.key, mouseEvent)}
             >
               {canCreate ? (
@@ -195,8 +197,10 @@ export function MonthView({
                   type="button"
                   data-testid="month-create-day"
                   aria-label={formatCreateAriaLabel(allDayClickDraft(cell.key), locale)}
-                  className={`text-xs font-medium mb-0.5 w-6 h-6 flex items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${
-                    isToday ? "bg-accent text-white" : cell.inMonth ? "text-text-secondary" : "text-text-tertiary"
+                  className={`focus-ring mb-0.5 flex h-6 w-6 items-center justify-center rounded-full text-caption font-semibold tabular-nums ${
+                    isToday
+                      ? "bg-brand text-brand-contrast"
+                      : cell.inMonth ? "text-ink-primary" : "text-ink-tertiary"
                   }`}
                   onClick={(mouseEvent) => {
                     mouseEvent.stopPropagation();
@@ -206,8 +210,10 @@ export function MonthView({
                   {cell.date.getDate()}
                 </button>
               ) : (
-                <div className={`text-xs font-medium mb-0.5 w-6 h-6 flex items-center justify-center rounded-full ${
-                  isToday ? "bg-accent text-white" : cell.inMonth ? "text-text-secondary" : "text-text-tertiary"
+                <div className={`mb-0.5 flex h-6 w-6 items-center justify-center rounded-full text-caption font-semibold tabular-nums ${
+                  isToday
+                    ? "bg-brand text-brand-contrast"
+                    : cell.inMonth ? "text-ink-primary" : "text-ink-tertiary"
                 }`}>
                   {cell.date.getDate()}
                 </div>
@@ -252,7 +258,7 @@ export function MonthView({
                     data-testid="month-overflow"
                     aria-haspopup="dialog"
                     aria-expanded={overflow?.date === cell.key}
-                    className="pl-1 text-[0.625rem] text-text-tertiary hover:text-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+                    className="focus-ring t-fast mt-0.5 inline-flex items-center rounded-full bg-surface-sunken px-1.5 py-0.5 text-caption font-medium text-ink-secondary hover:bg-brand-tint-1 hover:text-brand-text"
                     onClick={(mouseEvent) => {
                       mouseEvent.stopPropagation();
                       setOverflow({
@@ -268,7 +274,7 @@ export function MonthView({
                 {isTarget ? (
                   <div
                     data-testid="month-drag-preview"
-                    className="pointer-events-none text-[0.625rem] px-1 py-0.5 rounded bg-accent/40 text-accent ring-1 ring-accent truncate"
+                    className="pointer-events-none truncate rounded-tight bg-brand-tint-3 px-1 py-0.5 text-caption text-brand-text ring-1 ring-brand"
                   >
                     {gesture?.event.summary}
                     {previewText ? <span className="ml-1 opacity-80">{previewText}</span> : null}

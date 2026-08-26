@@ -138,7 +138,7 @@ export function CalendarAclDialog({ accountId, calendar, onClose, onPermissionsR
                     value={entry.role}
                     disabled={!canWrite || entry.isProtected || busyKey === entry.id}
                     onChange={(event) => void updateRole(entry, event.target.value as CalendarShareRole)}
-                    className="rounded border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-text-primary disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+                    className="focus-ring rounded-control border border-outline bg-surface-solid px-2 py-1 text-control text-ink-primary disabled:opacity-60"
                   >
                     {entry.role === "owner" && <option value="owner">Владелец</option>}
                     {ASSIGNABLE_ROLES.map((role) => <option key={role} value={role}>{roleLabel(role)}</option>)}
@@ -159,7 +159,7 @@ export function CalendarAclDialog({ accountId, calendar, onClose, onPermissionsR
             </div>
 
             {canWrite ? (
-              <form onSubmit={(event) => void grant(event)} className="mt-4 border-t border-border-primary pt-4">
+              <form onSubmit={(event) => void grant(event)} className="mt-4 border-t border-separator pt-4">
                 <label className="mb-1 block text-xs font-medium text-text-secondary">Добавить человека</label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <PeoplePicker
@@ -176,7 +176,7 @@ export function CalendarAclDialog({ accountId, calendar, onClose, onPermissionsR
                     aria-label="Новая роль"
                     value={newRole}
                     onChange={(event) => setNewRole(event.target.value as CalendarShareRole)}
-                    className="rounded border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-text-primary"
+                    className="focus-ring rounded-control border border-outline bg-surface-solid px-2 py-1 text-control text-ink-primary"
                   >
                     {ASSIGNABLE_ROLES.map((role) => <option key={role} value={role}>{roleLabel(role)}</option>)}
                   </select>
@@ -201,7 +201,7 @@ export function CalendarAclDialog({ accountId, calendar, onClose, onPermissionsR
 }
 
 function AclNotice({ children, tone }: { children: React.ReactNode; tone: "neutral" | "error" }) {
-  return <div role={tone === "error" ? "alert" : "status"} className={`rounded-md px-3 py-3 text-sm ${tone === "error" ? "bg-danger/10 text-danger" : "bg-bg-secondary text-text-tertiary"}`}>{children}</div>;
+  return <div role={tone === "error" ? "alert" : "status"} className={`rounded-card px-3 py-3 text-meta ${tone === "error" ? "bg-danger-surface text-danger-text" : "bg-surface-sunken text-ink-tertiary"}`}>{children}</div>;
 }
 
 function roleLabel(role: CalendarShareRole): string {

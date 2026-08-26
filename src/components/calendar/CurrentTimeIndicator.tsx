@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useUIStore } from "@/stores/uiStore";
 import { currentTimeTopPx, indexOfTodayColumn } from "./displayTimeIndicator";
 
 interface CurrentTimeIndicatorProps {
@@ -8,6 +9,7 @@ interface CurrentTimeIndicatorProps {
 }
 
 export function CurrentTimeIndicator({ days, hourHeightPx, displayTimeZone }: CurrentTimeIndicatorProps) {
+  const locale = useUIStore((state) => state.locale);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -23,10 +25,18 @@ export function CurrentTimeIndicator({ days, hourHeightPx, displayTimeZone }: Cu
   const top = currentTimeTopPx(displayTimeZone, hourHeightPx);
   const columnWidth = 100 / days.length;
 
+  // Formatted through Intl so the label follows the UI locale (24h in RU),
+  // matching the hour gutter rather than inventing a second convention.
+  const label = new Intl.DateTimeFormat(locale === "ru" ? "ru-RU" : "en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: displayTimeZone,
+  }).format(new Date());
+
   return (
     <div
       data-testid="current-time-indicator"
-      className="pointer-events-none absolute z-30"
+      className="pointer-events-none absolute z-sticky"
       style={{
         top,
         left: `${dayIndex * columnWidth}%`,
@@ -35,8 +45,13 @@ export function CurrentTimeIndicator({ days, hourHeightPx, displayTimeZone }: Cu
       aria-hidden="true"
     >
       <div className="relative h-0">
-        <span className="absolute -left-1 top-0 h-2 w-2 -translate-y-1/2 rounded-full bg-danger" />
-        <span className="absolute left-0 right-0 top-0 h-px bg-danger" />
+        {/* Anchored inside today's own column: the indicator spans one column,
+            so a gutter-side label would sit over the previous day. */}
+        <span className="cal-now-label absolute left-2.5 top-0 -translate-y-1/2 rounded-tight px-1 py-px text-caption font-semibold tabular-nums">
+          {label}
+        </span>
+        <span className="cal-now-dot absolute -left-1 top-0 h-2.5 w-2.5 -translate-y-1/2 rounded-full" />
+        <span className="cal-now-line absolute inset-x-0 top-0 h-px" />
       </div>
     </div>
   );

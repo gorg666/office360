@@ -68,7 +68,7 @@ export function MonthOverflowPopover({
       tabIndex={-1}
       aria-label={locale === "ru" ? `События ${date}` : `Events ${date}`}
       data-testid="month-overflow-popover"
-      className="fixed z-50 max-h-64 w-60 overflow-y-auto rounded-lg border border-border-primary bg-bg-primary p-2 shadow-xl outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+      className="materialize material-elevated focus-ring fixed z-popover max-h-64 w-60 overflow-y-auto rounded-card p-2"
       style={{ left, top }}
       onClick={(mouseEvent) => mouseEvent.stopPropagation()}
     >

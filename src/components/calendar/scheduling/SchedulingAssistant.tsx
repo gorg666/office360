@@ -238,8 +238,8 @@ export function SchedulingAssistant({
 
   if (effectiveParticipants.length === 0) {
     return (
-      <section data-testid="scheduling-assistant" className="rounded-lg border border-border-primary bg-bg-secondary p-4">
-        <h3 className="text-sm font-semibold text-text-primary">Подбор времени</h3>
+      <section data-testid="scheduling-assistant" className="surface-raised rounded-card border border-separator p-4">
+        <h3 className="text-section font-semibold text-ink-primary">Подбор времени</h3>
         <p data-testid="scheduling-empty" className="mt-2 text-sm text-text-secondary">
           Добавьте участников, чтобы посмотреть общее свободное время
         </p>
@@ -248,11 +248,11 @@ export function SchedulingAssistant({
   }
 
   return (
-    <section data-testid="scheduling-assistant" className="rounded-lg border border-border-primary bg-bg-secondary">
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border-primary px-3 py-2">
+    <section data-testid="scheduling-assistant" className="surface-raised rounded-card border border-separator">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-separator px-3 py-2">
         <div>
-          <h3 className="text-sm font-semibold text-text-primary">Подбор времени</h3>
-          <p className="text-xs text-text-tertiary">Время: {timeZone}</p>
+          <h3 className="text-section font-semibold text-ink-primary">Подбор времени</h3>
+          <p className="text-caption text-ink-tertiary">Время: {timeZone}</p>
         </div>
         <div className="flex flex-wrap items-center gap-1">
           <Button type="button" variant="secondary" size="sm" icon={<ChevronLeft size={14} />} iconOnly aria-label="Предыдущий день" onClick={goPrev} />
@@ -261,7 +261,7 @@ export function SchedulingAssistant({
           <label className="ml-2 flex items-center gap-1 text-xs text-text-secondary">
             Шаг
             <select
-              className="rounded border border-border-primary bg-bg-tertiary px-2 py-1 text-text-primary outline-none focus:border-accent"
+              className="focus-ring rounded-control border border-outline bg-surface-solid px-2 py-1 text-ink-primary"
               value={granularitySeconds}
               onChange={(event) => setGranularitySeconds(Number(event.target.value))}
               aria-label="Шаг сетки"
@@ -275,11 +275,11 @@ export function SchedulingAssistant({
       </header>
 
       {durationSeconds <= 0 && (
-        <p className="px-3 py-2 text-xs text-danger">Проверьте начало и окончание встречи.</p>
+        <p className="px-3 py-2 text-caption text-danger-text">Проверьте начало и окончание встречи.</p>
       )}
 
       {error && (
-        <div data-testid="scheduling-error" className="flex items-center justify-between gap-2 px-3 py-2 text-sm text-danger" role="alert">
+        <div data-testid="scheduling-error" className="flex items-center justify-between gap-2 px-3 py-2 text-meta text-danger-text" role="alert">
           <span>{error}</span>
           <Button type="button" variant="secondary" size="sm" onClick={() => void retry()}>Повторить</Button>
         </div>
@@ -293,9 +293,9 @@ export function SchedulingAssistant({
       )}
 
       <div className="grid grid-cols-[minmax(8rem,11rem)_minmax(0,1fr)]">
-        <div className="border-b border-border-primary px-3 py-2 text-xs font-medium text-text-tertiary">Участники</div>
+        <div className="border-b border-separator px-3 py-2 text-caption font-semibold uppercase tracking-wider text-ink-tertiary">Участники</div>
         <div
-          className="overflow-x-auto border-b border-border-primary"
+          className="overflow-x-auto border-b border-separator"
           ref={setScroller(0)}
           onScroll={(event) => syncScroll(event.currentTarget)}
         >
@@ -306,7 +306,7 @@ export function SchedulingAssistant({
               return (
                 <span
                   key={tick.unix}
-                  className="absolute top-1.5 text-[11px] text-text-tertiary"
+                  className="absolute top-1.5 text-caption tabular-nums text-ink-tertiary"
                   style={{ left: `${laid.leftPct}%` }}
                 >
                   {tick.label}
@@ -343,7 +343,7 @@ export function SchedulingAssistant({
           );
         })}
 
-        <div className="border-t border-border-primary bg-bg-tertiary px-3 py-2">
+        <div className="surface-sunken border-t border-separator px-3 py-2">
           <p className="text-xs font-semibold text-text-primary">Все обязательные участники</p>
           <p className="text-[11px] text-text-tertiary">Сводка по обязательным</p>
         </div>

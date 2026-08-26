@@ -1,4 +1,6 @@
 import { ChevronLeft, ChevronRight, Plus, CalendarDays } from "lucide-react";
+import { Button } from "@/components/ui/Button";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { useUIStore } from "@/stores/uiStore";
 import { endOfWeek, startOfWeek } from "./weekLocale";
 import type { ReactNode } from "react";
@@ -39,39 +41,34 @@ export function CalendarToolbar({
   const viewLabels: Record<CalendarView, string> = locale === "ru"
     ? { day: "День", week: "Неделя", month: "Месяц" }
     : { day: "Day", week: "Week", month: "Month" };
-  const focus = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent";
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border-primary px-3 py-3 sm:px-6">
+    <div className="material-subtle flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-separator px-3 py-2.5 sm:px-6">
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="md"
+            iconOnly
+            icon={<ChevronLeft size={16} />}
             onClick={onPrev}
-            className={`rounded p-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary ${focus}`}
             aria-label={locale === "ru" ? "Предыдущий период" : "Previous period"}
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <button
-            type="button"
-            onClick={onToday}
-            className={`rounded px-2.5 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary ${focus}`}
-          >
+          />
+          <Button variant="secondary" size="md" onClick={onToday}>
             {locale === "ru" ? "Сегодня" : "Today"}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="ghost"
+            size="md"
+            iconOnly
+            icon={<ChevronRight size={16} />}
             onClick={onNext}
-            className={`rounded p-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary ${focus}`}
             aria-label={locale === "ru" ? "Следующий период" : "Next period"}
-          >
-            <ChevronRight size={16} />
-          </button>
+          />
         </div>
         <h2
           data-no-translate
-          className="min-w-0 truncate text-lg font-semibold normal-case tracking-normal text-text-primary"
+          className="min-w-0 truncate text-page font-semibold text-ink-primary"
           title={title}
         >
           {title}
@@ -81,43 +78,36 @@ export function CalendarToolbar({
       <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
         {search ? <div className="min-w-0 max-w-full">{search}</div> : null}
         {showCalendarListButton && onToggleCalendarList && (
-          <button
-            type="button"
+          <Button
+            variant={calendarListOpen ? "subtle" : "ghost"}
+            size="md"
+            iconOnly
+            icon={<CalendarDays size={16} />}
             onClick={onToggleCalendarList}
             aria-pressed={calendarListOpen}
             aria-label={locale === "ru" ? "Список календарей" : "Calendar list"}
-            className={`rounded p-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary ${focus}`}
-          >
-            <CalendarDays size={16} />
-          </button>
+          />
         )}
-        <div className="flex rounded-md bg-bg-tertiary p-0.5" role="group" aria-label={locale === "ru" ? "Представление" : "Calendar view"}>
-          {(["day", "week", "month"] as CalendarView[]).map((v) => (
-            <button
-              type="button"
-              key={v}
-              onClick={() => onViewChange(v)}
-              aria-pressed={view === v}
-              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${focus} ${
-                view === v
-                  ? "bg-bg-primary text-text-primary shadow-sm"
-                  : "text-text-tertiary hover:text-text-secondary"
-              }`}
-            >
-              {viewLabels[v]}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
+        <SegmentedControl
+          label={locale === "ru" ? "Представление" : "Calendar view"}
+          size="md"
+          value={view}
+          onChange={onViewChange}
+          options={(["day", "week", "month"] as CalendarView[]).map((v) => ({
+            value: v,
+            label: viewLabels[v],
+          }))}
+        />
+        <Button
+          variant="primary"
+          size="md"
+          icon={<Plus size={14} />}
           onClick={onCreateEvent}
           disabled={!canCreateEvent}
           title={!canCreateEvent ? (locale === "ru" ? "Создание событий недоступно" : "Event creation unavailable") : undefined}
-          className={`flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50 ${focus}`}
         >
-          <Plus size={14} />
           {locale === "ru" ? "Создать" : "Create"}
-        </button>
+        </Button>
       </div>
     </div>
   );

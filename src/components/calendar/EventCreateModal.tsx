@@ -173,7 +173,7 @@ export function EventCreateModal({
               id="event-calendar"
               value={calendarId}
               onChange={(e) => setCalendarId(e.target.value)}
-              className="w-full px-3 py-1.5 bg-bg-tertiary border border-border-primary rounded text-sm text-text-primary outline-none focus:border-accent"
+              className="w-full px-3 py-1.5 rounded-control border border-outline bg-surface-solid text-copy text-ink-primary focus-ring t-fast"
             >
               {calendars.map((cal) => (
                 <option key={cal.id} value={cal.id}>
@@ -265,7 +265,7 @@ export function EventCreateModal({
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Добавить описание"
             rows={3}
-            className="w-full px-3 py-1.5 bg-bg-tertiary border border-border-primary rounded text-sm text-text-primary outline-none focus:border-accent resize-none"
+            className="w-full px-3 py-1.5 rounded-control border border-outline bg-surface-solid text-copy text-ink-primary focus-ring t-fast resize-none"
           />
         </div>
 

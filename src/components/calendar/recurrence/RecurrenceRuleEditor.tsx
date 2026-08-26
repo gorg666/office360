@@ -34,7 +34,7 @@ const WEEK_DAY_LABELS: Record<WeekDay, string> = {
 };
 
 const SELECT_CLASS =
-  "w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent";
+  "w-full focus-ring t-fast rounded-control border border-outline bg-surface-solid text-ink-primary px-3 py-2 text-copy";
 
 interface RecurrenceRuleEditorProps {
   value: RecurrenceDraft;
@@ -125,8 +125,8 @@ export function RecurrenceRuleEditor({
                   key={day}
                   className={`inline-flex min-w-[2.25rem] cursor-pointer items-center justify-center rounded border px-2 py-1 text-xs outline-none focus-within:border-accent ${
                     checked
-                      ? "border-accent bg-bg-tertiary text-text-primary"
-                      : "border-border-primary bg-bg-secondary text-text-secondary"
+                      ? "border-brand bg-brand-tint-1 text-brand-text"
+                      : "border-outline bg-surface-solid text-ink-secondary"
                   }`}
                 >
                   <input

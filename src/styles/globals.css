@@ -5,6 +5,7 @@
    anything below, so existing call sites keep working while screens migrate. */
 @import "./tokens.css";
 @import "./materials.css";
+@import "./calendar.css";
 
 @theme {
   --color-bg-primary: rgba(250, 250, 249, 0.92);

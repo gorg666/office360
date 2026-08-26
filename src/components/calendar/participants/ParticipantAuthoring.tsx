@@ -4,7 +4,7 @@ import { normalizePersonEmail, personDisplayName, personIdentityFromEmail, type 
 import type { AuthoredParticipant, AuthoringAttendanceRole } from "./authoredParticipants";
 
 const SELECT_CLASS =
-  "rounded border border-border-primary bg-bg-tertiary px-2 py-1 text-xs text-text-primary outline-none focus:border-accent";
+  "focus-ring t-fast rounded-control border border-outline bg-surface-solid text-ink-primary px-2 py-1 text-control";
 
 interface ParticipantAuthoringProps {
   value: readonly AuthoredParticipant[];
@@ -49,7 +49,7 @@ export function ParticipantAuthoring({
         renderSelectedPerson={(person, remove) => {
           const row = value.find((item) => normalizePersonEmail(item.email) === person.normalizedEmail);
           return (
-            <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-bg-tertiary px-1.5 py-1" data-testid="participant-row">
+            <span className="inline-flex max-w-full items-center gap-1 rounded-control bg-surface-sunken px-1.5 py-1" data-testid="participant-row">
               <span className="max-w-40 truncate text-xs text-text-primary" title={person.email}>{personDisplayName(person)}</span>
               <select
                 aria-label={`Роль ${person.email}`}

@@ -118,7 +118,7 @@ export function CalendarSearch({
         aria-expanded={isOpen}
         aria-controls="calendar-search-results"
         aria-activedescendant={isOpen && results[activeIndex] ? `calendar-search-option-${activeIndex}` : undefined}
-        className="h-8 w-full rounded-md border border-border-primary bg-bg-secondary pl-8 pr-8 text-xs text-text-primary outline-none transition-colors placeholder:text-text-tertiary focus:border-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+        className="focus-ring t-fast h-8 w-full rounded-control border border-outline bg-surface-solid pl-8 pr-8 text-control text-ink-primary placeholder:text-ink-tertiary"
       />
       {query && (
         <button
@@ -135,14 +135,14 @@ export function CalendarSearch({
         <div
           id="calendar-search-results"
           role="listbox"
-          className="absolute right-0 top-[calc(100%+8px)] z-50 w-[min(30rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-border-primary bg-bg-primary shadow-xl"
+          className="materialize material-elevated absolute right-0 top-[calc(100%+8px)] z-popover w-[min(30rem,calc(100vw-2rem))] overflow-hidden rounded-card"
         >
-          <div className="flex items-center gap-2 border-b border-border-primary p-2">
+          <div className="flex items-center gap-2 border-b border-separator p-2">
             <select
               aria-label={locale === "ru" ? "Календарь" : "Calendar"}
               value={calendarId}
               onChange={(event) => setCalendarId(event.target.value)}
-              className="min-w-0 flex-1 rounded border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-text-secondary"
+              className="focus-ring min-w-0 flex-1 rounded-control border border-outline bg-surface-solid px-2 py-1 text-control text-ink-secondary"
             >
               <option value="all">{locale === "ru" ? "Все доступные календари" : "All accessible calendars"}</option>
               {calendars.map((calendar) => (
@@ -153,7 +153,7 @@ export function CalendarSearch({
               aria-label={locale === "ru" ? "Период" : "Date range"}
               value={rangeMode}
               onChange={(event) => setRangeMode(event.target.value as "current" | "all")}
-              className="rounded border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-text-secondary"
+              className="focus-ring rounded-control border border-outline bg-surface-solid px-2 py-1 text-control text-ink-secondary"
             >
               <option value="all">{locale === "ru" ? "Весь локальный кэш" : "All cached dates"}</option>
               <option value="current">{locale === "ru" ? "Текущий период" : "Current period"}</option>

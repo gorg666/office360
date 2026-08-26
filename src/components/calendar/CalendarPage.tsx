@@ -42,6 +42,7 @@ import { useUIStore } from "@/stores/uiStore";
 import { endOfWeek, monthGridRange, startOfWeek } from "./weekLocale";
 import { CalendarSearch } from "./CalendarSearch";
 import { CalendarAclDialog } from "./CalendarAclDialog";
+import { CalendarColorProvider } from "./calendarColorContext";
 
 type CalendarLoadState =
   | { status: "loading" }
@@ -520,7 +521,7 @@ export function CalendarPage() {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-w-0 overflow-hidden bg-bg-primary">
+    <div className="surface-solid flex min-w-0 flex-1 flex-col overflow-hidden">
       <CalendarToolbar
         currentDate={currentDate}
         view={view}
@@ -566,7 +567,7 @@ export function CalendarPage() {
           role="status"
           aria-live="polite"
           data-testid="calendar-offline-banner"
-          className="mx-6 my-4 p-4 rounded-lg border border-border-primary bg-bg-secondary flex items-start gap-3"
+          className="surface-raised mx-6 my-4 flex items-start gap-3 rounded-card border border-separator p-4"
         >
           <WifiOff size={18} aria-hidden="true" className="shrink-0 mt-0.5 text-text-tertiary" />
           <div className="flex-1 min-w-0">
@@ -641,7 +642,7 @@ export function CalendarPage() {
         <div
           role="status"
           aria-live="polite"
-          className="mx-6 my-2 p-3 rounded-lg border border-warning/30 bg-warning/10 flex items-start gap-2"
+          className="mx-6 my-2 flex items-start gap-2 rounded-card border border-warning-border bg-warning-surface p-3"
         >
           <AlertTriangle size={16} aria-hidden="true" className="shrink-0 mt-0.5 text-warning" />
           <div>
@@ -659,7 +660,7 @@ export function CalendarPage() {
         <div
           role="alert"
           data-testid="timed-mutation-error"
-          className="mx-6 my-2 p-3 rounded-lg border border-danger/30 bg-danger/10"
+          className="mx-6 my-2 rounded-card border border-danger-border bg-danger-surface p-3"
         >
           <p className="text-sm text-text-primary">{timedError}</p>
         </div>
@@ -702,6 +703,7 @@ export function CalendarPage() {
           />
         )}
 
+        <CalendarColorProvider calendars={calendars}>
         <div className="flex-1 min-w-0">
           {view === "month" && (
             <MonthView
@@ -748,6 +750,7 @@ export function CalendarPage() {
             />
           )}
         </div>
+        </CalendarColorProvider>
       </div>
 
       {showCreate && (

@@ -44,7 +44,7 @@ export function ReminderEditor({ capabilities, value, onChange }: ReminderEditor
         aria-label="Политика напоминаний"
         value={value?.kind ?? "unknown"}
         onChange={(event) => setKind(event.target.value as "unknown" | "inherit" | "none" | "custom")}
-        className="w-full rounded border border-border-primary bg-bg-tertiary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+        className="w-full focus-ring t-fast rounded-control border border-outline bg-surface-solid text-ink-primary px-3 py-2 text-copy"
       >
         {value === null && <option value="unknown">Не загружено — оставить без изменений</option>}
         {reminderCapability.defaults === "inherit" && <option value="inherit">По умолчанию календаря</option>}
@@ -63,7 +63,7 @@ export function ReminderEditor({ capabilities, value, onChange }: ReminderEditor
                 const next = event.target.value === "custom" ? minutes : Number(event.target.value);
                 replaceReminder(index, next, reminder.method);
               }}
-              className="rounded border border-border-primary bg-bg-tertiary px-2 py-1.5 text-sm text-text-primary"
+              className="focus-ring t-fast rounded-control border border-outline bg-surface-solid text-ink-primary px-2 py-1.5 text-copy"
             >
               {PRESETS.map((preset) => <option key={preset} value={preset}>{formatMinutes(preset)}</option>)}
               {!PRESETS.includes(minutes as typeof PRESETS[number]) && <option value="custom">{formatMinutes(minutes)}</option>}
@@ -72,7 +72,7 @@ export function ReminderEditor({ capabilities, value, onChange }: ReminderEditor
               aria-label={`Способ напоминания ${index + 1}`}
               value={reminder.method}
               onChange={(event) => replaceReminder(index, minutes, event.target.value as CalendarReminderMethod)}
-              className="rounded border border-border-primary bg-bg-tertiary px-2 py-1.5 text-sm text-text-primary"
+              className="focus-ring t-fast rounded-control border border-outline bg-surface-solid text-ink-primary px-2 py-1.5 text-copy"
             >
               {reminderCapability.methods.includes("notification") && <option value="notification">Уведомление</option>}
               {reminderCapability.methods.includes("email") && <option value="email">Email</option>}
@@ -98,12 +98,12 @@ export function ReminderEditor({ capabilities, value, onChange }: ReminderEditor
               step="1"
               value={customValue}
               onChange={(event) => setCustomValue(event.target.value)}
-              className="rounded border border-border-primary bg-bg-tertiary px-2 py-1.5 text-sm text-text-primary"
+              className="focus-ring t-fast rounded-control border border-outline bg-surface-solid text-ink-primary px-2 py-1.5 text-copy"
             />
-            <select aria-label="Единица времени напоминания" value={customUnit} onChange={(event) => setCustomUnit(event.target.value as typeof customUnit)} className="rounded border border-border-primary bg-bg-tertiary px-2 py-1.5 text-sm text-text-primary">
+            <select aria-label="Единица времени напоминания" value={customUnit} onChange={(event) => setCustomUnit(event.target.value as typeof customUnit)} className="focus-ring t-fast rounded-control border border-outline bg-surface-solid text-ink-primary px-2 py-1.5 text-copy">
               <option value="minutes">минут</option><option value="hours">часов</option><option value="days">дней</option>
             </select>
-            <select aria-label="Способ своего напоминания" value={customMethod} onChange={(event) => setCustomMethod(event.target.value as CalendarReminderMethod)} className="rounded border border-border-primary bg-bg-tertiary px-2 py-1.5 text-sm text-text-primary">
+            <select aria-label="Способ своего напоминания" value={customMethod} onChange={(event) => setCustomMethod(event.target.value as CalendarReminderMethod)} className="focus-ring t-fast rounded-control border border-outline bg-surface-solid text-ink-primary px-2 py-1.5 text-copy">
               {reminderCapability.methods.includes("notification") && <option value="notification">Уведомление</option>}
               {reminderCapability.methods.includes("email") && <option value="email">Email</option>}
             </select>

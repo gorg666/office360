@@ -11,6 +11,7 @@ or typechecked by `tsc`. Verified: `dist/` contains no `styleguide*` output.
 | File | What it is |
 |------|------------|
 | `styleguide.html` + `styleguide.tsx` | Live styleguide rendering the real `src/components/ui/*` primitives against the real token layer, with a light/dark switch. |
+| `calendar.html` + `calendar.tsx` | Calendar visual smoke: the real Month/Week/Day views, toolbar, create/detail modals and PeoplePicker driven by fixture events. The browser preview of the full app cannot load calendar data (no Tauri SQLite), so this is how the grid, per-calendar colours and current-time indicator get reviewed. |
 | `logo/office360-a-clean.svg` | Mark, variant **A — Clean**. Flat master: 16 px, monochrome, tray, favicon, print/export, and any surface where material effects do not read. |
 | `logo/office360-b-glass.svg` | Mark, variant **B — Glass**. The app icon. |
 | `logo/logo-final-ab.html` | A/B comparison at 16/32/64/128/256/512 on light and dark, plus 16/20 px in titlebar chrome. |
@@ -21,7 +22,8 @@ or typechecked by `tsc`. Verified: `dist/` contains no `styleguide*` output.
 npm run dev
 ```
 
-Then open `/design-lab/styleguide.html` on the dev server's port.
+Then open `/design-lab/styleguide.html` or `/design-lab/calendar.html` on the
+dev server's port.
 
 The logo sheet is a plain file — open `logo/logo-final-ab.html` directly.
 

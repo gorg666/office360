@@ -10,6 +10,7 @@ import { applyDateGridDraft, calendarDateDiffDays, type DateGridDraft } from "./
 import { dateGridPreviewLabel, formatEventAriaLabel } from "./preview";
 import { hitTestAllDayDrop, hitTestTimedOverlay } from "./hitTest";
 import { allDayClickDraft, canCreateCalendarEvent, formatCreateAriaLabel, type GridCreateDraft } from "../createSelection";
+import { useCalendarColors } from "../calendarColorContext";
 
 interface AllDayLaneProps {
   days: Date[];
@@ -47,6 +48,7 @@ export function AllDayLane({
   onCreateDraft,
   canUpdateEvent = () => true,
 }: AllDayLaneProps) {
+  const colorFor = useCalendarColors();
   const suppressClickRef = useRef(false);
   const gestureRef = useRef<AllDayGesture | null>(null);
   const [gesture, setGesture] = useState<AllDayGesture | null>(null);
@@ -164,9 +166,14 @@ export function AllDayLane({
                   data-interactive={interactive ? "true" : "false"}
                   aria-label={formatEventAriaLabel(event, locale)}
                   disabled={pendingEventIds.has(event.id)}
-                  className={`w-full text-left text-[0.625rem] px-1 py-0.5 rounded bg-accent/10 text-accent truncate hover:bg-accent/20 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${
+                  className={`focus-ring t-fast w-full truncate rounded-tight border-l-[3px] py-0.5 pr-1 pl-1.5 text-left text-caption font-medium ${
                     interactive ? "cursor-grab" : "cursor-pointer"
                   } ${live ? "opacity-50 cursor-grabbing" : ""}`}
+                  style={{
+                    backgroundColor: colorFor(event).fill,
+                    borderLeftColor: colorFor(event).marker,
+                    color: colorFor(event).text,
+                  }}
                   onPointerDown={(pointerEvent) => {
                     if (!interactive) return;
                     begin(event, date, pointerEvent);
