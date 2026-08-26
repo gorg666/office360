@@ -23,8 +23,14 @@ describe("themes", () => {
     }
   });
 
-  it("DEFAULT_COLOR_THEME is neutral", () => {
-    expect(DEFAULT_COLOR_THEME).toBe("neutral");
+  it("DEFAULT_COLOR_THEME is the Office360 brand accent", () => {
+    expect(DEFAULT_COLOR_THEME).toBe("office360");
+  });
+
+  it("keeps neutral available as an explicit grey choice", () => {
+    const neutral = getThemeById("neutral");
+    expect(neutral.id).toBe("neutral");
+    expect(neutral.light.accent).toBe("#525252");
   });
 
   it("getThemeById returns correct theme", () => {
@@ -36,8 +42,8 @@ describe("themes", () => {
     expect(emerald.id).toBe("emerald");
   });
 
-  it("getThemeById falls back to neutral for unknown ID", () => {
+  it("getThemeById falls back to the default theme for unknown ID", () => {
     const fallback = getThemeById("nonexistent");
-    expect(fallback.id).toBe("neutral");
+    expect(fallback.id).toBe(DEFAULT_COLOR_THEME);
   });
 });

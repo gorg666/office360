@@ -1,0 +1,250 @@
+/*
+ * Office360 design tokens — DESIGN-001B foundation.
+ *
+ * Additive by design: nothing here renames or removes an existing token, so the
+ * pre-existing `bg-bg-primary` / `text-text-secondary` / `rounded-md` classes keep
+ * working untouched. Screens migrate onto these tokens stage by stage
+ * (001C Calendar, 001D Mail).
+ *
+ * Namespaces used are Tailwind v4 theme namespaces, so each token also generates
+ * a utility: --color-* -> bg-/text-/border-, --radius-* -> rounded-,
+ * --shadow-* -> shadow-, --blur-* -> backdrop-blur-, --text-* -> text-,
+ * --ease-* -> ease-.
+ *
+ * Light values live in @theme; dark values are overridden in `.dark` at the
+ * bottom of this file. Dark is not "the same numbers, darker" — materials,
+ * borders and blur all carry different values, because a dark surface separates
+ * by lightness where a light surface separates by shadow.
+ */
+
+@theme {
+  /* ── Surfaces ────────────────────────────────────────────────────────────
+   * Opaque. These are what dense, text-heavy regions sit on: message list,
+   * reading pane, calendar grid, long forms, tables.                        */
+  --color-surface-base: #f2f2f5; /* app canvas behind everything */
+  --color-surface-solid: #ffffff; /* content panes */
+  --color-surface-raised: #ffffff; /* cards sitting on a pane */
+  --color-surface-sunken: #eaeaef; /* wells, inset fields, empty areas */
+
+  /* ── Glass tints ─────────────────────────────────────────────────────────
+   * Used only through the .material-* utilities, never as a bare background:
+   * a translucent fill without its matching backdrop-filter is just mud.     */
+  --color-glass-subtle: rgba(255, 255, 255, 0.72);
+  --color-glass-elevated: rgba(255, 255, 255, 0.82);
+  --color-glass-modal: rgba(252, 252, 254, 0.88);
+  --color-glass-edge: rgba(255, 255, 255, 0.7); /* top light-catch */
+  --color-glass-scrim: rgba(18, 18, 32, 0.32); /* modal dim */
+
+  /* ── Lines ───────────────────────────────────────────────────────────────*/
+  --color-separator: rgba(0, 0, 0, 0.1); /* between structural regions */
+  --color-hairline: rgba(0, 0, 0, 0.06); /* inside a region (rows, cells) */
+  --color-outline: rgba(0, 0, 0, 0.16); /* control borders */
+
+  /* ── Text ────────────────────────────────────────────────────────────────
+   * Tertiary is deliberately darker than the legacy #78716c: it is used for
+   * 11px timestamps, and the legacy value only cleared AA against an ideal
+   * white that the translucent panes never actually provided.               */
+  --color-ink-primary: #16161c;
+  --color-ink-secondary: #4a4a57;
+  --color-ink-tertiary: #6a6a78;
+  --color-ink-inverse: #ffffff;
+
+  /* ── Brand accent (the logo's blue → violet) ─────────────────────────────
+   * Deliberately a NEW namespace rather than a redefinition of the legacy
+   * --color-accent, which globals.css still owns; redefining it here would
+   * silently restyle 331 existing call sites in one go.
+   *
+   * `brand` is a FILL. `brand-text` is the accessible text/icon colour — a fill
+   * that reads well as a block is usually too light to be body text. Keeping
+   * them apart is what lets dark mode work at all: no single colour can both
+   * carry white text (needs L <= 0.18) and be legible on a dark canvas
+   * (needs L >= 0.20).                                                       */
+  --color-brand: #5d55d8;
+  --color-brand-hover: #5148c4;
+  --color-brand-pressed: #453cae;
+  --color-brand-text: #4c44b8;
+  --color-brand-contrast: #ffffff; /* on top of --color-brand */
+  --color-brand-border: rgba(93, 85, 216, 0.38);
+
+  /* Concrete tints, not opacity maths on the accent. Replaces the eleven
+   * ad-hoc bg-accent/NN levels the audit found.                             */
+  --color-brand-tint-1: #eeedfb; /* hover wash */
+  --color-brand-tint-2: #e0defa; /* selected row */
+  --color-brand-tint-3: #cfcbf6; /* strong / drag target */
+
+  /* ── Status ──────────────────────────────────────────────────────────────
+   * Each has a fill, an accessible text colour and a surface tint, so banners
+   * stop being `bg-warning/90 text-white` (3.19:1, below AA).               */
+  --color-danger-solid: #d92d20;
+  --color-danger-text: #b42318;
+  --color-danger-surface: #fef3f2;
+  --color-danger-border: rgba(217, 45, 32, 0.28);
+
+  --color-warning-solid: #dc6803;
+  --color-warning-text: #9a4a06;
+  --color-warning-surface: #fffaeb;
+  --color-warning-border: rgba(220, 104, 3, 0.28);
+
+  --color-success-solid: #079455;
+  --color-success-text: #067647;
+  --color-success-surface: #ecfdf3;
+  --color-success-border: rgba(7, 148, 85, 0.28);
+
+  --color-info-solid: #2e90fa;
+  --color-info-text: #175cd3;
+  --color-info-surface: #eff8ff;
+  --color-info-border: rgba(46, 144, 250, 0.28);
+
+  /* ── Focus ───────────────────────────────────────────────────────────────*/
+  --color-focus-ring: #5d55d8;
+  --color-focus-halo: rgba(93, 85, 216, 0.24);
+
+  /* ── Radius ──────────────────────────────────────────────────────────────
+   * Semantic names on purpose: they do not collide with Tailwind's built-in
+   * --radius-sm/md/lg/xl, so existing `rounded-md` call sites are unaffected
+   * and can migrate deliberately rather than all at once.                   */
+  --radius-tight: 4px; /* badges, chips inside dense rows */
+  --radius-control: 8px; /* buttons, inputs, nav items, event chips */
+  --radius-card: 12px; /* cards, popovers, menus */
+  --radius-panel: 16px; /* modals, floating panels */
+  --radius-sheet: 20px; /* large sheets */
+
+  /* ── Elevation ───────────────────────────────────────────────────────────
+   * Two layers each: a tight contact shadow plus a wide ambient one.        */
+  --shadow-e1: 0 1px 2px rgba(16, 16, 32, 0.06), 0 1px 1px rgba(16, 16, 32, 0.04);
+  --shadow-e2: 0 2px 6px rgba(16, 16, 32, 0.08), 0 1px 2px rgba(16, 16, 32, 0.05);
+  --shadow-e3: 0 8px 24px rgba(16, 16, 32, 0.12), 0 2px 6px rgba(16, 16, 32, 0.07);
+  --shadow-e4: 0 20px 56px rgba(16, 16, 32, 0.2), 0 6px 16px rgba(16, 16, 32, 0.1);
+
+  /* ── Blur ────────────────────────────────────────────────────────────────*/
+  --blur-subtle: 24px;
+  --blur-elevated: 32px;
+  --blur-modal: 40px;
+
+  /* ── Type scale ──────────────────────────────────────────────────────────
+   * Replaces the two-size (12/14) reality plus ten arbitrary sub-12px sizes.
+   * Tracking is size-specific: tight on large text, slightly open on small.
+   * 11px is the floor — nothing in a desktop UI should be smaller.          */
+  --text-caption: 0.6875rem; /* 11 — timestamps, badges, hour gutter */
+  --text-caption--line-height: 1.35;
+  --text-caption--letter-spacing: 0.01em;
+
+  --text-control: 0.8125rem; /* 13 — buttons, menu items, inputs */
+  --text-control--line-height: 1.15;
+  --text-control--letter-spacing: 0.005em;
+
+  --text-meta: 0.8125rem; /* 13 — sender, snippet, metadata */
+  --text-meta--line-height: 1.4;
+  --text-meta--letter-spacing: 0em;
+
+  --text-copy: 0.875rem; /* 14 — body, subject lines */
+  --text-copy--line-height: 1.45;
+  --text-copy--letter-spacing: 0em;
+
+  --text-section: 1rem; /* 16 — section + modal titles */
+  --text-section--line-height: 1.3;
+  --text-section--letter-spacing: -0.01em;
+
+  --text-page: 1.25rem; /* 20 — page titles */
+  --text-page--line-height: 1.2;
+  --text-page--letter-spacing: -0.015em;
+
+  --text-hero: 1.75rem; /* 28 — onboarding, empty-state display */
+  --text-hero--line-height: 1.15;
+  --text-hero--letter-spacing: -0.02em;
+
+  /* ── Motion ──────────────────────────────────────────────────────────────*/
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-enter: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ease-exit: cubic-bezier(0.3, 0, 0.8, 0.15);
+}
+
+/*
+ * Non-namespaced tokens: Tailwind has no theme namespace for these, so they are
+ * plain custom properties consumed by the utilities in materials.css.
+ */
+:root {
+  --dur-instant: 100ms;
+  --dur-fast: 140ms;
+  --dur-normal: 200ms;
+  --dur-slow: 280ms;
+
+  /* One ordered stack instead of the twelve ad-hoc z values the audit found. */
+  --z-base: 0;
+  --z-raised: 10;
+  --z-sticky: 20;
+  --z-dropdown: 100;
+  --z-popover: 200;
+  --z-modal: 300;
+  --z-toast: 400;
+  --z-tooltip: 500;
+
+  /* Row density for list surfaces — set once, not branched in three places. */
+  --row-pad-y: 0.75rem;
+  --row-pad-x: 1rem;
+}
+
+/* ── Dark theme ────────────────────────────────────────────────────────────
+ * Surfaces separate by lightness (shadows barely read on dark), borders are
+ * brighter, blur is stronger and saturation lower so dark glass does not go
+ * muddy, and the edge highlight stays visible instead of collapsing to 6%.  */
+.dark {
+  --color-surface-base: #0c0c11;
+  --color-surface-solid: #141419;
+  --color-surface-raised: #1c1c23;
+  --color-surface-sunken: #08080c;
+
+  --color-glass-subtle: rgba(24, 24, 30, 0.62);
+  --color-glass-elevated: rgba(30, 30, 38, 0.74);
+  --color-glass-modal: rgba(34, 34, 43, 0.84);
+  --color-glass-edge: rgba(255, 255, 255, 0.11);
+  --color-glass-scrim: rgba(0, 0, 0, 0.52);
+
+  --color-separator: rgba(255, 255, 255, 0.11);
+  --color-hairline: rgba(255, 255, 255, 0.06);
+  --color-outline: rgba(255, 255, 255, 0.18);
+
+  --color-ink-primary: #f2f2f7;
+  --color-ink-secondary: #b9b9c6;
+  --color-ink-tertiary: #8a8a99;
+  --color-ink-inverse: #16161c;
+
+  --color-brand: #655de0;
+  --color-brand-hover: #7069e8;
+  --color-brand-pressed: #574fce;
+  --color-brand-text: #a5a0f5;
+  --color-brand-contrast: #ffffff;
+  --color-brand-border: rgba(139, 133, 240, 0.42);
+
+  --color-brand-tint-1: #1e1c3d;
+  --color-brand-tint-2: #272450;
+  --color-brand-tint-3: #332e66;
+
+  --color-danger-text: #fda29b;
+  --color-danger-surface: #2a1412;
+  --color-danger-border: rgba(253, 162, 155, 0.3);
+
+  --color-warning-text: #fdb022;
+  --color-warning-surface: #2a1e0c;
+  --color-warning-border: rgba(253, 176, 34, 0.3);
+
+  --color-success-text: #75e0a7;
+  --color-success-surface: #0c2419;
+  --color-success-border: rgba(117, 224, 167, 0.3);
+
+  --color-info-text: #84caff;
+  --color-info-surface: #0d1e2e;
+  --color-info-border: rgba(132, 202, 255, 0.3);
+
+  --color-focus-ring: #8b85f0;
+  --color-focus-halo: rgba(139, 133, 240, 0.3);
+
+  --blur-subtle: 28px;
+  --blur-elevated: 36px;
+  --blur-modal: 44px;
+
+  --shadow-e1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-e2: 0 2px 8px rgba(0, 0, 0, 0.45);
+  --shadow-e3: 0 10px 28px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.4);
+  --shadow-e4: 0 24px 64px rgba(0, 0, 0, 0.65), 0 8px 20px rgba(0, 0, 0, 0.45);
+}

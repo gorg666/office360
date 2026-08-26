@@ -792,14 +792,14 @@ export default function App() {
           role="alert"
           aria-live="assertive"
         >
-          <div className="flex items-start gap-2 rounded-lg border border-danger/40 bg-danger/30 px-2.5 py-2 text-xs text-red-50 shadow-md backdrop-blur-md">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 opacity-90" aria-hidden />
+          <div className="material-elevated flex items-start gap-2 rounded-card px-3 py-2.5 text-caption text-ink-primary">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger-text" aria-hidden />
             <div className="min-w-0 flex-1 leading-snug">
               <div className="font-semibold">Синхронизация не удалась</div>
-              <div className="mt-0.5 text-[0.6875rem] text-red-100/95">{syncErrorMessage}</div>
+              <div className="mt-0.5 text-caption text-ink-secondary">{syncErrorMessage}</div>
               <button
                 type="button"
-                className="mt-1 text-[0.6875rem] font-semibold text-white underline-offset-2 hover:underline"
+                className="focus-ring mt-1 rounded-tight text-caption font-semibold text-brand-text underline-offset-2 hover:underline"
                 onClick={() => navigateToRepairCenter(useAccountStore.getState().activeAccountId ?? undefined)}
               >
                 Открыть Repair Center
@@ -807,7 +807,7 @@ export default function App() {
             </div>
             <button
               type="button"
-              className="shrink-0 rounded p-0.5 text-red-100/90 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-white/80"
+              className="focus-ring shrink-0 rounded-control p-0.5 text-ink-tertiary t-fast hover:text-ink-primary"
               aria-label="Закрыть уведомление"
               onClick={() => {
                 clearSyncErrorTimer();

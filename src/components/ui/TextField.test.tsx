@@ -34,13 +34,20 @@ describe("TextField", () => {
   it("applies sm size classes by default", () => {
     render(<TextField placeholder="sm" />);
     const input = screen.getByPlaceholderText("sm");
-    expect(input.className).toContain("py-1.5");
+    expect(input.className).toContain("h-8");
+    expect(input.className).toContain("text-control");
   });
 
   it("applies md size classes", () => {
     render(<TextField size="md" placeholder="md" />);
     const input = screen.getByPlaceholderText("md");
-    expect(input.className).toContain("py-2");
+    expect(input.className).toContain("h-9");
+    expect(input.className).toContain("text-copy");
+  });
+
+  it("uses the shared focus ring rather than a border-colour change", () => {
+    render(<TextField placeholder="focus" />);
+    expect(screen.getByPlaceholderText("focus").className).toContain("focus-ring");
   });
 
   it("displays an error message", () => {
@@ -48,18 +55,32 @@ describe("TextField", () => {
     expect(screen.getByText("Required field")).toBeInTheDocument();
   });
 
-  it("applies border-danger class when error is present", () => {
+  it("applies the danger border when error is present", () => {
     render(<TextField error="Invalid" placeholder="err" />);
     const input = screen.getByPlaceholderText("err");
-    expect(input.className).toContain("border-danger");
-    expect(input.className).not.toContain("border-border-primary");
+    expect(input.className).toContain("border-danger-solid");
+    expect(input.className).not.toContain("border-outline");
   });
 
-  it("applies border-border-primary class when no error", () => {
+  it("applies the default border when no error", () => {
     render(<TextField placeholder="ok" />);
     const input = screen.getByPlaceholderText("ok");
-    expect(input.className).toContain("border-border-primary");
-    expect(input.className).not.toContain("border-danger");
+    expect(input.className).toContain("border-outline");
+    expect(input.className).not.toContain("border-danger-solid");
+  });
+
+  it("wires the error message to the input for assistive technology", () => {
+    render(<TextField label="Email" error="Invalid" />);
+    const input = screen.getByLabelText("Email");
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveAccessibleDescription("Invalid");
+  });
+
+  it("wires a hint to the input and drops it once there is an error", () => {
+    const { rerender } = render(<TextField label="Email" hint="Work address" />);
+    expect(screen.getByLabelText("Email")).toHaveAccessibleDescription("Work address");
+    rerender(<TextField label="Email" hint="Work address" error="Invalid" />);
+    expect(screen.getByLabelText("Email")).toHaveAccessibleDescription("Invalid");
   });
 
   it("passes through value and onChange", () => {

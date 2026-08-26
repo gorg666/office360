@@ -1,36 +1,60 @@
-import { type InputHTMLAttributes, forwardRef } from "react";
+import { type InputHTMLAttributes, forwardRef, useId } from "react";
 
 interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "size"> {
   label?: string;
   size?: "sm" | "md";
   error?: string;
+  /** Helper text shown under the field when there is no error. */
+  hint?: string;
 }
 
+/**
+ * Single-line text input.
+ *
+ * The focus treatment is a real focus ring rather than the previous
+ * `focus:border-accent`, which only recoloured a 1px border and made no
+ * distinction between clicking into a field and tabbing to it.
+ */
 export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function TextField(
-  { label, size = "sm", error, className = "", id, ...rest },
+  { label, size = "sm", error, hint, className = "", id, ...rest },
   ref,
 ) {
-  const inputId = id ?? (label ? label.toLowerCase().replace(/\s+/g, "-") : undefined);
+  const fallbackId = useId();
+  const inputId = id ?? (label ? label.toLowerCase().replace(/\s+/g, "-") : fallbackId);
+  const describedById = error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined;
 
   const sizes = {
-    sm: "px-3 py-1.5 text-sm",
-    md: "px-3 py-2 text-sm",
+    sm: "h-8 px-2.5 text-control",
+    md: "h-9 px-3 text-copy",
   };
 
   return (
     <div className={className}>
       {label && (
-        <label htmlFor={inputId} className="text-sm text-text-secondary block mb-1.5">
+        <label htmlFor={inputId} className="mb-1.5 block text-meta text-ink-secondary">
           {label}
         </label>
       )}
       <input
         ref={ref}
         id={inputId}
-        className={`w-full ${sizes[size]} bg-bg-tertiary border ${error ? "border-danger" : "border-border-primary"} rounded text-text-primary outline-none focus:border-accent`}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedById}
+        className={`w-full ${sizes[size]} rounded-control border bg-surface-solid text-ink-primary
+          placeholder:text-ink-tertiary focus-ring t-fast
+          disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-tertiary
+          ${error ? "border-danger-solid" : "border-outline"}`}
         {...rest}
       />
-      {error && <p className="text-xs text-danger mt-1">{error}</p>}
+      {error ? (
+        <p id={`${inputId}-error`} className="mt-1 text-caption text-danger-text">
+          {error}
+        </p>
+      ) : hint ? (
+        <p id={`${inputId}-hint`} className="mt-1 text-caption text-ink-tertiary">
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 });

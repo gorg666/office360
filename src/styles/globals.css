@@ -1,11 +1,17 @@
 @import "tailwindcss";
 
+/* DESIGN-001B foundation. tokens.css is additive — it introduces the surface,
+   material, brand, radius, elevation, type and motion scales without renaming
+   anything below, so existing call sites keep working while screens migrate. */
+@import "./tokens.css";
+@import "./materials.css";
+
 @theme {
   --color-bg-primary: rgba(250, 250, 249, 0.92);
   --color-bg-secondary: rgba(245, 245, 244, 0.88);
   --color-bg-tertiary: rgba(231, 229, 228, 0.88);
   --color-bg-hover: rgba(231, 229, 228, 0.65);
-  --color-bg-selected: rgba(229, 231, 235, 0.78);
+  --color-bg-selected: rgba(224, 222, 250, 0.72);
 
   --color-text-primary: #1c1917;
   --color-text-secondary: #57534e;
@@ -14,9 +20,14 @@
   --color-border-primary: rgba(0, 0, 0, 0.08);
   --color-border-secondary: rgba(0, 0, 0, 0.04);
 
-  --color-accent: #525252;
-  --color-accent-hover: #404040;
-  --color-accent-light: #e5e5e5;
+  /* Office360 brand accent. Was #525252 — the product shipped a grey accent
+     while its own mark is blue/violet. #5d55d8 clears AA both as a fill under
+     white text and as text on a light surface (5.59:1 either way), so the 331
+     existing accent call sites stay legible. The grey remains available as the
+     explicit "Neutral" colour theme. */
+  --color-accent: #5d55d8;
+  --color-accent-hover: #5148c4;
+  --color-accent-light: #e0defa;
 
   --color-danger: #dc2626;
   --color-warning: #d97706;
@@ -25,7 +36,7 @@
   --color-sidebar-bg: rgba(245, 245, 244, 0.95);
   --color-sidebar-text: #1c1917;
   --color-sidebar-hover: rgba(231, 229, 228, 0.8);
-  --color-sidebar-active: #525252;
+  --color-sidebar-active: #5d55d8;
 
   --glass-blur: 20px;
   --glass-blur-heavy: 24px;
@@ -61,7 +72,7 @@
   --color-bg-secondary: rgba(23, 23, 23, 0.86);
   --color-bg-tertiary: rgba(38, 38, 38, 0.82);
   --color-bg-hover: rgba(64, 64, 64, 0.58);
-  --color-bg-selected: rgba(82, 82, 82, 0.68);
+  --color-bg-selected: rgba(39, 36, 80, 0.72);
 
   --color-text-primary: #f8fafc;
   --color-text-secondary: #cbd5e1;
@@ -70,13 +81,20 @@
   --color-border-primary: rgba(255, 255, 255, 0.1);
   --color-border-secondary: rgba(255, 255, 255, 0.06);
 
-  --color-accent: #d4d4d4;
-  --color-accent-hover: #f5f5f5;
-  --color-accent-light: #262626;
+  /* Dark accent is tuned for TEXT legibility (7.2:1 on the dark canvas),
+     because `text-accent` outnumbers `bg-accent` roughly 3:1 in this codebase.
+     Note the pre-existing consequence: the handful of `bg-accent text-white`
+     call sites are low-contrast in dark mode. That is not new — the previous
+     #d4d4d4 made them worse (1.4:1) — and they get fixed as they migrate onto
+     <Button variant="primary">, which uses the brand fill/contrast pair. */
+  --color-accent: #9d96f2;
+  --color-accent-hover: #b3adf7;
+  --color-accent-light: #272450;
 
   --color-sidebar-bg: rgba(10, 10, 10, 0.9);
   --color-sidebar-text: #e5e5e5;
   --color-sidebar-hover: rgba(38, 38, 38, 0.72);
+  --color-sidebar-active: #9d96f2;
 
   --glass-border: rgba(255, 255, 255, 0.1);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
@@ -307,12 +325,24 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: var(--color-text-tertiary);
+  background-color: var(--color-outline);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: var(--color-text-secondary);
+  background-color: var(--color-ink-tertiary);
+}
+
+/* The legacy glass utilities above predate the material system. They keep
+   working, but they must honour the same accessibility preferences as the
+   .material-* levels or the app has two different answers to "no transparency". */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-panel,
+  .glass-modal,
+  .glass-backdrop {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 /* ============================================
@@ -411,35 +441,9 @@ body {
 .toast-exit { opacity: 1; transform: translateY(0); }
 .toast-exit-active { opacity: 0; transform: translateY(16px); transition: all var(--anim-normal) ease-in; }
 
-/* Utility: hover lift — includes color transitions so it can replace transition-colors */
-.hover-lift {
-  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, transform, box-shadow;
-  transition-duration: var(--anim-fast);
-  transition-timing-function: ease;
-}
-.hover-lift:hover:not(:active) {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
 /* Utility: press scale */
 .press-scale:active {
   transform: scale(0.97);
-}
-
-/* Utility: interactive button (hover lift + press scale) */
-.interactive-btn {
-  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, transform, box-shadow;
-  transition-duration: var(--anim-fast);
-  transition-timing-function: ease;
-}
-.interactive-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-.interactive-btn:active {
-  transform: scale(0.97);
-  box-shadow: none;
 }
 
 /* Utility: star pop animation */

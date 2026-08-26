@@ -1885,7 +1885,7 @@ export function MessengerSideStrip({ asideTotalWidth }: MessengerSideStripProps 
                   type="button"
                   onClick={() => selectConversation(conversation)}
                   title={`${formatTargetKind(conversation.kind)} · ${conversation.id}`}
-                  className={`messenger-chat-row group hover-lift press-scale flex w-full gap-3 border-b border-border-secondary px-4 py-3 text-left transition-colors ${
+                  className={`messenger-chat-row focus-ring group pressable t-fast flex w-full gap-3 border-b border-hairline px-4 py-3 text-left ${
                     isActive ? "bg-bg-selected text-text-primary" : "text-text-primary hover:bg-bg-hover"
                   }`}
                 >

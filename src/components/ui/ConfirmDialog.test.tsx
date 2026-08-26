@@ -52,13 +52,13 @@ describe("ConfirmDialog", () => {
   it("applies danger variant to confirm button", () => {
     render(<ConfirmDialog {...baseProps} variant="danger" confirmLabel="Delete" />);
     const btn = screen.getByRole("button", { name: "Delete" });
-    expect(btn.className).toContain("bg-danger");
+    expect(btn.className).toContain("bg-danger-solid");
   });
 
   it("applies primary variant to confirm button by default", () => {
     render(<ConfirmDialog {...baseProps} />);
     const btn = screen.getByRole("button", { name: "Confirm" });
-    expect(btn.className).toContain("bg-accent");
+    expect(btn.className).toContain("bg-brand");
   });
 
   it("disables buttons when loading", () => {

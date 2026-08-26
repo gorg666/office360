@@ -1,47 +1,81 @@
 import { type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
+import { Loader2 } from "lucide-react";
+
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "subtle";
+export type ButtonSize = "xs" | "sm" | "md" | "lg";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "ghost" | "danger";
-  size?: "xs" | "sm" | "md";
+  variant?: ButtonVariant;
+  size?: ButtonSize;
   icon?: ReactNode;
   iconOnly?: boolean;
+  /** Shows a spinner and blocks interaction without collapsing the layout. */
+  loading?: boolean;
   children?: ReactNode;
   ref?: Ref<HTMLButtonElement>;
 }
 
+/**
+ * The app's one button.
+ *
+ * Every variant carries the full state set — hover, pressed, focus-visible,
+ * disabled — because the previous version had neither a pressed state nor any
+ * focus treatment at all, which is a problem in a keyboard-first product.
+ * Pressed feedback comes from `.pressable`, which fires on pointer-down.
+ */
 export function Button({
   variant = "secondary",
   size = "sm",
   icon,
   iconOnly = false,
+  loading = false,
   children,
   className = "",
   disabled,
   ref,
   ...rest
 }: ButtonProps) {
-  const base = "inline-flex items-center justify-center font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+  const base =
+    "relative inline-flex items-center justify-center font-medium rounded-control " +
+    "select-none whitespace-nowrap pressable focus-ring " +
+    "disabled:opacity-45 disabled:cursor-not-allowed disabled:shadow-none";
 
-  const variants = {
-    primary: "text-white bg-accent hover:bg-accent-hover",
-    secondary: "text-text-secondary hover:text-text-primary hover:bg-bg-hover",
-    ghost: "text-text-tertiary hover:text-text-primary hover:bg-bg-hover",
-    danger: "text-white bg-danger hover:bg-red-700",
+  const variants: Record<ButtonVariant, string> = {
+    primary:
+      "bg-brand text-brand-contrast shadow-e1 hover:bg-brand-hover active:bg-brand-pressed",
+    secondary:
+      "bg-surface-raised text-ink-primary border border-outline shadow-e1 " +
+      "hover:bg-surface-sunken active:bg-surface-sunken",
+    ghost: "text-ink-secondary hover:bg-brand-tint-1 hover:text-ink-primary",
+    subtle: "bg-brand-tint-1 text-brand-text hover:bg-brand-tint-2 active:bg-brand-tint-3",
+    danger: "bg-danger-solid text-white shadow-e1 hover:bg-danger-text",
   };
 
-  const sizes = iconOnly
-    ? { xs: "p-1", sm: "p-1.5", md: "p-2" }
-    : { xs: "px-2 py-1 text-xs gap-1", sm: "px-3 py-1.5 text-xs gap-1.5", md: "px-4 py-2 text-sm gap-2" };
+  const sizes: Record<ButtonSize, string> = iconOnly
+    ? { xs: "h-6 w-6", sm: "h-7 w-7", md: "h-8 w-8", lg: "h-10 w-10" }
+    : {
+        xs: "h-6 px-2 gap-1 text-caption",
+        sm: "h-7 px-2.5 gap-1.5 text-control",
+        md: "h-8 px-3.5 gap-2 text-control",
+        lg: "h-10 px-4 gap-2 text-copy",
+      };
+
+  const spinnerSize = size === "lg" ? 16 : size === "xs" ? 11 : 13;
 
   return (
     <button
       ref={ref}
       className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
-      disabled={disabled}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       {...rest}
     >
-      {icon}
-      {children}
+      {loading ? (
+        <Loader2 size={spinnerSize} className="animate-spin" aria-hidden />
+      ) : (
+        icon
+      )}
+      {!iconOnly && children}
     </button>
   );
 }

@@ -22,14 +22,6 @@ interface WindowBackgroundOptions {
   imagePath: string;
 }
 
-const COLOR_PROPS = [
-  "--color-accent",
-  "--color-accent-hover",
-  "--color-accent-light",
-  "--color-bg-selected",
-  "--color-sidebar-active",
-];
-
 const BACKGROUND_LAYOUT_CLASSES = [
   "app-bg-layout-soft",
   "app-bg-layout-diagonal",
@@ -100,11 +92,10 @@ function toCssUrl(path: string): string {
 }
 
 export function applyColorTheme(root: HTMLElement, { theme, colorTheme }: ThemeOptions): void {
-  if (colorTheme === "neutral") {
-    for (const prop of COLOR_PROPS) root.style.removeProperty(prop);
-    return;
-  }
-
+  // Every theme now writes its values explicitly. Previously "neutral" meant
+  // "remove the overrides and fall through to the CSS defaults" — that stopped
+  // working once the CSS defaults became the Office360 brand accent, since
+  // choosing Neutral would have silently produced the brand colour.
   const themeData = getThemeById(colorTheme);
   const colors = isDarkTheme(theme) ? themeData.dark : themeData.light;
   root.style.setProperty("--color-accent", colors.accent);

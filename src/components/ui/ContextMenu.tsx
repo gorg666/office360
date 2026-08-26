@@ -189,7 +189,7 @@ export function ContextMenu({ items, position, onClose }: ContextMenuProps) {
       <div
         ref={menuRef}
         role="menu"
-        className="fixed z-[100] bg-bg-primary border border-border-primary rounded-md shadow-lg py-1 min-w-[200px]"
+        className="materialize material-elevated fixed z-[100] min-w-[200px] rounded-card py-1"
         style={{ left: adjustedPosition.x, top: adjustedPosition.y }}
       >
         {items.map((item, index) => {
@@ -198,7 +198,7 @@ export function ContextMenu({ items, position, onClose }: ContextMenuProps) {
               <div
                 key={item.id}
                 role="separator"
-                className="my-1 border-t border-border-secondary"
+                className="my-1 border-t border-hairline"
               />
             );
           }
@@ -315,7 +315,7 @@ function Submenu({
       ref={submenuRef}
       role="menu"
       data-submenu-portal
-      className="fixed z-[101] bg-bg-primary border border-border-primary rounded-md shadow-lg py-1 min-w-[180px]"
+      className="materialize material-elevated fixed z-[101] min-w-[180px] rounded-card py-1"
       style={{ left: position.left, top: position.top }}
       onMouseEnter={onMouseEnter}
     >

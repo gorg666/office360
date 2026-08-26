@@ -1,0 +1,260 @@
+/*
+ * Office360 material system — DESIGN-001B.
+ *
+ * Five levels, and a rule that decides which one a surface gets:
+ *
+ *   .surface-base       opaque app canvas
+ *   .surface-solid      opaque content pane — anything text-heavy or data-dense
+ *   .surface-raised     opaque card sitting on a pane
+ *   .material-subtle    sidebar, titlebar, toolbars, all-day row
+ *   .material-elevated  popovers, menus, dropdowns, floating panels
+ *   .material-modal     dialogs (pairs with .material-scrim)
+ *
+ * Two hard rules:
+ *   1. Never nest glass in glass. A menu opened over the glass sidebar takes
+ *      .material-elevated, which paints its own base so it does not stack.
+ *   2. Never put glass under running text or a data grid. Reading pane, message
+ *      list body, calendar time grid, long forms and tables stay .surface-solid.
+ *
+ * A translucent fill without its matching backdrop-filter is not glass, it is
+ * mud — which is why the tints are only ever reachable through these classes.
+ */
+
+/* ── Opaque surfaces ──────────────────────────────────────────────────────*/
+.surface-base {
+  background-color: var(--color-surface-base);
+}
+.surface-solid {
+  background-color: var(--color-surface-solid);
+}
+.surface-raised {
+  background-color: var(--color-surface-raised);
+}
+.surface-sunken {
+  background-color: var(--color-surface-sunken);
+}
+
+/* ── Glass ────────────────────────────────────────────────────────────────*/
+.material-subtle,
+.material-elevated,
+.material-modal {
+  /* the bright top edge is the one detail that makes these read as a material
+     rather than as a tinted rectangle */
+  box-shadow: inset 0 1px 0 0 var(--color-glass-edge);
+}
+
+.material-subtle {
+  background-color: var(--color-glass-subtle);
+  -webkit-backdrop-filter: blur(var(--blur-subtle)) saturate(180%);
+  backdrop-filter: blur(var(--blur-subtle)) saturate(180%);
+}
+
+.material-elevated {
+  background-color: var(--color-glass-elevated);
+  -webkit-backdrop-filter: blur(var(--blur-elevated)) saturate(180%);
+  backdrop-filter: blur(var(--blur-elevated)) saturate(180%);
+  box-shadow: var(--shadow-e3), inset 0 1px 0 0 var(--color-glass-edge);
+  border: 1px solid var(--color-separator);
+}
+
+.material-modal {
+  background-color: var(--color-glass-modal);
+  -webkit-backdrop-filter: blur(var(--blur-modal)) saturate(180%);
+  backdrop-filter: blur(var(--blur-modal)) saturate(180%);
+  box-shadow: var(--shadow-e4), inset 0 1px 0 0 var(--color-glass-edge);
+  border: 1px solid var(--color-separator);
+}
+
+/* dark glass needs less saturation boost or it turns muddy */
+.dark .material-subtle,
+.dark .material-elevated,
+.dark .material-modal {
+  -webkit-backdrop-filter: blur(var(--blur-subtle)) saturate(140%);
+  backdrop-filter: blur(var(--blur-subtle)) saturate(140%);
+}
+.dark .material-elevated {
+  -webkit-backdrop-filter: blur(var(--blur-elevated)) saturate(140%);
+  backdrop-filter: blur(var(--blur-elevated)) saturate(140%);
+}
+.dark .material-modal {
+  -webkit-backdrop-filter: blur(var(--blur-modal)) saturate(140%);
+  backdrop-filter: blur(var(--blur-modal)) saturate(140%);
+}
+
+.material-scrim {
+  background-color: var(--color-glass-scrim);
+}
+
+/* ── Separators ───────────────────────────────────────────────────────────
+ * Structural regions get --color-separator; rows and cells inside a region get
+ * the lighter --color-hairline. Using one value for both is why the calendar
+ * grid currently reads as structureless.                                    */
+.divide-region {
+  border-color: var(--color-separator);
+}
+.divide-row {
+  border-color: var(--color-hairline);
+}
+
+/* Vertical seam between panes: a dark line plus a light one reads as a real
+   edge instead of a flat 1px rule. */
+.seam-x {
+  width: 1px;
+  flex: none;
+  background: linear-gradient(
+    to right,
+    var(--color-separator) 0 100%
+  );
+  box-shadow: 1px 0 0 0 var(--color-glass-edge);
+}
+
+/* Scroll edge: fade content out under floating chrome rather than cutting it
+   with a hard border. Apply to the scroll container. */
+.scroll-edge-top {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 10px);
+}
+
+/* ── Focus ────────────────────────────────────────────────────────────────
+ * One focus treatment for the whole app. Keyboard only (:focus-visible), a
+ * visible ring plus a soft halo so it survives on both glass and solid.     */
+.focus-ring {
+  outline: none;
+}
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+/* For controls that sit flush against a container edge and cannot afford an
+   outward ring. */
+.focus-ring-inset:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+/* ── Motion helpers ───────────────────────────────────────────────────────
+ * Components should not hand-pick durations. The audit found 233 uses of
+ * `transition-colors` with no duration at all, silently falling back to
+ * Tailwind's default rather than to the app's own motion tokens.            */
+.t-fast {
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-standard);
+}
+.t-normal {
+  transition-duration: var(--dur-normal);
+  transition-timing-function: var(--ease-standard);
+}
+.t-enter {
+  transition-duration: var(--dur-normal);
+  transition-timing-function: var(--ease-enter);
+}
+.t-exit {
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-exit);
+}
+
+/* Pressed feedback belongs on pointer-down, not on click. */
+.pressable {
+  transition: background-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    transform var(--dur-instant) var(--ease-standard);
+}
+.pressable:active {
+  transform: scale(0.98);
+}
+
+/* Glass surfaces should materialise — blur and scale together — rather than
+   cross-fade, so they read as a surface arriving instead of a picture of one. */
+@keyframes materialize-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.materialize {
+  animation: materialize-in var(--dur-normal) var(--ease-enter) both;
+}
+
+/* ── Layer stack ──────────────────────────────────────────────────────────*/
+.z-sticky {
+  z-index: var(--z-sticky);
+}
+.z-dropdown {
+  z-index: var(--z-dropdown);
+}
+.z-popover {
+  z-index: var(--z-popover);
+}
+.z-modal {
+  z-index: var(--z-modal);
+}
+.z-toast {
+  z-index: var(--z-toast);
+}
+.z-tooltip {
+  z-index: var(--z-tooltip);
+}
+
+/* ── Accessibility ────────────────────────────────────────────────────────
+ * Glass is a preference, not a requirement. Under reduced transparency every
+ * material collapses to its opaque equivalent and the blur is dropped; under
+ * increased contrast surfaces go solid and gain a defined border.
+ * The app had zero handling for either before DESIGN-001B.                   */
+@media (prefers-reduced-transparency: reduce) {
+  .material-subtle,
+  .material-elevated,
+  .material-modal {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .material-subtle {
+    background-color: var(--color-surface-sunken);
+  }
+  .material-elevated,
+  .material-modal {
+    background-color: var(--color-surface-raised);
+  }
+}
+
+@media (prefers-contrast: more) {
+  .material-subtle,
+  .material-elevated,
+  .material-modal {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border: 1px solid var(--color-ink-primary);
+  }
+  .material-subtle {
+    background-color: var(--color-surface-sunken);
+  }
+  .material-elevated,
+  .material-modal {
+    background-color: var(--color-surface-raised);
+  }
+  .focus-ring:focus-visible {
+    outline-width: 3px;
+  }
+}
+
+/* The app also exposes its own "reduce motion" setting, applied as a class on
+   <html>; honour both that and the OS preference. */
+@media (prefers-reduced-motion: reduce) {
+  .materialize {
+    animation: none;
+  }
+  .pressable:active {
+    transform: none;
+  }
+}
+.reduce-motion .materialize {
+  animation: none;
+}
+.reduce-motion .pressable:active {
+  transform: none;
+}

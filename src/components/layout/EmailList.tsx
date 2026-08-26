@@ -607,11 +607,11 @@ export function EmailList({ width, listRef, selectedThreadIdOverride, onThreadOp
   return (
     <div
       ref={listRef}
-      className={`flex flex-col bg-bg-secondary/50 ${disableGlass ? "shadow-none" : "glass-panel"} ${layoutClassName}`}
+      className={`surface-solid flex flex-col ${layoutClassName}`}
       style={!disableGlass && readingPanePosition === "right" && width ? { width } : undefined}
     >
       {/* Search */}
-      <div className="px-3 py-2 border-b border-border-secondary">
+      <div className="border-b border-hairline px-3 py-2">
         <SearchBar />
       </div>
 

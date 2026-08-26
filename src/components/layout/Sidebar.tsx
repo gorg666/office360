@@ -93,14 +93,14 @@ function DroppableNavItem({
       onClick={onClick}
       onContextMenu={onContextMenu}
       title={title}
-      className={`flex items-center w-full py-2 text-sm transition-colors press-scale ${
-        collapsed ? "justify-center px-0" : "gap-3 px-3 text-left"
+      className={`focus-ring pressable flex w-full items-center rounded-control py-1.5 text-meta ${
+        collapsed ? "justify-center px-0" : "gap-3 px-2.5 text-left"
       } ${
         isOver
-          ? "bg-accent/20 ring-1 ring-accent"
+          ? "bg-brand-tint-3 text-brand-text"
           : isActive
-            ? "bg-accent/10 text-accent font-medium"
-            : "hover:bg-sidebar-hover text-sidebar-text"
+            ? "bg-brand-tint-2 font-semibold text-brand-text"
+            : "text-ink-secondary hover:bg-brand-tint-1 hover:text-ink-primary"
       }`}
     >
       {children(isOver)}
@@ -144,14 +144,14 @@ function DroppableLabelItem({
       onContextMenu={onContextMenu}
       title={collapsed ? label.name : undefined}
       style={padLeft != null ? { paddingLeft: padLeft } : undefined}
-      className={`group flex items-center w-full py-2 text-sm transition-colors ${
-        collapsed ? "justify-center px-0" : "gap-2 pr-3 text-left"
+      className={`focus-ring group flex w-full items-center rounded-control py-1.5 text-meta ${
+        collapsed ? "justify-center px-0" : "gap-2 pr-2 text-left"
       } ${
         isOver
-          ? "bg-accent/20 ring-1 ring-accent"
+          ? "bg-brand-tint-3 text-brand-text"
           : isActive
-            ? "bg-accent/10 text-accent font-medium"
-            : "hover:bg-sidebar-hover text-sidebar-text"
+            ? "bg-brand-tint-2 font-semibold text-brand-text"
+            : "text-ink-secondary hover:bg-brand-tint-1 hover:text-ink-primary"
       }`}
     >
       {collapsed ? (
@@ -467,30 +467,32 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
 
   return (
     <aside
-      className={`no-select flex flex-col bg-sidebar-bg text-sidebar-text border-r border-border-primary transition-all duration-200 glass-panel ${
+      className={`material-subtle no-select flex flex-col border-r border-separator text-ink-primary transition-[width] t-normal ${
         collapsed ? "w-16" : "w-60"
       }`}
     >
       {/* Compose button */}
-      <div className="px-0 py-0">
+      <div className="px-2 pt-2 pb-1">
         <button
           onClick={() => openComposer()}
-          className={`w-full flex items-center text-sidebar-text hover:bg-sidebar-hover transition-colors press-scale ${
-            collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-4 py-3 text-left"
+          title={collapsed ? "Новое письмо" : undefined}
+          className={`focus-ring pressable flex w-full items-center rounded-control
+            bg-brand text-brand-contrast shadow-e1 hover:bg-brand-hover active:bg-brand-pressed ${
+            collapsed ? "justify-center px-0 py-2.5" : "gap-2.5 px-3 py-2.5 text-left"
           }`}
         >
           {collapsed ? (
             <Plus size={18} />
           ) : (
             <>
-              <Mail size={18} className="shrink-0" />
-              <span className="text-base font-medium">Новое письмо</span>
+              <Mail size={16} className="shrink-0" />
+              <span className="text-meta font-semibold">Новое письмо</span>
             </>
           )}
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto pt-0 pb-2">
+      <nav className="flex-1 overflow-y-auto px-2 pt-1 pb-2">
         {visibleNavItems.map((item, index) => {
           const Icon = item.icon;
           const isInbox = item.id === "inbox";
@@ -505,7 +507,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             <div key={item.id}>
               {shouldShowServicesHeader && (
                 <div className="flex items-center justify-between px-3 pt-4 pb-1">
-                  <span className="text-xs font-medium text-sidebar-text/60 uppercase tracking-wider">
+                  <span className="text-caption font-semibold uppercase tracking-wider text-ink-tertiary">
                     Сервисы
                   </span>
                 </div>
@@ -686,7 +688,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
           <>
             {!collapsed && (
               <div className="flex items-center justify-between px-3 pt-4 pb-1">
-                <span className="text-xs font-medium text-sidebar-text/60 uppercase tracking-wider">
+                <span className="text-caption font-semibold uppercase tracking-wider text-ink-tertiary">
                   Smart Folders
                 </span>
                 <button
@@ -707,12 +709,12 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                   key={folder.id}
                   onClick={() => navigateToLabel(`smart-folder:${folder.id}`)}
                   title={collapsed ? folder.name : undefined}
-                  className={`flex items-center w-full py-2 text-sm transition-colors press-scale ${
-                    collapsed ? "justify-center px-0" : "gap-3 px-3 text-left"
+                  className={`focus-ring pressable flex w-full items-center rounded-control py-1.5 text-meta ${
+                    collapsed ? "justify-center px-0" : "gap-3 px-2.5 text-left"
                   } ${
                     isActive
-                      ? "bg-accent/10 text-accent font-medium"
-                      : "hover:bg-sidebar-hover text-sidebar-text"
+                      ? "bg-brand-tint-2 font-semibold text-brand-text"
+                      : "text-ink-secondary hover:bg-brand-tint-1 hover:text-ink-primary"
                   }`}
                 >
                   <Icon
@@ -741,7 +743,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
           <>
             {!collapsed && (
               <div className="flex items-center justify-between px-3 pt-4 pb-1">
-                <span className="text-xs font-medium text-sidebar-text/60 uppercase tracking-wider">
+                <span className="text-caption font-semibold uppercase tracking-wider text-ink-tertiary">
                   Labels
                 </span>
                 <button
@@ -834,7 +836,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         )}
       </nav>
 
-      <div className="border-t border-border-primary pt-1">
+      <div className="border-t border-separator pt-1">
         <AccountSwitcher
           collapsed={collapsed}
           onAddAccount={onAddAccount}
@@ -846,12 +848,12 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       <div className={`pb-2 flex ${collapsed ? "flex-col items-center gap-1 px-2" : "items-center gap-1 px-3"}`}>
         <button
           onClick={() => navigateToLabel("settings")}
-          className={`flex items-center text-sm rounded-md transition-colors ${
+          className={`focus-ring pressable flex items-center rounded-control text-meta ${
             collapsed ? "p-2 justify-center" : "gap-3 flex-1 px-3 py-2 text-left"
           } ${
             activeLabel === "settings"
               ? "bg-accent/10 text-accent font-medium"
-              : "text-sidebar-text hover:bg-sidebar-hover"
+              : "text-ink-secondary hover:bg-brand-tint-1 hover:text-ink-primary"
           }`}
           title="Settings"
         >
@@ -860,12 +862,12 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         </button>
         <button
           onClick={() => navigateToLabel("help")}
-          className={`flex items-center text-sm rounded-md transition-colors ${
+          className={`focus-ring pressable flex items-center rounded-control text-meta ${
             collapsed ? "p-2 justify-center" : "p-2"
           } ${
             activeLabel === "help"
               ? "bg-accent/10 text-accent font-medium"
-              : "text-sidebar-text hover:bg-sidebar-hover"
+              : "text-ink-secondary hover:bg-brand-tint-1 hover:text-ink-primary"
           }`}
           title="Help"
         >
@@ -873,7 +875,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         </button>
         <button
           onClick={toggleSidebar}
-          className="p-2 text-sidebar-text/60 hover:text-sidebar-text hover:bg-sidebar-hover rounded-md transition-colors"
+          className="focus-ring rounded-control p-2 text-ink-tertiary t-fast hover:bg-brand-tint-1 hover:text-ink-primary"
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}

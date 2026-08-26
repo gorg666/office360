@@ -91,7 +91,7 @@ export const useUIStore = create<UIState>((set) => ({
   defaultReplyMode: "reply",
   markAsReadBehavior: "instant",
   fontScale: "default",
-  colorTheme: "neutral",
+  colorTheme: "office360",
   windowBackgroundPreset: "default",
   windowBackgroundLayout: "soft",
   windowBackgroundSpeed: "normal",

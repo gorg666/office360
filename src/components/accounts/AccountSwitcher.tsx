@@ -169,12 +169,12 @@ export function AccountSwitcher({
       {/* Dropdown */}
       {open && (
         <div
-          className={`absolute z-50 py-1 rounded-lg border border-border-primary bg-bg-primary shadow-lg glass-panel ${
+          className={`materialize material-elevated absolute z-dropdown rounded-card py-1 ${
             dropdownPositionClass
           }`}
         >
           {activeAccount ? (
-            <div className="px-3 pt-2 pb-2 border-b border-border-primary">
+            <div className="border-b border-separator px-3 pt-2 pb-2">
               <div className="flex items-start gap-2.5">
                 <ActiveAvatar account={activeAccount} />
                 <div className="min-w-0 flex-1">

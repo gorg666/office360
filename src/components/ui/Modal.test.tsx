@@ -77,7 +77,7 @@ describe("Modal", () => {
         <p>Content</p>
       </Modal>,
     );
-    const panel = document.querySelector(".glass-modal");
+    const panel = document.querySelector(".material-modal");
     expect(panel?.className).toContain("max-w-md");
   });
 
@@ -97,7 +97,7 @@ describe("Modal", () => {
         <p>Content</p>
       </Modal>,
     );
-    const panel = document.querySelector(".glass-modal");
+    const panel = document.querySelector(".material-modal");
     expect(panel?.className).toContain("shadow-xl");
   });
 

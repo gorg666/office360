@@ -20,49 +20,88 @@ describe("Button", () => {
   it("applies primary variant classes", () => {
     render(<Button variant="primary">Primary</Button>);
     const btn = screen.getByRole("button");
-    expect(btn.className).toContain("bg-accent");
-    expect(btn.className).toContain("text-white");
+    expect(btn.className).toContain("bg-brand");
+    expect(btn.className).toContain("text-brand-contrast");
   });
 
   it("applies secondary variant classes by default", () => {
     render(<Button>Default</Button>);
     const btn = screen.getByRole("button");
-    expect(btn.className).toContain("text-text-secondary");
-    expect(btn.className).toContain("hover:bg-bg-hover");
+    expect(btn.className).toContain("bg-surface-raised");
+    expect(btn.className).toContain("border-outline");
   });
 
   it("applies ghost variant classes", () => {
     render(<Button variant="ghost">Ghost</Button>);
     const btn = screen.getByRole("button");
-    expect(btn.className).toContain("text-text-tertiary");
+    expect(btn.className).toContain("text-ink-secondary");
+  });
+
+  it("applies subtle variant classes", () => {
+    render(<Button variant="subtle">Subtle</Button>);
+    const btn = screen.getByRole("button");
+    expect(btn.className).toContain("bg-brand-tint-1");
+    expect(btn.className).toContain("text-brand-text");
   });
 
   it("applies danger variant classes", () => {
     render(<Button variant="danger">Delete</Button>);
     const btn = screen.getByRole("button");
-    expect(btn.className).toContain("bg-danger");
+    expect(btn.className).toContain("bg-danger-solid");
   });
 
-  it("applies iconOnly sizing", () => {
+  it("every variant carries the shared focus and pressed treatment", () => {
+    for (const variant of ["primary", "secondary", "ghost", "subtle", "danger"] as const) {
+      const { unmount } = render(<Button variant={variant}>V</Button>);
+      const btn = screen.getByRole("button");
+      expect(btn.className).toContain("focus-ring");
+      expect(btn.className).toContain("pressable");
+      unmount();
+    }
+  });
+
+  it("applies iconOnly sizing as a square with no horizontal padding", () => {
     render(<Button iconOnly size="md" icon={<span>X</span>} />);
     const btn = screen.getByRole("button");
-    expect(btn.className).toContain("p-2");
-    // Should NOT contain px- classes for non-iconOnly
-    expect(btn.className).not.toContain("px-4");
+    expect(btn.className).toContain("h-8");
+    expect(btn.className).toContain("w-8");
+    expect(btn.className).not.toContain("px-");
   });
 
   it("applies standard sizing for non-iconOnly", () => {
     render(<Button size="md">Medium</Button>);
     const btn = screen.getByRole("button");
-    expect(btn.className).toContain("px-4");
-    expect(btn.className).toContain("text-sm");
+    expect(btn.className).toContain("px-3.5");
+    expect(btn.className).toContain("text-control");
   });
 
   it("applies xs size", () => {
     render(<Button size="xs">Tiny</Button>);
     const btn = screen.getByRole("button");
+    expect(btn.className).toContain("h-6");
     expect(btn.className).toContain("px-2");
-    expect(btn.className).toContain("py-1");
+  });
+
+  it("applies lg size", () => {
+    render(<Button size="lg">Large</Button>);
+    const btn = screen.getByRole("button");
+    expect(btn.className).toContain("h-10");
+    expect(btn.className).toContain("text-copy");
+  });
+
+  it("marks itself busy and blocks clicks while loading", () => {
+    const onClick = vi.fn();
+    render(<Button loading onClick={onClick}>Saving</Button>);
+    const btn = screen.getByRole("button");
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute("aria-busy", "true");
+    fireEvent.click(btn);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("keeps its accessible name while loading", () => {
+    render(<Button loading>Saving</Button>);
+    expect(screen.getByRole("button", { name: /saving/i })).toBeInTheDocument();
   });
 
   it("handles disabled state", () => {

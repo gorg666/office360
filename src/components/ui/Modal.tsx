@@ -59,24 +59,24 @@ export function Modal({
   return createPortal(
     <CSSTransition in={isOpen} timeout={150} classNames="modal" unmountOnExit nodeRef={nodeRef}>
       <div ref={nodeRef} className={`fixed inset-0 ${zIndex} flex items-center justify-center`} onContextMenu={(e) => e.stopPropagation()}>
-        <div className="absolute inset-0 bg-black/20 glass-backdrop" onClick={onClose} />
+        <div className="absolute inset-0 material-scrim glass-backdrop" onClick={onClose} />
         <div
           role="dialog"
           aria-modal="true"
           aria-label={title}
           data-modal-panel
           tabIndex={-1}
-          className={`relative bg-bg-primary border border-border-primary rounded-lg glass-modal outline-none ${width}${panelClassName ? ` ${panelClassName}` : ""}`}
+          className={`material-modal relative rounded-panel outline-none ${width}${panelClassName ? ` ${panelClassName}` : ""}`}
         >
           {renderHeader !== undefined ? (
             renderHeader
           ) : (
-            <div className="px-4 py-3 border-b border-border-primary flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
+            <div className="flex items-center justify-between border-b border-separator px-4 py-3">
+              <h3 className="text-section font-semibold text-ink-primary">{title}</h3>
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded p-0.5 text-text-tertiary hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+                className="focus-ring -mr-1 rounded-control p-1 text-ink-tertiary t-fast hover:text-ink-primary"
                 aria-label={closeAriaLabel}
               >
                 <X size={16} />

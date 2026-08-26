@@ -1,4 +1,5 @@
 export type ColorThemeId =
+  | "office360"
   | "neutral"
   | "indigo"
   | "rose"
@@ -26,6 +27,28 @@ export interface ColorTheme {
 }
 
 export const COLOR_THEMES: ColorTheme[] = [
+  {
+    // Office360's own accent, taken from the mark's blue -> violet ramp.
+    // Light #5d55d8 and dark #9d96f2 are the same values globals.css ships as
+    // the CSS defaults, so first paint matches before JS applies a theme.
+    id: "office360",
+    name: "Office360",
+    swatch: "#5d55d8",
+    light: {
+      accent: "#5d55d8",
+      accentHover: "#5148c4",
+      accentLight: "#e0defa",
+      bgSelected: "rgba(224, 222, 250, 0.72)",
+      sidebarActive: "#5d55d8",
+    },
+    dark: {
+      accent: "#9d96f2",
+      accentHover: "#b3adf7",
+      accentLight: "#272450",
+      bgSelected: "rgba(39, 36, 80, 0.72)",
+      sidebarActive: "#9d96f2",
+    },
+  },
   {
     id: "neutral",
     name: "Neutral",
@@ -199,7 +222,7 @@ export const COLOR_THEMES: ColorTheme[] = [
   },
 ];
 
-export const DEFAULT_COLOR_THEME: ColorThemeId = "neutral";
+export const DEFAULT_COLOR_THEME: ColorThemeId = "office360";
 
 export function getThemeById(id: string): ColorTheme {
   return (

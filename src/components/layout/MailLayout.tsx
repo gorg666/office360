@@ -69,7 +69,7 @@ function ResizableEmailLayout() {
       <EmailList width={emailListWidth} listRef={listRef} />
       <div
         onMouseDown={handleMouseDown}
-        className="w-1 cursor-col-resize bg-border-primary hover:bg-accent/50 active:bg-accent transition-colors shrink-0"
+        className="w-1 shrink-0 cursor-col-resize bg-separator t-fast hover:bg-brand-tint-3 active:bg-brand"
       />
       <ReadingPane />
     </div>
@@ -97,13 +97,13 @@ function MailWithMessengerChrome({ children, messengersOpen }: { children: React
     <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
       {mailColumn}
       <div
-        className="w-px shrink-0 bg-border-primary"
+        className="seam-x"
         aria-label="Граница панели мессенджера"
         aria-orientation="vertical"
         role="separator"
       />
       <Suspense
-        fallback={<div className="h-full w-2 shrink-0 animate-pulse bg-border-primary/30" aria-hidden />}
+        fallback={<div className="h-full w-2 shrink-0 animate-pulse bg-surface-sunken" aria-hidden />}
       >
         <ErrorBoundary name="MessengerSideStrip">
           <MessengerSideStrip asideTotalWidth={asideTotal} />
