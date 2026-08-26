@@ -50,6 +50,7 @@ import {
   type ThreadGroup,
 } from "../threading/threadBuilder";
 import { getPendingOpsForResource } from "../db/pendingOperations";
+import { detectInvitationsFromAttachments, detectInvitationsInMessage } from "../calendar/invitations";
 import { queueNewEmailNotification } from "../notifications/notificationManager";
 import { upsertAccountDiagnostic } from "../db/accountDiagnostics";
 import { createConnectionDiagnostic } from "../diagnostics";
@@ -457,7 +458,50 @@ async function storeThreadsAndMessages(
           }
 
           storedMessages.push(parsed);
+          await detectInvitationsInMessage({
+            accountId,
+            threadId: parsed.threadId,
+            messageId: parsed.id,
+            bodyText: parsed.bodyText,
+            bodyHtml: parsed.bodyHtml,
+            senderEmail: parsed.fromAddress,
+          }).catch((error) => console.warn("[calendar-itip] IMAP body ingestion failed safely:", error));
         }
+    }
+  }
+
+  const calendarAttachmentMessages = storedMessages.filter((message) => message.attachments.some((attachment) =>
+    attachment.mimeType.toLowerCase().includes("text/calendar") || attachment.filename.toLowerCase().endsWith(".ics")));
+  if (calendarAttachmentMessages.length > 0) {
+    const provider = await import("../email/providerFactory")
+      .then(({ getEmailProvider }) => getEmailProvider(accountId))
+      .catch((error) => {
+        console.warn("[calendar-itip] IMAP attachment provider unavailable:", error);
+        return null;
+      });
+    if (provider) {
+      for (const message of calendarAttachmentMessages) {
+        await detectInvitationsFromAttachments({
+          accountId,
+          threadId: message.threadId,
+          messageId: message.id,
+          senderEmail: message.fromAddress,
+          attachments: message.attachments.map((attachment) => ({
+            id: `${message.id}_${attachment.gmailAttachmentId}`,
+            message_id: message.id,
+            account_id: accountId,
+            filename: attachment.filename,
+            mime_type: attachment.mimeType,
+            size: attachment.size,
+            gmail_attachment_id: attachment.gmailAttachmentId,
+            imap_part_id: attachment.gmailAttachmentId,
+            content_id: attachment.contentId,
+            is_inline: attachment.isInline ? 1 : 0,
+            local_path: null,
+          })),
+          provider,
+        }).catch((error) => console.warn("[calendar-itip] IMAP attachment ingestion failed safely:", error));
+      }
     }
   }
 

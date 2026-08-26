@@ -237,6 +237,7 @@ describe("accounts", () => {
         accessToken: "access-token-123",
         refreshToken: "refresh-token-456",
         tokenExpiresAt: 9999999999,
+        oauthGrantedScopes: "calendar.acls gmail.modify",
       });
 
       expect(mockExecute).toHaveBeenCalledTimes(1);
@@ -244,6 +245,7 @@ describe("accounts", () => {
       expect(sql).toContain("INSERT INTO accounts");
       expect(params).toContain("enc:access-token-123");
       expect(params).toContain("enc:refresh-token-456");
+      expect(params).toContain("calendar.acls gmail.modify");
     });
   });
 

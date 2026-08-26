@@ -15,7 +15,13 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
 }));
 
 import { invoke } from "@tauri-apps/api/core";
-import { refreshProviderToken } from "./oauthFlow";
+import {
+  formatOAuthCallbackBindError,
+  isYandexVerificationCodeRedirect,
+  refreshProviderToken,
+  YANDEX_DESKTOP_REDIRECT_URI,
+  YANDEX_VERIFICATION_CODE_REDIRECT_URI,
+} from "./oauthFlow";
 
 const microsoftProvider: OAuthProviderConfig = {
   id: "microsoft",
@@ -120,6 +126,40 @@ describe("refreshProviderToken", () => {
     await expect(
       refreshProviderToken(microsoftProvider, "bad-refresh", "client"),
     ).rejects.toThrow("Token refresh failed: 400");
+  });
+});
+
+describe("Yandex desktop vs verification_code redirect (AUTH-004)", () => {
+  it("treats oauth.yandex.ru/verification_code as OOB screen-code flow", () => {
+    expect(isYandexVerificationCodeRedirect(YANDEX_VERIFICATION_CODE_REDIRECT_URI)).toBe(true);
+    expect(isYandexVerificationCodeRedirect("https://oauth.yandex.com/verification_code")).toBe(true);
+  });
+
+  it("uses localhost loopback for preferred desktop callback (same as Mail)", () => {
+    expect(YANDEX_DESKTOP_REDIRECT_URI).toBe("http://localhost:17248");
+    expect(isYandexVerificationCodeRedirect(YANDEX_DESKTOP_REDIRECT_URI)).toBe(false);
+  });
+});
+
+describe("formatOAuthCallbackBindError (AUTH-005)", () => {
+  it("maps stable port-busy code to Russian user copy", () => {
+    expect(formatOAuthCallbackBindError("oauth_callback_port_in_use:17248")).toBe(
+      "Не удалось запустить авторизацию Яндекса: порт 17248 уже занят. Закройте другое окно авторизации Office360 и попробуйте снова.",
+    );
+  });
+
+  it("maps legacy English bind error to the same Russian copy", () => {
+    expect(
+      formatOAuthCallbackBindError(
+        "Failed to bind OAuth callback on port 17248 (127.0.0.1 and [::1]). Another process may be using the port — close leftover Office360 OAuth sessions and retry.",
+      ),
+    ).toMatch(/порт 17248 уже занят/);
+  });
+
+  it("leaves unrelated errors unchanged", () => {
+    expect(formatOAuthCallbackBindError("OAuth timed out — please try again")).toBe(
+      "OAuth timed out — please try again",
+    );
   });
 });
 

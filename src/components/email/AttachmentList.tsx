@@ -4,7 +4,7 @@ import { writeFile } from "@tauri-apps/plugin-fs";
 import { getAttachmentsForMessage, type DbAttachment } from "@/services/db/attachments";
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { Modal } from "@/components/ui/Modal";
-import { Download, Eye } from "lucide-react";
+import { Download, Eye, X } from "lucide-react";
 import {
   formatFileSize,
   isImage,
@@ -12,8 +12,8 @@ import {
   isSafeRasterImagePreview,
   isText,
   canPreview,
-  getFileIcon,
 } from "@/utils/fileTypeHelpers";
+import { FileTypeIcon } from "@/components/ui/FileTypeIcon";
 import { base64UrlToUint8Array, uint8ArrayToBase64DataUrl } from "@/utils/base64url";
 import {
   attachmentPreviewCacheKey,
@@ -76,7 +76,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
                     />
                   ) : (
                     <span className="text-text-tertiary shrink-0">
-                      {getFileIcon(att.mime_type, att.filename)}
+                      <FileTypeIcon mimeType={att.mime_type} filename={att.filename} size={16} />
                     </span>
                   )}
                   <span className="min-w-0">
@@ -180,7 +180,7 @@ function AttachmentImageThumb({
   if (failed || !url) {
     return (
       <span className="w-10 h-10 rounded bg-bg-tertiary flex items-center justify-center text-text-tertiary shrink-0">
-        {getFileIcon(attachment.mime_type, attachment.filename)}
+        <FileTypeIcon mimeType={attachment.mime_type} filename={attachment.filename} size={18} />
       </span>
     );
   }
@@ -307,7 +307,9 @@ export function AttachmentPreview({
   const header = (
     <div className="px-4 py-3 border-b border-border-primary flex items-center justify-between shrink-0">
       <div className="flex items-center gap-2 min-w-0">
-        <span>{getFileIcon(attachment.mime_type, attachment.filename)}</span>
+        <span className="text-text-tertiary shrink-0">
+          <FileTypeIcon mimeType={attachment.mime_type} filename={attachment.filename} size={16} />
+        </span>
         <span className="text-sm font-medium text-text-primary truncate">
           {attachment.filename ?? "Unnamed"}
         </span>
@@ -328,9 +330,10 @@ export function AttachmentPreview({
         </button>
         <button
           onClick={handleClose}
-          className="text-text-tertiary hover:text-text-primary text-lg leading-none"
+          className="text-text-tertiary hover:text-text-primary p-0.5"
+          aria-label="Close"
         >
-          ×
+          <X size={16} />
         </button>
       </div>
     </div>

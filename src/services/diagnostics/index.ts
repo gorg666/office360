@@ -20,4 +20,4 @@ export {
   type SaveSupportDebugBundleResult,
 } from "./debugBundle";
 export { createConnectionDiagnostic, createSuccessDiagnostic, diagnosticSummary } from "./connectionDiagnostic";
-export { redactDebugBundleValue, redactDiagnosticText } from "./redaction";
+export { redactDebugBundleValue, redactDiagnosticText, redactLogIdentifier } from "./redaction";

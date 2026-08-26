@@ -114,6 +114,38 @@ describe("providerFactory", () => {
       // getAccount should only be called once due to caching
       expect(mockGetAccount).toHaveBeenCalledTimes(1);
     });
+
+    it("single-flights concurrent provider creation for one account", async () => {
+      const account = createMockImapAccount({
+        id: "acc-caldav-concurrent",
+        provider: "caldav" as DbAccount["provider"],
+        caldav_url: "https://caldav.example.com",
+      });
+      mockGetAccount.mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return account;
+      });
+
+      const providers = await Promise.all(
+        Array.from({ length: 5 }, () => getCalendarProvider(account.id)),
+      );
+
+      expect(new Set(providers).size).toBe(1);
+      expect(mockGetAccount).toHaveBeenCalledTimes(1);
+    });
+
+    it("clears failed pending provider creation so a later call can retry", async () => {
+      const account = createMockGmailAccount({ id: "acc-provider-retry" });
+      mockGetAccount.mockRejectedValueOnce(new Error("DB unavailable"));
+
+      await expect(getCalendarProvider(account.id)).rejects.toThrow("DB unavailable");
+      mockGetAccount.mockResolvedValueOnce(account);
+
+      await expect(getCalendarProvider(account.id)).resolves.toMatchObject({
+        accountId: account.id,
+      });
+      expect(mockGetAccount).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe("removeCalendarProvider", () => {

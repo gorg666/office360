@@ -52,6 +52,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token ?? "",
         tokenExpiresAt: expiresAt,
+        oauthGrantedScopes: tokens.scope ?? null,
       });
 
       addAccount({

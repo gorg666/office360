@@ -5,7 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { ChevronRight, Download, File, Folder, FolderPlus, Link, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { createDiskFolder, deleteDiskResource, getDiskDownloadUrl, getDiskQuota, getDiskResource, listDiskResources, moveDiskResource, publishDiskResource, searchDisk, unpublishDiskResource, uploadDiskFile, type DiskResource } from "@/services/yandex/disk";
-import { authorizeYandexServices, getYandexServiceClientId } from "@/services/yandex/accountApi";
+import { authorizeYandexServices } from "@/services/yandex/accountApi";
 import { getAccount } from "@/services/db/accounts";
 import { ServicePageShell } from "./ServicePageShell";
 
@@ -17,6 +17,9 @@ function formatSize(size?: number) {
   while (value >= 1024 && index < units.length - 1) { value /= 1024; index++; }
   return `${value.toFixed(index ? 1 : 0)} ${units[index]}`;
 }
+
+const DISK_CONSENT_MESSAGE =
+  "Для работы с Яндекс Диском разрешите Office360 доступ. Откроется официальное окно авторизации Яндекса.";
 
 export function DiskPage() {
   const accountId = useAccountStore((state) => state.activeAccountId);
@@ -79,12 +82,10 @@ export function DiskPage() {
 
   const reconnect = async () => {
     if (!accountId) return;
+    if (!window.confirm(DISK_CONSENT_MESSAGE)) return;
     setReauthorizing(true); setError(null);
     try {
-      const storedClientId = await getYandexServiceClientId(accountId);
-      const clientId = window.prompt("Client ID отдельного API OAuth-приложения Яндекса", storedClientId ?? "");
-      if (!clientId?.trim()) return;
-      await authorizeYandexServices(accountId, clientId);
+      await authorizeYandexServices(accountId);
       await load();
     }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }

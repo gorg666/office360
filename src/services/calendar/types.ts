@@ -1,3 +1,5 @@
+import type { CalendarAccess, CalendarAttendee, CalendarAttendeeInput, CalendarEventTime, CalendarOrganizer, CalendarProviderCapabilities, CalendarReminderDiagnostic, CalendarReminderPolicy, OccurrenceIdentity, ParticipantRef, RecurrenceWriteScope } from "./domain";
+
 export type CalendarProviderType = "google_api" | "caldav";
 
 export interface CalendarInfo {
@@ -5,6 +7,7 @@ export interface CalendarInfo {
   displayName: string;
   color: string | null;
   isPrimary: boolean;
+  access: CalendarAccess;
 }
 
 export interface CalendarEventData {
@@ -21,8 +24,25 @@ export interface CalendarEventData {
   status: string;
   organizerEmail: string | null;
   attendeesJson: string | null;
+  organizer: CalendarOrganizer | null;
+  attendees: CalendarAttendee[];
   htmlLink: string | null;
   icalData: string | null;
+  time: CalendarEventTime;
+  seriesUid: string | null;
+  occurrenceKey: string | null;
+  isRecurrenceMaster: boolean;
+  transparency: "opaque" | "transparent" | null;
+  sequence: number;
+  /** Present when the provider returned an RRULE and no ICS payload exists. */
+  recurrenceRule?: string | null;
+  participants: ParticipantRef[];
+  reminders: CalendarReminderPolicy;
+  reminderDiagnostics?: CalendarReminderDiagnostic[];
+  timeZoneDiagnostic?: {
+    status: "unsupported-timezone";
+    originalTzid: string;
+  };
 }
 
 export interface CreateEventInput {
@@ -32,7 +52,15 @@ export interface CreateEventInput {
   startTime: string; // ISO 8601
   endTime: string;   // ISO 8601
   isAllDay?: boolean;
-  attendees?: { email: string }[];
+  attendees?: CalendarAttendeeInput[];
+  organizer?: CalendarOrganizer;
+  time?: CalendarEventTime;
+  transparency?: "opaque" | "transparent";
+  status?: string;
+  sequence?: number;
+  reminders?: CalendarReminderPolicy;
+  /** RRULE value without the `RRULE:` prefix. */
+  recurrenceRule?: string | null;
 }
 
 export interface UpdateEventInput {
@@ -42,29 +70,66 @@ export interface UpdateEventInput {
   startTime?: string;
   endTime?: string;
   isAllDay?: boolean;
+  time?: CalendarEventTime;
+  transparency?: "opaque" | "transparent";
+  status?: string;
+  sequence?: number;
+  attendees?: CalendarAttendeeInput[];
+  organizer?: CalendarOrganizer;
+  /** RRULE value without the `RRULE:` prefix. Series mutations only. */
+  recurrenceRule?: string | null;
+  reminders?: CalendarReminderPolicy;
+}
+
+export interface RecurringMutationContext {
+  scope: RecurrenceWriteScope;
+  seriesUid: string;
+  occurrence?: {
+    key: string;
+    identity: OccurrenceIdentity;
+  };
 }
 
 export type CalendarParticipationStatus = "accepted" | "tentative" | "declined";
+
+export interface CalendarReadDiagnostics {
+  unreadableComponentCount: number;
+  unreadableObjectCount: number;
+}
 
 export interface CalendarSyncResult {
   created: CalendarEventData[];
   updated: CalendarEventData[];
   deletedRemoteIds: string[];
+  /** Provider resource keys whose cached occurrences must be replaced as one unit. */
+  replacedRemoteIds?: string[];
   newSyncToken: string | null;
   newCtag: string | null;
+  /** The provider rejected the supplied opaque cursor and requires one controlled initial sync. */
+  cursorInvalidated?: boolean;
+  /** False means valid changes may be applied, but the cursor must not advance. */
+  complete?: boolean;
+  /** True only when the result enumerates the complete current collection. */
+  authoritativeSnapshot?: boolean;
+  strategy?: "sync-token" | "ctag" | "range-refresh";
+  /** Bounded authoritative window for providers without a durable delta cursor. */
+  coverageRange?: { start: number; end: number };
+  diagnostics?: CalendarReadDiagnostics;
 }
 
 export interface CalendarProvider {
   readonly accountId: string;
   readonly type: CalendarProviderType;
+  readonly capabilities: CalendarProviderCapabilities;
+  readonly lastReadDiagnostics?: CalendarReadDiagnostics;
 
   listCalendars(): Promise<CalendarInfo[]>;
 
   fetchEvents(calendarRemoteId: string, timeMin: string, timeMax: string): Promise<CalendarEventData[]>;
   createEvent(calendarRemoteId: string, event: CreateEventInput): Promise<CalendarEventData>;
-  updateEvent(calendarRemoteId: string, remoteEventId: string, event: UpdateEventInput, etag?: string): Promise<CalendarEventData>;
-  deleteEvent(calendarRemoteId: string, remoteEventId: string, etag?: string): Promise<void>;
-  respondToEvent?(
+  updateEvent(calendarRemoteId: string, remoteEventId: string, event: UpdateEventInput, etag?: string, recurrence?: RecurringMutationContext): Promise<CalendarEventData>;
+  deleteEvent(calendarRemoteId: string, remoteEventId: string, etag?: string, recurrence?: RecurringMutationContext): Promise<void>;
+  respondToEvent(
     calendarRemoteId: string,
     remoteEventId: string,
     attendeeEmail: string,

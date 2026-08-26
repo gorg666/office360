@@ -30,7 +30,7 @@ Results: `docs/qa/QA_RESULTS_2026-08-11.md`
 | MAIL-006 | P2 | Mail / UX | Send progress toast rendered in composer instead of main shell | OPEN — fix applied, pending retest |
 | MAIL-007 | P2 | Mail / Composer | Recipient field has no recent-contact suggestions | OPEN — fix applied, pending retest |
 | MAIL-009 | P2 | Mail / Outbox | Outbox item cannot be opened | FIX APPLIED (pending retest) |
-| UI-001 | P2 | Localization / Composer | Cc/Bcc not localized | OPEN — fix applied, pending retest |
+| UI-001 | P2 | Localization / Composer | Cc/Bcc not localized | FIX APPLIED / AWAITING MANUAL VERIFY (i18n pass 2026-08-11) |
 | MAIL-011 | P1 | Mail / Outbox | Stale/orphan message remains in Outbox | FIX APPLIED / AWAITING MANUAL VERIFY |
 | MAIL-012 | P2 | Mail / UX | No right-click context menu on messages | FIX APPLIED / AWAITING MANUAL VERIFY |
 | UI-002 | P2 | Mail / Search | Developer search syntax in placeholder | FIX APPLIED / AWAITING MANUAL VERIFY |
@@ -39,10 +39,26 @@ Results: `docs/qa/QA_RESULTS_2026-08-11.md`
 | MAIL-014 | P1 | Mail / Navigation | Account mail folders hierarchy | FIX APPLIED / AWAITING MANUAL VERIFY |
 | MAIL-015 | P1 | Mail / Sync | Incoming mail arrives too slowly | MEASURED / AWAITING MANUAL VERIFY (IDLE deferred) |
 | MAIL-016 | P1 | Mail / Outbox | Context menu missing in Outbox | FIX APPLIED / AWAITING MANUAL VERIFY |
-| MAIL-017 | P2 | Mail / Attachments | Image attachments have no preview | FIX APPLIED / AWAITING MANUAL VERIFY |
-| NOTIF-001 | P1 | Notifications / Windows | Windows notifications appear as PowerShell | FIX APPLIED / AWAITING MANUAL VERIFY |
+| MAIL-017 | P2 | Mail / Attachments | Image attachments have no preview | STILL OPEN — library emoji only; raster thumb/lightbox not confirmed (FINAL MAIL QA) |
+| NOTIF-001 | P1 | Notifications / Windows | Windows notifications appear as PowerShell | FIX APPLIED / AWAITING MANUAL VERIFY (runtime BLOCKED 2026-08-11 evening) |
+| MAIL-018 | P1 | Mail / Folders | Duplicate «Исходящие» (system + IMAP custom) | OPEN — confirmed FINAL MAIL RUNTIME QA |
+| I18N-001 | P2 | Localization / a11y | English aria/menu/time residues in Mail | OPEN — confirmed FINAL MAIL RUNTIME QA |
+| MAIL-019 | P1 | Mail / Read state | Open message does not reliably mark read | OPEN — observed FINAL MAIL RUNTIME QA |
+| MAIL-020 | P1 | Mail / Send UX / Notifications | Duplicate send toast (legacy + global) | FIX APPLIED / AWAITING MANUAL VERIFY |
+| AUTH-004 | P1 | Unified Yandex Auth / Disk / Tracker | Yandex verification-code OAuth flow unusable in desktop UI | FAIL / BLOCKER — code prefers localhost; **WAITING FOR YANDEX CONFIG** |
+| AUTH-005 | P1 | Yandex OAuth lifecycle / Disk / Tracker | OAuth callback port 17248 already in use | FIX APPLIED — stale listener on cancel; awaiting runtime retest |
+| TRACKER-001 | P1 | Tracker / rate-limit | Duplicate initialize + no 429 cooldown → HTTP 429 | FIX APPLIED / AWAITING MANUAL VERIFY |
+| TRACKER-002 | P0 | Tracker / authz | All Tracker writes 403 — **read-only license («режим просмотра»)** | FIX APPLIED / AWAITING MANUAL VERIFY |
+| TRACKER-003 | P1 | Tracker / UI | Status & priority filter `<option>` labels empty | OPEN |
+| TRACKER-004 | P1 | Tracker / filters | Status/priority (and assignee) filters do not change issue list | OPEN |
+| TRACKER-005 | P2 | Tracker / issue detail | No author / assignee / created / updated / deadline in panel | OPEN |
+| TRACKER-006 | P2 | Tracker / attachments | Attachment names only — no download/open | OPEN |
+| TRACKER-007 | P2 | Tracker / create UX | Create issue = title-only `window.prompt` | OPEN |
+| MSG-HYBRID-001 | P1 | Messenger / Efim port | Provider tabs stuck on MAX; Yandex widget not shown | CLOSED / PASS |
+| HUB-HYBRID-001 | P2 | Account Hub / i18n | Grant statuses show English CONNECTED / NEEDS ACCESS | CLOSED / PASS |
+| MSG-HYBRID-002 | P1 | Messenger widget / runtime mount | Yandex Messenger stuck loading after communications consent | OPEN |
 
-**Counts:** P0=4 open · CLOSED=2 · P1=+MAIL-011/014/015/016 + NOTIF-001 · P2=+MAIL-012/017/UI-002/UI-003 · P3=0
+**Counts:** P0=+TRACKER-002 · P1=+TRACKER-003/004 · P2=+TRACKER-005/006/007 · **TRACKER-001 FIX APPLIED** · write path BLOCKED on org role/ACL
 
 ---
 
@@ -348,19 +364,39 @@ Area:
 Localization / Composer
 
 Status:
-OPEN — fix applied, pending manual retest
+FIX APPLIED / AWAITING MANUAL VERIFY (full i18n pass 2026-08-11)
 
 Current:
 `Cc / Bcc` (and field labels `Cc` / `Bcc`)
 
 Expected RU:
-`Копия / Скрытая копия` (fields: `Копия`, `Скрытая`)
+`Копия / Скрытая копия` (fields: `Копия`, `Скрытая копия`)
 
 Root cause (code-confirmed):
-Hardcoded English strings in `Composer.tsx`.
+Hardcoded English strings in `Composer.tsx` / missing i18n keys.
 
 Fix applied (pending retest):
-RU labels in composer address row.
+- Keys in `src/i18n.ts` (Cc → Копия, Bcc → Скрытая копия)
+- TranslationLayer + Composer label update
+- See `docs/qa/LOCALIZATION_AUDIT_2026-08-11.md`
+
+---
+
+# WATCH — LOC-001 Full UI Russian localization
+
+Severity:
+P2 (product polish)
+
+Area:
+Localization (all modules)
+
+Status:
+STATIC CLEAN (`check:i18n` = 0) / **RUNTIME NOT VERIFIED** — do not PASS
+
+Notes:
+- Dict ~835 keys; guard `npm run check:i18n`
+- Errors/dates/plurals/notifications wired
+- Remaining risk: dynamic strings, native tray/window, niche `toLocale*` — needs Tauri walk
 
 ---
 
@@ -600,7 +636,7 @@ Fix applied: Outbox capability mapper `outboxContextMenuActions.ts`; `ContextMen
 
 Severity: P2  
 Area: Mail / Attachments / UI  
-Status: FIX APPLIED / AWAITING MANUAL VERIFY
+Status: STILL OPEN — FINAL MAIL RUNTIME QA: library emoji icons only; raster thumb/lightbox/download not confirmed
 
 Actual: JPG в открытом письме — только generic attachment card.
 
@@ -620,6 +656,297 @@ Fix applied: native WinRT path `show_native_notification` + registry `AppUserMod
 
 ---
 
+# BUG MAIL-018 — Duplicate «Исходящие» in folder list
+
+Severity: P1  
+Area: Mail / Folders / SPECIAL-USE  
+Status: OPEN — confirmed FINAL MAIL RUNTIME QA (`GORGDEV2` `f95b3cf`)
+
+Steps:
+1. Open Mail sidebar with Yandex account that has a custom IMAP folder named «Исходящие».
+2. Observe system Outbox label and custom folder under «Папки».
+
+Expected: SPECIAL-USE / system Outbox not duplicated as a second identical label.
+
+Actual: Label «Исходящие» appears twice (count=2 in sidebar buttons).
+
+---
+
+# BUG I18N-001 — English system strings remain in Mail UI
+
+Severity: P2  
+Area: Localization / a11y / Attachments  
+Status: OPEN — confirmed FINAL MAIL RUNTIME QA
+
+Evidence (system UI only; not user email bodies):
+- Thread aria: `Unread email from…`, `email from…`, `N unread emails`
+- Context menu item: `Mute`
+- Subject fallback sometimes `(No subject)` vs `(Без темы)`
+- Attachments library relative times: `7h ago`, `11h ago`, `1mo ago`, `21d ago`
+
+---
+
+# BUG MAIL-019 — Opening a message does not reliably mark it read
+
+Severity: P1  
+Area: Mail / Read state  
+Status: OPEN — observed FINAL MAIL RUNTIME QA
+
+Steps:
+1. Ensure a thread shows as unread (`Unread email from…`, accent row).
+2. Left-click to open.
+
+Expected: Thread becomes read; unread badge decrements; reading pane shows subject.
+
+Actual: In CDP session, aria often stayed `Unread…`; pane sometimes remained on folder title only. Manual mark-unread via context menu **does** work.
+
+---
+
+# BUG MAIL-020 — Duplicate send toast (legacy + global)
+
+Severity: P1  
+Area: Mail / Send UX / Notifications  
+Status: FIX APPLIED / AWAITING MANUAL VERIFY
+
+Evidence: manual runtime screenshot 2026-08-11 — black center toast + white right toast both «Отправка письма…» on one Send.
+
+Root cause: `UndoSendToast` (store `undoVisible`, black center) mounted beside `SendFeedbackToast` (CustomEvent `velo-send-feedback`); orchestrator also called `showSendFeedback({ title: "Отправка письма…" })` at `sending`.
+
+Fix applied:
+- Removed `UndoSendToast` from `App` / `ThreadWindow` (legacy stub returns null).
+- `SendFeedbackToast` is the single global channel: store phases (queued+undo → sending → reconciling) + terminal CustomEvent after `clear()`.
+- Orchestrator no longer emits progress CustomEvents while active; terminal success/error after clear only.
+- Regression: orchestrator + `SendFeedbackToast` tests (one send → no duplicate «Отправка письма…» event; one toast DOM).
+
+---
+
+# BUG AUTH-004 — Yandex verification-code OAuth flow unusable in desktop UI
+
+Severity:
+P1
+
+Area:
+Unified Yandex Auth / Disk / Tracker
+
+Status:
+**FAIL / BLOCKER FOR DISK+TRACKER E2E** — code fix applied (prefer Mail-style localhost); **WAITING FOR YANDEX CONFIG** before retest
+
+Observed (manual + screenshot, 2026-08-11 evening):
+- After Disk/Tracker «Выдать доступ», embedded Yandex ID shows «Код подтверждения» + code.
+- Office360 has no code input; code is not auto-captured; OAuth view hard to dismiss → user trapped.
+
+Root cause (code + Graphify + client info):
+- `authorizeYandexServices` hardcoded `redirectUri: https://oauth.yandex.ru/verification_code` (OOB / screen-code).
+- That forced CEF overlay scrape path (`usesCefScreenCode`) instead of Mail’s `open_oauth_login_window` + `http://localhost:17248` callback server.
+- Service OAuth app previously used legacy test Client ID `69e59ec6…` («диск тест», verification_code only).
+- **Canonical managed client:** `9a7396c327984bd6afc75debf275850f` («Office360», callback `http://localhost:17248`, Disk+Tracker scopes).
+
+Fix applied (app code):
+- Service OAuth uses `YANDEX_DESKTOP_REDIRECT_URI` = `http://localhost:17248` (same as Mail).
+- DEFAULT_YANDEX_SERVICE_CLIENT_ID → `9a7396c3…`; legacy `69e59…` migrated away on read.
+- CEF/verification_code path: Escape / closed / route-change cancel + safer oauth-code payload parse (fallback only).
+- Tests: redirect must not be `verification_code`; desktop redirect helpers.
+
+Yandex Console (canonical already set by user):
+- App: Office360 service client `9a7396c327984bd6afc75debf275850f`
+- Redirect URI: `http://localhost:17248`
+- Scopes: `cloud_api:disk.read/write` (+ info/app_folder), `tracker:read/write` — confirmed via public client-info
+- No client secret in logs.
+
+Do **not** treat Disk/Tracker auth as PASS until runtime QA after console change.
+
+---
+
+# BUG AUTH-005 — OAuth callback port 17248 already in use
+
+Severity:
+P1
+
+Area:
+Yandex OAuth lifecycle / Disk / Tracker
+
+Status:
+**FIX APPLIED** — awaiting fresh `tauri dev` retest (port free at diagnosis time)
+
+Observed:
+After AUTH-004 localhost redirect, Disk showed English bind failure on port 17248.
+
+Root cause:
+`start_oauth_server` holds TcpListener until success/timeout (~300s). Closing OAuth window / failed Yandex page (no localhost hit) settles JS `Promise.race` but **does not cancel** the Rust accept loop → stale bind → next «Выдать доступ» fails.
+
+Fix:
+- `stop_oauth_server` + cancel oneshot; window Destroyed / `close_oauth_login_window` signal cancel
+- frontend `finally` always stops listener
+- new start cancels previous (single active flow)
+- bind error → `oauth_callback_port_in_use:{port}` + RU via `formatOAuthCallbackBindError`
+
+Port owner at diagnosis (2026-08-11 ~20:02): **none** (FREE) — leftover session already gone after prior tauri crash.
+
+---
+
+# BUG TRACKER-001 — Tracker duplicate initialize / HTTP 429
+
+Severity:
+P1
+
+Area:
+Tracker / rate-limit
+
+Status:
+**FIX APPLIED / AWAITING MANUAL VERIFY**
+
+Observed (after tauriFetch CORS fix):
+UI: «Превышен лимит запросов к Яндекс Трекеру…» (mapped HTTP 429).
+
+Root cause:
+1. `useEffect(initialize)` depended on `loadTrackerData` which depended on filter state → every filter change = full myself+metadata+search.
+2. Dev StrictMode doubled cold-open init without in-flight dedupe.
+3. No Retry-After / cooldown → retry storm risk.
+
+Fix (GORGDEV2, 2026-08-11 evening):
+- Initialize only on mount/`accountId`; filters → issues search only (+ assignee debounce).
+- Account-scoped session cache + in-flight dedupe for myself/queues/statuses/priorities.
+- 429: parse Retry-After (seconds / HTTP-date), fallback 30s, block further Tracker calls, UI cooldown + disabled refresh.
+- Regression tests: StrictMode one init, filter→search only, cooldown no network.
+
+Runtime retest:
+Wait for server cooldown → one `npm run tauri dev` → open Tracker once → expect ~5 Tracker calls in first 10s.
+
+Commit/push: **not done**
+
+---
+
+# BUG TRACKER-002 — Tracker writes 403 `tracker_forbidden`
+
+Severity:
+P0
+
+Area:
+Tracker / authorization / license
+
+Status:
+**FIX APPLIED / AWAITING MANUAL VERIFY** — ROOT CAUSE = LICENSE READ-ONLY; CODE BUG = UX ONLY (misleading `tracker_forbidden` / «Обновить доступ»). Session `trackerAccessMode=READ_ONLY`, banner, writes disabled; reads preserved.
+
+Environment:
+GORGDEV2 · org manual `8493916` · read API PASS · service OAuth client `9a7396c327984bd6afc75debf275850f`
+
+Diagnosis (2026-08-11 ~21:40 ICT):
+- Stored scopes include `tracker:read` + `tracker:write` (token NOT stale for write scope).
+- OAuth app info includes both Tracker scopes.
+- `GET /v3/myself` → `hasLicense: true` (does **not** imply write).
+- `PATCH /v3/issues/TRACKER-8` and `POST /v3/issues` → **403** with body:
+  «В режиме просмотра нельзя создавать, редактировать и удалять объекты. Чтобы снять ограничения, подключите тариф с Трекером»
+- Matches web banner / docs «режим Чтение» ([access#readonly](https://yandex.ru/support/tracker/ru/access#readonly)).
+- Comment/upload further writes **not** hammered after edit+create confirmed same class.
+
+Root cause class:
+**C + D/F** — Tracker view/read-only access for user/org (tariff or admin «Чтение»), **not** missing `tracker:write` OAuth.
+
+UX patch (2026-08-11):
+- Detect view-mode from 403 payload (`tracker_read_only`), not status alone.
+- Session `READ_ONLY` until restart / account change / manual refresh.
+- Banner + disable create/edit/status/priority/comment/upload; no «Обновить доступ» for this case.
+- Split 403: `tracker_read_only` | `tracker_permission_denied` | `tracker_org_forbidden` | `tracker_auth_expired` (401).
+
+Manual verify:
+1. Open Tracker on org in view mode → after any write attempt, banner appears, writes disabled, list/open still work.
+2. Manual refresh clears mode and allows re-probe.
+3. Org with full Tracker tariff → writes work (no false READ_ONLY).
+
+Code bug (transport/headers):
+**NO** for 403 itself.
+
+UX bug:
+**YES** — all 403 mapped to «Нет доступа к выбранной организации…» (`tracker_forbidden`); should be read-only license copy + disable write controls; do **not** offer «Обновить доступ».
+
+Next:
+Admin: full Tracker access / paid seats for user or org → then retest writes. Optionally implement read-only UX (separate step).
+
+---
+
+# BUG TRACKER-003 — Empty status/priority filter labels
+
+Severity:
+P1
+
+Area:
+Tracker / UI
+
+Status:
+OPEN
+
+Observed:
+`<select>` options for statuses/priorities have `value` (e.g. `open`, `blocker`) but **empty** visible text (`item.display` blank). Only «Все статусы» / «Все приоритеты» readable. Confirmed CDP: 28 empty status + 7 empty priority options.
+
+---
+
+# BUG TRACKER-004 — Status/priority filters ineffective
+
+Severity:
+P1
+
+Area:
+Tracker / filters
+
+Status:
+OPEN
+
+Observed:
+Selecting status=`open` keeps mixed open+closed list (8 rows). Priority=`blocker` likewise does not restrict to blockers. Local text search still works. Assignee string probe did not narrow list.
+
+Notes:
+May share root with filter payload shape vs Tracker API and/or empty labels UX. No fix in this pass.
+
+---
+
+# BUG TRACKER-005 — Issue detail missing metadata fields
+
+Severity:
+P2
+
+Area:
+Tracker / issue detail
+
+Status:
+OPEN
+
+Observed:
+Panel shows key, summary, description, priority button, transitions, attachments section, comments section. **Not shown:** author, assignee, createdAt, updatedAt, deadline (API fields exist on `TrackerIssue` type / get issue).
+
+---
+
+# BUG TRACKER-006 — Attachments not downloadable/openable
+
+Severity:
+P2
+
+Area:
+Tracker / attachments
+
+Status:
+OPEN
+
+Observed:
+Attachment names render as plain `div` text (e.g. TRACKER-7 `image.png` ×2). No link/button for download/open. Upload path blocked by TRACKER-002 (403). plugin-http FormData upload not exercised.
+
+---
+
+# BUG TRACKER-007 — Create issue title-only prompt
+
+Severity:
+P2
+
+Area:
+Tracker / create UX
+
+Status:
+OPEN
+
+Observed:
+«Создать задачу» → `window.prompt("Название задачи")` only. No UI for description / assignee / priority (even when write ACL allows). Write currently blocked by TRACKER-002.
+
+---
+
 ## ID scheme
 
 | Prefix | Area |
@@ -631,3 +958,103 @@ Fix applied: native WinRT path `show_native_notification` + registry `AppUserMod
 | UI- | UI / empty states / polish |
 | I18N- | Localization |
 | SEC- | Security |
+
+
+---
+
+# BUG MSG-HYBRID-001 — Messenger provider tabs do not switch (Yandex widget missing)
+
+Severity:
+P1
+
+Area:
+Messenger / Efim hybrid port
+
+Status:
+CLOSED / PASS — fix verified runtime 2026-08-11 (~22:45 ICT)
+
+Class:
+Efim port bug — tab click only toggled provider filter; did not set `selectedProviderId`
+
+Environment:
+`GORGDEV2-EFIM-INTEGRATION` (post-`3c592fe` working tree) / Tauri + CDP
+
+Reproducibility:
+was 1/1 FAIL → PASS after fix
+
+Observed (before fix):
+Opening Мессенджеры shows MAX panel. Clicking tabs «Яндекс» / «Telegram» leaves the same MAX session-token UX.
+
+Observed (after fix):
+Tabs MAX ↔ Яндекс switch. NEEDS ACCESS shows CTA «Разрешить доступ». Communications consent can complete.
+
+Evidence:
+CDP tab retest + Hub RU labels; manual consent completed by user.
+
+Notes:
+Widget usability after CONNECTED tracked separately as **MSG-HYBRID-002**.
+
+---
+
+# BUG HUB-HYBRID-001 — Account Hub grant status English labels
+
+Severity:
+P2
+
+Area:
+Account Hub / i18n UX
+
+Status:
+CLOSED / PASS — RU i18n via `translateText` verified runtime 2026-08-11
+
+Class:
+Efim port UX polish
+
+Observed (before):
+Grant rows showed English `CONNECTED` / `NEEDS ACCESS`.
+
+Observed (after):
+«Подключено» / «Требуется доступ» on Hub; no Client ID/Secret leak; `check:i18n` 0 missing.
+
+Evidence:
+CDP Hub probe `#/settings/yandex360` — RU matches only; English grant tokens absent.
+
+---
+
+# BUG MSG-HYBRID-002 — Yandex Messenger widget stuck loading after communications consent
+
+Severity:
+P1
+
+Area:
+Messenger widget / runtime mount
+
+Status:
+OPEN
+
+Class:
+Efim hybrid / runtime mount (not diagnosed this checkpoint)
+
+Environment:
+`GORGDEV2-EFIM-INTEGRATION` / Tauri desktop / after MSG-HYBRID-001 fix
+
+Reproducibility:
+manual runtime 1/1 (screenshot 2026-08-11)
+
+Actual:
+- communications consent completed
+- Yandex tab selectable
+- loader renders indefinitely
+- widget/iframe content does not appear
+
+Expected:
+After CONNECTED communications grant, Yandex Messenger widget mounts and becomes usable.
+
+Evidence:
+Manual runtime screenshot 2026-08-11 — Yandex tab selected, endless spinner, no messenger UI.
+
+Hypotheses (not confirmed):
+iframe/widget bootstrap · CSP · widget script · session initialization · mount event · host sizing · network
+
+Notes:
+Do not start automatic diagnosis in checkpoint freeze; next session owns MSG-HYBRID-002.

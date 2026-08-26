@@ -208,11 +208,18 @@ Mode: observe + evidence only (no code fixes)
 - **Notes:** Mark N/A if feature not implemented
 
 ### E5 — Disk
-- **Status:** NOT TESTED (out of scope / do not demo)
-- **Expected:** N/A
-- **Actual:** —
-- **Evidence:** —
-- **Notes:** Explicitly excluded from demo
+- **Status:** **FAIL / BLOCKED (AUTH-004)** — not PASS
+- **Expected:** «Выдать доступ» → Yandex consent → window closes → Disk loads (no verification code UX)
+- **Actual:** verification_code / trapped OAuth view (pre-fix); code now prefers `http://localhost:17248` like Mail — **needs Yandex Console redirect + retest**
+- **Evidence:** Screenshot AUTH-004; Graphify + `authorizeYandexServices` hardcoded OOB redirect
+- **Notes:** Do not mark Disk/Tracker E2E auth PASS until AUTH-004 closed
+
+### E5b — Tracker
+- **Status:** **FAIL / BLOCKED (AUTH-004)** — same service OAuth path as Disk
+- **Expected:** Same as Disk Target UX
+- **Actual:** Same blocker
+- **Evidence:** Shared `authorizeYandexServices`
+- **Notes:** —
 
 ---
 
@@ -434,22 +441,228 @@ See `docs/qa/SECURITY_TRIAGE_2026-08-11.md`.
 | ~07:00 | MAIL-011…015 + UI-002/003 fix applied (Outbox reconcile, context menu, titles, unread, folder tree, sync measure) — **manual retest required**; bugs NOT closed |
 | ~07:45 | Scope polish: folderTree canonical only; Outbox FAILED «Не отправлено»; Sidebar Labels≠IMAP duplex; context capability helper; tests — **AWAITING MANUAL VERIFY**; no PASS; IDLE not implemented |
 | ~08:00 | MAIL-016 Outbox ПКМ; MAIL-017 image thumbs; NOTIF-001 native WinRT+AUMID (no PowerShell path) — **FIX APPLIED / AWAITING MANUAL VERIFY**; no Calendar/Messenger |
+| ~08:15 | Full RU localization pass: i18n dict 835 keys, `check:i18n` = 0 missing, errors/dates/plurals/notifications; audit → `docs/qa/LOCALIZATION_AUDIT_2026-08-11.md`. **Runtime DOM/Tauri Latin scan NOT done → localization NOT PASS** |
 
 ---
 
-## Mail QA notes (2026-08-11 evening — code fixes, not PASS)
+## Localization (2026-08-11)
 
-| ID | Code status | Manual |
-|---|---|---|
-| MAIL-011 | reconcileOutboxPending on startup | Retest stale Outbox |
-| MAIL-012 | context menu source + ThreadMenu | Retest ПКМ folders |
-| UI-002 | placeholder «Поиск в почте» | Retest |
-| UI-003 | system folder titles | Retest |
-| MAIL-013 | unread visual | Retest |
-| MAIL-014 | IMAP folder tree under Inbox | Retest hierarchy |
-| MAIL-015 | 10s/120s polling + focus sync; no IDLE | Measure Yandex→UI latency |
-| MAIL-016 | Outbox ПКМ + capability mapper | TEST A/B |
-| MAIL-017 | AttachmentList image thumbs + cache | TEST C |
-| NOTIF-001 | Native WinRT+AUMID (not PowerShell) | TEST D |
+| Metric | Value |
+|---|---|
+| BEFORE EN UI candidates | ~275–305 |
+| AFTER `check:i18n` missing | **0** |
+| Dict keys | 835 |
+| Runtime Latin scan | **NOT RUN** |
+| Product localization status | **AWAITING MANUAL / RUNTIME VERIFY** (do not PASS) |
+
+Details: `docs/qa/LOCALIZATION_AUDIT_2026-08-11.md`
 
 Do **not** start Calendar/Messenger/A3 from this pass.
+
+---
+
+## FINAL MAIL RUNTIME QA — 2026-08-11 (~18:15–18:30 ICT)
+
+| Field | Value |
+|---|---|
+| branch | `GORGDEV2` |
+| HEAD | `f95b3cf` |
+| runtime | `npm run tauri dev` + WebView2 CDP (`9222`) |
+| account | Yandex OAuth connected (username redacted) |
+| code changes | **none** (observe-only) |
+| commit/push | **not done** |
+
+### Checklist
+
+| # | Area | Status | Notes |
+|---|---|---|---|
+| 1 | Outbox / Send | **PARTIAL** | Self-test `QA-FINAL-*` delivered; appears in **Отправленные** without restart; **Исходящие** empty after send. Intermediate «ровно 1 в Outbox» + final toast timing **not observed** (send too fast / toast gone). |
+| 2 | Attachments | **PARTIAL / FAIL lean** | Attachments library lists JPG/PNG (emoji 🖼, not raster thumbs). Click→enlarged preview / download / broken fallback **not confirmed** in this pass. |
+| 3 | Windows notifications | **BLOCKED** | App stayed foreground during agent CDP; OS toast sender/icon/deep-link **not observed**. |
+| 4 | Read / Unread | **PARTIAL** | Unread visually distinct (`Unread email…` aria + accent row). ПКМ «Отметить непрочитанным» **PASS**. Auto mark-read on open **not reliably confirmed** (aria stayed Unread; reading pane subject sometimes missing). Unread badge moves (e.g. 465→462). |
+| 5 | Mail folders | **PARTIAL** | All system folders present (RU). Custom IMAP under «Папки» present. **FAIL:** `Исходящие` appears **twice** (system + custom). Expand/collapse toggles **not found** (`aria-expanded` empty). |
+| 6 | Context menu | **PARTIAL** | Inbox / Sent / custom folder ПКМ **PASS** (RU actions). Outbox empty → no message ПКМ (**N/A**). Menu contains English **Mute**. |
+| 7 | Search | **PARTIAL** | Placeholder **«Поиск в почте»** PASS; no `from:`/`to:`/`has:attachment` in ordinary UI. Functional filter for `QA-FINAL` **not confirmed** via CDP (controlled input). |
+| 8 | Localization runtime | **FAIL (residuals)** | English system strings: `Unread email from…`, `email from…`, `N unread emails`, menu **Mute**, `(No subject)`, Attachments relative times `7h ago` / `11h ago` / `1mo ago`. User content/filenames excluded. |
+| 9 | Foreground sync latency | **PARTIAL** | Self-send visible in **Вся почта** within ~1–2 min of checks; **not** in Primary «Входящие — Основные». Clean Yandex→Inbox stopwatch **not** obtained → **MAIL-SYNC not opened**. Model still: FG 10s / BG 120s / focus sync / no IDLE. |
+| 10 | Docs | **DONE** | This section + BUG_BACKLOG + `.ai/CURRENT_STATE.md` |
+
+### MAIL VERDICT
+
+**PARTIAL** — send/Sent path works; several prior fixes still incomplete at runtime; localization residuals confirmed; notifications blocked.
+
+### NEXT
+
+Do **not** start Calendar until blockers below are closed or explicitly waived. Fix track: I18N-001, MAIL-018 (dup Исходящие), read-on-open, attachment preview retest, NOTIF-001 manual.
+
+---
+
+## MAIL-020 — Duplicate send toast (2026-08-11 evening)
+
+| Field | Value |
+|---|---|
+| branch | `GORGDEV2` |
+| severity | P1 |
+| status | **FIX APPLIED / AWAITING MANUAL VERIFY** |
+| commit/push | **not done** |
+
+| Check | Result |
+|---|---|
+| Root cause identified | PASS — dual producers: UndoSendToast + showSendFeedback |
+| Legacy path disabled | PASS — UndoSendToast unmounted; stub null |
+| Canonical single toast | PASS — SendFeedbackToast store+event |
+| Unit regression | PASS — composeSendOrchestrator + SendFeedbackToast tests |
+| Manual send retest | **REQUIRED** |
+
+Do **not** start Calendar from this fix.
+
+---
+
+## TRACKER-001 — Rate-limit / duplicate initialize (2026-08-11 evening)
+
+| Field | Value |
+|---|---|
+| branch | `GORGDEV2` |
+| severity | P1 |
+| status | **FIX APPLIED / AWAITING MANUAL VERIFY** |
+| commit/push | **not done** |
+
+| Check | Result |
+|---|---|
+| Root cause | PASS — filter→full init + StrictMode double + no cooldown |
+| Init once / filter→search only | PASS (unit) |
+| Session metadata cache + in-flight dedupe | PASS (unit) |
+| 429 Retry-After + cooldown block | PASS (unit) |
+| Manual cold-open request count (~5) | **REQUIRED** after server cooldown |
+
+Org `8493916`: assumed stored; validity **unknown** until `/v3/myself` = 200.
+
+---
+
+## TRACKER FUNCTIONAL QA (2026-08-11 ~21:40 ICT)
+
+| Field | Value |
+|---|---|
+| branch | `GORGDEV2` |
+| mode | RUNTIME PASS observe-only — **no code fixes**, no commit/push |
+| org | **manual `8493916`** (confirmed valid for **read**; do not change) |
+| runtime | `npm run tauri dev` + CDP `9222` |
+| account | `korotkov.g@office-360.ru` (no tokens logged) |
+| Graphify | NOT NEEDED (bugs filed from runtime; no code change) |
+
+### Verdict matrix
+
+| Area | Result | Notes |
+|---|---|---|
+| Issue list | **PASS** | Queue `TRACKER` («Главное рабочее пространство»): 8 issues; key/status/summary/priority/assignee visible; open vs closed by status text; scroll (`scrollHeight` > `clientHeight`) |
+| Filters | **FAIL** | Local text search **PASS**. Status/priority selects change value but list stays mixed (8 rows). Empty option labels (28 status / 7 priority). Assignee text filter did not narrow list in CDP probe. Second queue absent (only TRACKER + «Мои задачи») |
+| Issue open | **PASS** (partial fields) | Opened TRACKER-8 (open), TRACKER-7 (closed), TRACKER-4 (closed + unassigned). Description + priority button + comments/attachments sections. **Missing in UI:** author, assignee, created/updated, deadline |
+| Edit | **BLOCKED** | Writes → HTTP **403** `tracker_forbidden` (earlier session probe: update/create/comment/upload) |
+| Create | **BLOCKED** | Same 403; create UX is title-only `prompt` (description/assignee/priority not in dialog) |
+| Comments | **BLOCKED** | Write 403; read section present (empty on sampled issues) |
+| Attachments | **PARTIAL / BLOCKED write** | Read: TRACKER-7 shows `image.png` ×2 as plain text. **No download/open control**. Upload blocked 403. FormData path not exercised |
+| Rate-limit | **PASS** (client) | Aggressive CDP earlier hit 429 → RU cooldown message + refresh disabled; after wait list recoverable. Clean functional pass ended with `banner=null`. Filter churn did not show metadata storm in this pass (resource timing limited for plugin-http) |
+| Localization/UI | **FAIL** (labels) | Shell RU OK («Яндекс Трекер», filters, comments/attachments). **P1:** blank status/priority option texts. Detail metadata gaps. Attachments not actionable |
+
+### Auto org
+
+- Manual org **`8493916`** confirmed valid for Tracker **read** (myself/queues/issues).
+- **Do not change org** in this pass.
+- Auto-detection UX → separate follow-up against this real org.
+
+### Bugs filed
+
+- TRACKER-002 (P0) write 403  
+- TRACKER-003 (P1) empty filter labels  
+- TRACKER-004 (P1) status/priority filters ineffective  
+- TRACKER-005 (P2) missing detail metadata  
+- TRACKER-006 (P2) attachments no download/open  
+- TRACKER-007 (P2) create = title-only prompt  
+
+**Overall VERDICT: PARTIAL** — read/list/open usable; filters/labels/detail UX fail; all writes blocked by 403.
+
+
+---
+
+## EFIM HYBRID RUNTIME QA — 2026-08-11 ~22:25 ICT
+
+| Field | Value |
+|---|---|
+| branch | `GORGDEV2-EFIM-INTEGRATION` |
+| HEAD | `3c592febce7596892678b525661c6e9631d8b6a8` |
+| base | `2aaa905` (protected) |
+| mode | MANUAL RUNTIME SMOKE — observe only, **no code changes**, no commit/push/merge |
+| runtime | `npm run tauri dev` + CDP `9222` |
+| account | active `*@office-360.ru` (second local account `*@yandex.ru` used only for switch) |
+| evidence | `docs/qa/evidence/hybrid-runtime-2026-08-11/` (local screenshots + JSON; no secrets) |
+| Graphify | NOT NEEDED (no code fix this pass) |
+
+### Matrix
+
+| Area | Result | Evidence / notes |
+|---|---|---|
+| Startup | **PASS** | App up `#/mail/inbox`; IMAP sync alive; account auto-loaded; no forced OAuth |
+| Mail auth | **PASS** | Inbox loads; no 17248 conflict observed; no manual refresh setup |
+| Sidebar icons | **PASS** | CDP: all 7 services found, Lucide SVG 18×18, opacity 1, no emoji; RU labels. Screenshots `01-sidebar-mail.png`, `11-disk.png` |
+| Mail unread badge | **PASS** | Start 8 → open unread 7 → `markThreadRead(false)` 8 → `markThreadRead(true)` 7; live without restart |
+| Outbox badge | **PASS** | Исходящие badge hidden at 0 (no fake count) |
+| Tasks badge | **PASS** | Задачи badge `1` preserved |
+| Disk | **PASS** | `#/disk` lists file + quota; `hasYandexServiceAuth=true`; client const `9a7396c3…`; no Client ID prompt |
+| Tracker | **PARTIAL** | `#/tracker` loads; stored org `8493916`; no CORS/429 on open; workspace UI present; issue list empty in this session; empty `<option>` labels remain (**TRACKER-003**); filters not re-validated as PASS (**TRACKER-004**); no write attempted |
+| Messenger | **FAIL / BLOCKED** | Provider tabs MAX/Яндекс/Telegram do not change panel (stuck on MAX UX). No Yandex widget iframe. Hub: communications **NEEDS ACCESS** (consent not completed this pass). Bot token not leaked. Unread badge: **NOT IMPLEMENTED / NO SOURCE** |
+| Telemost smoke | **PASS** | `#/telemost` UI + meeting card; CEF host surface present; after «Новая видеовстреча» `office360-cef-subprocess` processes observed; no separate Passport wall in main UI this pass |
+| Account Hub | **PASS** (UX note) | Human grants: Почта / Диск и Трекер / Мессенджер и Телемост; Core+Work CONNECTED; Communications+Admin NEEDS ACCESS; no Client ID/Secret in UI. **P2:** raw English `CONNECTED` / `NEEDS ACCESS` strings |
+| Account switch | **PASS** | 2 accounts present; switch office-360.ru → yandex.ru; unread badge 7 → `99+`; restored |
+
+### Bugs from this pass
+
+- **MSG-HYBRID-001** (P1) — CLOSED/PASS after fix (tabs + communications CTA)
+- **HUB-HYBRID-001** (P2) — CLOSED/PASS after RU i18n status labels
+- **MSG-HYBRID-002** (P1) — OPEN — Yandex Messenger widget stuck loading after communications consent
+
+### VERDICT (initial hybrid smoke @ `3c592fe`)
+
+**PARTIAL** — core mail + Disk + sidebar/badges + Telemost smoke + Hub structure OK; Messenger blocked/failed at tab/consent stage; Tracker remaining known gaps. **NOT READY TO MERGE BACK TO GORGDEV2**.
+
+---
+
+## EFIM HYBRID CHECKPOINT — 2026-08-11 ~22:50 ICT
+
+| Field | Value |
+|---|---|
+| branch | `GORGDEV2-EFIM-INTEGRATION` |
+| previous HEAD | `3c592fe` |
+| mode | Fix MSG-HYBRID-001 + HUB-HYBRID-001; freeze/docs; **do not fix MSG-HYBRID-002**; commit+push integration branch only |
+| Graphify | NOT NEEDED (freeze/push) |
+
+### Integration matrix (current)
+
+| Area | Result |
+|---|---|
+| Mail | **PASS** |
+| Sidebar icons | **PASS** |
+| Mail unread badge | **PASS** |
+| Outbox badge | **PASS** |
+| Tasks badge | **PASS** |
+| Disk | **PASS** |
+| Tracker | **PARTIAL** (TRACKER-003/004 etc. known) |
+| Telemost smoke | **PASS** |
+| Account Hub | **PASS** (RU: «Подключено» / «Требуется доступ») |
+| Messenger | **PARTIAL / P1** — tabs+consent OK; widget loader stuck (**MSG-HYBRID-002**) |
+
+### Messenger follow-up (manual)
+
+| Check | Result |
+|---|---|
+| MSG-HYBRID-001 tabs MAX ↔ Яндекс | **PASS** |
+| NEEDS ACCESS → CTA «Разрешить доступ» | **PASS** |
+| Communications consent completes | **PASS** (manual) |
+| After CONNECTED: usable Yandex Messenger UI | **FAIL** — endless spinner; widget/iframe content not visible |
+
+### Open blocker
+
+**MSG-HYBRID-002** (P1 OPEN) — after successful communications consent, Yandex tab remains on infinite loader; expected: widget mounts and becomes usable. Hypotheses only (not diagnosed): iframe/widget bootstrap, CSP, widget script, session init, mount event, host sizing, network.
+
+### Overall
+
+**INTEGRATION PARTIAL** — **NOT READY TO MERGE BACK TO GORGDEV2**.

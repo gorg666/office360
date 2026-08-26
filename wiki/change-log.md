@@ -1,5 +1,58 @@
 # Журнал изменений
 
+## 2026-08-24 — Calendar share management (CAL-128)
+
+- Добавлены provider-neutral ACL list/grant/update/revoke и роли owner/writer/reader/free-busy-only поверх CAL-119 effective permissions.
+- Google использует официальный ACL API и persisted OAuth scope gate; generic CalDAV/Yandex включают read/write только после полного RFC 3744 discovery.
+- Calendar UI capability-driven, защищает owner/current user, нормализует email и обновляет access metadata только обычным provider refresh.
+- Migration: NONE. Реальные Google/Yandex ACL и production не изменялись.
+
+## 2026-08-23 — Shared calendar access (CAL-119)
+
+- Добавлен provider-neutral `CalendarAccess`: ownership, effective role и независимые read/write/free-busy permissions.
+- Google CalendarList и CalDAV/Yandex privileges нормализуются в один contract; writes, drag/resize и detail privacy теперь gated per calendar.
+- Append-only v37 сохраняет access/presence metadata; отсутствующие provider calendars помечаются removed без удаления локальных данных.
+- Cloud ACL/subscription mutations не выполнялись.
+
+## 2026-08-23 — Calendar reminder metadata (CAL-118)
+
+- Добавлена provider-neutral модель `inherit` / `none` / `custom` с multiple relative reminders и minute/hour/day duration.
+- Google defaults/overrides и CalDAV/Yandex `VALARM` проходят через один semantic contract; unsupported alarms дают diagnostic и не ломают событие.
+- Append-only migration v36 добавляет nullable `calendar_events.reminders_json` без backfill; legacy CalDAV lazily derives из ICS, Google остаётся unknown до refresh.
+- Create/Edit UI capability-driven; drag/resize/recurrence/time conversions сохраняют provider reminder state, если пользователь его не менял.
+- Desktop toast scheduler, snooze/dismiss и app-closed delivery не добавлялись.
+
+## 2026-08-22 — CAL-110 remote Free/Busy
+
+- Scheduling Assistant получает privacy-limited remote busy intervals через единый account/provider-scoped adapter boundary.
+- Google использует официальный batched `freeBusy.query`; partial errors не стирают успешные ответы.
+- Generic CalDAV требует RFC 6638 scheduling discovery. Yandex проходит только read-only discovery и остаётся unsupported без доказанного public CalDAV endpoint.
+- Добавлены AbortSignal, короткий in-memory cache/coalescing и provider/scheduler conformance tests. Migration: none.
+
+## 2026-08-22 — Calendar provider/write capabilities
+
+- Calendar provider capability contract v2 now describes real Google, CalDAV and Yandex read/write, recurrence, RSVP, sync, Free/Busy, ACL, reminders and conflict behavior.
+- A typed Calendar mutation boundary gates unsupported operations and maps provider failures to safe UI results.
+- Google and CalDAV use cached ETags for conditional writes; CalDAV/Yandex occurrence deletion cannot erase the shared series resource.
+- Calendar write success reconciles through the CAL-104 range owner; ad-hoc local create/delete cache paths were removed.
+- Mail RSVP without a remote calendar/resource locator becomes terminal unsupported without an infinite queue retry.
+
+## 2026-08-22 — Calendar sync/cache ownership
+
+- Calendar range loading and remote/cache reconciliation moved from `CalendarPage` into a dedicated service boundary.
+- Append-only migration v35 adds explicit remote/local-projection semantics and durable complete/partial range coverage without rewriting existing rows.
+- Successful empty ranges are distinguishable from never-synced ranges; degraded parser responses retain missing cached events.
+- Google bounded event reads now follow all pages; generic CalDAV accurately declares bounded range refresh rather than token sync.
+- Late range/account responses are presentation-safe, and unconfirmed RSVP projections have a deterministic cleanup lifecycle.
+
+## 2026-08-22 — Calendar iCalendar codec foundation
+
+- Calendar raw ICS parsing, serialization, event update and attendee participation update now use pinned `ical.js` behind an isolated codec boundary.
+- Existing CAL-102 zoned/floating/all-day, DST and occurrence identity semantics remain authoritative.
+- Incoming VTIMEZONE locations and a small explicit Windows TZID alias set map to IANA zones; unresolved identifiers produce a provider-neutral warning and deterministic projection instead of silently using the host timezone.
+- Recurrence metadata, unknown properties and VTIMEZONE components survive event updates; malformed sibling VEVENTs remain isolated.
+- Mail REQUEST/REPLY/CANCEL parsing and CalDAV/Yandex behavior share the codec; Google retains its native provider mapping.
+
 ## 2026-08-11 — планирование Телемоста и единая OAuth-сессия
 
 - Домашняя страница встроенного Телемоста остаётся невидимым техническим DOM-исполнителем; CEF показывается только для встречи или авторизации.

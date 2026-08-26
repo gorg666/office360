@@ -7,11 +7,9 @@ import { deleteAllMessagesForAccount } from "../db/messages";
 import { imapInitialSync, imapDeltaSync, isConnectionError } from "../imap/imapSync";
 import { clearAllFolderSyncStates } from "../db/folderSyncState";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
-import { hasCalendarSupport, getCalendarProvider } from "../calendar/providerFactory";
-import { getVisibleCalendars, upsertCalendar, updateCalendarSyncToken } from "../db/calendars";
-import { upsertCalendarEvent, deleteEventByRemoteId } from "../db/calendarEvents";
 import { clearAccountDiagnostic, upsertAccountDiagnostic } from "../db/accountDiagnostics";
 import { createConnectionDiagnostic } from "../diagnostics";
+import { calendarSyncCoordinator } from "../calendar/calendarSyncCoordinator";
 
 /** When the window/tab is visible — pick up new mail quickly while the app is open. */
 export const SYNC_INTERVAL_VISIBLE_MS = 10_000;
@@ -287,73 +285,7 @@ async function syncImapAccount(accountId: string): Promise<void> {
  */
 async function syncCalendarForAccount(accountId: string): Promise<void> {
   try {
-    const supported = await hasCalendarSupport(accountId);
-    if (!supported) return;
-
-    const provider = await getCalendarProvider(accountId);
-
-    // Discover/update calendars
-    const calendarInfos = await provider.listCalendars();
-    for (const cal of calendarInfos) {
-      await upsertCalendar({
-        accountId,
-        provider: provider.type,
-        remoteId: cal.remoteId,
-        displayName: cal.displayName,
-        color: cal.color,
-        isPrimary: cal.isPrimary,
-      });
-    }
-
-    // Sync events for each visible calendar
-    const visibleCals = await getVisibleCalendars(accountId);
-    for (const cal of visibleCals) {
-      try {
-        const syncResult = await provider.syncEvents(cal.remote_id, cal.sync_token ?? undefined);
-
-        // Upsert created/updated events
-        for (const event of [...syncResult.created, ...syncResult.updated]) {
-          await upsertCalendarEvent({
-            accountId,
-            googleEventId: event.remoteEventId,
-            summary: event.summary,
-            description: event.description,
-            location: event.location,
-            startTime: event.startTime,
-            endTime: event.endTime,
-            isAllDay: event.isAllDay,
-            status: event.status,
-            organizerEmail: event.organizerEmail,
-            attendeesJson: event.attendeesJson,
-            htmlLink: event.htmlLink,
-            calendarId: cal.id,
-            remoteEventId: event.remoteEventId,
-            etag: event.etag,
-            icalData: event.icalData,
-            uid: event.uid,
-          });
-        }
-
-        // Delete removed events
-        for (const remoteId of syncResult.deletedRemoteIds) {
-          await deleteEventByRemoteId(cal.id, remoteId);
-        }
-
-        // Update sync token
-        if (syncResult.newSyncToken || syncResult.newCtag) {
-          await updateCalendarSyncToken(cal.id, syncResult.newSyncToken, syncResult.newCtag);
-        }
-      } catch (err) {
-        console.warn(`[syncManager] Calendar sync failed for ${cal.display_name ?? cal.remote_id}:`, err);
-        const diagnostic = createConnectionDiagnostic(err, {
-          accountId,
-          provider: "caldav",
-          layer: "caldav",
-          operation: "sync",
-        });
-        await upsertAccountDiagnostic(diagnostic).catch(() => {});
-      }
-    }
+    await calendarSyncCoordinator.syncAccount(accountId, "background");
 
     // Emit event for UI update
     window.dispatchEvent(new CustomEvent("velo-calendar-sync-done"));

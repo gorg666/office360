@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { ThreadView } from "./components/email/ThreadView";
 import { MoveToFolderDialog } from "./components/email/MoveToFolderDialog";
 import { Composer } from "./components/composer/Composer";
-import { UndoSendToast } from "./components/composer/UndoSendToast";
 import { useAccountStore } from "./stores/accountStore";
 import { useLabelStore } from "./stores/labelStore";
 import { useUIStore } from "./stores/uiStore";
@@ -249,7 +248,6 @@ export default function ThreadWindow() {
       </div>
       <ThreadView thread={thread} />
       <Composer />
-      <UndoSendToast />
       <ContextMenuPortal />
       <MoveToFolderDialog
         isOpen={moveToFolderState.open}

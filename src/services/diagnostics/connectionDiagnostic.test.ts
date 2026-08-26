@@ -1,4 +1,4 @@
-import { createConnectionDiagnostic, redactDiagnosticText } from "./index";
+import { createConnectionDiagnostic, redactDiagnosticText, redactLogIdentifier } from "./index";
 
 describe("createConnectionDiagnostic", () => {
   it("maps password auth failure to invalid credentials", () => {
@@ -128,5 +128,10 @@ describe("redactDiagnosticText", () => {
     expect(result).toContain("[redacted-mail]");
     expect(result).not.toContain("alice@example.com");
     expect(result).not.toContain("secret-hop");
+  });
+
+  it("applies the CAL-BUG-102 identifier logging contract", () => {
+    expect(redactLogIdentifier("account-id")).toBe("[redacted]");
+    expect(redactLogIdentifier("  ")).toBe("[missing]");
   });
 });

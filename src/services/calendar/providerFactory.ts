@@ -5,6 +5,7 @@ import { getAccount } from "@/services/db/accounts";
 import { isYandexOAuthCalendarAccount } from "./yandex";
 
 const providerCache = new Map<string, CalendarProvider>();
+const providerCreationCache = new Map<string, Promise<CalendarProvider>>();
 
 /**
  * Get a CalendarProvider for the given account.
@@ -14,6 +15,25 @@ export async function getCalendarProvider(accountId: string): Promise<CalendarPr
   const cached = providerCache.get(accountId);
   if (cached) return cached;
 
+  const pending = providerCreationCache.get(accountId);
+  if (pending) return pending;
+
+  const creation = createCalendarProvider(accountId);
+  providerCreationCache.set(accountId, creation);
+  try {
+    const provider = await creation;
+    if (providerCreationCache.get(accountId) === creation) {
+      providerCache.set(accountId, provider);
+    }
+    return provider;
+  } finally {
+    if (providerCreationCache.get(accountId) === creation) {
+      providerCreationCache.delete(accountId);
+    }
+  }
+}
+
+async function createCalendarProvider(accountId: string): Promise<CalendarProvider> {
   const account = await getAccount(accountId);
   if (!account) throw new Error(`Account ${accountId} not found`);
 
@@ -35,14 +55,10 @@ export async function getCalendarProvider(accountId: string): Promise<CalendarPr
   else if (account.provider === "gmail_api" || account.calendar_provider === "google_api") {
     provider = new GoogleCalendarProvider(accountId);
   }
-  // Default for Gmail accounts
-  else if (account.provider === "gmail_api") {
-    provider = new GoogleCalendarProvider(accountId);
-  } else {
+  else {
     throw new Error(`No calendar provider configured for account ${accountId}`);
   }
 
-  providerCache.set(accountId, provider);
   return provider;
 }
 
@@ -62,8 +78,10 @@ export async function hasCalendarSupport(accountId: string): Promise<boolean> {
 
 export function removeCalendarProvider(accountId: string): void {
   providerCache.delete(accountId);
+  providerCreationCache.delete(accountId);
 }
 
 export function clearAllCalendarProviders(): void {
   providerCache.clear();
+  providerCreationCache.clear();
 }

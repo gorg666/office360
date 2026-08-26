@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { vi } from "vitest";
 import { CalendarList } from "./CalendarList";
 import type { DbCalendar } from "@/services/db/calendars";
+import { googleCalendarAccess, serializeCalendarAccess } from "@/services/calendar/domain";
 
 function makeCalendar(overrides: Partial<DbCalendar> = {}): DbCalendar {
   return {
@@ -17,6 +18,10 @@ function makeCalendar(overrides: Partial<DbCalendar> = {}): DbCalendar {
     ctag: null,
     created_at: 1700000000,
     updated_at: 1700000000,
+    access_json: null,
+    access_observed_at: null,
+    provider_presence: null,
+    provider_seen_at: null,
     ...overrides,
   };
 }
@@ -48,9 +53,9 @@ describe("CalendarList", () => {
       <CalendarList calendars={calendars} onVisibilityChange={vi.fn()} />,
     );
 
-    expect(screen.getByText("Primary")).toBeInTheDocument();
+    expect(screen.getByText("Основной")).toBeInTheDocument();
     // Only one Primary badge
-    expect(screen.getAllByText("Primary")).toHaveLength(1);
+    expect(screen.getAllByText("Основной")).toHaveLength(1);
   });
 
   it("checkboxes reflect is_visible state", () => {
@@ -126,6 +131,18 @@ describe("CalendarList", () => {
       <CalendarList calendars={calendars} onVisibilityChange={vi.fn()} />,
     );
 
-    expect(screen.getByText("Calendar")).toBeInTheDocument();
+    expect(screen.getByText("Календарь")).toBeInTheDocument();
+  });
+
+  it("shows sharing control only when CAL-119 permits management", () => {
+    const onManageSharing = vi.fn();
+    const calendars = [
+      makeCalendar({ id: "owner", display_name: "Owned", access_json: serializeCalendarAccess(googleCalendarAccess("owner", true)) }),
+      makeCalendar({ id: "reader", display_name: "Read only", access_json: serializeCalendarAccess(googleCalendarAccess("reader")) }),
+    ];
+    render(<CalendarList calendars={calendars} onVisibilityChange={vi.fn()} onManageSharing={onManageSharing} />);
+    fireEvent.click(screen.getByRole("button", { name: "Управление доступом Owned" }));
+    expect(onManageSharing).toHaveBeenCalledWith(calendars[0]);
+    expect(screen.queryByRole("button", { name: "Управление доступом Read only" })).not.toBeInTheDocument();
   });
 });

@@ -153,15 +153,15 @@ describe("formatSyncError", () => {
     );
   });
 
-  it("truncates long errors at 100 chars", () => {
+  it("maps long unknown English dumps to a safe Russian fallback", () => {
     const longError = "A".repeat(150);
-    const result = formatSyncError(longError);
-    expect(result).toHaveLength(101); // 100 chars + ellipsis
-    expect(result.endsWith("\u2026")).toBe(true);
+    expect(formatSyncError(longError)).toBe("Произошла ошибка. Повторите попытку.");
   });
 
-  it("passes through short unknown errors unchanged", () => {
-    expect(formatSyncError("Something unexpected")).toBe("Something unexpected");
+  it("maps short unknown English errors to a safe Russian fallback", () => {
+    expect(formatSyncError("Something unexpected")).toBe(
+      "Произошла ошибка. Повторите попытку.",
+    );
   });
 });
 

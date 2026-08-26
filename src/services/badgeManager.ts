@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
+import { MAIL_UNREAD_CHANGED_EVENT } from "@/components/layout/useServiceNavBadges";
 import { getUnreadInboxCount } from "./db/threads";
 import { APP_NAME_EN } from "@/i18n";
 
@@ -10,6 +11,12 @@ export async function updateBadgeCount(): Promise<void> {
     const count = await getUnreadInboxCount();
     if (count === lastCount) return;
     lastCount = count;
+
+    try {
+      window.dispatchEvent(new CustomEvent(MAIL_UNREAD_CHANGED_EVENT, { detail: { count } }));
+    } catch {
+      // DOM event fan-out is best-effort for Sidebar badges
+    }
 
     try {
       await getCurrentWindow().setBadgeCount(count > 0 ? count : undefined);

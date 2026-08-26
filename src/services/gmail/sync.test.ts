@@ -45,6 +45,10 @@ vi.mock("@/services/db/bundleRules", () => ({
 vi.mock("@/services/db/pendingOperations", () => ({
   getPendingOpsForResource: vi.fn().mockResolvedValue([]),
 }));
+vi.mock("../calendar/invitations", () => ({
+  detectInvitationsInMessage: vi.fn(() => Promise.resolve([])),
+  detectInvitationsFromAttachments: vi.fn(() => Promise.resolve([])),
+}));
 
 const mockNotify = vi.fn();
 const mockShouldNotify = vi.fn().mockReturnValue(true);
@@ -52,6 +56,8 @@ vi.mock("../notifications/notificationManager", () => ({
   queueNewEmailNotification: (...args: unknown[]) => mockNotify(...args),
   shouldNotifyForMessage: (...args: unknown[]) => mockShouldNotify(...args),
 }));
+
+import { detectInvitationsInMessage } from "../calendar/invitations";
 
 // Mock parseGmailMessage
 vi.mock("./messageParser", () => ({
@@ -138,6 +144,9 @@ describe("deltaSync notifications", () => {
       "account-1",
       "sender@example.com",
     );
+    expect(detectInvitationsInMessage).toHaveBeenCalledWith(expect.objectContaining({
+      accountId: "account-1", threadId: "thread-1", messageId: "msg-thread-1",
+    }));
   });
 
   it("does not send notification for read messages", async () => {

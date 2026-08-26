@@ -158,3 +158,116 @@ describe("full address book migration", () => {
     expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS contact_list_members");
   });
 });
+
+describe("calendar semantic time migration", () => {
+  const migration = MIGRATIONS.find((item) => item.version === 34);
+
+  it("is append-only and adds the semantic columns and indexes", () => {
+    expect(migration).toBeDefined();
+    expect(migration?.sql).not.toMatch(/(?:^|;)\s*(?:DROP|DELETE|UPDATE|REPLACE)\b/im);
+    expect(migration?.sql.match(/ALTER TABLE calendar_events ADD COLUMN/g)).toHaveLength(10);
+
+    for (const column of [
+      "time_kind",
+      "tzid",
+      "wall_start",
+      "wall_end",
+      "end_date_exclusive",
+      "series_uid",
+      "occurrence_key",
+      "is_recurrence_master",
+      "transp",
+      "sequence",
+    ]) {
+      expect(migration?.sql).toContain(`ADD COLUMN ${column}`);
+    }
+
+    expect(migration?.sql).toContain("idx_calendar_events_series_uid");
+    expect(migration?.sql).toContain("idx_calendar_events_occurrence_key");
+  });
+
+  it("uses nullable fields and constant defaults so fresh and existing rows remain valid", () => {
+    const statements = splitStatements(migration!.sql);
+    expect(statements).toHaveLength(12);
+    expect(migration?.sql).toContain("ADD COLUMN is_recurrence_master INTEGER NOT NULL DEFAULT 0");
+    expect(migration?.sql).toContain("ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0");
+    for (const nullable of ["time_kind", "tzid", "wall_start", "wall_end", "end_date_exclusive", "series_uid", "occurrence_key", "transp"]) {
+      expect(migration?.sql).toMatch(new RegExp(`ADD COLUMN ${nullable} TEXT;`));
+    }
+  });
+});
+
+describe("calendar sync coverage migration", () => {
+  const migration = MIGRATIONS.find((item) => item.version === 35);
+
+  it("is append-only and adds explicit projection and range coverage state", () => {
+    expect(migration).toBeDefined();
+    expect(migration?.sql).not.toMatch(/(?:^|;)\s*(?:DROP|DELETE|UPDATE|REPLACE)\b/im);
+    expect(migration?.sql.match(/ALTER TABLE calendar_events ADD COLUMN/g)).toHaveLength(3);
+    expect(migration?.sql).toContain("ADD COLUMN origin TEXT");
+    expect(migration?.sql).toContain("ADD COLUMN projection_key TEXT");
+    expect(migration?.sql).toContain("ADD COLUMN projection_status TEXT");
+    expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS calendar_sync_coverage");
+    expect(migration?.sql).toContain("UNIQUE(account_id, calendar_id, range_start, range_end)");
+    expect(migration?.sql).toContain("idx_calendar_events_projection_key");
+  });
+});
+
+describe("calendar reminder projection migration", () => {
+  const migration = MIGRATIONS.find((item) => item.version === 36);
+
+  it("only appends a nullable reminder envelope column", () => {
+    expect(migration).toBeDefined();
+    expect(migration?.sql).not.toMatch(/(?:^|;)\s*(?:DROP|DELETE|UPDATE|REPLACE|INSERT)\b/im);
+    expect(splitStatements(migration!.sql)).toEqual([
+      "ALTER TABLE calendar_events ADD COLUMN reminders_json TEXT",
+    ]);
+  });
+});
+
+describe("calendar access metadata migration", () => {
+  const migration = MIGRATIONS.find((item) => item.version === 37);
+
+  it("only appends nullable access and provider-presence metadata", () => {
+    expect(migration).toBeDefined();
+    expect(migration?.sql).not.toMatch(/(?:^|;)\s*(?:DROP|DELETE|UPDATE|REPLACE|INSERT)\b/im);
+    expect(splitStatements(migration!.sql)).toHaveLength(5);
+    expect(migration?.sql.match(/ALTER TABLE calendars ADD COLUMN/g)).toHaveLength(4);
+    expect(migration?.sql).toContain("CHECK (provider_presence IN ('present', 'removed'))");
+    expect(migration?.sql).toContain("idx_calendars_account_presence");
+  });
+});
+
+describe("calendar reminder delivery migration", () => {
+  const migration = MIGRATIONS.find((item) => item.version === 38);
+
+  it("only creates the approved durable delivery table and indexes", () => {
+    expect(migration).toBeDefined();
+    expect(migration?.sql).not.toMatch(/(?:^|;)\s*(?:DROP|DELETE|UPDATE|REPLACE|INSERT|ALTER)\b/im);
+    expect(splitStatements(migration!.sql)).toHaveLength(4);
+    expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS calendar_reminder_deliveries");
+    expect(migration?.sql).toContain("delivery_key TEXT PRIMARY KEY");
+    expect(migration?.sql).toContain("source_fingerprint TEXT NOT NULL");
+    expect(migration?.sql).toContain("idx_calendar_reminder_deliveries_due");
+    expect(migration?.sql).toContain("idx_calendar_reminder_deliveries_event");
+    expect(migration?.sql).toContain("idx_calendar_reminder_deliveries_parent");
+  });
+});
+
+describe("calendar iTIP action ledger migration", () => {
+  const migration = MIGRATIONS.find((item) => item.version === 39);
+
+  it("only creates the approved durable action table and indexes", () => {
+    expect(migration).toBeDefined();
+    expect(migration?.sql).not.toMatch(/(?:^|;)\s*(?:DROP|DELETE|UPDATE|REPLACE|INSERT|ALTER)\b/im);
+    expect(splitStatements(migration!.sql)).toHaveLength(5);
+    expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS calendar_itip_actions");
+    expect(migration?.sql).toContain("action_key TEXT PRIMARY KEY");
+    expect(migration?.sql).toContain("source_fingerprint TEXT NOT NULL");
+    expect(migration?.sql).toContain("participant_key TEXT NOT NULL DEFAULT ''");
+    expect(migration?.sql).toContain("idx_calendar_itip_actions_event");
+    expect(migration?.sql).toContain("idx_calendar_itip_actions_delivery");
+    expect(migration?.sql).toContain("idx_calendar_itip_actions_message");
+    expect(migration?.sql).toContain("idx_calendar_itip_actions_pending_operation");
+  });
+});

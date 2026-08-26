@@ -68,6 +68,18 @@ export async function getCalendarInvitationById(id: string): Promise<DbCalendarI
   );
 }
 
+export async function getCalendarInvitationByIdentity(
+  accountId: string,
+  eventUid: string,
+  recurrenceId?: string | null,
+): Promise<DbCalendarInvitation | null> {
+  return selectFirstBy<DbCalendarInvitation>(
+    `SELECT * FROM calendar_invitations
+     WHERE account_id = $1 AND event_uid = $2 AND recurrence_key = $3`,
+    [accountId, eventUid, recurrenceKey(recurrenceId)],
+  );
+}
+
 export async function upsertCalendarInvitation(
   input: UpsertCalendarInvitationInput,
 ): Promise<DbCalendarInvitation> {
@@ -165,16 +177,27 @@ export async function updateInvitationRsvp(
   rsvpStatus: CalendarInvitationRsvpStatus,
   queueStatus: CalendarInvitationQueueStatus,
   queuedOperationId?: string | null,
+  attendeesJson?: string | null,
 ): Promise<void> {
   const db = await getDb();
+  if (attendeesJson === undefined) {
+    await db.execute(
+      `UPDATE calendar_invitations
+       SET rsvp_status = $1, rsvp_queue_status = $2, queued_operation_id = $3, updated_at = unixepoch()
+       WHERE id = $4`,
+      [rsvpStatus, queueStatus, queuedOperationId ?? null, invitationId],
+    );
+    return;
+  }
   await db.execute(
     `UPDATE calendar_invitations
      SET rsvp_status = $1,
          rsvp_queue_status = $2,
          queued_operation_id = $3,
+         attendees_json = $4,
          updated_at = unixepoch()
-     WHERE id = $4`,
-    [rsvpStatus, queueStatus, queuedOperationId ?? null, invitationId],
+     WHERE id = $5`,
+    [rsvpStatus, queueStatus, queuedOperationId ?? null, attendeesJson ?? null, invitationId],
   );
 }
 

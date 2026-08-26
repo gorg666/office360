@@ -3,7 +3,6 @@ import { Outlet } from "@tanstack/react-router";
 import { Sidebar } from "./components/layout/Sidebar";
 import { AddAccount } from "./components/accounts/AddAccount";
 import { Composer } from "./components/composer/Composer";
-import { UndoSendToast } from "./components/composer/UndoSendToast";
 import { SendFeedbackToast } from "./components/composer/SendFeedbackToast";
 import { installComposeSendListener } from "./services/composer/composeSendOrchestrator";
 import { CommandPalette } from "./components/search/CommandPalette";
@@ -42,6 +41,11 @@ import {
   stopBundleChecker,
 } from "./services/bundles/bundleManager";
 import { initNotifications } from "./services/notifications/notificationManager";
+import {
+  startCalendarReminderScheduler,
+  stopCalendarReminderScheduler,
+} from "./services/calendar/reminderDelivery";
+import { CalendarReminderCenter } from "./components/calendar/CalendarReminderCenter";
 import {
   initGlobalShortcut,
   unregisterComposeShortcut,
@@ -482,6 +486,7 @@ export default function App() {
 
         // Initialize notifications
         await initNotifications();
+        startCalendarReminderScheduler();
 
         // Initialize global compose shortcut
         await initGlobalShortcut();
@@ -512,6 +517,7 @@ export default function App() {
 
     return () => {
       stopBackgroundSync();
+      stopCalendarReminderScheduler();
       stopSnoozeChecker();
       stopScheduledSendChecker();
       stopFollowUpChecker();
@@ -824,8 +830,8 @@ export default function App() {
       <ErrorBoundary name="Composer">
         <Composer />
       </ErrorBoundary>
-      <UndoSendToast />
       <SendFeedbackToast />
+      <CalendarReminderCenter />
       <UpdateToast />
       <ErrorBoundary name="CommandPalette">
         <CommandPalette

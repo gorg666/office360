@@ -12,7 +12,8 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useComposerStore } from "../../stores/composerStore";
 import { navigateToLabel } from "../../router/navigate";
 import { normalizeEmail } from "@/utils/emailUtils";
-import { APP_NAME_EN } from "@/i18n";
+import { APP_NAME_RU, getInitialLocale, translateText } from "@/i18n";
+import { pluralRu } from "@/utils/pluralRu";
 
 let initialized = false;
 let notificationsEnabled = true;
@@ -20,6 +21,12 @@ let lastSoundAt = 0;
 let notificationSoundVolume = 0.8;
 let notificationSoundPath = "";
 let isWindowsHost: boolean | null = null;
+export type NotificationPermissionStatus = "unknown" | "granted" | "denied" | "disabled";
+export type CalendarNotificationResult = {
+  status: "delivered" | "permission-denied" | "disabled" | "failed";
+  permission: NotificationPermissionStatus;
+};
+let notificationPermissionStatus: NotificationPermissionStatus = "unknown";
 
 interface NotificationContext {
   threadId?: string;
@@ -131,15 +138,18 @@ async function showOsNotification(title: string, body: string, actionTypeId: str
 /**
  * Initialize notification permissions and action types.
  */
-export async function initNotifications(): Promise<void> {
-  if (initialized) return;
+export async function initNotifications(): Promise<NotificationPermissionStatus> {
+  if (initialized) return notificationPermissionStatus;
   initialized = true;
 
   const setting = await getSetting("notifications_enabled");
   notificationsEnabled = setting !== "false";
   await loadNotificationSoundSettings();
 
-  if (!notificationsEnabled) return;
+  if (!notificationsEnabled) {
+    notificationPermissionStatus = "disabled";
+    return notificationPermissionStatus;
+  }
 
   if (await detectWindowsHost()) {
     try {
@@ -149,16 +159,25 @@ export async function initNotifications(): Promise<void> {
     }
   }
 
-  let granted = await isPermissionGranted();
-  if (!granted) {
-    const permission = await requestPermission();
-    granted = permission === "granted";
+  let granted = false;
+  try {
+    granted = await isPermissionGranted();
+    if (!granted) {
+      const permission = await requestPermission();
+      granted = permission === "granted";
+    }
+  } catch (error) {
+    notificationPermissionStatus = "unknown";
+    console.warn("Unable to determine notification permission:", error);
+    return notificationPermissionStatus;
   }
 
   if (!granted) {
     notificationsEnabled = false;
-    return;
+    notificationPermissionStatus = "denied";
+    return notificationPermissionStatus;
   }
+  notificationPermissionStatus = "granted";
 
   try {
     await registerActionTypes([
@@ -169,9 +188,15 @@ export async function initNotifications(): Promise<void> {
       {
         id: "email",
         actions: [
-          { id: "reply", title: "Reply" },
-          { id: "archive", title: "Archive" },
+          { id: "reply", title: translateText("Reply", getInitialLocale()) },
+          { id: "archive", title: translateText("Archive", getInitialLocale()) },
         ],
+      },
+      {
+        // Snooze/dismiss are provided by the in-app reminder center because
+        // native action support is not consistent across desktop platforms.
+        id: "calendar-reminder",
+        actions: [],
       },
     ]);
 
@@ -179,7 +204,10 @@ export async function initNotifications(): Promise<void> {
       const actionId = event.actionTypeId;
       const ctx = lastNotificationContext;
 
-      if (actionId === "reply" && ctx?.threadId && ctx?.accountId) {
+      if (actionId === "calendar-reminder") {
+        await showAndFocusMainWindow();
+        navigateToLabel("calendar");
+      } else if (actionId === "reply" && ctx?.threadId && ctx?.accountId) {
         await showAndFocusMainWindow();
         useComposerStore.getState().openComposer({
           mode: "reply",
@@ -203,6 +231,35 @@ export async function initNotifications(): Promise<void> {
     });
   } catch {
     // registerActionTypes/onAction not available on this platform (e.g. Windows)
+  }
+  return notificationPermissionStatus;
+}
+
+export function getNotificationPermissionStatus(): NotificationPermissionStatus {
+  return notificationPermissionStatus;
+}
+
+/** Calendar delivery entrypoint. Payload is already privacy-filtered by its domain service. */
+export async function showCalendarReminderNotification(input: {
+  title: string;
+  body: string;
+}): Promise<CalendarNotificationResult> {
+  if (!initialized) await initNotifications();
+  if (notificationPermissionStatus === "denied") {
+    return { status: "permission-denied", permission: notificationPermissionStatus };
+  }
+  if (notificationPermissionStatus === "disabled") {
+    return { status: "disabled", permission: notificationPermissionStatus };
+  }
+  if (notificationPermissionStatus !== "granted") {
+    return { status: "failed", permission: notificationPermissionStatus };
+  }
+  try {
+    await showOsNotification(input.title, input.body, "calendar-reminder");
+    return { status: "delivered", permission: notificationPermissionStatus };
+  } catch (error) {
+    console.warn("Calendar reminder notification failed:", error);
+    return { status: "failed", permission: notificationPermissionStatus };
   }
 }
 
@@ -238,10 +295,20 @@ export function queueNewEmailNotification(
         return;
       }
 
+      const locale = getInitialLocale();
+      const noSubject = translateText("(No subject)", locale);
       if (count === 1) {
-        await showOsNotification("Новое письмо", `${from}: ${subject || "(No subject)"}`, "email");
+        await showOsNotification(
+          translateText("New mail", locale),
+          `${from}: ${subject || noSubject}`,
+          "email",
+        );
       } else if (count > 1) {
-        await showOsNotification(APP_NAME_EN, `${count} new emails`, "email");
+        const body =
+          locale === "ru"
+            ? `${count} ${pluralRu(count, "новое письмо", "новых письма", "новых писем")}`
+            : `${count} new emails`;
+        await showOsNotification(APP_NAME_RU, body, "email");
       }
     })();
   }, 2000);
@@ -271,7 +338,12 @@ export function notifyFollowUpDue(
   if (threadId) recentContexts.set(threadId, ctx);
   void (async () => {
     if (await isMainWindowForeground()) return;
-    await showOsNotification("Follow up needed", subject || "(No subject)", "email");
+    const locale = getInitialLocale();
+    await showOsNotification(
+      translateText("Follow up needed", locale),
+      subject || translateText("(No subject)", locale),
+      "email",
+    );
   })();
 }
 
@@ -279,6 +351,11 @@ export function notifySnoozeReturn(subject: string): void {
   if (!notificationsEnabled) return;
   void (async () => {
     if (await isMainWindowForeground()) return;
-    await showOsNotification("Snoozed email returned", subject || "(No subject)", "default");
+    const locale = getInitialLocale();
+    await showOsNotification(
+      translateText("Snoozed email returned", locale),
+      subject || translateText("(No subject)", locale),
+      "default",
+    );
   })();
 }

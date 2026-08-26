@@ -13,6 +13,11 @@ const RAW_MAIL_PATTERNS = [
 
 const MAX_REDACTED_LENGTH = 600;
 
+/** Mirrors the native CAL-BUG-102 logging contract without exposing identifiers. */
+export function redactLogIdentifier(value: string | null | undefined): "[missing]" | "[redacted]" {
+  return value?.trim() ? "[redacted]" : "[missing]";
+}
+
 export function redactDiagnosticText(value: unknown): string {
   let text = value instanceof Error ? value.message : String(value ?? "");
   text = text.replace(BEARER_PATTERN, "Bearer [redacted]");

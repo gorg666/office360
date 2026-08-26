@@ -13,4 +13,6 @@ For non-trivial existing-code tasks: query Graphify first → read only the mini
 
 Do not duplicate that section elsewhere. Index lives in `graphify-out/` (MCP `user-graphify`).
 
-In `APOSTLE_CHECK` include: `Graphify: READ | UPDATED | NOT NEEDED`.
+In `APOSTLE_CHECK` include: `Graphify: READ | UPDATED | NOT NEEDED | BLOCKED`.
+
+`BLOCKED` = `graphify-out/graph.json` missing for this package — restore with `graphify update .` (AST, no LLM) before navigation-heavy work. Pass MCP `project_path` to this package root.

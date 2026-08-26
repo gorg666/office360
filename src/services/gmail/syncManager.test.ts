@@ -37,6 +37,9 @@ vi.mock("../calendar/providerFactory", () => ({
   hasCalendarSupport: vi.fn().mockResolvedValue(false),
   getCalendarProvider: vi.fn(),
 }));
+vi.mock("../calendar/calendarSyncCoordinator", () => ({
+  calendarSyncCoordinator: { syncAccount: vi.fn().mockResolvedValue(undefined) },
+}));
 vi.mock("../db/calendars", () => ({
   getVisibleCalendars: vi.fn().mockResolvedValue([]),
   upsertCalendar: vi.fn(),

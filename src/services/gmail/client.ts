@@ -89,7 +89,7 @@ export class GmailClient {
       const delayMs = retryAfter
         ? parseInt(retryAfter, 10) * 1000
         : INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      await abortableDelay(delayMs, options.signal);
     }
     return lastResponse!;
   }
@@ -322,6 +322,27 @@ export class GmailClient {
     const resp = await this.request<{ drafts?: { id: string; message: { id: string; threadId: string } }[] }>("/drafts?maxResults=500");
     return resp.drafts ?? [];
   }
+}
+
+function abortableDelay(delayMs: number, signal?: AbortSignal | null): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(typeof DOMException === "function"
+      ? new DOMException("Request aborted", "AbortError")
+      : Object.assign(new Error("Request aborted"), { name: "AbortError" }));
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(typeof DOMException === "function"
+        ? new DOMException("Request aborted", "AbortError")
+        : Object.assign(new Error("Request aborted"), { name: "AbortError" }));
+    };
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 // Gmail API types

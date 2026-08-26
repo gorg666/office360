@@ -8,7 +8,7 @@ import {
   isText,
   canPreview,
   formatFileSize,
-  getFileIcon,
+  getFileIconKind,
 } from "./fileTypeHelpers";
 
 describe("isDocument", () => {
@@ -120,8 +120,13 @@ describe("existing helpers", () => {
     expect(formatFileSize(1500000)).toBe("1.4 MB");
   });
 
-  it("getFileIcon returns emoji strings", () => {
-    expect(typeof getFileIcon("image/png")).toBe("string");
-    expect(typeof getFileIcon(null)).toBe("string");
+  it("getFileIconKind returns stable Lucide kinds (no emoji)", () => {
+    expect(getFileIconKind("image/png")).toBe("image");
+    expect(getFileIconKind("video/mp4")).toBe("video");
+    expect(getFileIconKind("audio/mpeg")).toBe("audio");
+    expect(getFileIconKind("application/pdf")).toBe("pdf");
+    expect(getFileIconKind("application/vnd.ms-excel")).toBe("spreadsheet");
+    expect(getFileIconKind("application/zip")).toBe("archive");
+    expect(getFileIconKind(null)).toBe("generic");
   });
 });

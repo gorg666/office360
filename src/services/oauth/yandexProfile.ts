@@ -9,6 +9,8 @@ export const YANDEX_YAPIC_DEFAULT_SIZE = "islands-200" as const;
 export interface YandexNormalizedProfile {
   email: string;
   name: string;
+  subjectId?: string;
+  login?: string;
   picture?: string;
 }
 
@@ -39,7 +41,9 @@ function parseYandexBooleanFlag(value: unknown): boolean | null {
  */
 export function normalizeYandexUserInfo(data: Record<string, unknown>): YandexNormalizedProfile {
   const email = String(data.default_email ?? data.email ?? "");
-  const name = String(data.real_name ?? data.display_name ?? data.login ?? email ?? "");
+  const login = String(data.login ?? "").trim();
+  const subjectId = String(data.id ?? data.uid ?? "").trim();
+  const name = String(data.real_name ?? data.display_name ?? login ?? email ?? "");
   const rawId = data.default_avatar_id ?? data.avatar_id;
   const avatarId =
     rawId !== undefined && rawId !== null && String(rawId).trim().length > 0
@@ -55,6 +59,8 @@ export function normalizeYandexUserInfo(data: Record<string, unknown>): YandexNo
   return {
     email,
     name,
+    subjectId: subjectId || undefined,
+    login: login || undefined,
     picture,
   };
 }

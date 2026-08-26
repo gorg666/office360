@@ -6,7 +6,7 @@ import {
   type ComposeSendPhase,
 } from "@/stores/sendStatusStore";
 import { sendEmail, archiveThread, deleteDraft as deleteDraftAction } from "@/services/emailActions";
-import { notifySendEmailOutcome } from "@/utils/handleSendEmailResult";
+import { resolveSendEmailOutcome } from "@/utils/handleSendEmailResult";
 import { showSendFeedback } from "@/utils/sendFeedbackToast";
 import { upsertContact } from "@/services/db/contacts";
 import {
@@ -99,17 +99,15 @@ async function executeSend(active: ActiveComposeSend): Promise<void> {
       accountId: active.accountId,
     });
 
-    showSendFeedback({
-      title: "Отправка письма…",
-      tone: "info",
-    });
+    // MAIL-020: do not emit a parallel CustomEvent toast — SendFeedbackToast
+    // already shows "Отправка письма…" from sendStatusStore phase.
 
     const result = await sendEmail(
       active.accountId,
       active.rawBase64Url,
       active.threadId,
     );
-    const outcome = notifySendEmailOutcome(result);
+    const outcome = resolveSendEmailOutcome(result);
 
     if (outcome === "failed") {
       if (active.outboxOpId) {
@@ -138,6 +136,14 @@ async function executeSend(active: ActiveComposeSend): Promise<void> {
 
       await restoreCompose(active.restore, active.accountId);
       store.clear();
+      showSendFeedback({
+        title: "Не удалось отправить",
+        detail:
+          result.error?.trim() ||
+          "Не удалось отправить письмо. Повторите попытку.",
+        footnote: "Черновик сохранён — можно повторить отправку.",
+        tone: "error",
+      });
       scheduledRequestIds.delete(active.requestId);
       return;
     }
@@ -156,6 +162,11 @@ async function executeSend(active: ActiveComposeSend): Promise<void> {
         stage: "queued_offline",
       });
       store.clear();
+      showSendFeedback({
+        title: "В очереди «Исходящие»",
+        detail: "Письмо поставлено в очередь. Проверьте «Исходящие».",
+        tone: "info",
+      });
       return;
     }
 
@@ -189,23 +200,20 @@ async function executeSend(active: ActiveComposeSend): Promise<void> {
           /* ignore */
         }
       }
+      store.patchActive({ phase: "failed" });
+      store.clear();
       showSendFeedback({
         title: "Письмо принято сервером",
         detail:
           "Не удалось сохранить копию в «Отправленных». Откройте из «Исходящих» или повторите синхронизацию.",
         tone: "error",
       });
-      store.patchActive({ phase: "failed" });
-      store.clear();
       scheduledRequestIds.delete(active.requestId);
       return;
     }
 
     store.patchActive({ phase: "sent_reconciling" as ComposeSendPhase });
-    showSendFeedback({
-      title: "Письмо отправлено. Обновляем «Отправленные»…",
-      tone: "info",
-    });
+    // Progress copy comes from SendFeedbackToast via phase (MAIL-020 single channel).
 
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("velo-sync-done"));
@@ -262,19 +270,15 @@ async function executeSend(active: ActiveComposeSend): Promise<void> {
       stage: "sent",
     });
 
+    // Terminal toast after clear — one CustomEvent, same global toast component.
+    store.clear();
     showSendFeedback({
       title: "Письмо отправлено",
       tone: "info",
     });
-
-    store.clear();
     scheduledRequestIds.delete(active.requestId);
   } catch (err) {
     console.error("[ComposeSend] execute failed:", err);
-    notifySendEmailOutcome({
-      success: false,
-      error: "Не удалось отправить письмо. Повторите попытку.",
-    });
 
     if (active.outboxOpId) {
       try {
@@ -292,6 +296,12 @@ async function executeSend(active: ActiveComposeSend): Promise<void> {
     store.patchActive({ phase: "failed" });
     await restoreCompose(active.restore, active.accountId);
     store.clear();
+    showSendFeedback({
+      title: "Не удалось отправить",
+      detail: "Не удалось отправить письмо. Повторите попытку.",
+      footnote: "Черновик сохранён — можно повторить отправку.",
+      tone: "error",
+    });
     scheduledRequestIds.delete(active.requestId);
   }
 }

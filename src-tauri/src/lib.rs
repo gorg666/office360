@@ -108,6 +108,7 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .invoke_handler(tauri::generate_handler![
             oauth::start_oauth_server,
+            oauth::stop_oauth_server,
             oauth::oauth_exchange_token,
             oauth::oauth_refresh_token,
             oauth::open_oauth_login_window,
@@ -190,6 +191,24 @@ pub fn run() {
                         .level_for("sqlx::query", log::LevelFilter::Warn)
                         .build(),
                 )?;
+            }
+
+            #[cfg(debug_assertions)]
+            if std::env::args().any(|argument| argument == "--calendar-reminder-smoke") {
+                match notifications::show_office360_notification(
+                    app.handle(),
+                    "Office360 Calendar".to_string(),
+                    "Local reminder delivery smoke".to_string(),
+                ) {
+                    Ok(()) => {
+                        log::info!("[calendar-reminder] local desktop notification smoke: PASS")
+                    }
+                    Err(err) => {
+                        log::error!(
+                            "[calendar-reminder] local desktop notification smoke: FAIL: {err}"
+                        )
+                    }
+                }
             }
 
             #[cfg(not(target_os = "linux"))]

@@ -1,0 +1,516 @@
+# CAL-AUDIT-001 — Calendar implementation roadmap
+
+Baseline: `10c7a54`; CAL-101 runtime baseline approved on feature branch.
+Roadmap state: delivered work now reaches CAL-128 (including CAL-102F; CAL-115/116 remain historical roadmap scopes rather than separately closed tickets). CAL-121 closes reminder delivery, CAL-122 closes the Mail/iTIP lifecycle, CAL-123 closes Yandex participant Free/Busy through the exposed RFC 6638 provider contract, CAL-124 is the post-closure parity re-audit, CAL-125 closes recurring create plus persistent required/optional authoring, CAL-126 closes Month overflow popover, CAL-127 closes account/permission-filtered local Calendar event search, and CAL-128 closes provider-neutral Calendar share management with dynamic provider capability gates. This document is the source of truth for Calendar ticket numbering and remaining priority; `CALENDAR_FINAL_PARITY_AUDIT.md` is the current parity and merge verdict.
+
+**Numbering corrected on 2026-08-22.** Delivered tickets keep the numbers they shipped under: CAL-106 is the participant identity/attendee model, CAL-107 is the Free/Busy foundation, CAL-108 is the Scheduling Assistant engine. Only unstarted sections were renumbered; no completed ticket history was rewritten. Where an earlier section's scope was partly delivered under a different number, the remaining section was narrowed to the outstanding work and says so explicitly.
+
+## ID convention
+
+
+Existing QA history already uses `CAL-001` for the Yandex Calendar runtime failure. Чтобы не создать два разных `CAL-001`, новый implementation roadmap начинается с **CAL-101**. Historical bug `CAL-001` должен быть закрыт или перенесён в этот roadmap как acceptance dependency, а не переиспользован молча.
+
+
+## Delivery principles
+
+
+- Branch only after dirty-worktree cleanup and baseline approval.
+- Domain/time/privacy contracts precede rich UI.
+- DB migrations are append-only.
+- Provider features are capability-driven; direct API and iMIP delivery are explicit alternatives.
+- Each ticket includes targeted tests and docs; interactive UI also needs Tauri runtime smoke.
+- No ticket claims Yandex support without a live provider smoke.
+- Provider contracts, DB migrations and recurrence/timezone changes should not be developed in overlapping write branches.
+
+
+## Dependency outline
+
+```text
+CAL-101 gate  ->  CAL-102 time/occurrence  ->  CAL-103 codec
+                                          ->  CAL-104 persistence/sync  ->  CAL-105 provider/write
+CAL-106 participant identity  ->  CAL-107 Free/Busy foundation  ->  CAL-108 scheduling engine
+                                                                ->  CAL-109 Scheduling Assistant UI
+                                                                ->  CAL-110 remote Free/Busy adapters
+CAL-105 provider/write  ->  CAL-111 recurrence mutation backend  ->  CAL-112 recurring edit UX (delivered)
+CAL-102/105/112  ->  CAL-113 Day/Week timed drag/resize (delivered)
+                 ->  CAL-114 Month/all-day/conversion (delivered)
+CAL-115 application service/UI state  ->  CAL-116 layout engine  ->  CAL-117 create-by-selection / auto-scroll
+CAL-102/103/104/105                   ->  CAL-118 provider-neutral reminder metadata (delivered)
+CAL-119 shared calendars/permissions (delivered: read-only discovery/enforcement/reconciliation)
+CAL-120 final parity audit (delivered; docs-only)
+CAL-118 -> CAL-121 durable reminder delivery (delivered)
+CAL-103/105/106 + Mail queue -> CAL-122 application iTIP lifecycle (delivered)
+CAL-110 -> CAL-123 Yandex RFC 6638 decision (delivered)
+CAL-120/121/122/123 -> CAL-124 final parity re-audit (delivered; docs-only)
+CAL-112/106/109/118/122 -> CAL-125 recurring create + participant roles (delivered)
+CAL-125 -> CAL-126 Month overflow + RU week-start + current-time (delivered)
+CAL-126 -> CAL-127 account/permission-filtered Calendar search (delivered)
+Remaining P1 gaps and post-parity backlog are intentionally unnumbered until the owner selects scope.
+```
+
+## CAL-101 — Approve clean baseline and reproduce Calendar runtime
+
+
+**Цель:** создать безопасную отправную точку и закрыть неопределённость historical `A2/CAL-001`.
+
+**Основные файлы/модули:** Git/worktree docs, `src/services/calendar/yandex*.ts`, `caldavProvider.ts`, account OAuth services, QA docs. Код меняется только в отдельном follow-up, если reproduction найдёт defect.
+
+**Зависимости:** решение владельца по dirty files/stash; тестовый Yandex/CalDAV account без публикации secrets.
+
+**Definition of Done:**
+
+- clean `git status` или документированный isolated worktree;
+- baseline commit/branch утверждены;
+- live Tauri: account auth → list calendars → load events;
+- результат historical CAL-001 = PASS либо новый точный blocker с sanitized evidence;
+- no tokens/raw calendar data in logs.
+
+**Риски:** OAuth scopes/client configuration, network/provider availability, unrelated EFIM integration blocker.
+
+### CAL-101 delivery status
+
+- **CAL-101A — completed:** read-only Yandex CalDAV runtime chain verified; historical A2/CAL-001 not reproduced; sanitized response-level evidence recorded in `CALENDAR_RUNTIME_BASELINE.md`.
+- **CAL-101B — completed:** `CAL-BUG-101` closed with explicit `loading | fresh | stale | error` UI semantics shared by Google and CalDAV/Yandex, cached stale-data notice, no-cache error state, Retry and targeted A–D tests.
+- **CAL-101C — completed:** `CAL-BUG-103` closed with expiry-aware CalDAV/Yandex session reuse, provider/session single-flight creation, failed-creation recovery and one bounded auth invalidation/retry. Live read-only smoke confirmed one login/discovery chain across six session requests.
+- Empty cached ranges remain indistinguishable from a cache miss until a later persistence ticket introduces range-completeness metadata; CAL-101B deliberately treats an empty result as no usable cache and does not change the DB schema.
+- **Next:** CAL-103 may start only by explicit instruction; it is not started by CAL-102.
+
+
+## CAL-102 — Calendar domain and timezone contracts
+
+
+**Цель:** определить стабильные модели timed/floating/all-day events, recurrence masters/occurrences, privacy и participant roles.
+
+**Основные файлы/модули:** `src/services/calendar/types.ts`, новый `domain/`, time utilities, ADR/wiki.
+
+**Зависимости:** CAL-101; product decisions on week start, default timezone and privacy levels.
+
+**Definition of Done:**
+
+- provider-neutral timed-zoned/floating/all-day and occurrence identity contracts;
+- IANA TZID + wall-time + exclusive all-day rules documented and TZ-pinned;
+- Google/CalDAV mapping conformance and wall-clock recurrence fixtures;
+- minimal participant identity and explicit provider capabilities;
+- approved append-only v34 with lazy legacy compatibility.
+
+**Риски:** backward compatibility with existing epoch/raw iCal records.
+
+**Implementation (2026-08-22):** минимальный provider-neutral `domain/` различает timed-zoned, floating и all-day values; IANA resolver централизует DST gap/overlap policy; wall-clock recurrence формирует стабильный `occurrenceKey` для RRULE/EXDATE/RECURRENCE-ID/RDATE. Google и CalDAV проходят единый mapping contract, а `fetchEvents`/`syncEvents` используют один expansion path. Append-only migration v34 сохраняет TZID/wall/date/series/occurrence/TRANSP/SEQUENCE; legacy rows выводят semantics лениво без массового backfill. Канон: `CALENDAR_TIME_MODEL.md`.
+
+**Acceptance:** PASS. Four-host-TZ matrix, provider conformance, 2025-test full Vitest, production build, cargo check, in-memory SQLite fresh/existing/legacy/new-row smoke, and read-only Tauri Yandex Month/Week/Day/calendar-list smoke passed. Local development DB applied v34 with all ten semantic columns; subsequent normal sync populated semantic fields. CAL-102F additionally isolated malformed objects/components with safe degraded-read diagnostics and made recurrence range lookback duration-aware. No cloud mutations were performed.
+
+
+## CAL-103 — Standards-oriented iCalendar codec
+
+
+**Цель:** заменить regex helpers как authoritative semantic parser/serializer, сохранив compatibility.
+
+**Основные файлы/модули:** `icalHelper.ts`, new codec adapter, fixtures/tests.
+
+**Зависимости:** CAL-102; dependency/license decision.
+
+**Definition of Done:**
+
+- VEVENT, RRULE/RDATE/EXDATE, RECURRENCE-ID, VTIMEZONE/TZID, ORGANIZER/ATTENDEE roles, STATUS/TRANSP/CLASS, VALARM;
+- folding, escaping, quoted params and multi-event fixtures;
+- round-trip provider fixtures;
+- current helper tests retained or migrated;
+- raw calendar content redacted from diagnostics.
+
+**Риски:** malformed real-world ICS, library bundle/license/security.
+
+**Acceptance:** PASS. `ical.js` 2.2.1 (MPL-2.0) is isolated in `src/services/calendar/ical/codec.ts`; handwritten production parsing/serialization was removed. CAL-102 time/occurrence semantics, malformed isolation, Mail invitations, CalDAV/Yandex paths, Google conformance, legacy lazy reads, recurrence metadata, VTIMEZONE preservation, and provider-neutral unknown-TZID diagnostics are covered. The four-host-TZ command now includes codec tests. Details and limitations: `CALENDAR_ICAL_CODEC.md`.
+
+
+## CAL-104 — Normalize Calendar persistence and sync state
+
+
+**Цель:** добавить additive schema для attendees, recurrence exceptions, reminders, permissions/subscriptions, working hours, FreeBusy cache and pending ops.
+
+**Основные файлы/модули:** `src/services/db/migrations.ts`, Calendar repositories/tests.
+
+**Зависимости:** CAL-102; explicit migration approval required before execution against real DB.
+
+**Definition of Done:**
+
+- append-only migration and repository APIs;
+- existing events readable/backfilled lazily or by safe migration strategy;
+- account/org scope on every new table/index;
+- raw iCal remains available but not sole semantic store;
+- migration tests and rollback/recovery notes.
+
+**Риски:** data migration, duplicate identities/occurrences, DB growth. This ticket requires APOSTLE migration confirmation.
+
+**Acceptance:** PASS. Approved append-only v35 adds explicit local projection lifecycle and durable per-calendar range coverage without rewriting existing rows. `CalendarSyncService` owns cache-first bounded refresh, authoritative/degraded reconciliation, safe deletion ordering, offline state and diagnostics; `CalendarPage` keeps presentation state with generation guards. Google bounded fetch pagination, honest CalDAV `range-refresh` capability, RSVP projection cleanup, synced-empty semantics and bounded legacy normalization cache are covered. Canonical model: `CALENDAR_SYNC_CACHE_MODEL.md`.
+
+
+## CAL-105 — Provider/write readiness
+
+
+**Цель:** завершить provider-specific write/conflict readiness поверх CAL-104 service/cache boundary и честно объявить текущий sync mode/durability.
+
+**Основные файлы/модули:** `providerFactory.ts`, `types.ts`, Google/CalDAV providers, new calendar sync manager/store, DB sync state.
+
+**Зависимости:** CAL-102, CAL-104.
+
+**Definition of Done:**
+
+- typed capability matrix (CRUD, recurrence scope, RSVP, FreeBusy, ACL, reminders);
+- explicit Google sync-token and CalDAV range-refresh capability/durability facts;
+- provider write conflict/retry policy and truthful mutation capabilities;
+- offline/error/conflict states surfaced to UI;
+- provider contract and sync tests.
+
+**Риски:** provider divergence, rate limits, ETag conflicts.
+
+**Acceptance:** PASS. Capability contract v2 now covers read/CRUD, recurrence scopes, attendees, local/remote RSVP, invitation delivery, sync mode/durability, Free/Busy, ACL, shared calendars, reminders and conflict detection. React uses capabilities instead of method presence, while `CalendarMutationService` gates writes and returns safe typed results. Google and CalDAV/Yandex use ETag preconditions where a cached ETag exists; CalDAV/Yandex occurrence deletion is rejected before the shared series resource can be deleted. Successful writes reconcile only through the CAL-104 range-refresh owner. Canonical matrix: `CALENDAR_PROVIDER_CAPABILITIES.md`.
+
+Durable Google sync-token persistence and CalDAV sync-collection/ctag deltas were not part of the approved CAL-105 implementation scope and remain explicit limitations for CAL-106/provider-readiness follow-up. No migration was needed.
+
+
+## CAL-106 (delivered) — Participant identity and attendee model
+
+**Participant-domain acceptance (2026-08-22):** PASS. The owner-approved CAL-106 scope established provider-neutral participant identity, organizer/attendee separation, roles, response status, RSVP, CUTYPE/resource semantics, delegation, deterministic duplicate merge, Google/CalDAV conformance and legacy JSON compatibility. It required no migration: the existing event-scoped JSON column stores a versioned canonical envelope without backfill or N+1 reads. Month/Week/Day, event details, organizer and optional-attendee rendering were confirmed live — see `CALENDAR_RUNTIME_BASELINE.md`. Canon: `CALENDAR_PARTICIPANT_MODEL.md`.
+
+## CAL-107 (delivered) — Provider-neutral Free/Busy foundation
+
+
+**Цель:** ответить «кто / на какой интервал / в какой timezone / занят или свободен / почему / насколько можно доверять», не строя Scheduling Assistant.
+
+**Основные файлы/модули:** `src/services/calendar/freeBusy/`, `domain/capabilities.ts` (`version: 3`).
+
+**Зависимости:** CAL-102 time foundation, CAL-104 coverage metadata, CAL-106 `ParticipantRef`.
+
+**Acceptance (2026-08-22):** PASS. Availability state и reliability разделены; `unknown`, `partial`, `unsupported`, `permission-denied` и `error` структурно не сводятся к `free`. Проекция событий учитывает `TRANSP`, `STATUS:CANCELLED`, tentative, declined-самого-себя и unconfirmed local projections; recurrence/EXDATE/RDATE/RECURRENCE-ID берутся из уже нормализованных occurrences. Занятость собирается по всем календарям аккаунта независимо от UI-видимости. Local-derived adapter реализован для текущего аккаунта; остальные identity честно возвращают `unsupported`. Миграция не потребовалась. Канон: `CALENDAR_FREE_BUSY_MODEL.md`.
+
+**Не входило:** Scheduling Assistant UI, group slot recommendation, working hours, remote Google/Yandex Free/Busy, participant picker, room booking, permissions/ACL.
+
+
+## CAL-108 (delivered) — Scheduling Assistant foundation and group availability engine
+
+**Цель:** provider-neutral групповой scheduling engine: групповой timeline, классификация слотов, поиск кандидатов и детерминированный ranking поверх CAL-107.
+
+**Основные файлы/модули:** `src/services/calendar/scheduling/`.
+
+**Зависимости:** CAL-106 `ParticipantRef`, CAL-107 `FreeBusyService`.
+
+**Acceptance (2026-08-22):** PASS. Engine потребляет только `ParticipantAvailability` и никогда не пересчитывает события. Required/optional разделены: optional конфликт ухудшает ranking, но не отменяет слот. `unknown`, `unsupported`, `permission-denied` и `error` структурно не сводятся к `free` — такой слот не может стать `confirmed`. Tentative отличается от hard busy отдельной policy. Working hours — независимый constraint с собственной причиной недоступности, применяется только когда данные предоставлены. Multi-day и DST-переходы обрабатываются через CAL-102 resolver, без host timezone. Канон: `CALENDAR_SCHEDULING_ASSISTANT_MODEL.md`.
+
+**Не входило:** визуальный Scheduling Assistant, remote Free/Busy adapters, participant picker, настройки рабочего времени, room booking.
+
+## CAL-109 (delivered) — Scheduling Assistant UI
+
+**Цель:** визуальный Scheduling Assistant уровня Яндекс 360 поверх готового CAL-108 engine.
+
+**Основные файлы/модули:** `src/components/calendar/scheduling/`, `EventCreateModal`, `EventDetailModal` (режим редактирования), `CalendarPage`.
+
+**Зависимости:** CAL-108.
+
+**Acceptance (2026-08-22):** PASS. Assistant встроен в create/edit event. UI — thin consumer `planMeeting` / `GroupSchedulingResult`. Required/optional, busy/tentative/unknown, group row, suggestions и синхронизация start/end работают без повторного расчёта занятости в React. Unknown/unsupported не рисуются как free. Канон UI: `CALENDAR_SCHEDULING_ASSISTANT_UI.md`.
+
+**Не входило:** remote Free/Busy adapters, новый participant picker backend, room booking, drag/resize сетки календаря.
+
+## CAL-110 (delivered) — Remote Free/Busy provider adapters
+
+**Цель:** реальные remote Free/Busy adapters, чтобы занятость других участников перестала быть `unsupported`.
+
+**Основные файлы/модули:** provider adapters, `freeBusy/` port implementations, capability matrix.
+
+**Зависимости:** CAL-107 port; existing provider auth/discovery readiness.
+
+**Definition of Done:**
+
+- Google `freeBusy.query` adapter;
+- CalDAV/Yandex RFC 6638 free-busy `REPORT` adapter либо документированное отсутствие поддержки;
+- capability `freeBusy.others` переводится в `remote` только при рабочем adapter;
+- `permission-denied` и `error` не сводятся к `unsupported` или к свободному времени;
+- opaque intervals без event details; batching, rate-limit, отмена;
+- privacy/ACL тесты и live corporate smoke, где возможно.
+
+**Риски:** provider support, авторизация, утечка через inference.
+
+**Acceptance (2026-08-22, amended by CAL-123 on 2026-08-23):** PASS. Google uses the official 50-item batch endpoint with per-participant failures, cancellation and privacy projection. CalDAV/Yandex are enabled only after RFC 6638 principal/inbox/outbox/user-address/auto-schedule discovery and post VFREEBUSY to the outbox. CAL-123 live read-only discovery confirmed the complete contract on personal-domain and custom-domain Yandex accounts. Account/provider-scoped 60-second cache and exact-request coalescing require no migration. Canonical contracts: `CALENDAR_REMOTE_FREE_BUSY.md` and `CALENDAR_YANDEX_FREE_BUSY_DECISION.md`.
+
+## CAL-111 (delivered) — Recurring event mutation semantics
+
+**Цель:** безопасные provider-neutral `single` / `series` / `this-and-future` mutation semantics до recurring edit UI.
+
+**Основные файлы/модули:** `CalendarMutationService`, Google/CalDAV providers, `ical.js` codec, occurrence identity.
+
+**Зависимости:** CAL-102 occurrence identity, CAL-103 codec, CAL-104 reconciliation, CAL-105 typed writes/capabilities.
+
+**Acceptance (2026-08-22):** explicit scope and canonical series/occurrence identity reach the provider. Google and CalDAV/Yandex support safe single/series update/delete; CalDAV single delete is EXDATE PUT rather than resource delete. Google series operations resolve the master and its ETag. `this-and-future` is truthfully unsupported. RRULE/RDATE/EXDATE/overrides, TZID and original RECURRENCE-ID are covered by fixtures. No migration and no live cloud mutation. Canonical contract: `CALENDAR_RECURRENCE_MUTATIONS.md`.
+
+## CAL-112 (delivered) — Recurring edit UX
+
+**Цель:** финальный prompt «только это / вся серия» и подключение Scheduling Assistant start/end к CAL-111 contract.
+
+**Зависимости:** CAL-111.
+
+**Acceptance (2026-08-22):** occurrence Save/Delete shows a capability-driven scope dialog after user intent; `single` and `series` call `CalendarMutationService` once with canonical identity; series master does not offer `single`; `this-and-future` is hidden under current Google/CalDAV capabilities; Cancel mutates nothing; Scheduling Assistant is available on occurrence edit and slot click updates start/end without auto-save; typed conflict/unsupported/permission/network errors stay in the editor. Canonical UX: `CALENDAR_RECURRENCE_EDIT_UX.md`.
+
+**Не входит:** backend split-series / this-and-future implementation, recurrence rule builder on create, participant directory, room booking.
+
+### Follow-up scopes without a reassigned ticket number
+
+- Participant picker/directory over CAL-106 identity was delivered by PEOPLE-001 (debounced multi-source search, roles, dedupe, privacy and account isolation).
+- Yandex/CalDAV production readiness remains covered by the Calendar provider/runtime baseline (reproducible auth/discovery/list/fetch/CRUD and provider diagnostics).
+
+These scopes were previously labeled CAL-111/CAL-112 before the explicit owner handoff assigned those numbers to recurrence backend/UI. Completed ticket history is unchanged.
+
+## CAL-113 (delivered) — Event drag and resize
+
+
+**Цель:** production drag/resize for timed events in Day and Week through `CalendarMutationService`, with CAL-102 time semantics and CAL-112 recurrence scope UI.
+
+**Основные файлы/модули:** `TimedGridOverlay`, `timedEventMutation`, `commitTimedGridMutation`, DayView, WeekView, CalendarPage.
+
+**Зависимости:** CAL-102, CAL-105, CAL-111, CAL-112.
+
+**Acceptance (2026-08-22):** Day/Week timed drag, Week cross-day move, top/bottom resize, 15-minute snap, 15-minute minimum duration, duration-preserving moves, capability-gated read-only, click vs drag threshold, occurrence scope dialog (`single` / `series` / Cancel rollback), conflict/network/permission rollback, DST wall-clock tests for `America/New_York` and `Australia/Lord_Howe`. Month DnD and all-day ↔ timed shipped under **CAL-114**. No migration and no live cloud mutation. Canonical contract: `CALENDAR_DRAG_RESIZE.md`.
+
+
+## CAL-114 — Month, all-day and timed ↔ all-day interactions
+
+
+**Цель:** закрыть remaining pointer gap after CAL-113: Month drag/drop, all-day row drag, timed ↔ all-day conversion, and keyboard-accessible move/edit without a second mutation path.
+
+**Основные файлы/модули:** `src/components/calendar/dateGrid/`, MonthView, WeekView/DayView all-day lane, TimedGridOverlay conversion, CalendarPage pending-commit, Event Edit a11y.
+
+**Зависимости:** CAL-102, CAL-105, CAL-111, CAL-112, CAL-113.
+
+**Acceptance (2026-08-23):** Month timed/all-day/multi-day drag with wall-clock or exclusive-date preservation; Week all-day row drag; timed → all-day and all-day → timed (60-minute default duration, CAL-113 snap); CAL-112 occurrence scope dialog; cancel/network/conflict/permission rollback; capability-gated read-only; 6 px click threshold; Event Edit as keyboard move/resize equivalent; DST/floating coverage in `dateShift.test.ts` / `npm run test:calendar-tz`. No migration and no live cloud mutation. Canonical contract: `CALENDAR_MONTH_ALLDAY_INTERACTIONS.md`.
+
+**Owner note:** an earlier outline used CAL-114 for outbound iTIP/RSVP. The number remained assigned to Month/all-day; the Mail/iTIP work was later delivered as CAL-122.
+
+
+## CAL-115 — Calendar application service and UI state
+
+
+**Цель:** отделить CalendarPage from provider/DB orchestration and establish optimistic/offline commands.
+
+**Основные файлы/модули:** CalendarPage, new calendar service/store/hooks, provider sync manager.
+
+**Зависимости:** CAL-104, CAL-105.
+
+**Definition of Done:**
+
+- Page is presentation/composition layer;
+- explicit load/sync/mutation/error/offline states;
+- cache-first behavior without swallowed failures;
+- account/calendar switching race-safe;
+- focused service/store/component tests.
+
+**Риски:** duplicate fetches, stale account closures, large rerender surface.
+
+
+## CAL-116 — Accessible Month/Week/Day layout engine
+
+
+**Цель:** заменить hourly bucket prototype единым calendar layout engine.
+
+**Основные файлы/модули:** MonthView, WeekView, DayView, EventCard, new layout utilities/components.
+
+**Зависимости:** CAL-102, CAL-115; library spike decision.
+
+**Definition of Done:**
+
+- continuous timed positioning and duration height;
+- deterministic overlapping columns;
+- multi-day/all-day lanes and overflow;
+- current-time indicator, configurable week start, correct locale/zone labels;
+- keyboard navigation and screen-reader semantics;
+- visual/unit tests at multiple densities and dark/light themes.
+
+**Риски:** accessibility, layout complexity, bundle size.
+
+
+## CAL-117 — Create-by-selection and remaining drag polish
+
+
+**Цель:** закрыть gaps after CAL-113/114: create-by-empty-slot selection through the existing `EventCreateModal`. Optional auto-scroll remains out of scope.
+
+Not a second timed-grid or date-grid mutation implementation. Not a second create modal.
+
+**Основные файлы/модули:** `createSelection/`, `TimedGridOverlay`, Month/Week/Day/AllDayLane empty-slot handlers, `EventCreateModal` all-day fields, `CalendarPage.handleGridCreate`.
+
+**Зависимости:** CAL-113, CAL-114, CAL-102.
+
+**Status:** PASS (2026-08-23). Canonical: `docs/calendar/CALENDAR_CREATE_BY_SELECTION.md`.
+
+**Definition of Done:**
+
+- Day/Week click and drag create;
+- Month empty-cell all-day create (including spillover dates);
+- All-day row click create (multi-day all-day selection deferred);
+- snap / 60-minute click duration / 15-minute min drag;
+- existing event click/drag/resize unchanged;
+- read-only create disabled;
+- Cancel does not mutate;
+- keyboard equivalent (overlay slot + Month day number + toolbar);
+- TZ matrix includes `createSelection/draft.test.ts`.
+
+**Remaining polish (not blocking CAL-117):** Week/Day edge auto-scroll; keyboard drag-selection; multi-day all-day create selection.
+
+**Риски:** accidental mutation, touch pan vs create-selection.
+
+
+## CAL-118 — Provider-neutral event reminder metadata
+
+
+**Статус:** delivered (2026-08-23).
+
+**Цель:** добавить reminder metadata contract от provider до sync/cache и capability-driven editor controls без desktop notification engine.
+
+**Основные файлы/модули:** `domain/reminder.ts`, iCalendar codec/mapper, Google/CalDAV providers, migration v36, `ReminderEditor`.
+
+**Зависимости:** CAL-102, CAL-103, CAL-104, CAL-111–CAL-117.
+
+**Definition of Done:**
+
+- inherit / explicit none / custom policies;
+- multiple relative-to-start reminders with deterministic normalization;
+- Google defaults/overrides and CalDAV/Yandex VALARM mapping;
+- append-only nullable semantic projection with legacy lazy derivation;
+- create/edit capability-based controls including bounded custom duration;
+- all-day, recurrence, drag/resize/conversion and Free/Busy privacy regression coverage.
+
+**Acceptance:** PASS. Canonical reminder policies (`inherit`, explicit `none`, `custom`) now flow through the domain, provider normalization, sync cache and capability-driven create/edit controls. Google defaults and popup/email overrides map losslessly within provider limits; CalDAV/Yandex reads DISPLAY/EMAIL `VALARM` and writes supported DISPLAY alarms while preserving unrelated alarms on ordinary updates. Append-only migration v36 adds nullable `calendar_events.reminders_json`; existing rows remain `NULL`, CalDAV legacy rows derive lazily from cached iCalendar, and Google legacy state stays unknown until ordinary refresh. Local development Tauri smoke applied v36 and confirmed Month/Week/Day plus the custom reminder editor without a cloud mutation. Canonical contract: `CALENDAR_REMINDERS.md`.
+
+**Не входит:** Windows toast/background scheduling, snooze/dismiss, absolute/relative-to-end triggers, general full editor replacement. Canon: `CALENDAR_REMINDERS.md`.
+
+
+## CAL-119 — Shared calendars, subscriptions and permissions
+
+**Status:** delivered in the approved read-only cloud scope (2026-08-23). Canonical contract: `CALENDAR_SHARED_ACCESS.md`.
+
+
+**Цель:** поддержать provider calendars beyond visibility toggles.
+
+**Основные файлы/модули:** calendar list/settings, provider ACL/subscription adapters, permissions tables.
+
+**Зависимости:** CAL-104, CAL-105, privacy model.
+
+**Definition of Done:**
+
+- owner/editor/viewer/freebusy-only projections;
+- subscribe/unsubscribe, ordering/color and writable-state UI;
+- CRUD controls hidden and service-blocked without permission;
+- provider mismatch states and tests.
+
+**Риски:** provider ACL incompatibility, stale permissions, accidental writes.
+
+**Acceptance:** provider-neutral owner/editor/contributor/viewer/free-busy-only model; paginated Google CalendarList roles; CalDAV/Yandex WebDAV privilege projection; append-only v37 persistence with lazy legacy compatibility; non-destructive removed-calendar reconciliation; per-calendar CRUD/drag/resize enforcement; permission-revocation refresh without write retry; free-busy-only detail privacy. Cloud ACL, subscription, provider ordering and provider color mutations remain explicitly outside the approved scope.
+
+
+## CAL-120 (delivered) — Final Calendar parity audit
+
+CAL-120 changed documentation only. It compared current production paths and runtime evidence with the user workflows of Yandex 360 Calendar, separated functional/interaction/visual parity, classified remaining gaps and produced a merge recommendation. Canonical verdict: `CALENDAR_FINAL_PARITY_AUDIT.md`.
+
+The audit does **not** start notification delivery, ACL management, recurrence splitting, Mail rewrite, auto-scroll or keyboard DnD.
+
+## CAL-121 — Calendar reminder delivery runtime
+
+**Status:** PASS (automated suite, local v38 schema verification and native Tauri toast smoke).
+
+**Цель:** durable desktop delivery for concrete provider-neutral Calendar notification reminders.
+
+**Основные файлы/модули:** `reminderDelivery/domain.ts`, `reminderDelivery/scheduler.ts`, `calendarReminderDeliveries.ts`, `CalendarReminderCenter`, migration v38.
+
+**Contract:** 6-hour startup/resume catch-up, 30-day rolling scheduling horizon, deterministic delivery key, durable claim/dedupe, linked snooze deliveries, occurrence-aware mutation cancellation, permission-safe diagnostics and privacy-filtered payloads. The tray-resident process is supported; fully terminated delivery is not supported without an OS background service.
+
+**Cloud safety:** delivery/snooze/dismiss are local only and never write provider event metadata or ACLs. Canonical details: `CALENDAR_REMINDER_DELIVERY.md`.
+
+## CAL-122 (delivered) — Application Mail/iTIP lifecycle
+
+**Status:** PASS (automated lifecycle acceptance and local v39 schema verification; no real send).
+
+REQUEST, REPLY and CANCEL now share a durable per-recipient lifecycle. Gmail/IMAP ingestion invokes the lifecycle at message-storage time rather than requiring ThreadView. UID, RECURRENCE-ID, SEQUENCE, DTSTAMP, sender/organizer validation and deterministic action keys protect reconciliation. Calendar create/update/delete and Mail RSVP queue iTIP through the existing Mail pending-operation/send path; organizer-side REPLY and inbound CANCEL update the normalized Calendar state without delivery loops. Canonical contract: `CALENDAR_INVITATION_LIFECYCLE.md`.
+
+## CAL-123 (delivered) — Yandex remote participant Free/Busy decision
+
+**Status:** PASS. Read-only DAV discovery proved an exposed RFC 6638 scheduling contract for both available personal-domain and custom-domain Yandex accounts. The existing CAL-110 adapter is enabled by discovery, not by provider-name hardcoding. Root, principal, calendar home, calendar collection, inbox and outbox were probed; calendar-query/multiget and calendar-auto-schedule were observed. No live scheduling POST or cloud mutation was performed. Canonical decision: `CALENDAR_YANDEX_FREE_BUSY_DECISION.md`.
+
+## CAL-124 (delivered) — Post-P0 final parity re-audit
+
+**Status:** PASS as a docs-only audit; verdict **P0 CLOSED / P1 FOLLOW-UP / MERGE YES WITH CONDITIONS**.
+
+CAL-124 reconciled CAL-121/122/123 with the full user-flow matrix, removed stale Mail/P0 claims, reran TypeScript, full Vitest, four-zone TZ matrix, production build and `cargo check`, and separated literal Yandex parity from a scoped provider-neutral release candidate. No production feature code, migration, runtime DB, cloud event, mail, RSVP or ACL mutation was performed. Canonical verdict: `CALENDAR_FINAL_PARITY_AUDIT.md`.
+
+## CAL-125 (delivered) — Recurring create and participant roles
+
+**Status:** PASS for create/edit authoring; live evidence is Create → Cancel only.
+
+Create and series-edit now author RRULE through `recurrenceRule.ts` presets/custom UI. Required/optional roles persist on the existing participant write contract and immediately retarget Scheduling Assistant. Occurrence edit cannot overwrite the master RRULE. `this-and-future` stays unsupported. Migration: NONE. Canonical product doc: `CALENDAR_RECURRING_CREATE.md`.
+
+## CAL-126 (delivered) — Month polish and current-time UX
+
+**Status:** PASS (automated); live Tauri re-smoke deferred.
+
+Month `+N` opens `MonthOverflowPopover` for hidden same-day events without triggering create-by-selection. RU locale uses Monday-first Month grid and Week boundaries (`weekLocale.ts`); non-RU keeps Sunday-first. Day/Week show a display-timezone current-time line via `CurrentTimeIndicator` / `displayTimeIndicator.ts`. Recurrence/provider/sync architecture unchanged. Migration: NONE. Canonical evidence: `CALENDAR_RUNTIME_BASELINE.md` § CAL-126.
+
+## CAL-127 (delivered) — Calendar event search
+
+**Status:** PASS (automated; safe local-cache Tauri smoke recorded in runtime baseline).
+
+Provider-neutral `CalendarSearchService` searches title, description, location, organizer and normalized participants through one bounded account/calendar-scoped SQLite query. Hidden readable calendars are included, removed/cancelled and free-busy-only data are excluded, recurrence produces one deterministic representative occurrence, and result resolution repeats the permission boundary. Toolbar UI provides 220 ms debounce, calendar/date filters, explicit states and Arrow/Enter/Escape navigation into the existing detail modal. Migration: NONE. Canonical contract: `CALENDAR_SEARCH.md`.
+
+## CAL-128 (delivered) — Calendar share / ACL management
+
+**Status:** PASS (automated provider/service/UI acceptance; live smoke is read-only by policy).
+
+`CalendarAclService` exposes provider-neutral list/grant/updateRole/revoke operations over normalized owner/writer/reader/free-busy-only roles. Google uses official ACL list/insert/update/delete endpoints behind persisted OAuth-scope checks. Generic CalDAV/Yandex use only RFC 3744 discovery and ACL methods; incomplete/unknown discovery remains unsupported. The UI is capability-driven, protects owner/current-user entries and refreshes CAL-119 metadata through normal provider discovery after a successful mutation. Migration: NONE. Cloud ACL mutations: NONE. Canonical contract: `CALENDAR_ACL_MANAGEMENT.md`.
+
+## CAL-129 (delivered) — Durable delta sync and offline write policy
+
+**Status:** PASS. `CalendarSyncCoordinator` now owns foreground/background/startup/manual/reconnect Calendar refresh with per-account delta single-flight. Google `nextSyncToken` pagination, tombstones and one-shot 410 recovery are durable. Generic CalDAV/Yandex use RFC 6578 `sync-collection` only when advertised and otherwise keep the bounded range fallback. Cache application precedes cursor commit; a crash replays idempotently. Offline reads/search/reminders remain local; event/RSVP/ACL writes are explicitly blocked and never silently queued. Migration: NONE. Canonical contract: `CALENDAR_DELTA_OFFLINE_SYNC.md`.
+
+## CAL-130 (delivered) — Final Calendar UI / accessibility / responsive polish
+
+**Status:** PASS for polish-class UI; safe WebView2 A–H smoke completed, with live `+N` N/A because the fixture had no day with more than three events.
+
+**Цель:** довести существующий Calendar UI до цельного production polish перед CAL-131, без новых больших features и без смены provider/sync архитектуры.
+
+**Основные файлы:** `CalendarToolbar`, `CalendarList`, `CalendarPage`, `CalendarSearch`, `CalendarAclDialog`, `EventCreateModal`, `EventDetailModal`, `MonthOverflowPopover`, `MonthView`, `EventCard`, `Modal`, `focusTrap.ts`, `recurrenceEditScope.ts`.
+
+**Acceptance (2026-08-24):** wrap/overflow, focus trap/restore, RU user-visible copy, token-based light/dark, distinct offline/stale/error/syncing banners, narrow-window create/detail/ACL. Month/Week/Day, search, ACL unsupported-state, theme, 900×780 responsive layout and focus trap/Escape passed read-only live smoke. Mini calendar не добавлялся. Keyboard DnD не реализовывался. Cloud mutations: NONE. Canonical notes: `CALENDAR_FINAL_UI_POLISH.md`.
+
+## CAL-131 (delivered) — Final Calendar parity audit
+
+**Status:** PASS — **DONE as provider-neutral Office360 Calendar release**; literal Yandex 360 parity: NO; merge: YES WITH CONDITIONS.
+
+CAL-131 заново сверил CAL-125…CAL-130 с core flows A–J, provider evidence, privacy/permissions, Mail/reminder lifecycles, ACL, search, delta/offline, accessibility и responsive/theme. Fresh scores: Functional 96%, Interaction 91%, Visual 89%, Production readiness 90%. Remaining P0: none. Audit-only: product code, schema, runtime DB, cloud data, production, deploy and secrets untouched. Canonical verdict: `CALENDAR_FINAL_PARITY_AUDIT.md`.
+
+## Remaining P0/P1 gaps
+
+No new ticket numbers are assigned automatically.
+
+### P0 — parity blockers unless explicitly waived
+
+None. CAL-122 closed Mail invitation lifecycle and CAL-123 closed Yandex participant Free/Busy through a supported privacy-safe RFC 6638 contract.
+
+### P1 — important parity gaps
+
+- `this-and-future` remains documented-unsupported unless product scope expands;
+- unified participant directory/picker delivered by PEOPLE-001;
+- shared-calendar subscription management and an isolated live shared/read-only/free-busy-only fixture remain; share/ACL management itself was delivered by CAL-128.
+
+## Post-parity backlog
+
+- richer date navigation beyond current RU Monday-first / EN Sunday-first;
+- drag auto-scroll and keyboard drag-selection;
+- full RFC 5545 nth-weekday recurrence editor and fuzzy/FTS search;
+- cursor-last idempotent replay is used instead of one full SQLite rollback transaction;
+- WCAG AA certification and measured performance/bundle hardening (obvious visual/a11y/responsive polish closed by CAL-130);
+- measure large-calendar initial snapshot and RFC 6578 server truncation behavior on isolated provider fixtures;
+- room booking, full contacts/directory synchronization, tasks/templates and other product extensions only by separate scope.
+
+Accepted limits: no sync/native reminder delivery while the process is fully terminated; Yandex ACL writes remain unsupported without a confirmed standard DAV contract; bounded CalDAV fallback cannot observe tombstones outside its covered range; CAL-130 live `+N` fixture was absent while automated coverage passed. Mini calendar and literal Yandex visual/product cloning are out of scope.
+
+
+## Historical note — first implementation ticket
+
+
+**CAL-101 — Approve clean baseline and reproduce Calendar runtime.**
+
+Это engineering gate, а не UI feature. После него первый code foundation ticket — **CAL-102 — Calendar domain and timezone contracts**. Начинать с drag/resize или redesigned views до CAL-102–CAL-104 рискованно: UI закрепит неверные identity/time/recurrence semantics.

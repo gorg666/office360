@@ -92,10 +92,15 @@ Refresh when architecture-significant: relationships, imports, events, Tauri com
 In `APOSTLE_CHECK`:
 
 ```
-Graphify: READ | UPDATED | NOT NEEDED
+Graphify: READ | UPDATED | NOT NEEDED | BLOCKED
 ```
 
-If `NOT NEEDED` — one-line reason (e.g. docs-only / trivial typo).
+- `READ` — queried existing `graphify-out/graph.json` (or MCP with this package `project_path`)
+- `UPDATED` — ran incremental `graphify update` after architecture-significant edits
+- `NOT NEEDED` — one-line reason (docs-only / trivial typo)
+- `BLOCKED` — expected graph artifact missing/unusable; do **not** pretend READ; restore AST index (`graphify update .`) before navigation-heavy work
+
+MCP: always pass `project_path` to this Office360 package root. Launcher default may point at another project’s graph.
 
 Architectural task final report (compact):
 

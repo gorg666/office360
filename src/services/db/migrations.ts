@@ -1109,6 +1109,218 @@ export const MIGRATIONS = [
     description: "Repair OAuth granted scopes column after branch migration collision",
     sql: `ALTER TABLE accounts ADD COLUMN oauth_granted_scopes TEXT;`,
   },
+  {
+    version: 34,
+    description: "Calendar time semantics and occurrence identity",
+    sql: `
+      ALTER TABLE calendar_events ADD COLUMN time_kind TEXT;
+      ALTER TABLE calendar_events ADD COLUMN tzid TEXT;
+      ALTER TABLE calendar_events ADD COLUMN wall_start TEXT;
+      ALTER TABLE calendar_events ADD COLUMN wall_end TEXT;
+      ALTER TABLE calendar_events ADD COLUMN end_date_exclusive TEXT;
+      ALTER TABLE calendar_events ADD COLUMN series_uid TEXT;
+      ALTER TABLE calendar_events ADD COLUMN occurrence_key TEXT;
+      ALTER TABLE calendar_events ADD COLUMN is_recurrence_master INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE calendar_events ADD COLUMN transp TEXT;
+      ALTER TABLE calendar_events ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0;
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_events_series_uid ON calendar_events(account_id, series_uid);
+      CREATE INDEX IF NOT EXISTS idx_calendar_events_occurrence_key ON calendar_events(account_id, occurrence_key);
+    `,
+  },
+  {
+    version: 35,
+    description: "Calendar sync coverage and local projection lifecycle",
+    sql: `
+      ALTER TABLE calendar_events ADD COLUMN origin TEXT;
+      ALTER TABLE calendar_events ADD COLUMN projection_key TEXT;
+      ALTER TABLE calendar_events ADD COLUMN projection_status TEXT;
+
+      CREATE TABLE IF NOT EXISTS calendar_sync_coverage (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        calendar_id TEXT NOT NULL REFERENCES calendars(id) ON DELETE CASCADE,
+        range_start INTEGER NOT NULL,
+        range_end INTEGER NOT NULL,
+        coverage_state TEXT NOT NULL,
+        last_attempt_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        last_successful_sync INTEGER,
+        unreadable_component_count INTEGER NOT NULL DEFAULT 0,
+        unreadable_object_count INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(account_id, calendar_id, range_start, range_end)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_sync_coverage_lookup
+        ON calendar_sync_coverage(account_id, calendar_id, range_start, range_end, coverage_state);
+      CREATE INDEX IF NOT EXISTS idx_calendar_events_origin
+        ON calendar_events(account_id, origin, projection_status);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_projection_key
+        ON calendar_events(account_id, projection_key)
+        WHERE projection_key IS NOT NULL;
+    `,
+  },
+  {
+    version: 36,
+    description: "Calendar reminder semantic projection",
+    sql: `ALTER TABLE calendar_events ADD COLUMN reminders_json TEXT;`,
+  },
+  {
+    version: 37,
+    description: "Calendar access and provider presence metadata",
+    sql: `
+      ALTER TABLE calendars ADD COLUMN access_json TEXT;
+      ALTER TABLE calendars ADD COLUMN access_observed_at INTEGER;
+      ALTER TABLE calendars ADD COLUMN provider_presence TEXT
+        CHECK (provider_presence IN ('present', 'removed'));
+      ALTER TABLE calendars ADD COLUMN provider_seen_at INTEGER;
+
+      CREATE INDEX IF NOT EXISTS idx_calendars_account_presence
+        ON calendars(account_id, provider_presence);
+    `,
+  },
+  {
+    version: 38,
+    description: "Calendar reminder delivery runtime",
+    sql: `
+      CREATE TABLE IF NOT EXISTS calendar_reminder_deliveries (
+        delivery_key TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL
+          REFERENCES accounts(id) ON DELETE CASCADE,
+        calendar_id TEXT NOT NULL
+          REFERENCES calendars(id) ON DELETE CASCADE,
+
+        event_resource_key TEXT NOT NULL,
+        series_uid TEXT,
+        occurrence_key TEXT NOT NULL,
+        reminder_key TEXT NOT NULL,
+        scheduled_at INTEGER NOT NULL,
+        source_fingerprint TEXT NOT NULL,
+
+        status TEXT NOT NULL CHECK (
+          status IN (
+            'scheduled',
+            'delivering',
+            'delivered',
+            'dismissed',
+            'snoozed',
+            'cancelled',
+            'failed'
+          )
+        ),
+
+        parent_delivery_key TEXT
+          REFERENCES calendar_reminder_deliveries(delivery_key),
+
+        delivered_at INTEGER,
+        handled_at INTEGER,
+        lease_expires_at INTEGER,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        failure_code TEXT,
+
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_reminder_deliveries_due
+        ON calendar_reminder_deliveries(status, scheduled_at);
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_reminder_deliveries_event
+        ON calendar_reminder_deliveries(
+          account_id,
+          calendar_id,
+          event_resource_key,
+          occurrence_key,
+          status
+        );
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_reminder_deliveries_parent
+        ON calendar_reminder_deliveries(parent_delivery_key);
+    `,
+  },
+  {
+    version: 39,
+    description: "Calendar iTIP action and delivery ledger",
+    sql: `
+      CREATE TABLE IF NOT EXISTS calendar_itip_actions (
+        action_key TEXT PRIMARY KEY,
+
+        account_id TEXT NOT NULL
+          REFERENCES accounts(id) ON DELETE CASCADE,
+
+        invitation_id TEXT
+          REFERENCES calendar_invitations(id) ON DELETE SET NULL,
+
+        calendar_id TEXT
+          REFERENCES calendars(id) ON DELETE SET NULL,
+
+        direction TEXT NOT NULL CHECK (
+          direction IN ('inbound', 'outbound')
+        ),
+
+        method TEXT NOT NULL CHECK (
+          method IN ('REQUEST', 'REPLY', 'CANCEL')
+        ),
+
+        event_uid TEXT NOT NULL,
+        recurrence_key TEXT NOT NULL DEFAULT '',
+        sequence INTEGER NOT NULL DEFAULT 0,
+        dtstamp INTEGER,
+
+        participant_key TEXT NOT NULL DEFAULT '',
+        event_resource_key TEXT,
+        message_id TEXT,
+        source_fingerprint TEXT NOT NULL,
+        pending_operation_id TEXT,
+
+        processing_status TEXT NOT NULL CHECK (
+          processing_status IN (
+            'pending',
+            'applied',
+            'ignored_stale',
+            'suspicious',
+            'failed'
+          )
+        ),
+
+        delivery_status TEXT CHECK (
+          delivery_status IN (
+            'queued',
+            'delivering',
+            'retry_scheduled',
+            'delivered',
+            'failed',
+            'cancelled'
+          )
+        ),
+
+        failure_code TEXT,
+        applied_at INTEGER,
+        delivered_at INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_itip_actions_event
+        ON calendar_itip_actions(
+          account_id,
+          event_uid,
+          recurrence_key,
+          sequence
+        );
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_itip_actions_delivery
+        ON calendar_itip_actions(
+          delivery_status,
+          updated_at
+        );
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_itip_actions_message
+        ON calendar_itip_actions(account_id, message_id);
+
+      CREATE INDEX IF NOT EXISTS idx_calendar_itip_actions_pending_operation
+        ON calendar_itip_actions(pending_operation_id);
+    `,
+  },
 ];
 
 /**

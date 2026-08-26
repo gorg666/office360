@@ -1,5 +1,9 @@
 # Office360 Mail Workflow Spec
 
+## PEOPLE-001 recipient picker (2026-08-24)
+
+Mail To, Cc and Bcc now use the shared provider-neutral `PeoplePicker`. It searches names, emails and job metadata across the supported organization directory plus existing contacts/recent recipients, deduplicates normalized identities and keeps valid manual email entry. Selected chips show the richer display identity while the existing composer/SMTP contract still receives only email strings. No Mail send, draft, outbox or schema contract changed. Canonical model: `docs/people/PEOPLE_PICKER.md`.
+
 ## Статус
 
 Draft

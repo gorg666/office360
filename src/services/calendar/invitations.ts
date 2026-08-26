@@ -7,10 +7,17 @@ import {
   type CalendarInvitationRsvpStatus,
   type DbCalendarInvitation,
 } from "@/services/db/calendarInvitations";
-import { enqueuePendingOperation } from "@/services/db/pendingOperations";
-import { upsertCalendarEvent } from "@/services/db/calendarEvents";
+import {
+  calendarProjectionKey,
+  removeCalendarProjection,
+  upsertCalendarEvent,
+} from "@/services/db/calendarEvents";
 import { parseICalendarInvite } from "./icalHelper";
+import { ingestInboundItip, queueInvitationReply } from "./itip";
 import type { EmailProvider } from "@/services/email/types";
+import type { CalendarWriteResult } from "./calendarMutationService";
+import { getAccountIdentity } from "@/services/db/accounts";
+import { findCurrentAttendee, parseCalendarParticipants, serializeCalendarParticipants, withAttendeeStatus, type AttendanceStatus } from "./domain";
 
 export type InvitationPayloadSource = "body" | "attachment";
 
@@ -20,6 +27,7 @@ export interface DetectInvitationInput {
   messageId: string;
   bodyText?: string | null;
   bodyHtml?: string | null;
+  senderEmail?: string | null;
 }
 
 export interface CalendarRsvpQueueParams {
@@ -95,14 +103,15 @@ export async function detectInvitationsInMessage(
 
   const results: DbCalendarInvitation[] = [];
   for (const icalData of dedupe(payloads)) {
-    const invitation = await upsertInvitationFromICalendar({
+    const result = await ingestInboundItip({
       accountId: input.accountId,
       threadId: input.threadId,
       messageId: input.messageId,
       icalData,
-      source: "body",
+      senderEmail: input.senderEmail ?? null,
+      sourceHash: `body:${simpleHash(icalData)}`,
     });
-    if (invitation) results.push(invitation);
+    if (result.invitation) results.push(result.invitation);
   }
   return results;
 }
@@ -113,6 +122,7 @@ export async function detectInvitationsFromAttachments(input: {
   messageId: string;
   attachments: DbAttachment[];
   provider: Pick<EmailProvider, "fetchAttachment">;
+  senderEmail?: string | null;
 }): Promise<DbCalendarInvitation[]> {
   const results: DbCalendarInvitation[] = [];
   for (const att of input.attachments) {
@@ -123,14 +133,15 @@ export async function detectInvitationsFromAttachments(input: {
     const response = await input.provider.fetchAttachment(input.messageId, attachmentId);
     const decoded = decodeAttachmentData(response.data);
     for (const icalData of extractICalendarPayloads(decoded)) {
-      const invitation = await upsertInvitationFromICalendar({
+      const result = await ingestInboundItip({
         accountId: input.accountId,
         threadId: input.threadId,
         messageId: input.messageId,
         icalData,
-        source: "attachment",
+        senderEmail: input.senderEmail ?? null,
+        sourceHash: `attachment:${simpleHash(icalData)}`,
       });
-      if (invitation) results.push(invitation);
+      if (result.invitation) results.push(result.invitation);
     }
   }
   return results;
@@ -152,19 +163,25 @@ export async function respondToCalendarInvitation(
     await projectInvitationToCalendarEvent(accountId, invitation, rsvpStatus);
   }
 
-  const queuedOperationId = await enqueuePendingOperation(
+  const queued = await queueInvitationReply({
     accountId,
-    "calendarRsvp",
-    invitationId,
-    {
-      invitationId,
-      rsvpStatus,
-      eventUid: invitation.event_uid,
-      recurrenceKey: invitation.recurrence_key,
-    } satisfies CalendarRsvpQueueParams,
-  );
+    invitation,
+    status: rsvpStatus,
+  });
+  const queuedOperationId = queued.pendingOperationId;
 
-  await updateInvitationRsvp(invitationId, rsvpStatus, "queued", queuedOperationId);
+  const identity = await getAccountIdentity(accountId);
+  const participants = parseCalendarParticipants(invitation.attendees_json, invitation.organizer_email);
+  const current = identity ? findCurrentAttendee(participants.attendees, identity) : null;
+  const attendeesJson = current ? serializeCalendarParticipants({
+    ...participants,
+    attendees: withAttendeeStatus(participants.attendees, current.participant, rsvpStatus.replace("_", "-") as AttendanceStatus),
+  }) : invitation.attendees_json;
+  if (attendeesJson !== invitation.attendees_json) {
+    await updateInvitationRsvp(invitationId, rsvpStatus, "queued", queuedOperationId, attendeesJson);
+  } else {
+    await updateInvitationRsvp(invitationId, rsvpStatus, "queued", queuedOperationId);
+  }
   emitInvitationChanged();
   return { queuedOperationId };
 }
@@ -173,18 +190,27 @@ export async function executeCalendarQueuedAction(
   accountId: string,
   operationType: string,
   params: Record<string, unknown>,
-): Promise<void> {
-  void accountId;
+): Promise<CalendarWriteResult<void>> {
   if (operationType !== "calendarRsvp") {
-    throw new Error(`Unsupported calendar queue operation: ${operationType}`);
+    return { status: "unsupported", message: "Эта операция календаря не поддерживается очередью." };
   }
 
   const invitationId = typeof params.invitationId === "string" ? params.invitationId : null;
-  if (!invitationId) throw new Error("calendarRsvp requires invitationId");
+  if (!invitationId) {
+    return { status: "provider-error", message: "Не удалось определить приглашение календаря." };
+  }
 
+  const eventUid = typeof params.eventUid === "string" ? params.eventUid : null;
+  const recurrenceKey = typeof params.recurrenceKey === "string" ? params.recurrenceKey : "";
+  if (eventUid) {
+    await removeCalendarProjection(accountId, calendarProjectionKey(eventUid, recurrenceKey));
+  }
   await updateInvitationQueueStatus(invitationId, "blocked");
   emitInvitationChanged();
-  throw new Error("unsupported capability: remote calendar RSVP delivery is not implemented yet");
+  return {
+    status: "unsupported",
+    message: "Удалённая доставка ответа на почтовое приглашение пока не поддерживается.",
+  };
 }
 
 async function projectInvitationToCalendarEvent(
@@ -194,7 +220,7 @@ async function projectInvitationToCalendarEvent(
 ): Promise<void> {
   if (invitation.start_time <= 0 || invitation.end_time <= 0) return;
 
-  const eventId = `invite:${invitation.event_uid}:${invitation.recurrence_key}`;
+  const eventId = calendarProjectionKey(invitation.event_uid, invitation.recurrence_key);
   await upsertCalendarEvent({
     accountId,
     googleEventId: eventId,
@@ -213,6 +239,9 @@ async function projectInvitationToCalendarEvent(
     etag: null,
     icalData: invitation.raw_ical,
     uid: invitation.event_uid,
+    origin: "local_projection",
+    projectionKey: eventId,
+    projectionStatus: "pending",
   });
 }
 

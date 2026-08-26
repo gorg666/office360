@@ -1,13 +1,8 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import {
   Download,
-  ExternalLink,
-  Github,
-  Globe,
-  Mail,
   RefreshCw,
   Scale,
-  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { collectSupportDebugBundle, saveSupportDebugBundle } from "@/services/diagnostics";
@@ -51,35 +46,6 @@ function DefinitionList({ items }: { items: { label: string; value: string }[] }
         </Fragment>
       ))}
     </dl>
-  );
-}
-
-function SettingsLinkRow({
-  icon: Icon,
-  title,
-  subtitle,
-  onClick,
-}: {
-  icon: LucideIcon;
-  title: string;
-  subtitle: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex min-h-[52px] w-full items-center gap-3 bg-bg-primary px-4 py-2.5 text-left transition-colors hover:bg-bg-hover"
-    >
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border-primary bg-bg-secondary">
-        <Icon size={16} className="text-text-tertiary" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-text-primary">{title}</span>
-        <span className="block truncate text-xs text-text-tertiary">{subtitle}</span>
-      </span>
-      <ExternalLink size={15} className="shrink-0 text-text-tertiary" aria-hidden />
-    </button>
   );
 }
 
@@ -140,15 +106,6 @@ export function SettingsAboutPanel() {
     }
     void load();
   }, []);
-
-  const openExternal = async (url: string) => {
-    try {
-      const { openUrl } = await import("@tauri-apps/plugin-opener");
-      await openUrl(url);
-    } catch {
-      window.open(url, "_blank", "noopener,noreferrer");
-    }
-  };
 
   const handleCheckForUpdate = async () => {
     setCheckingForUpdate(true);
@@ -320,29 +277,6 @@ export function SettingsAboutPanel() {
               cloud profile sync.
             </p>
           </div>
-        </div>
-      </SettingsCard>
-
-      <SettingsCard title="Links">
-        <div className="divide-y divide-border-primary rounded-md border border-border-primary">
-          <SettingsLinkRow
-            icon={Globe}
-            title="Website"
-            subtitle="office360.app"
-            onClick={() => openExternal("https://office360.app")}
-          />
-          <SettingsLinkRow
-            icon={Github}
-            title="GitHub Repository"
-            subtitle="office360/office360"
-            onClick={() => openExternal("https://github.com/office360/office360")}
-          />
-          <SettingsLinkRow
-            icon={Mail}
-            title="Contact"
-            subtitle="info@office360.app"
-            onClick={() => openExternal("mailto:info@office360.app")}
-          />
         </div>
       </SettingsCard>
 

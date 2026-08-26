@@ -9,6 +9,13 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => mockInvoke(...args),
 }));
 
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async (_event: string, handler: (event: { payload: { port: number } }) => void) => {
+    handler({ payload: { port: 17248 } });
+    return () => {};
+  }),
+}));
+
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: (...args: unknown[]) => mockOpenUrl(...args),
 }));
@@ -59,5 +66,11 @@ describe("startOAuthFlow", () => {
 
     const tokenRequest = mockFetch.mock.calls[0]![1] as { body: URLSearchParams };
     expect(tokenRequest.body.get("client_secret")).toBe("client-secret");
+  });
+
+  it("requests the narrow Google Calendar ACL scope", async () => {
+    await startOAuthFlow("client-id");
+    const authUrl = new URL(mockOpenUrl.mock.calls[0]![0] as string);
+    expect(authUrl.searchParams.get("scope")?.split(" ")).toContain("https://www.googleapis.com/auth/calendar.acls");
   });
 });

@@ -1,97 +1,294 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
+import type { CalendarDate } from "@/services/calendar/domain";
+import { calendarDateFromLocalDate } from "@/services/calendar/domain";
+import type { CalendarProviderCapabilities } from "@/services/calendar/domain";
 import { EventCard } from "./EventCard";
 import { useUIStore } from "@/stores/uiStore";
+import { eventOccursOnDate } from "./eventTimeProjection";
+import { DRAG_THRESHOLD_PX } from "./timedGrid/constants";
+import { pointerExceedsDragThreshold } from "./timedGrid/geometry";
+import type { TimedVisualOverride } from "./timedGrid";
+import {
+  applyDateGridDraft,
+  calendarDateDiffDays,
+  canDragDateEvent,
+  dateGridPreviewLabel,
+  formatEventAriaLabel,
+  hitTestCalendarDate,
+  type DateGridDraft,
+} from "./dateGrid";
+import { allDayClickDraft, canCreateCalendarEvent, formatCreateAriaLabel, type GridCreateDraft } from "./createSelection";
+import { isTodayInDisplayTimeZone } from "./displayTimeIndicator";
+import { MonthOverflowPopover } from "./MonthOverflowPopover";
+import { monthGridStartOffset, orderedDayNames } from "./weekLocale";
 
 interface MonthViewProps {
   currentDate: Date;
   events: DbCalendarEvent[];
+  displayTimeZone: string;
   onEventClick: (event: DbCalendarEvent, anchor: { x: number; y: number }) => void;
+  capabilities?: CalendarProviderCapabilities | null;
+  pendingEventIds?: ReadonlySet<string>;
+  visualOverrides?: Readonly<Record<string, TimedVisualOverride>>;
+  onDateCommit?: (event: DbCalendarEvent, draft: DateGridDraft, anchor: { x: number; y: number }) => void;
+  onCreateDraft?: (draft: GridCreateDraft) => void;
+  canUpdateEvent?: (event: DbCalendarEvent) => boolean;
 }
 
-const DAY_NAMES = {
-  en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-  ru: ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"],
-} as const;
+interface OverflowState {
+  date: CalendarDate;
+  events: DbCalendarEvent[];
+  anchor: DOMRect;
+}
 
-export function MonthView({ currentDate, events, onEventClick }: MonthViewProps) {
+interface MonthGesture {
+  event: DbCalendarEvent;
+  originDate: CalendarDate;
+  originX: number;
+  originY: number;
+  dragging: boolean;
+  dropDate: CalendarDate | null;
+}
+
+export function MonthView({
+  currentDate,
+  events,
+  displayTimeZone,
+  onEventClick,
+  capabilities = null,
+  pendingEventIds,
+  visualOverrides,
+  onDateCommit,
+  onCreateDraft,
+  canUpdateEvent = () => true,
+}: MonthViewProps) {
   const locale = useUIStore((state) => state.locale);
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
-  const startOffset = firstDay.getDay();
+  const startOffset = monthGridStartOffset(firstDay, locale);
   const totalDays = lastDay.getDate();
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+  const pending = pendingEventIds ?? new Set<string>();
+  const suppressClickRef = useRef(false);
+  const gestureRef = useRef<MonthGesture | null>(null);
+  const [gesture, setGesture] = useState<MonthGesture | null>(null);
+  const [overflow, setOverflow] = useState<OverflowState | null>(null);
 
-  // Build grid of weeks
-  const cells: (number | null)[] = [];
-  for (let i = 0; i < startOffset; i++) cells.push(null);
-  for (let d = 1; d <= totalDays; d++) cells.push(d);
-  while (cells.length % 7 !== 0) cells.push(null);
+  const cells = useMemo(() => {
+    const gridStart = new Date(year, month, 1 - startOffset);
+    const count = Math.ceil((startOffset + totalDays) / 7) * 7;
+    return Array.from({ length: count }, (_, index) => {
+      const date = new Date(gridStart);
+      date.setDate(gridStart.getDate() + index);
+      return { date, inMonth: date.getMonth() === month, key: calendarDateFromLocalDate(date) };
+    });
+  }, [year, month, startOffset, totalDays]);
 
-  // Pre-bucket events by day (O(E×D) → O(E)) instead of filtering per cell
+  const layoutEvents = useMemo(() => {
+    return events.map((event) => {
+      const override = visualOverrides?.[event.id];
+      return override ? { ...event, ...override } : event;
+    });
+  }, [events, visualOverrides]);
+
   const eventsByDay = useMemo(() => {
-    const map = new Map<number, DbCalendarEvent[]>();
-    for (let d = 1; d <= totalDays; d++) {
-      const dayStart = new Date(year, month, d).getTime() / 1000;
-      const dayEnd = new Date(year, month, d + 1).getTime() / 1000;
-      const dayEvents = events.filter((e) => e.start_time < dayEnd && e.end_time > dayStart);
-      if (dayEvents.length > 0) map.set(d, dayEvents);
+    const map = new Map<string, DbCalendarEvent[]>();
+    for (const cell of cells) {
+      const dayEvents = layoutEvents.filter((event) => eventOccursOnDate(event, cell.date));
+      if (dayEvents.length > 0) map.set(cell.key, dayEvents);
     }
     return map;
-  }, [events, year, month, totalDays]);
+  }, [layoutEvents, cells]);
+
+  function begin(event: DbCalendarEvent, originDate: CalendarDate, pointerEvent: React.PointerEvent<HTMLElement>) {
+    if (pointerEvent.button !== 0) return;
+    const next: MonthGesture = {
+      event,
+      originDate,
+      originX: pointerEvent.clientX,
+      originY: pointerEvent.clientY,
+      dragging: false,
+      dropDate: originDate,
+    };
+    gestureRef.current = next;
+    setGesture(next);
+    pointerEvent.currentTarget.setPointerCapture(pointerEvent.pointerId);
+  }
+
+  function track(pointerEvent: React.PointerEvent<HTMLElement>) {
+    const state = gestureRef.current;
+    if (!state) return;
+    const dx = pointerEvent.clientX - state.originX;
+    const dy = pointerEvent.clientY - state.originY;
+    if (!state.dragging && !pointerExceedsDragThreshold(dx, dy, DRAG_THRESHOLD_PX)) return;
+    const dropDate = hitTestCalendarDate(pointerEvent.clientX, pointerEvent.clientY) ?? state.dropDate;
+    const next = { ...state, dragging: true, dropDate };
+    gestureRef.current = next;
+    setGesture(next);
+  }
+
+  function end(pointerEvent: React.PointerEvent<HTMLElement>) {
+    const state = gestureRef.current;
+    gestureRef.current = null;
+    setGesture(null);
+    if (!state?.dragging || !state.dropDate || !onDateCommit) return;
+    suppressClickRef.current = true;
+    const deltaDays = calendarDateDiffDays(state.originDate, state.dropDate);
+    const draft: DateGridDraft = { type: "shift", deltaDays };
+    const applied = applyDateGridDraft(state.event, draft);
+    if (!applied.ok || applied.unchanged) return;
+    onDateCommit(state.event, draft, { x: pointerEvent.clientX, y: pointerEvent.clientY });
+  }
+
+  function cancel() {
+    gestureRef.current = null;
+    setGesture(null);
+  }
+
+  const previewDraft: DateGridDraft | null = gesture?.dragging && gesture.dropDate
+    ? { type: "shift", deltaDays: calendarDateDiffDays(gesture.originDate, gesture.dropDate) }
+    : null;
+  const preview = previewDraft ? applyDateGridDraft(gesture!.event, previewDraft) : null;
+  const previewText = preview?.ok ? dateGridPreviewLabel(preview.time, locale) : null;
+  const previewDate = gesture?.dropDate ?? null;
+  const canCreate = Boolean(onCreateDraft) && canCreateCalendarEvent(capabilities);
+
+  function handleEmptyCellClick(date: CalendarDate, mouseEvent: React.MouseEvent<HTMLElement>) {
+    if (!canCreate || !onCreateDraft) return;
+    if (!(mouseEvent.target instanceof Element)) return;
+    if (mouseEvent.target.closest("[data-testid='month-overflow']")) return;
+    if (mouseEvent.target.closest("[data-testid='month-overflow-popover']")) return;
+    if (mouseEvent.target.closest("button") && !mouseEvent.target.closest("[data-testid='month-create-day']")) return;
+    onCreateDraft(allDayClickDraft(date));
+  }
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden">
-      {/* Day headers */}
+    <div className="flex flex-col flex-1 overflow-hidden" data-testid="month-view">
       <div className="grid grid-cols-7 border-b border-border-primary">
-        {DAY_NAMES[locale].map((name) => (
+        {orderedDayNames(locale).map((name) => (
           <div key={name} className="px-2 py-2 text-xs font-medium text-text-tertiary text-center">
             {name}
           </div>
         ))}
       </div>
 
-      {/* Day cells */}
       <div className="grid grid-cols-7 flex-1 auto-rows-fr overflow-y-auto">
-        {cells.map((day, idx) => {
-          if (day === null) {
-            return <div key={`empty-${idx}`} className="border-b border-r border-border-secondary bg-bg-tertiary/30" />;
-          }
-          const isToday = `${year}-${month}-${day}` === todayStr;
-          const dayEvents = eventsByDay.get(day) ?? [];
+        {cells.map((cell) => {
+          const isToday = isTodayInDisplayTimeZone(cell.date, displayTimeZone);
+          const dayEvents = eventsByDay.get(cell.key) ?? [];
+          const isTarget = previewDate === cell.key && gesture?.dragging;
 
           return (
             <div
-              key={day}
-              className="border-b border-r border-border-secondary p-1 min-h-[80px]"
+              key={cell.key}
+              data-calendar-date={cell.key}
+              data-testid={`month-cell-${cell.key}`}
+              className={`border-b border-r border-border-secondary p-1 min-h-[80px] ${
+                cell.inMonth ? "" : "bg-bg-tertiary/30"
+              } ${isTarget ? "bg-accent/10" : ""} ${canCreate ? "cursor-cell" : ""}`}
+              onClick={(mouseEvent) => handleEmptyCellClick(cell.key, mouseEvent)}
             >
-              <div className={`text-xs font-medium mb-0.5 w-6 h-6 flex items-center justify-center rounded-full ${
-                isToday ? "bg-accent text-white" : "text-text-secondary"
-              }`}>
-                {day}
-              </div>
+              {canCreate ? (
+                <button
+                  type="button"
+                  data-testid="month-create-day"
+                  aria-label={formatCreateAriaLabel(allDayClickDraft(cell.key), locale)}
+                  className={`text-xs font-medium mb-0.5 w-6 h-6 flex items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${
+                    isToday ? "bg-accent text-white" : cell.inMonth ? "text-text-secondary" : "text-text-tertiary"
+                  }`}
+                  onClick={(mouseEvent) => {
+                    mouseEvent.stopPropagation();
+                    onCreateDraft?.(allDayClickDraft(cell.key));
+                  }}
+                >
+                  {cell.date.getDate()}
+                </button>
+              ) : (
+                <div className={`text-xs font-medium mb-0.5 w-6 h-6 flex items-center justify-center rounded-full ${
+                  isToday ? "bg-accent text-white" : cell.inMonth ? "text-text-secondary" : "text-text-tertiary"
+                }`}>
+                  {cell.date.getDate()}
+                </div>
+              )}
               <div className="space-y-0.5">
-                {dayEvents.slice(0, 3).map((event) => (
-                  <EventCard
-                    key={event.id}
-                    event={event}
-                    compact
-                    onClick={(mouseEvent) => onEventClick(event, { x: mouseEvent.clientX, y: mouseEvent.clientY })}
-                  />
-                ))}
+                {dayEvents.slice(0, 3).map((event) => {
+                  const interactive = Boolean(onDateCommit)
+                    && canUpdateEvent(event)
+                    && canDragDateEvent(event, capabilities)
+                    && !pending.has(event.id);
+                  const live = gesture?.event.id === event.id && gesture.dragging;
+                  return (
+                    <EventCard
+                      key={event.id}
+                      event={event}
+                      compact
+                      interactive={interactive}
+                      dragging={live}
+                      disabled={pending.has(event.id)}
+                      ariaLabel={formatEventAriaLabel(event, locale)}
+                      onPointerDown={(pointerEvent) => {
+                        if (!interactive) return;
+                        begin(event, cell.key, pointerEvent);
+                      }}
+                      onPointerMove={track}
+                      onPointerUp={end}
+                      onPointerCancel={cancel}
+                      onClick={(mouseEvent) => {
+                        mouseEvent.stopPropagation();
+                        if (suppressClickRef.current) {
+                          suppressClickRef.current = false;
+                          return;
+                        }
+                        onEventClick(event, { x: mouseEvent.clientX, y: mouseEvent.clientY });
+                      }}
+                    />
+                  );
+                })}
                 {dayEvents.length > 3 && (
-                  <div className="text-[0.625rem] text-text-tertiary pl-1">
+                  <button
+                    type="button"
+                    data-testid="month-overflow"
+                    aria-haspopup="dialog"
+                    aria-expanded={overflow?.date === cell.key}
+                    className="pl-1 text-[0.625rem] text-text-tertiary hover:text-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+                    onClick={(mouseEvent) => {
+                      mouseEvent.stopPropagation();
+                      setOverflow({
+                        date: cell.key,
+                        events: dayEvents.slice(3),
+                        anchor: mouseEvent.currentTarget.getBoundingClientRect(),
+                      });
+                    }}
+                  >
                     +{dayEvents.length - 3} {locale === "ru" ? "ещё" : "more"}
-                  </div>
+                  </button>
                 )}
+                {isTarget ? (
+                  <div
+                    data-testid="month-drag-preview"
+                    className="pointer-events-none text-[0.625rem] px-1 py-0.5 rounded bg-accent/40 text-accent ring-1 ring-accent truncate"
+                  >
+                    {gesture?.event.summary}
+                    {previewText ? <span className="ml-1 opacity-80">{previewText}</span> : null}
+                  </div>
+                ) : null}
               </div>
             </div>
           );
         })}
       </div>
+      {overflow ? (
+        <MonthOverflowPopover
+          date={overflow.date}
+          events={overflow.events}
+          anchor={overflow.anchor}
+          locale={locale}
+          onClose={() => setOverflow(null)}
+          onEventClick={onEventClick}
+        />
+      ) : null}
     </div>
   );
 }

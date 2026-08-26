@@ -1,84 +1,43 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { personIdentityFromEmail } from "@/services/people";
 import { AddressInput } from "./AddressInput";
 
-// Mock the contacts search
-const mockSearchContacts = vi.fn().mockResolvedValue([]);
-vi.mock("@/services/db/contacts", () => ({
-  searchContacts: (...args: unknown[]) => mockSearchContacts(...args),
-}));
+describe("AddressInput unified people adapter", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
 
-describe("AddressInput debounce behavior", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    mockSearchContacts.mockClear();
+  it("debounces people search and forwards the active account", async () => {
+    const search = vi.fn(async () => ({ people: [], directorySearch: "unsupported" as const }));
+    render(<AddressInput accountId="account-1" label="To" addresses={[]} onChange={vi.fn()} search={search} />);
+    fireEvent.change(screen.getByRole("combobox", { name: "To" }), { target: { value: "john" } });
+    expect(search).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(200));
+    expect(search).toHaveBeenLastCalledWith({ accountId: "account-1", query: "john", limit: 10 });
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("should not search immediately on input change", () => {
-    const onChange = vi.fn();
-    const { getByRole } = render(
-      <AddressInput label="To" addresses={[]} onChange={onChange} />,
-    );
-
-    const input = getByRole("textbox", { name: "To" });
+  it("resets the debounce during rapid typing", async () => {
+    const search = vi.fn(async () => ({ people: [], directorySearch: "unsupported" as const }));
+    render(<AddressInput label="To" addresses={[]} onChange={vi.fn()} search={search} />);
+    const input = screen.getByRole("combobox", { name: "To" });
     fireEvent.change(input, { target: { value: "jo" } });
-
-    // Should NOT have searched yet (debounce not elapsed)
-    expect(mockSearchContacts).not.toHaveBeenCalled();
-  });
-
-  it("should search after debounce period", async () => {
-    const onChange = vi.fn();
-    const { getByRole } = render(
-      <AddressInput label="To" addresses={[]} onChange={onChange} />,
-    );
-
-    const input = getByRole("textbox", { name: "To" });
-    fireEvent.change(input, { target: { value: "jo" } });
-
-    // Advance past 200ms debounce
-    await vi.advanceTimersByTimeAsync(250);
-    expect(mockSearchContacts).toHaveBeenCalledWith("jo", 5);
-  });
-
-  it("should not search when input is too short", async () => {
-    const onChange = vi.fn();
-    const { getByRole } = render(
-      <AddressInput label="To" addresses={[]} onChange={onChange} />,
-    );
-
-    const input = getByRole("textbox", { name: "To" });
-    fireEvent.change(input, { target: { value: "j" } });
-
-    await vi.advanceTimersByTimeAsync(250);
-    expect(mockSearchContacts).not.toHaveBeenCalled();
-  });
-
-  it("should debounce rapid keystrokes", async () => {
-    const onChange = vi.fn();
-    const { getByRole } = render(
-      <AddressInput label="To" addresses={[]} onChange={onChange} />,
-    );
-
-    const input = getByRole("textbox", { name: "To" });
-
-    // Simulate rapid typing — each keystroke resets the debounce
-    fireEvent.change(input, { target: { value: "jo" } });
-    await vi.advanceTimersByTimeAsync(100);
-    fireEvent.change(input, { target: { value: "joh" } });
-    await vi.advanceTimersByTimeAsync(100);
+    await act(() => vi.advanceTimersByTimeAsync(100));
     fireEvent.change(input, { target: { value: "john" } });
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    expect(search).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    expect(search).toHaveBeenCalledTimes(1);
+  });
 
-    // At this point 200ms haven't passed since the last change
-    expect(mockSearchContacts).not.toHaveBeenCalled();
-
-    // Now advance past debounce from last keystroke
-    await vi.advanceTimersByTimeAsync(250);
-    expect(mockSearchContacts).toHaveBeenCalledTimes(1);
-    expect(mockSearchContacts).toHaveBeenCalledWith("john", 5);
+  it("keeps rich presentation in the chip while preserving the SMTP email contract", async () => {
+    const person = personIdentityFromEmail("anna@example.com", { displayName: "Анна Иванова", source: "contact" });
+    const search = vi.fn(async () => ({ people: [person], directorySearch: "unsupported" as const }));
+    const onChange = vi.fn();
+    render(<AddressInput label="To" addresses={[]} onChange={onChange} search={search} />);
+    const input = screen.getByRole("combobox", { name: "To" });
+    fireEvent.change(input, { target: { value: "Анна" } });
+    await act(() => vi.advanceTimersByTimeAsync(200));
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(["anna@example.com"]);
   });
 });

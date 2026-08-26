@@ -52,6 +52,14 @@ src/services/email/types.ts
 
 Только explicit `exchange` accounts получают unsupported Exchange profile. Это guardrail: future/native Exchange rows не должны silently fall back to IMAP behavior.
 
+## Calendar capabilities
+
+Calendar использует отдельный provider-neutral contract v5 в `src/services/calendar/domain/capabilities.ts`. Google и CalDAV/Yandex явно объявляют read/CRUD, recurrence scopes, attendee/RSVP, invitation delivery, sync durability, Free/Busy, per-calendar access discovery, ACL, shared-calendar, reminder и conflict facts. Полная матрица и write-path ownership: `docs/calendar/CALENDAR_PROVIDER_CAPABILITIES.md`; shared access semantics: `docs/calendar/CALENDAR_SHARED_ACCESS.md`; share-management boundary: `docs/calendar/CALENDAR_ACL_MANAGEMENT.md`.
+
+UI не определяет Calendar features по наличию методов provider. Все create/update/delete/RSVP команды проходят через `CalendarMutationService`; unsupported scope возвращается typed result до remote call. В частности, CalDAV/Yandex occurrence нельзя удалить как отдельный `.ics` resource: adapter объявляет только series scope.
+
+Google заявляет remote Free/Busy для других участников. Generic CalDAV включает его только после RFC 6638 scheduling discovery. ACL management динамический: Google требует сохранённый compatible OAuth scope, CalDAV/Yandex — полный RFC 3744 discovery; unknown state не writable. Invitation delivery не заявлена как provider-native. Reminder metadata поддерживается отдельно: Google — defaults/none/popup/email, CalDAV/Yandex — multiple DISPLAY writes и DISPLAY/EMAIL reads; desktop notification delivery остаётся отдельной функцией. Google sync-token и CalDAV delta state пока не durable; generic CalDAV/Yandex честно используют `range-refresh`. Calendar/ACL write success обновляет локальный cache/access только через обычный provider reconciliation path.
+
 ## Microsoft 365 / Exchange status
 
 Current supported path:

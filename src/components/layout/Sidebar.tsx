@@ -12,17 +12,6 @@ import { useActiveLabel, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToLabel } from "@/router/navigate";
 import { openNewCompose } from "@/utils/openComposeWindow";
 import {
-  Inbox,
-  Star,
-  Clock,
-  Send,
-  SendHorizontal,
-  FileEdit,
-  Trash2,
-  Ban,
-  Mail,
-  CheckSquare,
-  Calendar,
   Settings,
   Plus,
   Tag,
@@ -39,14 +28,14 @@ import {
   Newspaper,
   Search,
   MailOpen,
+  Mail,
+  Inbox,
   Paperclip,
+  Star,
+  Clock,
   FolderSearch,
   Loader2,
-  MessageCircle,
   Folder,
-  HardDrive,
-  Video,
-  ListTodo,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -55,38 +44,21 @@ import {
   partitionUserFolders,
 } from "@/services/imap/folderTree";
 import { getSetting, setSetting } from "@/services/db/settings";
-import { getOutboxSendCount } from "@/services/db/pendingOperations";
-import { useTaskStore } from "@/stores/taskStore";
 import {
   FOLDER_EDITING_UNSUPPORTED_MESSAGE,
   supportsFolderEditing,
 } from "@/services/email/providerCapabilities";
+import { NavBadge } from "./NavBadge";
+import { SERVICE_NAV_ICON_SIZE, SERVICE_NAV_REGISTRY } from "./serviceNavRegistry";
+import { useServiceNavBadges } from "./useServiceNavBadges";
 
 interface SidebarProps {
   collapsed: boolean;
   onAddAccount: () => void;
 }
 
-export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = [
-  { id: "inbox", label: "Inbox", icon: Inbox },
-  { id: "starred", label: "Starred", icon: Star },
-  { id: "snoozed", label: "Snoozed", icon: Clock },
-  { id: "outbox", label: "Outbox", icon: SendHorizontal },
-  { id: "sent", label: "Sent", icon: Send },
-  { id: "drafts", label: "Drafts", icon: FileEdit },
-  { id: "trash", label: "Trash", icon: Trash2 },
-  { id: "spam", label: "Spam", icon: Ban },
-  { id: "all", label: "All Mail", icon: Mail },
-  { id: "messengers", label: "Мессенджеры", icon: MessageCircle },
-  { id: "tasks", label: "Tasks", icon: CheckSquare },
-  { id: "calendar", label: "Calendar", icon: Calendar },
-  { id: "attachments", label: "Attachments", icon: Paperclip },
-  { id: "disk", label: "Диск", icon: HardDrive },
-  { id: "telemost", label: "Телемост", icon: Video },
-  { id: "tracker", label: "Трекер", icon: ListTodo },
-  { id: "smart-folders", label: "Smart Folders", icon: FolderSearch },
-  { id: "labels", label: "Labels", icon: Tag },
-];
+/** @deprecated Prefer SERVICE_NAV_REGISTRY — kept as alias for existing imports/tests. */
+export const ALL_NAV_ITEMS = SERVICE_NAV_REGISTRY.map(({ id, label, icon }) => ({ id, label, icon }));
 
 const CATEGORY_ITEMS: { id: string; label: string; icon: LucideIcon }[] = [
   { id: "Primary", label: "Primary", icon: Inbox },
@@ -275,7 +247,6 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const activeLabel = useActiveLabel();
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const sidebarNavConfig = useUIStore((s) => s.sidebarNavConfig);
-  const taskIncompleteCount = useTaskStore((s) => s.incompleteCount);
   const inboxViewMode = useUIStore((s) => s.inboxViewMode);
   const setInboxViewMode = useUIStore((s) => s.setInboxViewMode);
   const messengersPanelsOpen = useUIStore((s) => s.messengersPanelsOpen);
@@ -288,6 +259,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const activeAccount = useAccountStore((s) =>
     s.accounts.find((account) => account.id === s.activeAccountId),
   );
+  const { getBadgeCount } = useServiceNavBadges(activeAccountId);
   const canEditFolders = supportsFolderEditing(activeAccount?.provider);
   const labels = useLabelStore((s) => s.labels);
   const loadLabels = useLabelStore((s) => s.loadLabels);
@@ -325,7 +297,6 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, [sidebarNavConfig]);
 
   const [labelsExpanded, setLabelsExpanded] = useState(false);
-  const [outboxSendCount, setOutboxSendCount] = useState(0);
   const [folderExpandedKeys, setFolderExpandedKeys] = useState<Set<string>>(() => new Set());
   const [inboxChildrenExpanded, setInboxChildrenExpanded] = useState(true);
 
@@ -398,28 +369,6 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     },
     [inboxChildrenExpanded, persistFolderExpanded],
   );
-
-  const refreshOutboxCount = useCallback(async () => {
-    if (!activeAccountId) {
-      setOutboxSendCount(0);
-      return;
-    }
-    setOutboxSendCount(await getOutboxSendCount(activeAccountId));
-  }, [activeAccountId]);
-
-  useEffect(() => {
-    void refreshOutboxCount();
-  }, [refreshOutboxCount]);
-
-  useEffect(() => {
-    const handler = () => void refreshOutboxCount();
-    window.addEventListener("velo-outbox-changed", handler);
-    window.addEventListener("online", handler);
-    return () => {
-      window.removeEventListener("velo-outbox-changed", handler);
-      window.removeEventListener("online", handler);
-    };
-  }, [refreshOutboxCount]);
 
   // Inline label editing state
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
@@ -549,6 +498,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
           const shouldShowServicesHeader = !collapsed
             && SERVICE_NAV_IDS.has(item.id)
             && (!previousItem || !SERVICE_NAV_IDS.has(previousItem.id));
+          const registryItem = SERVICE_NAV_REGISTRY.find((entry) => entry.id === item.id);
+          const badgeCount = registryItem ? getBadgeCount(registryItem.badgeSource) : 0;
+          const badgeTitle = collapsed && badgeCount > 0 ? `${item.label}: ${badgeCount > 99 ? "99+" : badgeCount}` : undefined;
           return (
             <div key={item.id}>
               {shouldShowServicesHeader && (
@@ -584,27 +536,20 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                   }
                 }}
                 onContextMenu={(e) => handleNavContextMenu(e, item.id)}
-                title={collapsed ? item.label : undefined}
+                title={collapsed ? (badgeTitle ?? item.label) : undefined}
               >
                 {() => (
                   <>
                     {isSyncingFolder === item.id ? (
-                      <Loader2 size={18} className="shrink-0 animate-spin text-accent" />
+                      <Loader2 size={SERVICE_NAV_ICON_SIZE} className="shrink-0 animate-spin text-accent" aria-hidden />
                     ) : (
-                      <Icon size={18} className="shrink-0" />
+                      <Icon size={SERVICE_NAV_ICON_SIZE} className="shrink-0 text-current" aria-hidden />
                     )}
                     {!collapsed && (
                       <span className="flex-1 truncate">{item.label}</span>
                     )}
-                    {item.id === "tasks" && taskIncompleteCount > 0 && !collapsed && (
-                      <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
-                        {taskIncompleteCount}
-                      </span>
-                    )}
-                    {item.id === "outbox" && outboxSendCount > 0 && !collapsed && (
-                      <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
-                        {outboxSendCount}
-                      </span>
+                    {registryItem && (
+                      <NavBadge count={badgeCount} label={item.label} collapsed={collapsed} />
                     )}
                     {isInbox && !collapsed && (
                       <span
@@ -621,7 +566,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                             setInboxViewMode(inboxViewMode === "split" ? "unified" : "split");
                           }
                         }}
-                        title={inboxViewMode === "split" ? "Switch to unified inbox" : "Switch to split inbox"}
+                        title={inboxViewMode === "split" ? "Единый входящий" : "Разделённый входящий"}
                         className={`p-1 rounded transition-colors ${
                           inboxViewMode === "split"
                             ? "text-accent hover:bg-accent/10"

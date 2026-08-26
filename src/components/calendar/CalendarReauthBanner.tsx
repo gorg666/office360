@@ -5,10 +5,11 @@ import { reauthorizeAccount } from "@/services/gmail/tokenManager";
 interface CalendarReauthBannerProps {
   accountId: string;
   email: string;
+  hasCachedData?: boolean;
   onReauthSuccess: () => void;
 }
 
-export function CalendarReauthBanner({ accountId, email, onReauthSuccess }: CalendarReauthBannerProps) {
+export function CalendarReauthBanner({ accountId, email, hasCachedData = false, onReauthSuccess }: CalendarReauthBannerProps) {
   const [status, setStatus] = useState<"idle" | "authorizing" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -25,11 +26,14 @@ export function CalendarReauthBanner({ accountId, email, onReauthSuccess }: Cale
   };
 
   return (
-    <div className="mx-6 my-4 p-4 rounded-lg bg-warning/10 border border-warning/30 flex items-start gap-3">
+    <div role={hasCachedData ? "status" : "alert"} aria-live="polite" className="mx-6 my-4 p-4 rounded-lg bg-warning/10 border border-warning/30 flex items-start gap-3">
       <AlertTriangle size={18} className="text-warning shrink-0 mt-0.5" />
       <div className="flex-1">
-        <p className="text-sm font-medium text-text-primary">Календарю нужна повторная авторизация</p>
+        <p className="text-sm font-medium text-text-primary">
+          {hasCachedData ? "Не удалось обновить календарь" : "Не удалось загрузить календарь"}
+        </p>
         <p className="text-xs text-text-secondary mt-1">
+          {hasCachedData && "Показаны ранее загруженные данные. "}
           Аккаунт был подключён до добавления прав календаря.
           Авторизуйтесь заново, чтобы выдать доступ к календарю. Письма и данные не будут затронуты.
         </p>

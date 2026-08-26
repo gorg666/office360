@@ -26,9 +26,11 @@ import {
   updateCalendarSyncToken,
   deleteCalendarsForAccount,
   getCalendarById,
+  markMissingProviderCalendarsRemoved,
 } from "./calendars";
 import type { DbCalendar } from "./calendars";
 import { createMockDb } from "@/test/mocks";
+import { unknownCalendarAccess } from "@/services/calendar/domain";
 
 const mockDb = createMockDb();
 
@@ -57,13 +59,15 @@ describe("calendars service", () => {
         displayName: "My Calendar",
         color: "#4285f4",
         isPrimary: true,
+        access: unknownCalendarAccess(),
+        observedAt: 100,
       });
 
       expect(id).toBe(MOCK_UUID);
       expect(mockDb.execute).toHaveBeenCalledOnce();
       expect(mockDb.execute).toHaveBeenCalledWith(
         expect.stringContaining("INSERT INTO calendars"),
-        [MOCK_UUID, "acc-1", "google", "remote-cal-1", "My Calendar", "#4285f4", 1],
+        [MOCK_UUID, "acc-1", "google", "remote-cal-1", "My Calendar", "#4285f4", 1, expect.any(String), 100],
       );
     });
 
@@ -79,12 +83,14 @@ describe("calendars service", () => {
         displayName: "Updated Name",
         color: "#0b8043",
         isPrimary: false,
+        access: unknownCalendarAccess(),
+        observedAt: 101,
       });
 
       expect(id).toBe(existingId);
       expect(mockDb.execute).toHaveBeenCalledWith(
         expect.stringContaining("ON CONFLICT(account_id, remote_id) DO UPDATE"),
-        [MOCK_UUID, "acc-1", "google", "remote-cal-1", "Updated Name", "#0b8043", 0],
+        [MOCK_UUID, "acc-1", "google", "remote-cal-1", "Updated Name", "#0b8043", 0, expect.any(String), 101],
       );
     });
 
@@ -98,6 +104,8 @@ describe("calendars service", () => {
         displayName: null,
         color: null,
         isPrimary: false,
+        access: unknownCalendarAccess(),
+        observedAt: 102,
       });
 
       expect(id).toBe(MOCK_UUID);
@@ -227,6 +235,23 @@ describe("calendars service", () => {
       expect(result).toBeNull();
     });
   });
+
+  describe("provider presence reconciliation", () => {
+    it("marks only absent provider calendars removed without deleting rows", async () => {
+      await markMissingProviderCalendarsRemoved("acc-1", "caldav", ["present-1", "present-2"]);
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        expect.stringContaining("provider_presence = 'removed'"),
+        ["acc-1", "caldav", "present-1", "present-2"],
+      );
+      expect(mockDb.execute.mock.calls[0]?.[0]).not.toMatch(/DELETE/i);
+    });
+
+    it("uses an authoritative empty list without deleting rows", async () => {
+      await markMissingProviderCalendarsRemoved("acc-1", "google_api", []);
+      expect(mockDb.execute).toHaveBeenCalledWith(expect.stringContaining("UPDATE calendars"), ["acc-1", "google_api"]);
+      expect(mockDb.execute.mock.calls[0]?.[0]).not.toMatch(/DELETE/i);
+    });
+  });
 });
 
 function makeCal(overrides: Partial<DbCalendar> = {}): DbCalendar {
@@ -243,6 +268,10 @@ function makeCal(overrides: Partial<DbCalendar> = {}): DbCalendar {
     ctag: null,
     created_at: 1700000000,
     updated_at: 1700000000,
+    access_json: null,
+    access_observed_at: null,
+    provider_presence: null,
+    provider_seen_at: null,
     ...overrides,
   };
 }

@@ -1,51 +1,23 @@
-import { getAllAccounts } from "@/services/db/accounts";
-import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
 import { loadMessengerCredentials } from "./credentials";
 
 export interface YandexMessengerSession {
   token: string;
-  manual: boolean;
-  accountId?: string;
-  accountEmail?: string;
+  /** Always true: Bot API accepts only organization bot tokens, never user OAuth. */
+  manual: true;
 }
 
 export function yandexMessengerSourceKey(session: YandexMessengerSession): string {
-  if (session.manual) return `manual:${session.token.slice(0, 24)}`;
-  return `account:${session.accountId ?? "unknown"}`;
+  return `bot:${session.token.slice(0, 24)}`;
 }
 
 /**
- * Токен для Bot API: сначала ручной токен из настроек мессенджера, иначе OAuth-токен
- * аккаунта Яндекс Почты (тот же, что для IMAP), с автообновлением по refresh_token.
+ * Bot API session for org bots only.
+ * User Yandex ID OAuth tokens must never be sent to Bot API — user chats go through the Messenger widget.
  */
 export async function resolveYandexMessengerSession(
-  activeAccountId: string | null,
+  _activeAccountId: string | null,
 ): Promise<YandexMessengerSession | null> {
-  const accounts = await getAllAccounts();
-  const yandexOAuth = accounts.filter(
-    (a) =>
-      a.provider === "imap" &&
-      a.auth_method === "oauth2" &&
-      a.oauth_provider === "yandex" &&
-      Boolean(a.access_token?.trim()),
-  );
-
-  const picked =
-    (activeAccountId ? yandexOAuth.find((a) => a.id === activeAccountId) : undefined) ??
-    yandexOAuth[0];
-
-  if (!picked) {
-    const manual = loadMessengerCredentials("yandex");
-    return manual?.token?.trim() ? { token: manual.token.trim(), manual: true } : null;
-  }
-
-  const token = (await ensureFreshToken(picked)).trim();
-  if (!token) return null;
-
-  return {
-    token,
-    manual: false,
-    accountId: picked.id,
-    accountEmail: picked.email,
-  };
+  const credentials = loadMessengerCredentials("yandex");
+  const token = credentials?.token?.trim();
+  return token ? { token, manual: true } : null;
 }

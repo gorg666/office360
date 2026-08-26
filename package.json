@@ -10,6 +10,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:calendar-migration": "node scripts/verify-calendar-migration-v34.mjs && node scripts/verify-calendar-migration-v35.mjs && node scripts/verify-calendar-migration-v36.mjs && node scripts/verify-calendar-migration-v37.mjs && node scripts/verify-calendar-migration-v38.mjs && node scripts/verify-calendar-migration-v39.mjs",
+    "test:calendar-tz": "node scripts/run-calendar-tz-matrix.mjs",
+    "check:i18n": "node scripts/i18n-audit.mjs --fail",
     "smoke:desktop": "node scripts/desktop-smoke.mjs",
     "tauri": "tauri",
     "tauri:build:dmg": "tauri build --bundles dmg",
@@ -46,6 +49,7 @@
     "@tiptap/react": "^3.19.0",
     "@tiptap/starter-kit": "^3.19.0",
     "dompurify": "^3.3.1",
+    "ical.js": "2.2.1",
     "lucide-react": "^0.563.0",
     "openai": "^6.21.0",
     "react": "^19.2.4",
@@ -53,6 +57,7 @@
     "react-transition-group": "^4.4.5",
     "rrule": "^2.8.1",
     "tsdav": "^2.1.8",
+    "yandex-messenger-widget": "^1.47.0",
     "zustand": "^5.0.11"
   },
   "devDependencies": {

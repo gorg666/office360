@@ -314,6 +314,31 @@ describe("pendingOperations DB service", () => {
   });
 
   describe("listQueueInspectorOperations", () => {
+    it("does not offer retry for a terminal unsupported calendar write", async () => {
+      mockDb.select.mockResolvedValueOnce([{
+        id: "calendar-op-1",
+        account_id: "a1",
+        operation_type: "calendarRsvp",
+        resource_id: "invite-1",
+        params: "{}",
+        status: "blocked",
+        retry_count: 0,
+        max_retries: 10,
+        next_retry_at: null,
+        created_at: 100,
+        updated_at: 120,
+        error_message: "Remote RSVP unsupported",
+        diagnostic_code: "calendar_write_unsupported",
+        blocked_reason: "Remote RSVP unsupported",
+        user_action: "export_debug",
+      }]);
+
+      const [item] = await listQueueInspectorOperations();
+
+      expect(item?.actions).toEqual(["cancel", "export_debug"]);
+      expect(item?.actions).not.toContain("retry");
+    });
+
     it("redacts send payloads from inspector items", async () => {
       const rawBase64Url = "VG86IHVzZXJAZXhhbXBsZS5jb20NClN1YmplY3Q6IFNlY3JldA0KDQpQcml2YXRlIGJvZHk";
       mockDb.select.mockResolvedValueOnce([

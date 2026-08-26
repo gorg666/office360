@@ -122,7 +122,7 @@ export async function reauthorizeAccount(
     throw new Error("Google did not return an access token. Please try again.");
   }
   const expiresAt = getCurrentUnixTimestamp() + tokens.expires_in;
-  await updateAccountAllTokens(accountId, tokens.access_token, refreshToken, expiresAt);
+  await updateAccountAllTokens(accountId, tokens.access_token, refreshToken, expiresAt, tokens.scope ?? null);
 
   // Evict stale client and create a fresh one
   clients.delete(accountId);

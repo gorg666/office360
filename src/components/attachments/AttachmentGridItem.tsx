@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Eye, ExternalLink } from "lucide-react";
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { base64UrlToUint8Array, uint8ArrayToBase64DataUrl } from "@/utils/base64url";
-import { formatFileSize, getFileIcon, canPreview, isImage } from "@/utils/fileTypeHelpers";
+import { formatFileSize, canPreview, isImage } from "@/utils/fileTypeHelpers";
+import { FileTypeIcon } from "@/components/ui/FileTypeIcon";
 import type { AttachmentWithContext } from "@/services/db/attachments";
 
 interface AttachmentGridItemProps {
@@ -40,7 +41,12 @@ export function AttachmentGridItem({ attachment, onPreview, onDownload, onJumpTo
         {isImageAttachment ? (
           <ImageThumbnail attachment={attachment} />
         ) : (
-          getFileIcon(attachment.mime_type, attachment.filename)
+          <FileTypeIcon
+            mimeType={attachment.mime_type}
+            filename={attachment.filename}
+            size={32}
+            className="text-text-tertiary"
+          />
         )}
       </button>
 
@@ -145,8 +151,8 @@ function ImageThumbnail({ attachment }: { attachment: AttachmentWithContext }) {
   }
 
   return (
-    <span ref={containerRef} className="text-text-tertiary">
-      {getFileIcon(attachment.mime_type, attachment.filename)}
+    <span ref={containerRef} className="text-text-tertiary flex items-center justify-center">
+      <FileTypeIcon mimeType={attachment.mime_type} filename={attachment.filename} size={32} />
     </span>
   );
 }

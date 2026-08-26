@@ -1,5 +1,6 @@
 import { getAccount } from "../db/accounts";
 import { getSecureSetting, setSecureSetting, getSetting, setSetting } from "../db/settings";
+import { getYandexGrantAccessToken } from "@/services/oauth/yandexUnifiedAuth";
 
 const TOKEN_SETTING = "yandex360_access_token";
 const CLIENT_ID_SETTING = "yandex360_client_id";
@@ -13,6 +14,12 @@ export interface Yandex360Credentials {
 
 export async function getYandex360AccessToken(accountId?: string): Promise<string> {
   if (accountId) {
+    try {
+      return await getYandexGrantAccessToken(accountId, "admin");
+    } catch {
+      // Fall through to account / stored token for non-admin workflows.
+    }
+
     const account = await getAccount(accountId);
     if (!account) {
       throw new Error("Аккаунт Яндекс не найден.");
