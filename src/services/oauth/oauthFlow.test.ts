@@ -141,6 +141,14 @@ describe("Yandex desktop vs verification_code redirect (AUTH-004)", () => {
   });
 });
 
+describe("EFIM-AUTH-SESSION-SPLIT-005 OAuth CEF profile key", () => {
+  it("keeps Add-Account CEF profile distinct from Telemost Default key", async () => {
+    const { YANDEX_OAUTH_ADD_CEF_PROFILE } = await import("./oauthFlow");
+    expect(YANDEX_OAUTH_ADD_CEF_PROFILE).toBe("oauth-add");
+    expect(YANDEX_OAUTH_ADD_CEF_PROFILE).not.toBe("oauth");
+  });
+});
+
 describe("formatOAuthCallbackBindError (AUTH-005)", () => {
   it("maps stable port-busy code to Russian user copy", () => {
     expect(formatOAuthCallbackBindError("oauth_callback_port_in_use:17248")).toBe(

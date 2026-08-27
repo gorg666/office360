@@ -70,6 +70,18 @@ mod platform {
         value.as_os_str().encode_wide().chain(std::iter::once(0)).collect()
     }
 
+    /// Absolute native path without Windows `\\?\` verbatim prefix (CEF/Chrome
+    /// profile DirName checks fail on mixed/`\\?\` paths).
+    fn native_abs(path: PathBuf) -> PathBuf {
+        let path = std::fs::canonicalize(&path).unwrap_or(path);
+        let s = path.to_string_lossy();
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            PathBuf::from(stripped)
+        } else {
+            path
+        }
+    }
+
     fn runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
         if let Ok(path) = app.path().resolve("cef-runtime", BaseDirectory::Resource) {
             if path.join("office360_cef_host.dll").exists() { return Ok(path); }
@@ -86,8 +98,11 @@ mod platform {
         let window = app.get_webview_window("main").ok_or("Main window is unavailable")?;
         let hwnd = window.hwnd().map_err(|e| e.to_string())?;
         let dir = runtime_dir(&app)?;
-        let profile = app.path().app_local_data_dir().map_err(|e| e.to_string())?.join("cef/telemost-profile");
+        // Use separate joins (not "cef/telemost-profile") so Windows paths stay
+        // backslash-canonical; mixed separators break Chrome profile DirName checks.
+        let profile = app.path().app_local_data_dir().map_err(|e| e.to_string())?.join("cef").join("telemost-profile");
         std::fs::create_dir_all(&profile).map_err(|e| e.to_string())?;
+        let profile = native_abs(profile);
         let dir_wide = wide(&dir);
         unsafe { SetDllDirectoryW(PCWSTR(dir_wide.as_ptr())).map_err(|e| e.to_string())?; }
         let library = unsafe { Library::new(dir.join("office360_cef_host.dll")) }.map_err(|e| e.to_string())?;
@@ -120,16 +135,28 @@ mod platform {
     pub fn create(url: &str, profile_key: &str) -> Result<(), String> { with_runtime(|r| {
         let safe_key: String = profile_key.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
         if safe_key.is_empty() { return Err("CEF profile key is required".into()); }
-        let profile = r.profile_root.join(format!("account-{safe_key}"));
+        // Existing-account / Telemost: key "oauth" → Chromium Default (shared web session).
+        // Add-Account CEF screen-code: key "oauth-add" → account-oauth-add (auth-only;
+        // tokens bind via OAuth grant storage, never migrate cookies into Default).
+        let profile = if safe_key == "oauth" {
+            r.profile_root.join("Default")
+        } else {
+            r.profile_root.join(format!("account-{safe_key}"))
+        };
+        eprintln!(
+            "[cef] EFIM-SESSION profile_key={safe_key} path={}",
+            profile.display()
+        );
         std::fs::create_dir_all(&profile).map_err(|e| e.to_string())?;
+        let profile = native_abs(profile);
         let url = CString::new(url).map_err(|_| "Invalid URL")?;
         let profile_wide = wide(&profile);
         if unsafe { (r.create)(url.as_ptr(), profile_wide.as_ptr()) } == 0 { return Err("CEF browser creation failed".into()); }
         Ok(())
     }) }
-    pub fn bounds(value: CefBounds) -> Result<(), String> { with_runtime(|r| { let s = value.device_scale_factor.max(0.1); unsafe { (r.set_bounds)((value.x*s).round() as i32,(value.y*s).round() as i32,(value.width*s).round() as i32,(value.height*s).round() as i32) }; Ok(()) }) }
-    pub fn visible(value: bool) -> Result<(), String> { with_runtime(|r| { unsafe { (r.set_visible)(value as i32) }; Ok(()) }) }
-    pub fn navigate(url: &str) -> Result<(), String> { with_runtime(|r| { let value=CString::new(url).map_err(|_| "Invalid URL")?; unsafe { (r.navigate)(value.as_ptr()) }; Ok(()) }) }
+    pub fn bounds(value: CefBounds) -> Result<(), String> { with_runtime(|r| { let s = value.device_scale_factor.max(0.1); eprintln!("[efim-auth] rust cef_set_bounds {}x{} @{},{} scale={s}", value.width, value.height, value.x, value.y); unsafe { (r.set_bounds)((value.x*s).round() as i32,(value.y*s).round() as i32,(value.width*s).round() as i32,(value.height*s).round() as i32) }; Ok(()) }) }
+    pub fn visible(value: bool) -> Result<(), String> { with_runtime(|r| { eprintln!("[efim-auth] rust cef_set_visible command received visible={value}"); unsafe { (r.set_visible)(value as i32) }; eprintln!("[efim-auth] rust cef_set_visible host invoked ok"); Ok(()) }) }
+    pub fn navigate(url: &str) -> Result<(), String> { with_runtime(|r| { let route = url.split('?').next().unwrap_or(url); eprintln!("[efim-auth] rust cef_navigate route={route}"); let value=CString::new(url).map_err(|_| "Invalid URL")?; unsafe { (r.navigate)(value.as_ptr()) }; Ok(()) }) }
     pub fn back() -> Result<(), String> { with_runtime(|r| { unsafe { (r.back)() }; Ok(()) }) }
     pub fn forward() -> Result<(), String> { with_runtime(|r| { unsafe { (r.forward)() }; Ok(()) }) }
     pub fn reload() -> Result<(), String> { with_runtime(|r| { unsafe { (r.reload)() }; Ok(()) }) }

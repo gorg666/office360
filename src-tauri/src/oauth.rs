@@ -1,14 +1,165 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 use tokio::time::{timeout_at, Instant};
 
 const YANDEX_OAUTH_WINDOW_LABEL: &str = "yandex-oauth";
+const OAUTH_DESIRED_WIDTH: f64 = 520.0;
+const OAUTH_DESIRED_HEIGHT: f64 = 720.0;
+const OAUTH_MIN_WIDTH: f64 = 420.0;
+const OAUTH_MIN_HEIGHT: f64 = 560.0;
+const OAUTH_PARENT_MARGIN: f64 = 12.0;
+
+/// Keep OAuth HWND fully inside the parent outer frame (centered, DPI-aware).
+/// Clamps width/height/x/y. Preferred size when it fits; shrinks when parent is smaller.
+/// Note: Tauri `set_size` is inner size — subtract window chrome so *outer* fits.
+fn fit_oauth_window_in_parent(oauth: &WebviewWindow, parent: &WebviewWindow) {
+    let scale = parent.scale_factor().unwrap_or(1.0).max(0.1);
+    let Ok(parent_pos) = parent.outer_position() else {
+        return;
+    };
+    let Ok(parent_size) = parent.outer_size() else {
+        return;
+    };
+
+    let parent_w = (parent_size.width as f64 / scale).max(1.0);
+    let parent_h = (parent_size.height as f64 / scale).max(1.0);
+    let avail_outer_w = (parent_w - OAUTH_PARENT_MARGIN * 2.0).max(200.0);
+    let avail_outer_h = (parent_h - OAUTH_PARENT_MARGIN * 2.0).max(200.0);
+
+    // Chrome = outer − inner (title bar / borders). Fallback if not measurable yet.
+    let (chrome_w, chrome_h) = match (oauth.outer_size(), oauth.inner_size()) {
+        (Ok(outer), Ok(inner)) => {
+            let cw = ((outer.width as f64 - inner.width as f64) / scale).max(0.0);
+            let ch = ((outer.height as f64 - inner.height as f64) / scale).max(0.0);
+            // First layout can report equal sizes; keep a small title-bar reserve.
+            (
+                if cw < 1.0 { 0.0 } else { cw },
+                if ch < 1.0 { 36.0 } else { ch },
+            )
+        }
+        _ => (0.0, 36.0),
+    };
+
+    let max_inner_w = (avail_outer_w - chrome_w).max(200.0);
+    let max_inner_h = (avail_outer_h - chrome_h).max(200.0);
+    let floor_w = 200.0_f64.min(max_inner_w);
+    let floor_h = 240.0_f64.min(max_inner_h);
+
+    // Prefer desired size; never exceed available; allow below OAUTH_MIN_* when parent is small.
+    let w = OAUTH_DESIRED_WIDTH
+        .min(max_inner_w)
+        .max(OAUTH_MIN_WIDTH.min(max_inner_w))
+        .clamp(floor_w, max_inner_w);
+    let h = OAUTH_DESIRED_HEIGHT
+        .min(max_inner_h)
+        .max(OAUTH_MIN_HEIGHT.min(max_inner_h))
+        .clamp(floor_h, max_inner_h);
+
+    // Min size must not exceed clamped size (otherwise set_size cannot shrink).
+    let min_w = OAUTH_MIN_WIDTH.min(w).max(floor_w);
+    let min_h = OAUTH_MIN_HEIGHT.min(h).max(floor_h);
+    let _ = oauth.set_min_size(Some(LogicalSize::new(min_w, min_h)));
+    if let Err(err) = oauth.set_size(LogicalSize::new(w, h)) {
+        log::warn!("OAuth fit set_size failed: {err}");
+    }
+
+    // Position using *outer* size so the full HWND stays inside parent work area.
+    let oauth_outer_w = oauth
+        .outer_size()
+        .map(|s| (s.width as f64 / scale).max(w))
+        .unwrap_or(w + chrome_w);
+    let oauth_outer_h = oauth
+        .outer_size()
+        .map(|s| (s.height as f64 / scale).max(h))
+        .unwrap_or(h + chrome_h);
+
+    // If outer still overflows (chrome larger than estimate), shrink inner once more.
+    if oauth_outer_w > avail_outer_w + 0.5 || oauth_outer_h > avail_outer_h + 0.5 {
+        let shrink_w = (w - (oauth_outer_w - avail_outer_w)).max(floor_w);
+        let shrink_h = (h - (oauth_outer_h - avail_outer_h)).max(floor_h);
+        let _ = oauth.set_min_size(Some(LogicalSize::new(
+            OAUTH_MIN_WIDTH.min(shrink_w).max(floor_w),
+            OAUTH_MIN_HEIGHT.min(shrink_h).max(floor_h),
+        )));
+        if let Err(err) = oauth.set_size(LogicalSize::new(shrink_w, shrink_h)) {
+            log::warn!("OAuth fit shrink set_size failed: {err}");
+        }
+    }
+
+    let oauth_outer_w = oauth
+        .outer_size()
+        .map(|s| s.width as f64 / scale)
+        .unwrap_or(w);
+    let oauth_outer_h = oauth
+        .outer_size()
+        .map(|s| s.height as f64 / scale)
+        .unwrap_or(h);
+
+    let parent_x = parent_pos.x as f64 / scale;
+    let parent_y = parent_pos.y as f64 / scale;
+    let mut x = parent_x + (parent_w - oauth_outer_w) / 2.0;
+    let mut y = parent_y + (parent_h - oauth_outer_h) / 2.0;
+    let max_x = parent_x + parent_w - oauth_outer_w;
+    let max_y = parent_y + parent_h - oauth_outer_h;
+    x = x.clamp(parent_x, max_x.max(parent_x));
+    y = y.clamp(parent_y, max_y.max(parent_y));
+
+    if let Err(err) = oauth.set_position(LogicalPosition::new(x, y)) {
+        log::warn!("OAuth fit set_position failed: {err}");
+    }
+    log::info!(
+        "OAuth fit clamp parent={parent_w:.0}x{parent_h:.0} inner={w:.0}x{h:.0} outer≈{oauth_outer_w:.0}x{oauth_outer_h:.0} pos={x:.0},{y:.0} scale={scale:.2}"
+    );
+}
+
+/// Attach once: re-fit OAuth when the Office360 main window moves/resizes/DPI-changes.
+fn ensure_oauth_parent_geometry_listener(app: &AppHandle) {
+    static ATTACHED: OnceLock<()> = OnceLock::new();
+    if ATTACHED.set(()).is_err() {
+        return;
+    }
+    let Some(main) = app.get_webview_window("main") else {
+        return;
+    };
+    let app_handle = app.clone();
+    main.on_window_event(move |event| {
+        match event {
+            tauri::WindowEvent::Resized(_)
+            | tauri::WindowEvent::Moved(_)
+            | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                if let (Some(oauth), Some(parent)) = (
+                    app_handle.get_webview_window(YANDEX_OAUTH_WINDOW_LABEL),
+                    app_handle.get_webview_window("main"),
+                ) {
+                    fit_oauth_window_in_parent(&oauth, &parent);
+                }
+            }
+            _ => {}
+        }
+    });
+}
+
+/// Isolated WebView2 profile for Add-Account / grant OAuth only.
+/// Must not share cookies with the main window or CEF Default (Telemost).
+fn yandex_oauth_add_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let root = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("OAuth data dir unavailable: {e}"))?;
+    let dir = root.join("oauth").join("yandex-add");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create OAuth data dir: {e}"))?;
+    Ok(dir)
+}
 
 fn oauth_cancel_slot() -> &'static Mutex<Option<oneshot::Sender<()>>> {
     static SLOT: OnceLock<Mutex<Option<oneshot::Sender<()>>>> = OnceLock::new();
@@ -107,39 +258,69 @@ pub async fn open_oauth_login_window(app: AppHandle, url: String) -> Result<(), 
         );
     }
 
+    // Always recreate so Add-Account cannot silently reuse a prior Yandex WebView session.
     if let Some(existing) = app.get_webview_window(YANDEX_OAUTH_WINDOW_LABEL) {
-        let _ = existing.set_focus();
-        existing
-            .navigate(parsed)
-            .map_err(|e| format!("Failed to navigate OAuth window: {e}"))?;
-        log::info!("OAuth WebView focused and navigated (label={YANDEX_OAUTH_WINDOW_LABEL})");
-        return Ok(());
+        let _ = existing.hide();
+        let _ = existing.destroy();
+        // Brief yield so WebView2 releases the data directory lock before recreate.
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
+    let data_dir = yandex_oauth_add_data_dir(&app)?;
     let parent = app.get_webview_window("main");
+    // Start blank so clear_all_browsing_data runs before Yandex Passport loads.
+    let blank: Url = "about:blank"
+        .parse()
+        .map_err(|e| format!("Invalid blank URL: {e}"))?;
     let mut builder = WebviewWindowBuilder::new(
         &app,
         YANDEX_OAUTH_WINDOW_LABEL,
-        WebviewUrl::External(parsed),
+        WebviewUrl::External(blank),
     )
     .title("Яндекс ID")
-    .inner_size(520.0, 720.0)
-    .min_inner_size(420.0, 560.0)
+    .inner_size(OAUTH_DESIRED_WIDTH, OAUTH_DESIRED_HEIGHT)
+    // Soft mins — hard clamp in fit_oauth_window_in_parent may go lower when parent is small.
+    .min_inner_size(200.0, 240.0)
     .resizable(true)
-    .center()
     .focused(true)
     .visible(true)
+    .data_directory(data_dir)
     .on_navigation(|nav_url| is_allowed_yandex_oauth_navigation(nav_url));
 
     if let Some(main) = parent.as_ref() {
         builder = builder
             .parent(main)
             .map_err(|e| format!("Failed to set OAuth window parent: {e}"))?;
+    } else {
+        // No parent: fall back to screen center.
+        builder = builder.center();
     }
 
     let window = builder
         .build()
         .map_err(|e| format!("Failed to create OAuth WebView: {e}"))?;
+
+    if let Some(main) = parent.as_ref() {
+        fit_oauth_window_in_parent(&window, main);
+        ensure_oauth_parent_geometry_listener(&app);
+    }
+
+    // Cold auth context for "Добавить пользователя" — do not force the previous Yandex user.
+    if let Err(err) = window.clear_all_browsing_data() {
+        log::warn!(
+            "OAuth WebView clear_all_browsing_data failed (label={YANDEX_OAUTH_WINDOW_LABEL}): {err}"
+        );
+    }
+    window
+        .navigate(parsed)
+        .map_err(|e| format!("Failed to navigate OAuth window after clear: {e}"))?;
+    // Re-fit after WebView2 chrome settles (title bar / DPI).
+    if let Some(main) = parent.as_ref() {
+        fit_oauth_window_in_parent(&window, main);
+    }
+    log::info!(
+        "OAuth WebView opened with isolated data dir (label={YANDEX_OAUTH_WINDOW_LABEL})"
+    );
 
     let app_for_close = app.clone();
     window.on_window_event(move |event| {

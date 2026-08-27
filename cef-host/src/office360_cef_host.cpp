@@ -16,10 +16,12 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <cstdio>
 #include <unordered_map>
 
 namespace {
@@ -34,14 +36,40 @@ bool g_has_bounds = false, g_visible = false, g_content_visible = false;
 class Client;
 CefRefPtr<Client> g_client;
 
+void emit(const std::string& type, const std::string& payload = "{}");
+bool displayAllowed(const std::string& url);
+
+void logVisibility(const char* stage, HWND hwnd) {
+  const bool hwndOk = hwnd && IsWindow(hwnd);
+  const bool contOk = g_active_container && IsWindow(g_active_container);
+  char buf[384];
+  std::snprintf(
+      buf, sizeof(buf),
+      "[efim-auth] cef-host %s visible=%d content=%d bounds=%d browser_hwnd=%d hwnd_visible=%d container=%d container_visible=%d size=%dx%d",
+      stage, g_visible ? 1 : 0, g_content_visible ? 1 : 0, g_has_bounds ? 1 : 0,
+      hwndOk ? 1 : 0, hwndOk && IsWindowVisible(hwnd) ? 1 : 0,
+      contOk ? 1 : 0, contOk && IsWindowVisible(g_active_container) ? 1 : 0,
+      g_width, g_height);
+  OutputDebugStringA(buf);
+  OutputDebugStringA("\n");
+  emit("visibility-lifecycle", std::string("{\"stage\":\"") + stage + "\",\"g_visible\":" + (g_visible ? "true" : "false") +
+       ",\"g_content_visible\":" + (g_content_visible ? "true" : "false") +
+       ",\"g_has_bounds\":" + (g_has_bounds ? "true" : "false") +
+       ",\"hwnd\":" + (hwndOk ? "true" : "false") +
+       ",\"hwndVisible\":" + (hwndOk && IsWindowVisible(hwnd) ? "true" : "false") +
+       ",\"containerVisible\":" + (contOk && IsWindowVisible(g_active_container) ? "true" : "false") + "}");
+}
+
 void applyBrowserWindowState(HWND hwnd) {
   if (!hwnd) return;
   if (!g_active_container || !g_visible || !g_has_bounds || !g_content_visible) {
     if (g_active_container) ShowWindow(g_active_container, SW_HIDE);
+    logVisibility("apply-hide", hwnd);
     return;
   }
   SetWindowPos(g_active_container, HWND_TOP, g_x, g_y, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
   SetWindowPos(hwnd, HWND_TOP, 0, 0, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+  logVisibility("apply-show", hwnd);
 }
 
 BOOL CALLBACK findWebView(HWND hwnd, LPARAM value) {
@@ -79,7 +107,7 @@ std::string escapeJson(const std::string& value) {
   }
   return out;
 }
-void emit(const std::string& type, const std::string& payload = "{}") {
+void emit(const std::string& type, const std::string& payload) {
   if (!g_callback) return;
   const std::string json = "{\"type\":\"" + escapeJson(type) + "\",\"payload\":" + payload + "}";
   g_callback(json.c_str());
@@ -217,6 +245,7 @@ class Client final : public CefClient, public CefLifeSpanHandler, public CefLoad
       if (payload.find("\"action\":\"continue\"") != std::string::npos && payload.find("\"available\":true") != std::string::npos) {
         g_content_visible = false;
         if (browser_ && g_client.get() == this) applyBrowserWindowState(browser_->GetHost()->GetWindowHandle());
+        logVisibility("continue-cta-hide", browser_ ? browser_->GetHost()->GetWindowHandle() : nullptr);
       }
       emit("telemost-action", payload); return true;
     }
@@ -268,14 +297,60 @@ const one=()=>document.querySelector(req.selector);switch(req.type){case'getPage
 }
 }
 
+// Chrome runtime requires profile cache_path to be root_cache_path or an
+// immediate child (DirName == user_data_dir). Mixed separators / non-canonical
+// paths make that check fail with "Cannot create profile".
+static std::filesystem::path normalizeProfilePath(const std::filesystem::path& input) {
+  std::error_code ec;
+  std::filesystem::path abs = std::filesystem::absolute(input, ec);
+  if (ec) abs = input;
+  abs = abs.lexically_normal();
+  abs.make_preferred();
+  return abs;
+}
+
+// Chrome runtime may honor Local State last_used over CreateBrowser RequestContext.
+// Isolation left last_used=account-oauth; force Default so OAuth+Telemost share session.
+// Does not read/copy/clear cookies; does not delete profile directories.
+static void forceEfimSharedLastUsedProfile(const std::filesystem::path& root) {
+  const auto path = root / L"Local State";
+  if (!std::filesystem::exists(path)) return;
+  std::ifstream in(path, std::ios::binary);
+  if (!in) return;
+  std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  in.close();
+  const auto replace_once = [&](const std::string& from, const std::string& to) {
+    const auto pos = data.find(from);
+    if (pos == std::string::npos) return false;
+    data.replace(pos, from.size(), to);
+    return true;
+  };
+  bool changed = false;
+  changed |= replace_once("\"last_used\":\"account-oauth\"", "\"last_used\":\"Default\"");
+  changed |= replace_once("\"last_used\": \"account-oauth\"", "\"last_used\": \"Default\"");
+  changed |= replace_once("\"last_active_profiles\":[\"account-oauth\"]", "\"last_active_profiles\":[\"Default\"]");
+  changed |= replace_once("\"last_active_profiles\": [\"account-oauth\"]", "\"last_active_profiles\": [\"Default\"]");
+  if (!changed) return;
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  if (out) out << data;
+}
+
 extern "C" int o360_cef_initialize(void* parent, const wchar_t* profile, const wchar_t* subprocess, o360_cef_event_callback callback) {
   std::lock_guard<std::mutex> lock(g_mutex); if (g_initialized) return 1; g_callback = callback;
-  std::filesystem::create_directories(profile);
+  const auto root = normalizeProfilePath(profile);
+  std::filesystem::create_directories(root);
+  // Global cache must be an immediate child of root — not equal to root —
+  // so per-account RequestContext paths (root/account-*) stay valid siblings.
+  const auto global_cache = root / L"Default";
+  std::filesystem::create_directories(global_cache);
+  forceEfimSharedLastUsedProfile(root);
   CefMainArgs args(GetModuleHandle(nullptr)); CefSettings settings; settings.no_sandbox = true; settings.multi_threaded_message_loop = true;
-  CefString(&settings.root_cache_path) = profile; CefString(&settings.cache_path) = profile; CefString(&settings.browser_subprocess_path) = subprocess;
+  CefString(&settings.root_cache_path) = root.wstring();
+  CefString(&settings.cache_path) = global_cache.wstring();
+  CefString(&settings.browser_subprocess_path) = subprocess;
   const auto runtime = std::filesystem::path(subprocess).parent_path();
   CefString(&settings.resources_dir_path) = runtime.wstring(); CefString(&settings.locales_dir_path) = (runtime / L"locales").wstring();
-  settings.log_severity = LOGSEVERITY_WARNING; CefString(&settings.log_file) = (std::filesystem::path(profile) / L"cef.log").wstring();
+  settings.log_severity = LOGSEVERITY_WARNING; CefString(&settings.log_file) = (root / L"cef.log").wstring();
   g_initialized = CefInitialize(args, settings, new HostApp(), nullptr); if (!g_initialized) return 0;
   g_parent = static_cast<HWND>(parent);
   if (!g_parent || !IsWindow(g_parent)) return 0;
@@ -286,7 +361,15 @@ extern "C" int o360_cef_initialize(void* parent, const wchar_t* profile, const w
 }
 extern "C" int o360_cef_create(const char* url, const wchar_t* profile_path) {
   if (!g_initialized || !g_parent || !profile_path || !*profile_path) return 0;
-  const std::wstring profile(profile_path);
+  auto profile_abs = normalizeProfilePath(profile_path);
+  // Historical Efim SSO: embedded OAuth + Telemost share Chromium Default.
+  // Later account-isolation used root/account-oauth (empty RequestContext) and
+  // broke cookie continuity — remap that key to Default without copying cookies.
+  if (profile_abs.filename() == L"account-oauth") {
+    profile_abs = profile_abs.parent_path() / L"Default";
+    profile_abs = normalizeProfilePath(profile_abs);
+  }
+  const std::wstring profile = profile_abs.wstring();
   for (auto& entry : g_clients) {
     if (entry.second && entry.second->container()) ShowWindow(entry.second->container(), SW_HIDE);
   }
@@ -303,7 +386,7 @@ extern "C" int o360_cef_create(const char* url, const wchar_t* profile_path) {
       return 1;
     }
   }
-  std::filesystem::create_directories(profile);
+  std::filesystem::create_directories(profile_abs);
   HWND container = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
                                    g_x, g_y, g_width, g_height, g_parent, nullptr, GetModuleHandleW(nullptr), nullptr);
   if (!container) return 0;
@@ -318,15 +401,43 @@ extern "C" int o360_cef_create(const char* url, const wchar_t* profile_path) {
   info.SetAsChild(container, CefRect(0, 0, width, height));
   info.style &= ~WS_VISIBLE;
   info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
+  CefBrowserSettings settings;
+  // Shared Yandex OAuth/Telemost profile = Chromium Default (initialize cache_path).
+  // nullptr RequestContext = global session cookies (pre-isolation Efim contract).
+  if (profile_abs.filename() == L"Default") {
+    return CefBrowserHost::CreateBrowser(info, g_client, url, settings, nullptr, nullptr) ? 1 : 0;
+  }
   CefRequestContextSettings context_settings;
   CefString(&context_settings.cache_path) = profile;
   context_settings.persist_session_cookies = true;
   auto context = CefRequestContext::CreateContext(context_settings, nullptr);
-  CefBrowserSettings settings; return CefBrowserHost::CreateBrowser(info, g_client, url, settings, nullptr, context) ? 1 : 0;
+  return CefBrowserHost::CreateBrowser(info, g_client, url, settings, nullptr, context) ? 1 : 0;
 }
-extern "C" void o360_cef_set_bounds(int x,int y,int w,int h){g_x=x;g_y=y;g_width=std::max(1,w);g_height=std::max(1,h);g_has_bounds=true;ui([]{if(g_client&&g_client->browser())applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());});}
-extern "C" void o360_cef_set_visible(int v){g_visible=v!=0;if(!g_visible){for(auto& entry:g_clients)if(entry.second&&entry.second->container())ShowWindow(entry.second->container(),SW_HIDE);return;}ui([]{if(g_client&&g_client->browser())applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());});}
-extern "C" void o360_cef_navigate(const char* url){std::string s=url?url:"";ui([s]{if(g_client&&g_client->browser()&&trusted(s))g_client->browser()->GetMainFrame()->LoadURL(s);});}
+extern "C" void o360_cef_set_bounds(int x,int y,int w,int h){g_x=x;g_y=y;g_width=std::max(1,w);g_height=std::max(1,h);g_has_bounds=true;OutputDebugStringA("[efim-auth] cef-host set_bounds\n");ui([]{if(g_client&&g_client->browser())applyBrowserWindowState(g_client->browser()->GetHost()->GetWindowHandle());else logVisibility("set_bounds-no-browser",nullptr);});}
+extern "C" void o360_cef_set_visible(int v){
+  g_visible=v!=0;
+  OutputDebugStringA(g_visible?"[efim-auth] cef-host set_visible requested=true\n":"[efim-auth] cef-host set_visible requested=false\n");
+  if(!g_visible){
+    for(auto& entry:g_clients)if(entry.second&&entry.second->container())ShowWindow(entry.second->container(),SW_HIDE);
+    logVisibility("set_visible-false", g_client&&g_client->browser()?g_client->browser()->GetHost()->GetWindowHandle():nullptr);
+    return;
+  }
+  ui([]{
+    HWND hwnd=nullptr;
+    if(g_client&&g_client->browser()){
+      hwnd=g_client->browser()->GetHost()->GetWindowHandle();
+      // Explicit show may arrive while still on landing; when already on meeting/auth,
+      // refresh content gate so show is not stuck behind a stale false (do not force false —
+      // continue-CTA owns hide via g_content_visible=false).
+      const auto url=g_client->browser()->GetMainFrame()->GetURL().ToString();
+      if(displayAllowed(url)) g_content_visible=true;
+      applyBrowserWindowState(hwnd);
+    }else{
+      logVisibility("set_visible-true-no-browser",nullptr);
+    }
+  });
+}
+extern "C" void o360_cef_navigate(const char* url){std::string s=url?url:"";OutputDebugStringA("[efim-auth] cef-host navigate\n");ui([s]{if(g_client&&g_client->browser()&&trusted(s))g_client->browser()->GetMainFrame()->LoadURL(s);});}
 extern "C" void o360_cef_back(){ui([]{if(g_client&&g_client->browser())g_client->browser()->GoBack();});}
 extern "C" void o360_cef_forward(){ui([]{if(g_client&&g_client->browser())g_client->browser()->GoForward();});}
 extern "C" void o360_cef_reload(){ui([]{if(g_client&&g_client->browser())g_client->browser()->Reload();});}

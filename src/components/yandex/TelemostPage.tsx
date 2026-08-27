@@ -1,19 +1,44 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, Copy, ExternalLink, Filter, Mail, MessageCircle, Pencil, Plus, RefreshCw, Search, Users, Video } from "lucide-react";
+import { ArrowRight, CalendarDays, Copy, ExternalLink, Filter, Mail, MessageCircle, Pencil, Plus, RefreshCw, Search, Users, Video } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { useAccountStore } from "@/stores/accountStore";
 import { getCalendarEventsInRange } from "@/services/db/calendarEvents";
 import { createTelemostConference, type TelemostConference } from "@/services/yandex360/telemost";
-import { cefCreate, cefInitialize, cefNavigate, cefPermissionResponse, cefSetBounds, cefSetVisible, type CefEvent } from "@/services/cef";
+import { cefCreate, cefDomCommand, cefInitialize, cefNavigate, cefPermissionResponse, cefSetBounds, cefSetVisible, type CefEvent } from "@/services/cef";
+import { isTelemostCefSuspended, releaseTelemostCefHold, subscribeOAuthUiGate } from "@/services/oauth/oauthUiGate";
 import { ServicePageShell } from "./ServicePageShell";
 import { navigateToLabel } from "@/router/navigate";
 import { openNewCompose } from "@/utils/openComposeWindow";
 import { getAccount } from "@/services/db/accounts";
+import { parseCalendarParticipants } from "@/services/calendar/domain/participant";
 
 const CREATED_KEY = "office360_telemost_conferences";
 const VISITED_KEY = "office360_telemost_visited";
-const CEF_PROFILE_READY_KEY = "office360_telemost_cef_profile_ready";
+/** Existing-account Telemost web session — maps to CEF Default (shared with historical Efim). */
+const YANDEX_AUTH_PROFILE = "oauth";
 const TELEMost_URL = /https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/\d+/gi;
+
+/** Sanitized route for auth-state logs — origin+pathname only, no query/hash/cookies. */
+function sanitizeRoute(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return "invalid-url";
+  }
+}
+
+function classifyTelemostRoute(url: string): string {
+  const path = sanitizeRoute(url);
+  if (/\/j\/\d+/i.test(path)) return "meeting-join";
+  if (/passport\.yandex\./i.test(path) || /oauth\.yandex\./i.test(path) || /login\.yandex\./i.test(path)) {
+    return "passport-or-oauth";
+  }
+  if (/telemost(?:\.360)?\.yandex\.ru\/?$/i.test(path) || /telemost(?:\.360)?\.yandex\.ru\/$/i.test(path)) {
+    return "telemost-landing";
+  }
+  return "telemost-other";
+}
 
 type MeetingSource = "created" | "invited" | "visited";
 interface MeetingEntry {
@@ -61,7 +86,8 @@ export function TelemostPage() {
   const activeMeetingUrlRef = useRef<string | null>(null);
   const pendingScheduleRef = useRef(false);
   const accountSwitchGenerationRef = useRef(0);
-  const initializedProfilesRef = useRef(new Set<string>());
+  /** Suppress effect cleanup hide while openMeeting drives bounds→navigate→show. */
+  const openingMeetingRef = useRef(false);
   const [serviceAccountId, setServiceAccountId] = useState<string | null>(null);
   const [accountChecking, setAccountChecking] = useState(true);
   const [created, setCreated] = useState<StoredConference[]>([]);
@@ -75,9 +101,23 @@ export function TelemostPage() {
   const [loading, setLoading] = useState(true);
   const [cefSessionReady, setCefSessionReady] = useState(false);
   const [activeMeetingUrl, setActiveMeetingUrl] = useState<string | null>(null);
+  const [continueMeetingUrl, setContinueMeetingUrl] = useState<string | null>(null);
+  const [cefSuspended, setCefSuspended] = useState(() => isTelemostCefSuspended());
   const isTelemostMeeting = /^https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/[^/?#]+/i.test(selectedUrl);
   const isTelemostAuth = /^https:\/\/(?:passport|oauth)\.yandex\.(?:ru|com)\//i.test(selectedUrl);
   const showEmbeddedBrowser = isTelemostMeeting || isTelemostAuth || activeMeetingUrl !== null;
+
+  useEffect(() => {
+    setCefSuspended(isTelemostCefSuspended());
+    return subscribeOAuthUiGate(() => setCefSuspended(isTelemostCefSuspended()));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      // Leaving Telemost = explicit return path later; drop post-auth hold.
+      releaseTelemostCefHold();
+    };
+  }, []);
 
   const rememberActiveMeeting = useCallback((url: string | null) => {
     activeMeetingUrlRef.current = url;
@@ -108,7 +148,7 @@ export function TelemostPage() {
     pendingScheduleRef.current = false;
     accountSwitchGenerationRef.current += 1;
     rememberActiveMeeting(null);
-    setCreated([]); setVisited([]); setCalendarMeetings([]); setSelectedUrl("https://telemost.yandex.ru/"); setError(null);
+    setCreated([]); setVisited([]); setCalendarMeetings([]); setSelectedUrl("https://telemost.yandex.ru/"); setContinueMeetingUrl(null); setError(null);
     void cefSetVisible(false);
     if (!accountId) { setAccountChecking(false); return () => { current = false; }; }
     void getAccount(accountId).then((account) => {
@@ -138,20 +178,10 @@ export function TelemostPage() {
     void (async () => {
       await cefInitialize();
       if (!current || generation !== accountSwitchGenerationRef.current) return;
-      await cefCreate("https://telemost.yandex.ru/", serviceAccountId);
+      await cefSetVisible(false);
+      await cefCreate("https://telemost.yandex.ru/", YANDEX_AUTH_PROFILE);
       if (!current || generation !== accountSwitchGenerationRef.current) return;
-      const profileReadyKey = `${CEF_PROFILE_READY_KEY}:${serviceAccountId}`;
-      if (localStorage.getItem(profileReadyKey) !== "1" && !initializedProfilesRef.current.has(serviceAccountId)) {
-        initializedProfilesRef.current.add(serviceAccountId);
-        await cefSetVisible(false);
-        if (!current || generation !== accountSwitchGenerationRef.current) return;
-        const retpath = encodeURIComponent("https://telemost.yandex.ru/");
-        const loginHint = encodeURIComponent(activeAccount.email);
-        const authUrl = `https://passport.yandex.ru/auth?mode=edit&retpath=${retpath}&login_hint=${loginHint}`;
-        await cefNavigate(authUrl);
-        if (!current || generation !== accountSwitchGenerationRef.current) return;
-        if (current) setSelectedUrl(authUrl);
-      }
+      setSelectedUrl("https://telemost.yandex.ru/");
       if (current) setCefSessionReady(true);
     })().catch((reason) => current && setError(`Не удалось переключить аккаунт Телемоста: ${String(reason)}`));
     return () => { current = false; accountSwitchGenerationRef.current += 1; };
@@ -185,31 +215,75 @@ export function TelemostPage() {
       .catch((reason) => setError(`Не удалось прочитать встречи календаря: ${String(reason)}`));
   }, [serviceAccountId]);
 
+  const openMeeting = useCallback(async (meeting: MeetingEntry) => {
+    // Historical-friendly order: release hold → state → bounds → navigate → show.
+    // (show before navigate left HWND hidden while still on landing + effect races.)
+    openingMeetingRef.current = true;
+    console.info("[efim-auth] openMeeting start", meetingId(meeting.joinUrl));
+    try {
+      releaseTelemostCefHold();
+      console.info("[efim-auth] openMeeting release hold");
+      setCefSuspended(false);
+      setSelectedCalendarEventId(meeting.calendarEventId ?? null);
+      setSelectedUrl(meeting.joinUrl);
+      rememberActiveMeeting(meeting.joinUrl);
+      setError(null);
+      const element = hostRef.current;
+      if (element && serviceAccountId && cefSessionReady) {
+        const rect = element.getBoundingClientRect();
+        const bounds = {
+          x: rect.left,
+          y: rect.top,
+          width: rect.width,
+          height: rect.height,
+          deviceScaleFactor: window.devicePixelRatio || 1,
+        };
+        console.info("[efim-auth] openMeeting setBounds call", {
+          w: Math.round(bounds.width),
+          h: Math.round(bounds.height),
+        });
+        await cefSetBounds(bounds);
+        console.info("[efim-auth] openMeeting setBounds result ok");
+        console.info("[efim-auth] openMeeting navigate call", sanitizeRoute(meeting.joinUrl));
+        await cefNavigate(meeting.joinUrl);
+        console.info("[efim-auth] openMeeting navigate result ok");
+        console.info("[efim-auth] openMeeting setVisible(true) call");
+        await cefSetVisible(true);
+        console.info("[efim-auth] openMeeting setVisible(true) result ok");
+      } else {
+        console.info("[efim-auth] openMeeting navigate call (no host yet)", sanitizeRoute(meeting.joinUrl));
+        await cefNavigate(meeting.joinUrl);
+        console.info("[efim-auth] openMeeting navigate result ok");
+      }
+    } finally {
+      openingMeetingRef.current = false;
+    }
+  }, [cefSessionReady, rememberActiveMeeting, serviceAccountId]);
+
   useEffect(() => {
     const eventId = sessionStorage.getItem("office360_telemost_open_event_id");
     if (!eventId || calendarMeetings.length === 0) return;
     const meeting = calendarMeetings.find((item) => item.calendarEventId === eventId);
     sessionStorage.removeItem("office360_telemost_open_event_id");
     if (meeting) {
-      setSelectedCalendarEventId(meeting.calendarEventId ?? null);
-      setSelectedUrl(meeting.joinUrl);
-      rememberActiveMeeting(meeting.joinUrl);
-      setError(null);
-      void cefNavigate(meeting.joinUrl);
+      void openMeeting(meeting);
     }
-  }, [calendarMeetings, rememberActiveMeeting]);
+  }, [calendarMeetings, openMeeting]);
 
   useEffect(() => {
     if (!serviceAccountId || !cefSessionReady) { void cefSetVisible(false); return; }
     let alive = true;
-    void cefInitialize().then(() => cefCreate(selectedUrl, serviceAccountId)).catch((reason) => alive && setError(`CEF недоступен: ${String(reason)}`));
+    void cefInitialize().then(() => cefCreate(selectedUrl, YANDEX_AUTH_PROFILE)).catch((reason) => alive && setError(`CEF недоступен: ${String(reason)}`));
     const unlisten = listen<CefEvent>("cef-event", (event) => {
       const { type, payload } = event.payload;
       if (type === "loading" && typeof payload.loading === "boolean") setLoading(payload.loading);
       if (type === "navigation" && typeof payload.url === "string") {
+        setContinueMeetingUrl(null);
+        const route = sanitizeRoute(payload.url);
+        const kind = classifyTelemostRoute(payload.url);
+        console.info(`[efim-auth] telemost nav kind=${kind} route=${route}`);
         const meetingUrl = /^https:\/\/telemost(?:\.360)?\.yandex\.ru\/j\/[^/?#]+/i.test(payload.url);
         if (meetingUrl) {
-          localStorage.setItem(`${CEF_PROFILE_READY_KEY}:${serviceAccountId}`, "1");
           setSelectedUrl(payload.url);
           rememberActiveMeeting(payload.url);
           const entry: MeetingEntry = { id: meetingId(payload.url), title: `Встреча ${meetingId(payload.url)}`, joinUrl: payload.url, source: "visited", lastOpenedAt: Date.now() };
@@ -226,14 +300,24 @@ export function TelemostPage() {
         pendingScheduleRef.current = false;
         setError("Не удалось найти кнопку создания встречи на странице Телемоста. Обновите страницу и повторите попытку.");
       }
+      if (type === "telemost-action" && payload.action === "continue" && payload.available === true && typeof payload.url === "string") {
+        setContinueMeetingUrl(payload.url);
+      }
       if (type === "error" && typeof payload.message === "string" && payload.message !== "ERR_ABORTED") setError(payload.message);
       if (type === "permission-request" && typeof payload.id === "number" && typeof payload.origin === "string") {
         const allow = window.confirm(`Разрешить камеру и микрофон для ${payload.origin}?`);
         void cefPermissionResponse(payload.id, allow);
       }
+      if (type === "visibility-lifecycle") {
+        console.info(`[efim-auth] cef visibility-lifecycle ${JSON.stringify(payload)}`);
+      }
     });
-    return () => { alive = false; void cefSetVisible(false); void unlisten.then((fn) => fn()); };
-  }, [cefSessionReady, openCalendarDraft, rememberActiveMeeting, serviceAccountId]);
+    return () => {
+      alive = false;
+      if (!openingMeetingRef.current) void cefSetVisible(false);
+      void unlisten.then((fn) => fn());
+    };
+  }, [activeAccount?.email, cefSessionReady, openCalendarDraft, rememberActiveMeeting, serviceAccountId]);
 
   const syncBounds = useCallback(() => {
     const element = hostRef.current;
@@ -243,7 +327,16 @@ export function TelemostPage() {
   }, []);
 
   useEffect(() => {
-    if (!serviceAccountId || !cefSessionReady || !showEmbeddedBrowser) { void cefSetVisible(false); return; }
+    if (!serviceAccountId || !cefSessionReady || !showEmbeddedBrowser || cefSuspended) {
+      if (!openingMeetingRef.current) {
+        console.info("[efim-auth] visibility effect hide", {
+          showEmbeddedBrowser,
+          cefSuspended,
+        });
+        void cefSetVisible(false);
+      }
+      return;
+    }
     const element = hostRef.current;
     if (!element) return;
     const observer = new ResizeObserver(syncBounds);
@@ -251,9 +344,18 @@ export function TelemostPage() {
     window.addEventListener("resize", syncBounds);
     window.addEventListener("scroll", syncBounds, true);
     syncBounds();
+    console.info("[efim-auth] visibility effect setVisible(true)");
     void cefSetVisible(true);
-    return () => { observer.disconnect(); window.removeEventListener("resize", syncBounds); window.removeEventListener("scroll", syncBounds, true); void cefSetVisible(false); };
-  }, [cefSessionReady, serviceAccountId, showEmbeddedBrowser, syncBounds]);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", syncBounds);
+      window.removeEventListener("scroll", syncBounds, true);
+      if (!openingMeetingRef.current) {
+        console.info("[efim-auth] visibility effect cleanup hide");
+        void cefSetVisible(false);
+      }
+    };
+  }, [cefSessionReady, cefSuspended, serviceAccountId, showEmbeddedBrowser, syncBounds]);
 
   const meetings = useMemo(() => {
     const fromCreated: MeetingEntry[] = created.map((item) => ({
@@ -272,12 +374,12 @@ export function TelemostPage() {
     return result.sort((a, b) => Number(b.calendarEventId === selectedCalendarEventId) - Number(a.calendarEventId === selectedCalendarEventId));
   }, [calendarMeetings, created, filter, query, selectedCalendarEventId, visited]);
 
-  const openMeeting = (meeting: MeetingEntry) => {
-    setSelectedCalendarEventId(meeting.calendarEventId ?? null);
-    setSelectedUrl(meeting.joinUrl);
-    rememberActiveMeeting(meeting.joinUrl);
+  const continueInBrowser = async (meeting: MeetingEntry) => {
+    if (!continueMeetingUrl || meetingId(continueMeetingUrl) !== meeting.id) return;
     setError(null);
-    void cefNavigate(meeting.joinUrl);
+    const submission = await cefDomCommand({ type: "click", selector: '[data-o360-continue="true"]' });
+    if (submission.accepted) setContinueMeetingUrl(null);
+    else setError("Не удалось продолжить подключение к встрече. Обновите встречу и повторите попытку.");
   };
 
   const openCalendarEvent = (meeting: MeetingEntry) => {
@@ -309,23 +411,15 @@ export function TelemostPage() {
       openCalendarDraft(activeMeetingUrlRef.current);
       return;
     }
-    pendingScheduleRef.current = true;
     try {
-      await createInWebTelemost();
+      const conference = await createTelemostConference({ accountId: serviceAccountId, waitingRoomLevel: "PUBLIC", cohostEmails: [], autoSummarization: false });
+      const stored: StoredConference = { ...conference, title: "Встреча в Яндекс Телемосте", createdAt: Math.floor(Date.now() / 1000) };
+      setCreated((items) => [stored, ...items.filter((item) => item.id !== conference.id)]);
+      rememberActiveMeeting(conference.joinUrl);
+      openCalendarDraft(conference.joinUrl);
     } catch (reason) {
-      pendingScheduleRef.current = false;
       setError(`Не удалось подготовить встречу для календаря: ${reason instanceof Error ? reason.message : String(reason)}`);
     }
-  };
-
-  const createInWebTelemost = async () => {
-    const url = "https://telemost.yandex.ru/?browser-auto-create=1";
-    setSelectedCalendarEventId(null);
-    rememberActiveMeeting(null);
-    setSelectedUrl(url);
-    setError(null);
-    await cefSetVisible(false);
-    await cefNavigate(url);
   };
 
   const create = async () => {
@@ -342,9 +436,8 @@ export function TelemostPage() {
       setCreated((items) => [stored, ...items.filter((item) => item.id !== conference.id)]);
       if (inviteEmails.length > 0) void inviteToMeeting(stored);
       openMeeting({ id: conference.id, title, joinUrl: conference.joinUrl, source: "created", startTime: stored.scheduledAt ?? stored.createdAt });
-    } catch {
-      // Personal Yandex IDs create meetings through the embedded web client.
-      await createInWebTelemost();
+    } catch (reason) {
+      setError(`Не удалось создать встречу: ${reason instanceof Error ? reason.message : String(reason)}`);
     }
   };
 
@@ -401,6 +494,7 @@ export function TelemostPage() {
               {meeting.startTime && <div className="mt-1 text-xs text-text-secondary">{formatMeetingTime(meeting)}</div>}
             </button>
             <div className="mt-2 flex flex-wrap gap-1">
+              {continueMeetingUrl && meetingId(continueMeetingUrl) === meeting.id && <button className="rounded bg-accent px-2 py-1 text-xs text-white hover:bg-accent/90 inline-flex items-center gap-1" onClick={() => void continueInBrowser(meeting)}>Продолжить <ArrowRight size={13}/></button>}
               {(meeting.attendees?.length ?? 0) > 0 && <details className="relative"><summary className="list-none cursor-pointer rounded bg-bg-secondary px-2 py-1 text-xs hover:bg-bg-hover inline-flex items-center gap-1"><Users size={13}/>Участники ({meeting.attendees?.length})</summary><div className="mt-1 rounded border border-border-primary bg-bg-primary p-2 text-xs space-y-1">{meeting.attendees?.map((person) => <div key={person.email} className="flex items-center justify-between gap-2"><span className="truncate" title={person.email}>{person.displayName || person.email}</span><button title="Написать письмо" onClick={() => void openNewCompose({ to: [person.email] })}><Mail size={13}/></button></div>)}</div></details>}
               <button className="rounded bg-bg-secondary px-2 py-1 text-xs hover:bg-bg-hover inline-flex items-center gap-1" title="Открыть Яндекс Мессенджер" onClick={openMessenger}><MessageCircle size={13}/>Чат</button>
               {meeting.calendarEventId && <button className="rounded bg-bg-secondary px-2 py-1 text-xs hover:bg-bg-hover inline-flex items-center gap-1" onClick={() => openCalendarEvent(meeting)}><CalendarDays size={13}/>Календарь</button>}
@@ -428,7 +522,18 @@ export function TelemostPage() {
 }
 
 function parseMeetingAttendees(value: string | null): MeetingEntry["attendees"] {
-  try { return value ? JSON.parse(value) as NonNullable<MeetingEntry["attendees"]> : []; } catch { return []; }
+  // Keep Calendar participant envelope (v1 / legacy array) — do not restore array-only parser.
+  return parseCalendarParticipants(value).attendees
+    .map((attendee) => {
+      const email = attendee.participant.normalizedEmail ?? attendee.participant.value;
+      if (!email) return null;
+      return {
+        email,
+        displayName: attendee.participant.displayName,
+        responseStatus: attendee.rawStatus ?? attendee.status,
+      };
+    })
+    .filter((person): person is NonNullable<typeof person> => Boolean(person));
 }
 
 function parseInviteEmails(value: string): string[] {

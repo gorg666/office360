@@ -1,6 +1,6 @@
 import { getAccount, getAllAccounts, type DbAccount } from "@/services/db/accounts";
-import { ensureFreshToken } from "@/services/oauth/oauthTokenManager";
 import { getYandexGrantAccessToken } from "@/services/oauth/yandexUnifiedAuth";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 const TELEMOST_CREATE_URL = "https://cloud-api.yandex.net/v1/telemost-api/conferences";
 
@@ -89,20 +89,11 @@ function mapConference(body: TelemostCreateResponse): TelemostConference {
   };
 }
 
-async function resolveTelemostAccessToken(account: DbAccount): Promise<string> {
-  try {
-    return await getYandexGrantAccessToken(account.id, "communications");
-  } catch {
-    const token = await ensureFreshToken(account);
-    if (!token) throw new Error("Яндекс OAuth token не найден. Подключите «Мессенджер и Телемост» или переавторизуйте аккаунт.");
-    return token;
-  }
-}
-
 async function telemostRequest(accountId: string | null, url: string, init: RequestInit): Promise<TelemostCreateResponse> {
   const account = await resolveTelemostAccount(accountId);
-  const token = await resolveTelemostAccessToken(account);
-  const response = await fetch(url, { ...init, headers: { Authorization: `OAuth ${token}`, "Content-Type": "application/json", ...init.headers } });
+  const token = await getYandexGrantAccessToken(account.id, "communications");
+  if (!token) throw new Error("Яндекс OAuth token не найден. Переавторизуйте аккаунт.");
+  const response = await tauriFetch(url, { ...init, headers: { Authorization: `OAuth ${token}`, "Content-Type": "application/json", ...init.headers } });
   const body = await response.json().catch(() => ({})) as TelemostCreateResponse;
   if (!response.ok) throw new Error(formatTelemostError(response.status, body));
   return body;
@@ -110,9 +101,12 @@ async function telemostRequest(accountId: string | null, url: string, init: Requ
 
 export async function createTelemostConference(options: TelemostConferenceOptions): Promise<TelemostConference> {
   const account = await resolveTelemostAccount(options.accountId);
-  const token = await resolveTelemostAccessToken(account);
+  const token = await getYandexGrantAccessToken(account.id, "communications");
+  if (!token) {
+    throw new Error("Яндекс OAuth token не найден. Переавторизуйте аккаунт.");
+  }
 
-  const response = await fetch(TELEMOST_CREATE_URL, {
+  const response = await tauriFetch(TELEMOST_CREATE_URL, {
     method: "POST",
     headers: {
       Authorization: `OAuth ${token}`,

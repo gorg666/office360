@@ -3,8 +3,29 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { cefCreate, cefInitialize, cefSetBounds, cefSetVisible } from "@/services/cef";
 import type { OAuthProviderConfig } from "./providers";
+import { beginOAuthUi, endOAuthUi } from "./oauthUiGate";
 import { normalizeYandexUserInfo } from "./yandexProfile";
 import { normalizeBase64UrlToStandardBase64 } from "@/utils/base64url";
+
+/**
+ * CEF profile for Add-Account / screen-code OAuth only.
+ * Maps to `account-oauth-add` under telemost-profile — NOT Default.
+ * Telemost / existing-account reuse keeps key `"oauth"` → Default.
+ * Result binding: OAuth tokens + userInfo flow through startProviderOAuthFlow
+ * into account/grant storage (DB + secure settings); the ephemeral CEF profile
+ * is never copied into Default and is not a Telemost session source.
+ */
+export const YANDEX_OAUTH_ADD_CEF_PROFILE = "oauth-add";
+
+async function suspendTelemostCefForAuth(): Promise<void> {
+  beginOAuthUi();
+  try {
+    await cefInitialize();
+    await cefSetVisible(false);
+  } catch {
+    // CEF may be unavailable (non-Windows) — OAuth WebView path still proceeds.
+  }
+}
 
 /** Shared desktop loopback port for Yandex (Mail + Disk/Tracker) and Gmail-style flows. */
 export const OAUTH_CALLBACK_PORT = 17248;
@@ -64,26 +85,51 @@ async function openAuthorization(
     return async () => {};
   }
 
+  await suspendTelemostCefForAuth();
+
   if (!usesCefScreenCode) {
-    await invoke("open_oauth_login_window", { url: authUrl });
+    try {
+      await invoke("open_oauth_login_window", { url: authUrl });
+    } catch (error) {
+      endOAuthUi();
+      throw error;
+    }
     return async () => {
       await invoke("close_oauth_login_window").catch(() => {});
+      endOAuthUi();
     };
   }
 
-  await cefInitialize();
-  const margin = 32;
-  const sidebar = 240;
-  await cefSetBounds({
-    x: sidebar + margin,
-    y: 72,
-    width: Math.max(640, window.innerWidth - sidebar - margin * 2),
-    height: Math.max(520, window.innerHeight - 104),
-    deviceScaleFactor: window.devicePixelRatio || 1,
-  });
-  await cefCreate(authUrl, "oauth");
-  await cefSetVisible(true);
-  return async () => { await cefSetVisible(false); };
+  try {
+    const margin = 32;
+    const sidebar = 240;
+    await cefSetBounds({
+      x: sidebar + margin,
+      y: 72,
+      width: Math.max(640, window.innerWidth - sidebar - margin * 2),
+      height: Math.max(520, window.innerHeight - 104),
+      deviceScaleFactor: window.devicePixelRatio || 1,
+    });
+    // Isolated auth context — do not reuse Default / Telemost session cookies.
+    await cefCreate(authUrl, YANDEX_OAUTH_ADD_CEF_PROFILE);
+    await cefSetVisible(true);
+  } catch (error) {
+    try {
+      await cefSetVisible(false);
+    } catch {
+      // ignore
+    }
+    endOAuthUi();
+    throw error;
+  }
+  return async () => {
+    try {
+      await cefSetVisible(false);
+    } catch {
+      // ignore
+    }
+    endOAuthUi();
+  };
 }
 
 function generateCodeVerifier(): string {
