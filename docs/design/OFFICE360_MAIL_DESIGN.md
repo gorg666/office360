@@ -1,5 +1,9 @@
 # Office360 Mail — visual design
 
+> **FROZEN.** Approved at `feat/design-001` @ `a1d9464` — see
+> [DESIGN_FREEZE.md](DESIGN_FREEZE.md). Bug, regression, accessibility and
+> integration fixes only; no new visual work.
+
 DESIGN-001D. Visual only. Nothing here changes SMTP, IMAP, mail sync, iTIP,
 provider adapters, the Calendar domain, DB/schema, migrations, Tauri/Rust code,
 auth/token semantics, or send/draft/autosave behaviour. Cloud mutations: NONE.

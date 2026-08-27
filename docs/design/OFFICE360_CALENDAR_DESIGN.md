@@ -1,5 +1,9 @@
 # Office360 Calendar — visual design
 
+> **FROZEN.** Approved at `feat/design-001` @ `a1d9464` — see
+> [DESIGN_FREEZE.md](DESIGN_FREEZE.md). Bug, regression, accessibility and
+> integration fixes only; no new visual work.
+
 DESIGN-001C. This describes how the Calendar *looks* and why. It is a visual
 document: it changes nothing about the calendar domain, recurrence, free/busy,
 scheduling logic, sync, DB, migrations, providers, iTIP, ACL semantics, reminder

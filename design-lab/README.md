@@ -1,5 +1,9 @@
 # design-lab
 
+> **Design frozen** at `feat/design-001` @ `a1d9464` — see
+> [../docs/design/DESIGN_FREEZE.md](../docs/design/DESIGN_FREEZE.md).
+> The masters here are the approved ones; do not add new concepts.
+
 Design review surface. **Not part of any production bundle.**
 
 `vite.config.ts` lists only `index.html` and `splashscreen.html` as rollup inputs,

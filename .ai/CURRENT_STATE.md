@@ -4,7 +4,59 @@
 
 ## Last updated
 
-2026-08-22 (Asia/Bangkok) — Calendar CAL-105 local validation complete; legacy hybrid checkpoint remains unchanged
+2026-08-27 — **DESIGN FREEZE**. Office360 design system approved and frozen at
+`feat/design-001` @ `a1d9464`. See `docs/design/DESIGN_FREEZE.md`.
+
+```
+Office360 Design System: APPROVED
+DESIGN-001B: APPROVED
+DESIGN-001C: APPROVED
+DESIGN-001D: APPROVED
+DESIGN-002:  APPROVED
+Design branch: feat/design-001
+Approved HEAD: a1d9464
+```
+
+## Design freeze — what this means
+
+Allowed from here: bug fixes, regression fixes, accessibility fixes, integration
+fixes, and whatever merge/build/CI requires.
+
+Not allowed: new visual concepts, new redesign stages, further glass
+experiments, logo changes, polish for its own sake.
+
+Read `docs/design/DESIGN_FREEZE.md` before touching anything visual — it lists
+the load-bearing invariants (glass only on chrome; no lift on list rows; calendar
+event text at 4.5:1; one focus contract; 11px type floor) and the gaps knowingly
+carried past the freeze.
+
+## Design stages (all on `feat/design-001`, all pushed)
+
+| Commit | Stage |
+|---|---|
+| `9202a79` | DESIGN-001B — tokens, materials, primitives, app shell |
+| `8ec0ca2` | DESIGN-001C — Calendar |
+| `4cabafb` | DESIGN-001D — Mail + shared UI |
+| `363c74a` | logo masters + A/B review sheet |
+| `a1d9464` | DESIGN-002 — production logo/icon assets |
+
+Verification at the frozen HEAD: vite build PASS; vitest 271 files / 2608 tests
+PASS; TZ matrix PASS; calendar migrations v34–v39 PASS; `cargo check` PASS;
+i18n audit at pre-existing baseline. Cloud mutations across every stage: NONE.
+
+Branches deliberately untouched throughout: `main` (`88ee55d`),
+`feat/calendar-yandex360` (`e3604e8`), PR #4.
+
+## Note on this file
+
+Earlier design-stage notes were written to the workspace-level
+`YALINUX360/.ai/CURRENT_STATE.md` instead of this one, which is the file the
+repo's own CLAUDE.md points at and the only one under version control. The
+authoritative record is here.
+
+---
+
+## Previous state (pre-design work), retained
 
 ## Project
 
