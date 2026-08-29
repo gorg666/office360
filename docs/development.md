@@ -112,6 +112,8 @@ Optional: `VITE_YANDEX_OAUTH_CLIENT_ID` — your Yandex ID public client ID (oth
 
 **Yandex ID app** ([oauth.yandex.ru](https://oauth.yandex.ru)): enable the same scopes on the application and add redirect URI `http://localhost:17248`. Default scopes in code are only `login:email`, `login:info`, `login:avatar` until `VITE_YANDEX_OAUTH_SCOPES` is set.
 
+**Yandex services OAuth** (Disk/Tracker, `authorizeYandexServices`): redirect URI is read from the app Callback via `GET /client/{id}/info` — `http://localhost:17248` for the Office360 desktop client, or `https://oauth.yandex.ru/verification_code` for the DEFAULT services client. Do not hardcode `verification_code` for apps registered only with localhost.
+
 ## AI Setup (Optional)
 
 To enable AI features, add your API key for one or more providers in Settings:

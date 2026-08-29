@@ -1,8 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getYandexServiceClientId, getYandexServiceContext } from "./accountApi";
+import {
+  authorizeYandexServices,
+  getYandexServiceClientId,
+  getYandexServiceContext,
+  resolveYandexAccount,
+  resolveYandexServiceRedirectUri,
+  resolveYandexServiceScopes,
+  YANDEX_SERVICE_REDIRECT_LOCALHOST,
+  YANDEX_SERVICE_REDIRECT_VERIFICATION_CODE,
+} from "./accountApi";
 import { getAccount, getAllAccounts } from "@/services/db/accounts";
-import { resolveYandexAccount } from "./accountApi";
 import { getAllSettings, getSecureSetting, getSetting, setSecureSetting, setSetting } from "@/services/db/settings";
+import { getOAuthProvider } from "@/services/oauth/providers";
+import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 vi.mock("@/services/db/accounts", () => ({
   getAccount: vi.fn(),
@@ -110,5 +121,177 @@ describe("Yandex service credentials", () => {
       "yandex_services_refresh_token:email:info@timingweb.com",
       "",
     );
+  });
+});
+
+describe("resolveYandexServiceRedirectUri", () => {
+  it("maps Office360 desktop callback to localhost:17248", () => {
+    expect(resolveYandexServiceRedirectUri({ callback: "http://localhost:17248" }))
+      .toBe(YANDEX_SERVICE_REDIRECT_LOCALHOST);
+    expect(resolveYandexServiceRedirectUri({ callback: "http://127.0.0.1:17248" }))
+      .toBe(YANDEX_SERVICE_REDIRECT_LOCALHOST);
+  });
+
+  it("keeps verification_code for DEFAULT services client callback", () => {
+    expect(resolveYandexServiceRedirectUri({
+      callback: "https://oauth.yandex.ru/verification_code",
+    })).toBe(YANDEX_SERVICE_REDIRECT_VERIFICATION_CODE);
+  });
+
+  it("defaults missing callback to verification_code", () => {
+    expect(resolveYandexServiceRedirectUri({})).toBe(YANDEX_SERVICE_REDIRECT_VERIFICATION_CODE);
+  });
+
+  it("rejects unsupported callbacks", () => {
+    expect(() => resolveYandexServiceRedirectUri({ callback: "https://example.com/cb" }))
+      .toThrow(/Неподдерживаемый Callback URL/);
+  });
+});
+
+describe("resolveYandexServiceScopes", () => {
+  const base = [
+    "cloud_api:disk.read",
+    "cloud_api:disk.write",
+    "tracker:read",
+    "tracker:write",
+  ];
+
+  it("requires tracker+disk and intersects preferred directory scopes", () => {
+    expect(resolveYandexServiceScopes([
+      ...base,
+      "directory:read_organization",
+    ])).toEqual([
+      ...base,
+      "directory:read_organization",
+    ]);
+  });
+
+  it("includes optional departments when enabled", () => {
+    expect(resolveYandexServiceScopes([
+      ...base,
+      "directory:read_users",
+      "directory:read_departments",
+    ])).toContain("directory:read_departments");
+  });
+
+  it("fails when required tracker scopes missing", () => {
+    expect(() => resolveYandexServiceScopes(["cloud_api:disk.read", "cloud_api:disk.write"]))
+      .toThrow(/tracker:read/);
+  });
+});
+
+describe("authorizeYandexServices redirect policy", () => {
+  const primary = {
+    id: "4ae2b615-9991-40ef-a9bb-f3e6d788b9c7",
+    email: "korotkov@office-360.ru",
+    oauth_provider: "yandex",
+    auth_method: "oauth2",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getAccount).mockResolvedValue(primary as never);
+    vi.mocked(getOAuthProvider).mockReturnValue({ id: "yandex" } as never);
+    vi.mocked(getAllSettings).mockResolvedValue({});
+    vi.mocked(getSetting).mockResolvedValue(null);
+    vi.mocked(startProviderOAuthFlow).mockResolvedValue({
+      tokens: {
+        access_token: "access",
+        refresh_token: "refresh",
+        expires_in: 3600,
+        token_type: "bearer",
+        scope: "tracker:read tracker:write",
+      },
+      userInfo: { email: "korotkov@office-360.ru", name: "Primary" },
+    });
+  });
+
+  it("uses localhost callback for client registered with localhost:17248", async () => {
+    vi.mocked(tauriFetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        callback: "http://localhost:17248",
+        scope: [
+          "cloud_api:disk.read",
+          "cloud_api:disk.write",
+          "tracker:read",
+          "tracker:write",
+          "directory:read_organization",
+        ],
+      }),
+    } as never);
+
+    await authorizeYandexServices(primary.id, "9a7396c327984bd6afc75debf275850f");
+
+    expect(startProviderOAuthFlow).toHaveBeenCalledWith(
+      expect.anything(),
+      "9a7396c327984bd6afc75debf275850f",
+      undefined,
+      expect.objectContaining({
+        redirectUri: YANDEX_SERVICE_REDIRECT_LOCALHOST,
+        loginHint: "korotkov@office-360.ru",
+        scopes: expect.arrayContaining([
+          "tracker:read",
+          "tracker:write",
+          "directory:read_organization",
+        ]),
+      }),
+    );
+    expect(setSetting).toHaveBeenCalledWith(
+      "yandex_services_client_id:email:korotkov@office-360.ru",
+      "9a7396c327984bd6afc75debf275850f",
+    );
+    expect(setSecureSetting).toHaveBeenCalledWith(
+      "yandex_services_access_token:email:korotkov@office-360.ru",
+      "access",
+    );
+  });
+
+  it("keeps verification_code for DEFAULT services client", async () => {
+    vi.mocked(tauriFetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        callback: "https://oauth.yandex.ru/verification_code",
+        scope: [
+          "cloud_api:disk.read",
+          "cloud_api:disk.write",
+          "tracker:read",
+          "tracker:write",
+          "directory:read_users",
+        ],
+      }),
+    } as never);
+
+    await authorizeYandexServices(primary.id, "69e59ec6dcfe4be3a085006d49678056");
+
+    expect(startProviderOAuthFlow).toHaveBeenCalledWith(
+      expect.anything(),
+      "69e59ec6dcfe4be3a085006d49678056",
+      undefined,
+      expect.objectContaining({
+        redirectUri: YANDEX_SERVICE_REDIRECT_VERIFICATION_CODE,
+      }),
+    );
+  });
+
+  it("maps port-in-use to a typed Russian error", async () => {
+    vi.mocked(tauriFetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        callback: "http://localhost:17248",
+        scope: [
+          "cloud_api:disk.read",
+          "cloud_api:disk.write",
+          "tracker:read",
+          "tracker:write",
+        ],
+      }),
+    } as never);
+    vi.mocked(startProviderOAuthFlow).mockRejectedValue(
+      new Error("Failed to bind OAuth callback on port 17248 (127.0.0.1 and [::1]). Another process may be using the port"),
+    );
+
+    await expect(authorizeYandexServices(primary.id, "9a7396c327984bd6afc75debf275850f"))
+      .rejects.toThrow(/Порт OAuth callback 17248 занят/);
   });
 });

@@ -15,6 +15,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
 }));
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { refreshProviderToken } from "./oauthFlow";
 
 const microsoftProvider: OAuthProviderConfig = {
@@ -165,5 +166,88 @@ describe("parseIdToken (via module internals)", () => {
     expect(parts[1]).not.toContain("+");
     expect(parts[1]).not.toContain("/");
     expect(parts[1]).not.toContain("=");
+  });
+});
+
+describe("startProviderOAuthFlow redirect contracts", () => {
+  const yandexProvider: OAuthProviderConfig = {
+    id: "yandex",
+    name: "Yandex",
+    authUrl: "https://oauth.yandex.ru/authorize",
+    tokenUrl: "https://oauth.yandex.ru/token",
+    scopes: ["login:email"],
+    userInfoUrl: "https://login.yandex.ru/info?format=json",
+    usePkce: true,
+    userInfoAuthScheme: "OAuth",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listen).mockResolvedValue(() => {});
+  });
+
+  it("starts localhost listener and exchanges with matching redirect_uri", async () => {
+    const { startProviderOAuthFlow } = await import("./oauthFlow");
+    const { listen } = await import("@tauri-apps/api/event");
+    void listen;
+
+    vi.mocked(invoke).mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "start_oauth_server") {
+        expect(args?.port).toBe(17248);
+        return { code: "auth-code", state: args?.state };
+      }
+      if (cmd === "open_oauth_login_window") return undefined;
+      if (cmd === "close_oauth_login_window") return undefined;
+      if (cmd === "oauth_exchange_token") {
+        expect(args?.redirectUri).toBe("http://localhost:17248");
+        expect(args?.codeVerifier).toBeTruthy();
+        return {
+          access_token: "access",
+          refresh_token: "refresh",
+          expires_in: 3600,
+          token_type: "bearer",
+        };
+      }
+      throw new Error(`unexpected invoke ${cmd}`);
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        default_email: "user@yandex.ru",
+        real_name: "User",
+      }),
+    }) as never;
+
+    const result = await startProviderOAuthFlow(yandexProvider, "client-desktop", undefined, {
+      redirectUri: "http://localhost:17248",
+      scopes: ["tracker:read", "tracker:write"],
+      loginHint: "user@yandex.ru",
+    });
+
+    expect(result.tokens.access_token).toBe("access");
+    expect(invoke).toHaveBeenCalledWith("start_oauth_server", expect.objectContaining({ port: 17248 }));
+    expect(invoke).toHaveBeenCalledWith(
+      "oauth_exchange_token",
+      expect.objectContaining({ redirectUri: "http://localhost:17248" }),
+    );
+  });
+
+  it("rejects wrong OAuth state from localhost callback", async () => {
+    const { startProviderOAuthFlow } = await import("./oauthFlow");
+
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "start_oauth_server") {
+        return { code: "auth-code", state: "tampered-state" };
+      }
+      if (cmd === "open_oauth_login_window" || cmd === "close_oauth_login_window") return undefined;
+      throw new Error(`unexpected invoke ${cmd}`);
+    });
+
+    await expect(
+      startProviderOAuthFlow(yandexProvider, "client-desktop", undefined, {
+        redirectUri: "http://localhost:17248",
+      }),
+    ).rejects.toThrow(/OAuth state mismatch/);
   });
 });

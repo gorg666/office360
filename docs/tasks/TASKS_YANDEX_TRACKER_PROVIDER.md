@@ -56,10 +56,18 @@ Mutations refuse to run without confirmed org binding (`/myself` in that org).
 
 Service OAuth scopes (Disk/Tracker app), **not** mailbox scopes:
 
-- `tracker:read` — reads
-- `tracker:write` — create / update / transition / assign
+- Required: `cloud_api:disk.read`, `cloud_api:disk.write`, `tracker:read`, `tracker:write`
+- Preferred when enabled on the app: `directory:read_organization`, `directory:read_users`
+- Optional: `directory:read_departments`
 
-Directory scopes are separate (`directory:*` via Yandex 360 client). They are not mixed into the Tracker HTTP client.
+Redirect URI is taken from the OAuth app registered Callback (`GET /client/{id}/info`):
+
+| App callback | Flow |
+|---|---|
+| `http://localhost:17248` (Office360 desktop client `9a7396…`) | Shared localhost PKCE listener (`start_oauth_server`), same as Mail/Yandex ID |
+| `https://oauth.yandex.ru/verification_code` (DEFAULT services client `69e59…`) | CEF screen-code scrape |
+
+Do not hardcode `verification_code` for apps registered only with localhost. Mail OAuth scopes/redirect stay separate.
 
 Read-only mode: read capabilities true, mutations throw `permission-denied`.
 

@@ -14,14 +14,92 @@ export class YandexApiError extends Error {
   }
 }
 
-export const YANDEX_SERVICE_SCOPES = [
+/** Required for Disk + Tracker service grant. Fail authorize if app lacks these. */
+export const YANDEX_SERVICE_REQUIRED_SCOPES = [
   "cloud_api:disk.read",
   "cloud_api:disk.write",
   "tracker:read",
   "tracker:write",
+] as const;
+
+/** Requested when the OAuth app enables them (Office360 desktop app has org read). */
+export const YANDEX_SERVICE_PREFERRED_SCOPES = [
+  "directory:read_organization",
+  "directory:read_users",
+] as const;
+
+/** Optional Directory scopes — included only when enabled on the OAuth app. */
+export const YANDEX_SERVICE_OPTIONAL_SCOPES = [
+  "directory:read_departments",
+] as const;
+
+/** Full desired set (docs / UI); actual authorize uses intersection with app scopes. */
+export const YANDEX_SERVICE_SCOPES = [
+  ...YANDEX_SERVICE_REQUIRED_SCOPES,
+  ...YANDEX_SERVICE_PREFERRED_SCOPES,
+  ...YANDEX_SERVICE_OPTIONAL_SCOPES,
 ];
 
 export const DEFAULT_YANDEX_SERVICE_CLIENT_ID = "69e59ec6dcfe4be3a085006d49678056";
+
+/** Matches Mail/Yandex ID desktop callback + Rust `start_oauth_server` port. */
+export const YANDEX_SERVICE_REDIRECT_LOCALHOST = "http://localhost:17248";
+
+/** Legacy CEF screen-code contract (DEFAULT services client). */
+export const YANDEX_SERVICE_REDIRECT_VERIFICATION_CODE = "https://oauth.yandex.ru/verification_code";
+
+export interface YandexOAuthClientInfo {
+  callback?: string | null;
+  scope?: string[] | null;
+}
+
+/**
+ * Deterministic redirect from the OAuth app's registered Callback URL
+ * (public `GET /client/{id}/info`). No client-id hardcoding.
+ */
+export function resolveYandexServiceRedirectUri(info: YandexOAuthClientInfo): string {
+  const raw = (info.callback ?? "").trim();
+  if (!raw) return YANDEX_SERVICE_REDIRECT_VERIFICATION_CODE;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(
+      `Некорректный Callback URL OAuth-приложения. Ожидается ${YANDEX_SERVICE_REDIRECT_LOCALHOST} или ${YANDEX_SERVICE_REDIRECT_VERIFICATION_CODE}.`,
+    );
+  }
+
+  if (raw === YANDEX_SERVICE_REDIRECT_VERIFICATION_CODE) {
+    return YANDEX_SERVICE_REDIRECT_VERIFICATION_CODE;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const port = parsed.port || (parsed.protocol === "http:" ? "80" : "");
+  const isLoopback = host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1";
+  if (isLoopback && port === "17248") {
+    // Yandex registrations use http://localhost:17248 (not 127.0.0.1).
+    return YANDEX_SERVICE_REDIRECT_LOCALHOST;
+  }
+
+  throw new Error(
+    `Неподдерживаемый Callback URL OAuth-приложения (${raw}). Office360 поддерживает ${YANDEX_SERVICE_REDIRECT_LOCALHOST} или ${YANDEX_SERVICE_REDIRECT_VERIFICATION_CODE}.`,
+  );
+}
+
+/** Required scopes must be enabled; preferred/optional are intersected with the app. */
+export function resolveYandexServiceScopes(allowed: Iterable<string>): string[] {
+  const set = new Set(allowed);
+  const missing = YANDEX_SERVICE_REQUIRED_SCOPES.filter((scope) => !set.has(scope));
+  if (missing.length) {
+    throw new Error(`В OAuth-приложении не включены права: ${missing.join(", ")}.`);
+  }
+  return [
+    ...YANDEX_SERVICE_REQUIRED_SCOPES,
+    ...YANDEX_SERVICE_PREFERRED_SCOPES.filter((scope) => set.has(scope)),
+    ...YANDEX_SERVICE_OPTIONAL_SCOPES.filter((scope) => set.has(scope)),
+  ];
+}
 
 const SERVICE_SETTING_NAMES = ["client_id", "access_token", "refresh_token", "expires_at", "scopes", "owner_email"] as const;
 type ServiceSettingName = typeof SERVICE_SETTING_NAMES[number];
@@ -77,16 +155,27 @@ export async function authorizeYandexServices(accountId: string, clientId: strin
 
   const infoResponse = await tauriFetch(`https://oauth.yandex.ru/client/${encodeURIComponent(normalizedClientId)}/info`);
   if (!infoResponse.ok) throw new Error("Не удалось проверить Yandex OAuth Client ID.");
-  const info = await infoResponse.json() as { scope?: string[] };
-  const allowed = new Set(info.scope ?? []);
-  const missing = YANDEX_SERVICE_SCOPES.filter((scope) => !allowed.has(scope));
-  if (missing.length) throw new Error(`В OAuth-приложении не включены права: ${missing.join(", ")}.`);
+  const info = await infoResponse.json() as YandexOAuthClientInfo;
+  const scopes = resolveYandexServiceScopes(info.scope ?? []);
+  const redirectUri = resolveYandexServiceRedirectUri(info);
 
-  const { tokens, userInfo } = await startProviderOAuthFlow(provider, normalizedClientId, undefined, {
-    loginHint: account.email,
-    scopes: YANDEX_SERVICE_SCOPES,
-    redirectUri: "https://oauth.yandex.ru/verification_code",
-  });
+  let tokens;
+  let userInfo;
+  try {
+    ({ tokens, userInfo } = await startProviderOAuthFlow(provider, normalizedClientId, undefined, {
+      loginHint: account.email,
+      scopes,
+      redirectUri,
+    }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/Failed to bind OAuth callback|Another process may be using the port/i.test(message)) {
+      throw new Error(
+        "Порт OAuth callback 17248 занят. Закройте другие окна Office360 / незавершённые сессии входа и повторите.",
+      );
+    }
+    throw error;
+  }
   if (userInfo.email && normalizeEmail(userInfo.email) !== normalizeEmail(account.email)) {
     throw new Error(`Выполнен вход как ${userInfo.email}, ожидался аккаунт ${account.email}.`);
   }
@@ -98,7 +187,7 @@ export async function authorizeYandexServices(accountId: string, clientId: strin
     setSecureSetting(serviceKey(identity, "access_token"), tokens.access_token),
     setSecureSetting(serviceKey(identity, "refresh_token"), tokens.refresh_token),
     setSetting(serviceKey(identity, "expires_at"), String(getCurrentUnixTimestamp() + tokens.expires_in)),
-    setSetting(serviceKey(identity, "scopes"), tokens.scope ?? YANDEX_SERVICE_SCOPES.join(" ")),
+    setSetting(serviceKey(identity, "scopes"), tokens.scope ?? scopes.join(" ")),
     setSetting(serviceKey(identity, "owner_email"), normalizeEmail(account.email)),
   ]);
 }
