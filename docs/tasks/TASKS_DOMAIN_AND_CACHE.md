@@ -136,14 +136,16 @@ TASKS-002 не содержит live Tracker calls. Remote adapter добавл�
 
 ## Compatibility
 
-- Existing Tasks components и Zustand store продолжают использовать `DbTask`.
+- Existing Tasks components и Zustand store продолжают использовать `DbTask`
+  (вкладка **Локальные** на `/tasks`).
 - Existing task table и IDs сохраняются.
 - Legacy recurrence, tags, event-like details и thread linkage не удалены.
 - `completeTask`/`uncompleteTask` поддерживают одновременно legacy `is_completed` и
   normalized `status`.
-- Mail, PeoplePicker и Calendar UI не изменялись.
+- Mail, PeoplePicker и Calendar UI не изменялись в TASKS-002; TASKS-004/005
+  добавляют Tracker create + lists/detail поверх projection.
 
-## TASKS-003 / TASKS-004 boundary
+## TASKS-003 / TASKS-004 / TASKS-005 boundary
 
 TASKS-003: Yandex Tracker provider, org/queue/assignee, idempotent create, projection.
 Migration: **NONE** (v41 unchanged).
@@ -151,3 +153,7 @@ Migration: **NONE** (v41 unchanged).
 TASKS-004: Mail → Create Task UI — see `docs/tasks/TASKS_MAIL_CREATE_FLOW.md`.
 Mail reading pane gains create action + linked tasks block; TaskSource written on create.
 Migration: **NONE**.
+
+TASKS-005: lists/detail/filters/mail source navigation —
+`docs/tasks/TASKS_LIST_AND_DETAIL.md`. Cache-first `TaskService.listSection`,
+shared `ProjectedTaskDetailModal`. Migration: **NONE**.

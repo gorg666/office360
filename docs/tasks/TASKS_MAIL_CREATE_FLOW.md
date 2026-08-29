@@ -55,9 +55,11 @@ Retry of the **same** form keeps the same unique key. A new open of the form get
 `LinkedMailTasksBlock` lists tasks for `(accountId, messageId)`:
 
 - title, assignee, due, status, optional provider key
-- **Открыть** → in-app detail modal (external Tracker URL secondary if present)
+- **Открыть** → shared `ProjectedTaskDetailModal` (TASKS-005), not a mail-only mini detail
 
 Empty list → block hidden. Offline: show cached projection only; create remains disabled.
+
+Mail source **Открыть письмо** from task detail uses `openTaskSourceMail` → existing mail thread navigation.
 
 ## Security
 

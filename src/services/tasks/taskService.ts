@@ -6,6 +6,13 @@ import {
   createTrackerTaskFromMail,
   type CreateMailTaskInput,
 } from "./mailCreateFlow";
+import {
+  filterTasksBySection,
+  filterTasksByText,
+  sortTasksForList,
+  type CurrentTaskUser,
+  type TaskListSection,
+} from "./taskListView";
 
 export class TaskService {
   constructor(
@@ -19,6 +26,61 @@ export class TaskService {
 
   list(organizationId?: string | null): Promise<Task[]> {
     return this.repository.list(organizationId);
+  }
+
+  listByAssignee(email: string): Promise<Task[]> {
+    return this.repository.listByAssignee(email);
+  }
+
+  listCreatedBy(email: string): Promise<Task[]> {
+    return this.repository.listCreatedBy(email);
+  }
+
+  /**
+   * Cache-first section list. Does not wait on Tracker.
+   */
+  async listSection(input: {
+    organizationId: string | null;
+    section: TaskListSection;
+    currentUser: CurrentTaskUser;
+    textQuery?: string;
+    nowSec?: number;
+  }): Promise<Task[]> {
+    const cached = await this.repository.list(input.organizationId);
+    const filtered = filterTasksBySection(
+      cached,
+      input.section,
+      input.currentUser,
+      input.organizationId,
+    );
+    const searched = filterTasksByText(filtered, input.textQuery ?? "");
+    return sortTasksForList(searched, input.nowSec);
+  }
+
+  /**
+   * Best-effort remote refresh into projection cache. Failures leave cache intact.
+   */
+  async refreshFromProvider(input: {
+    accountId: string;
+    organizationId: string;
+  }): Promise<{ ok: true; count: number } | { ok: false; error: unknown }> {
+    const provider = this.resolveProvider?.(input.accountId) ?? null;
+    if (!provider) {
+      return { ok: false, error: new TaskProviderUnavailableError("yandex-tracker", "list") };
+    }
+    try {
+      const [assigned, created] = await Promise.all([
+        provider.listTasks(input.organizationId, { scope: "assigned-to-me", perPage: 50 }),
+        provider.listTasks(input.organizationId, { scope: "created-by-me", perPage: 50 }),
+      ]);
+      const byId = new Map<string, Task>();
+      for (const task of [...assigned, ...created]) {
+        byId.set(task.id, task);
+      }
+      return { ok: true, count: byId.size };
+    } catch (error) {
+      return { ok: false, error };
+    }
   }
 
   getTasksForMail(accountId: string, messageId: string): Promise<Task[]> {

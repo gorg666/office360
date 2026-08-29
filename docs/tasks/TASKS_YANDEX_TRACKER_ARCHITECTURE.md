@@ -1,6 +1,6 @@
 # TASKS-001 — задачи из писем через Yandex Tracker
 
-Статус: TASKS-001 architecture complete; TASKS-002 domain/cache implemented; TASKS-003 provider implemented; TASKS-004 mail create UI implemented
+Статус: TASKS-001 architecture complete; TASKS-002 domain/cache implemented; TASKS-003 provider implemented; TASKS-004 mail create UI implemented; TASKS-005 lists/detail implemented
 
 Дата проверки: 2026-08-29
 
@@ -37,6 +37,11 @@ TASKS-003 реализует `YandexTrackerTaskProvider` + org binding + queue/a
 
 Для end-to-end cloud create verification по-прежнему нужен writable Tracker entitlement/ACL
 и явное разрешение пользователя на live mutations.
+
+TASKS-005 добавляет пользовательские списки/detail поверх projection cache
+(`docs/tasks/TASKS_LIST_AND_DETAIL.md`): Мои / Поставленные мной / Завершённые,
+mail source navigation, shared detail с Mail linked block. Sync coordinator и
+transitions UI — TASKS-006+.
 
 ## 1. Audit существующего Office360
 
