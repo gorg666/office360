@@ -27,18 +27,31 @@ export const NO_TASK_PROVIDER_CAPABILITIES: TaskProviderCapabilities = {
   organizationDirectoryBinding: false,
 };
 
+export interface TaskListOptions {
+  scope?: "assigned-to-me" | "created-by-me" | "all";
+  page?: number;
+  perPage?: number;
+}
+
 export interface TaskProviderMutationInput {
   organizationId: string;
+  /** Local projection id (optional). */
   taskId?: string;
+  /** Remote Tracker issue id or key. */
+  providerTaskId?: string;
   fields?: Partial<Task>;
   transitionId?: string;
+  /** Tracker create idempotency key (`unique`). */
+  unique?: string;
+  /** Queue key; defaults to OrganizationTaskSettings.defaultQueue. */
+  queue?: string;
 }
 
 export interface TaskProvider {
   readonly id: TaskProviderId;
-  capabilities(): Promise<TaskProviderCapabilities>;
+  capabilities(organizationId?: string): Promise<TaskProviderCapabilities>;
   getTask(organizationId: string, providerTaskId: string): Promise<Task | null>;
-  listTasks(organizationId: string): Promise<Task[]>;
+  listTasks(organizationId: string, options?: TaskListOptions): Promise<Task[]>;
   createTask(input: TaskProviderMutationInput): Promise<Task>;
   updateTask(input: TaskProviderMutationInput): Promise<Task>;
   transitionTask(input: TaskProviderMutationInput): Promise<Task>;

@@ -188,6 +188,14 @@ export async function getStoredYandexScopes(accountId: string): Promise<Set<stri
   return new Set((value ?? "").split(/[\s,]+/).filter(Boolean));
 }
 
+/** Scopes granted to the Disk/Tracker service OAuth app (not mailbox OAuth). */
+export async function getYandexServiceScopes(accountId: string): Promise<Set<string>> {
+  const account = await resolveYandexAccount(accountId);
+  await migrateYandexServiceSettings(account);
+  const value = await getSetting(serviceKey(serviceIdentity(account), "scopes"));
+  return new Set((value ?? "").split(/[\s,]+/).filter(Boolean));
+}
+
 export async function checkYandexScopes(accountId: string, required: string[]): Promise<{ known: boolean; missing: string[] }> {
   const scopes = await getStoredYandexScopes(accountId);
   return { known: scopes.size > 0, missing: required.filter((scope) => !scopes.has(scope)) };

@@ -1,6 +1,6 @@
 # TASKS-001 — задачи из писем через Yandex Tracker
 
-Статус: TASKS-001 architecture complete; TASKS-002 domain/cache implemented
+Статус: TASKS-001 architecture complete; TASKS-002 domain/cache implemented; TASKS-003 provider implemented
 
 Дата проверки: 2026-08-29
 
@@ -9,6 +9,8 @@
 Дополнительно проверено: `origin/feat/calendar-yandex360` (`e3604e8`, PR #4) для PEOPLE-001 и актуального Tracker transport
 
 Cloud mutations: **NONE**
+
+Live Tracker mutations (TASKS-003): **NONE** (fixtures/tests only; see `docs/tasks/TASKS_YANDEX_TRACKER_PROVIDER.md`)
 
 ## Executive summary
 
@@ -28,8 +30,13 @@ TASKS-002 реализует additive v41, общий Task domain, SQLite projec
 organization settings, provider/repository contracts и legacy local adapter. Подробности:
 `docs/tasks/TASKS_DOMAIN_AND_CACHE.md`.
 
-Для TASKS-003 всё ещё нужен writable Tracker entitlement/ACL для end-to-end create verification.
-Существующий live baseline имеет read access, но Tracker writes возвращали режим просмотра 403.
+TASKS-003 реализует `YandexTrackerTaskProvider` + org binding + queue/assignee/idempotency
+поверх существующего Yandex OAuth/Tracker transport (`trackerClient.ts`). Подробности:
+`docs/tasks/TASKS_YANDEX_TRACKER_PROVIDER.md`. Live cloud create/update/transition в тикете
+не выполнялись.
+
+Для end-to-end cloud create verification по-прежнему нужен writable Tracker entitlement/ACL
+и явное разрешение пользователя на live mutations.
 
 ## 1. Audit существующего Office360
 
@@ -605,12 +612,14 @@ Tracker уже отправляет native notifications; create API имеет 
 
 ### TASKS-003 — Yandex Tracker provider
 
-- зависимость от merged PEOPLE-001/Tracker transport primitives из PR #4;
-- typed Yandex adapter, pagination, queue/settings capability, priorities, users resolver;
-- read sync/cache and idempotent create implementation;
-- organization/assignee verification;
-- fixtures and read-only live discovery first;
-- real create только в отдельном approved writable test org с explicit confirmation.
+- implemented on `feat/tasks-yandex-tracker` without cherry-picking Calendar/People PR #4;
+- uses People identity types already on branch + Directory/Tracker ports;
+- `YandexTrackerTaskProvider` + `trackerClient.ts` (X-Org-ID, /myself, queues, priorities,
+  users, issues, transitions);
+- strict assignee → Tracker UID; idempotent create via `unique` + 409 reconciliation;
+- local projection upsert; read-only capabilities when `tracker:write` missing;
+- fixtures/tests cover mutations; live cloud mutations: **NONE**;
+- docs: `docs/tasks/TASKS_YANDEX_TRACKER_PROVIDER.md`.
 
 ### TASKS-004 — Mail → Create Task UI
 

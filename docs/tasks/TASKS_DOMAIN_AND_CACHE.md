@@ -131,7 +131,8 @@ update, remove, assignee/creator lookup, source lookup и source insertion.
 Все capabilities по умолчанию disabled через `NO_TASK_PROVIDER_CAPABILITIES`; неизвестная
 capability не считается доступной.
 
-TASKS-002 не содержит `YandexTrackerTaskProvider` и не вызывает Tracker transport.
+TASKS-002 не содержит live Tracker calls. Remote adapter добавлен в TASKS-003:
+`src/services/tasks/yandexTracker/` + `docs/tasks/TASKS_YANDEX_TRACKER_PROVIDER.md`.
 
 ## Compatibility
 
@@ -142,13 +143,9 @@ TASKS-002 не содержит `YandexTrackerTaskProvider` и не вызыва
   normalized `status`.
 - Mail, PeoplePicker и Calendar UI не изменялись.
 
-## TASKS-003 boundary
+## TASKS-003 / TASKS-004 boundary
 
-Следующий этап может реализовать только provider adapter и mapping:
+TASKS-003: Yandex Tracker provider, org/queue/assignee, idempotent create, projection.
+Migration: **NONE** (v41 unchanged).
 
-- Tracker auth/read transport;
-- queue/workflow/priority discovery;
-- Directory person -> Tracker UID resolution;
-- remote read projection and explicitly authorized writes.
-
-TASKS-003 не должен менять v41 или provider-neutral UI contracts без нового migration gate.
+TASKS-004: Mail → Create Task UI only after TASKS-003 PASS. Not started here.

@@ -14,6 +14,15 @@ export function listUsers(orgId: string, accountId?: string): Promise<JsonValue>
   });
 }
 
+export function getUser(orgId: string, userId: string, accountId?: string): Promise<JsonValue> {
+  return yandex360Request({
+    accountId,
+    method: "GET",
+    path: "/v1/orgs/{orgId}/users/{userId}",
+    pathParams: { orgId, userId },
+  });
+}
+
 export function createUser(orgId: string, body: JsonObject, accountId?: string): Promise<JsonValue> {
   return yandex360Request({
     accountId,
