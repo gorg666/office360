@@ -1,6 +1,7 @@
-import { useId, useState } from "react";
-import { ExternalLink, Mail } from "lucide-react";
-import type { Task } from "@/services/tasks/domain";
+import { useCallback, useEffect, useId, useState } from "react";
+import { ExternalLink, Loader2, Mail, RefreshCw } from "lucide-react";
+import type { Task, TaskPriority } from "@/services/tasks/domain";
+import type { TaskProviderCapabilities } from "@/services/tasks/taskProvider";
 import {
   formatTaskDueDate,
   mailSourceOf,
@@ -11,23 +12,135 @@ import {
   OPEN_SOURCE_MAIL_COPY,
   openTaskSourceMail,
 } from "@/services/tasks/openTaskSourceMail";
+import { createDefaultTrackerProvider } from "@/services/tasks/mailCreateFlow";
+import { SqliteTaskRepository } from "@/services/tasks/taskRepository";
+import { TaskService } from "@/services/tasks/taskService";
+import { taskErrorMessageRu } from "@/services/tasks/mailCreateFlow";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { TaskPersonCell, principalPrimaryLabel } from "./TaskPersonCell";
+import type { TrackerTransition } from "@/services/yandex/trackerClient";
 
 function formatTs(unix: number): string {
   return new Date(unix * 1000).toLocaleString("ru-RU");
 }
 
-export interface TaskDetailViewProps {
-  task: Task;
-  onOpenMailDone?: () => void;
+function buildService(): TaskService {
+  const repository = new SqliteTaskRepository();
+  return new TaskService(repository, (id) => createDefaultTrackerProvider(id, repository));
 }
 
-export function TaskDetailView({ task, onOpenMailDone }: TaskDetailViewProps) {
+const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
+  { value: "low", label: "Низкий" },
+  { value: "normal", label: "Обычный" },
+  { value: "high", label: "Высокий" },
+  { value: "critical", label: "Критический" },
+];
+
+const AVAILABILITY_COPY: Record<string, string> = {
+  unavailable: "Задача недоступна в Tracker (возможно, удалена или перемещена)",
+  removed: "Задача удалена в Tracker",
+  "permission-denied": "Нет доступа к этой задаче в Tracker",
+  error: "Не удалось обновить задачу",
+  stale: "Данные могут быть устаревшими",
+};
+
+export interface TaskDetailViewProps {
+  task: Task;
+  accountId?: string | null;
+  onOpenMailDone?: () => void;
+  onTaskUpdated?: (task: Task) => void;
+}
+
+export function TaskDetailView({
+  task: initial,
+  accountId,
+  onOpenMailDone,
+  onTaskUpdated,
+}: TaskDetailViewProps) {
+  const [task, setTask] = useState(initial);
+  useEffect(() => {
+    setTask(initial);
+  }, [initial]);
+
   const mailSource = mailSourceOf(task);
   const [mailError, setMailError] = useState<string | null>(null);
   const [openingMail, setOpeningMail] = useState(false);
+  const [caps, setCaps] = useState<TaskProviderCapabilities | null>(null);
+  const [transitions, setTransitions] = useState<TrackerTransition[]>([]);
+  const [loadingTransitions, setLoadingTransitions] = useState(false);
+  const [selectedTransition, setSelectedTransition] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(task.title);
+  const [descriptionDraft, setDescriptionDraft] = useState(task.description ?? "");
+  const [priorityDraft, setPriorityDraft] = useState<TaskPriority>(
+    task.priority === "unknown" ? "normal" : task.priority,
+  );
+  const [dueDraft, setDueDraft] = useState(
+    task.dueAt ? new Date(task.dueAt * 1000).toISOString().slice(0, 10) : "",
+  );
+  const offline = typeof navigator !== "undefined" ? !navigator.onLine : false;
+  const orgId = task.organizationId;
+  const providerKey = task.providerTaskId ?? task.externalKey;
+  const readOnly = Boolean(caps && caps.read && !caps.transitions && !caps.create && !caps.assign);
+  const canMutate = Boolean(accountId && orgId && providerKey && caps && !offline && !readOnly);
+
+  const applyTask = useCallback(
+    (next: Task) => {
+      setTask(next);
+      onTaskUpdated?.(next);
+      window.dispatchEvent(new CustomEvent("velo-task-updated"));
+    },
+    [onTaskUpdated],
+  );
+
+  useEffect(() => {
+    if (!accountId || !orgId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const service = buildService();
+        const nextCaps = await service.capabilities(accountId, orgId);
+        if (!cancelled) setCaps(nextCaps);
+      } catch {
+        if (!cancelled) setCaps(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, orgId]);
+
+  useEffect(() => {
+    if (!accountId || !orgId || !providerKey || !caps?.transitions || offline) {
+      setTransitions([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingTransitions(true);
+    void (async () => {
+      try {
+        const list = await buildService().listTransitions({
+          accountId,
+          organizationId: orgId,
+          providerTaskId: providerKey,
+        });
+        if (!cancelled) {
+          setTransitions(list);
+          setSelectedTransition("");
+        }
+      } catch {
+        if (!cancelled) setTransitions([]);
+      } finally {
+        if (!cancelled) setLoadingTransitions(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, orgId, providerKey, caps?.transitions, offline, task.status, task.providerStatus?.key]);
 
   const handleOpenMail = async () => {
     setMailError(null);
@@ -46,8 +159,127 @@ export function TaskDetailView({ task, onOpenMailDone }: TaskDetailViewProps) {
     }
   };
 
+  const refreshOne = async () => {
+    if (!accountId || !orgId || !providerKey) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const result = await buildService().refreshTask({
+        accountId,
+        organizationId: orgId,
+        providerTaskId: providerKey,
+        localTaskId: task.id,
+      });
+      if (result.ok) {
+        applyTask(result.task);
+      } else {
+        if (result.task) applyTask(result.task);
+        setActionError(
+          AVAILABILITY_COPY[result.reason] ?? AVAILABILITY_COPY.error ?? "Не удалось обновить задачу",
+        );
+      }
+    } catch (e) {
+      setActionError(taskErrorMessageRu(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runTransition = async () => {
+    if (!canMutate || !selectedTransition || !caps?.transitions) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const next = await buildService().transitionTask({
+        accountId: accountId!,
+        organizationId: orgId!,
+        providerTaskId: providerKey!,
+        transitionId: selectedTransition,
+        localTaskId: task.id,
+      });
+      applyTask(next);
+      setSelectedTransition("");
+    } catch (e) {
+      setActionError(taskErrorMessageRu(e));
+      // After conflict — refresh canonical
+      try {
+        await refreshOne();
+      } catch {
+        /* ignore */
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveEdits = async () => {
+    if (!canMutate) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const fields: Partial<Pick<Task, "title" | "description" | "priority" | "dueAt">> = {};
+      if (caps?.create || caps?.assign) {
+        fields.title = titleDraft.trim();
+        fields.description = descriptionDraft;
+      }
+      if (caps?.priority) fields.priority = priorityDraft;
+      if (caps?.dueDate) {
+        fields.dueAt = dueDraft
+          ? Math.floor(Date.parse(`${dueDraft}T00:00:00.000Z`) / 1000)
+          : null;
+      }
+      const next = await buildService().updateTaskFields({
+        accountId: accountId!,
+        organizationId: orgId!,
+        providerTaskId: providerKey!,
+        fields,
+      });
+      applyTask(next);
+      setEditing(false);
+    } catch (e) {
+      setActionError(taskErrorMessageRu(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disabledReason = offline
+    ? "Нет сети — изменения недоступны"
+    : readOnly
+      ? "Только чтение: нет scope tracker:write"
+      : !accountId
+        ? "Нет аккаунта"
+        : null;
+
   return (
     <div className="p-4 space-y-3 text-sm text-text-secondary max-h-[70vh] overflow-y-auto">
+      {(task.syncState === "unavailable"
+        || task.syncState === "removed"
+        || task.syncState === "permission-denied"
+        || task.syncState === "error"
+        || task.syncState === "stale") ? (
+        <p className="text-xs text-warning" role="status">
+          {AVAILABILITY_COPY[task.syncState] ?? task.syncState}
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          size="xs"
+          disabled={busy || offline || !accountId}
+          onClick={() => void refreshOne()}
+          aria-label="Обновить задачу"
+        >
+          {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+          <span className="ml-1">Обновить</span>
+        </Button>
+        {disabledReason ? (
+          <span className="text-[11px] text-text-tertiary">{disabledReason}</span>
+        ) : null}
+      </div>
+
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
         {task.externalKey ? (
           <div>
@@ -81,6 +313,125 @@ export function TaskDetailView({ task, onOpenMailDone }: TaskDetailViewProps) {
         </div>
       </div>
 
+      {caps?.transitions && !offline ? (
+        <div className="rounded-md border border-border-primary p-3 space-y-2" aria-label="Смена статуса">
+          <div className="text-xs font-semibold text-text-primary">Статус (переход)</div>
+          {loadingTransitions ? (
+            <p className="text-xs text-text-tertiary">Загрузка переходов…</p>
+          ) : transitions.length === 0 ? (
+            <p className="text-xs text-text-tertiary">Нет доступных переходов</p>
+          ) : (
+            <div className="flex flex-wrap gap-2 items-center">
+              <select
+                value={selectedTransition}
+                onChange={(e) => setSelectedTransition(e.target.value)}
+                disabled={!canMutate || busy || !caps.transitions}
+                aria-label="Доступные переходы статуса"
+                className="flex-1 min-w-[140px] bg-bg-tertiary text-text-primary text-xs px-2 py-1.5 rounded-md border border-border-primary"
+              >
+                <option value="">Выберите переход…</option>
+                {transitions.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.display}
+                    {t.to?.display ? ` → ${t.to.display}` : ""}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="primary"
+                size="xs"
+                disabled={!canMutate || busy || !selectedTransition || !caps.transitions}
+                onClick={() => void runTransition()}
+                title={!caps.transitions || readOnly ? "Переходы недоступны (только чтение)" : undefined}
+              >
+                Применить
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {editing ? (
+        <div className="space-y-2 border border-border-primary rounded-md p-3">
+          <label className="block text-xs">
+            <span className="text-text-tertiary">Название</span>
+            <input
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              className="mt-1 w-full bg-bg-tertiary border border-border-primary rounded px-2 py-1 text-text-primary text-sm"
+              disabled={!canMutate}
+            />
+          </label>
+          <label className="block text-xs">
+            <span className="text-text-tertiary">Описание</span>
+            <textarea
+              value={descriptionDraft}
+              onChange={(e) => setDescriptionDraft(e.target.value)}
+              rows={4}
+              className="mt-1 w-full bg-bg-tertiary border border-border-primary rounded px-2 py-1 text-text-primary text-sm"
+              disabled={!canMutate}
+            />
+          </label>
+          {caps?.priority ? (
+            <label className="block text-xs">
+              <span className="text-text-tertiary">Приоритет</span>
+              <select
+                value={priorityDraft}
+                onChange={(e) => setPriorityDraft(e.target.value as TaskPriority)}
+                className="mt-1 w-full bg-bg-tertiary border border-border-primary rounded px-2 py-1 text-text-primary text-sm"
+                disabled={!canMutate}
+              >
+                {PRIORITY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {caps?.dueDate ? (
+            <label className="block text-xs">
+              <span className="text-text-tertiary">Срок (UTC date)</span>
+              <input
+                type="date"
+                value={dueDraft}
+                onChange={(e) => setDueDraft(e.target.value)}
+                className="mt-1 w-full bg-bg-tertiary border border-border-primary rounded px-2 py-1 text-text-primary text-sm"
+                disabled={!canMutate}
+              />
+            </label>
+          ) : null}
+          <div className="flex gap-2">
+            <Button type="button" size="xs" variant="primary" disabled={busy || !canMutate} onClick={() => void saveEdits()}>
+              Сохранить
+            </Button>
+            <Button type="button" size="xs" variant="secondary" disabled={busy} onClick={() => setEditing(false)}>
+              Отмена
+            </Button>
+          </div>
+          <p className="text-[11px] text-text-tertiary">
+            Смена исполнителя в v1 UI не включена (нужен org directory UID) — follow-up.
+          </p>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            size="xs"
+            variant="secondary"
+            disabled={!canMutate || (!(caps?.priority || caps?.dueDate || caps?.create))}
+            onClick={() => {
+              setTitleDraft(task.title);
+              setDescriptionDraft(task.description ?? "");
+              setPriorityDraft(task.priority === "unknown" ? "normal" : task.priority);
+              setDueDraft(task.dueAt ? new Date(task.dueAt * 1000).toISOString().slice(0, 10) : "");
+              setEditing(true);
+            }}
+          >
+            Редактировать
+          </Button>
+        </div>
+      )}
+
       <div className="grid gap-2 sm:grid-cols-2">
         <div>
           <div className="text-xs text-text-tertiary mb-1">Исполнитель</div>
@@ -105,7 +456,7 @@ export function TaskDetailView({ task, onOpenMailDone }: TaskDetailViewProps) {
         </div>
       ) : null}
 
-      {task.description ? (
+      {!editing && task.description ? (
         <div className="pt-2 border-t border-border-secondary">
           <div className="text-xs text-text-tertiary mb-1">Описание</div>
           <p className="text-text-primary whitespace-pre-wrap">{task.description}</p>
@@ -148,6 +499,10 @@ export function TaskDetailView({ task, onOpenMailDone }: TaskDetailViewProps) {
         </div>
       ) : null}
 
+      {actionError ? (
+        <p className="text-xs text-danger" role="alert">{actionError}</p>
+      ) : null}
+
       <div className="flex flex-wrap gap-3 text-[11px] text-text-tertiary border-t border-border-secondary pt-2">
         <span>Создано: {formatTs(task.createdAt)}</span>
         <span>Обновлено: {formatTs(task.updatedAt)}</span>
@@ -163,10 +518,18 @@ export interface ProjectedTaskDetailModalProps {
   task: Task | null;
   isOpen: boolean;
   onClose: () => void;
+  accountId?: string | null;
+  onTaskUpdated?: (task: Task) => void;
 }
 
 /** Shared projection Task detail (Tracker / cached). Not the legacy DbTask modal. */
-export function ProjectedTaskDetailModal({ task, isOpen, onClose }: ProjectedTaskDetailModalProps) {
+export function ProjectedTaskDetailModal({
+  task,
+  isOpen,
+  onClose,
+  accountId,
+  onTaskUpdated,
+}: ProjectedTaskDetailModalProps) {
   const titleId = useId();
   return (
     <Modal
@@ -192,7 +555,14 @@ export function ProjectedTaskDetailModal({ task, isOpen, onClose }: ProjectedTas
         ) : null
       }
     >
-      {task ? <TaskDetailView task={task} onOpenMailDone={onClose} /> : null}
+      {task ? (
+        <TaskDetailView
+          task={task}
+          accountId={accountId}
+          onOpenMailDone={onClose}
+          onTaskUpdated={onTaskUpdated}
+        />
+      ) : null}
     </Modal>
   );
 }

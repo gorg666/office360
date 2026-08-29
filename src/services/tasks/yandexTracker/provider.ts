@@ -274,6 +274,12 @@ export class YandexTrackerTaskProvider implements TaskProvider {
     const filter: Record<string, unknown> = {};
     if (scope === "assigned-to-me") filter.assignee = "me()";
     if (scope === "created-by-me") filter.createdBy = "me()";
+    if (scope === "completed-recent") {
+      // Bounded done/cancelled for current user (assignee). Custom workflows still map via status.
+      filter.assignee = "me()";
+      filter.statusType = "done";
+    }
+    // scope "all" intentionally leaves filter empty — callers must bound via perPage/page.
 
     try {
       const issues = await searchTrackerIssuesV3(org.ctx, { filter }, perPage, page);

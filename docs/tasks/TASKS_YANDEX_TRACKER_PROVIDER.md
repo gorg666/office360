@@ -25,9 +25,11 @@ Provider methods:
 - `capabilities(organizationId?)`
 - `listQueues` / `resolveDefaultQueue` / `listPriorities`
 - `resolveAssignee`
-- `getTask` / `listTasks` (paginated; scopes: assigned-to-me, created-by-me, all)
+- `getTask` / `listTasks` (paginated; scopes: assigned-to-me, created-by-me, completed-recent, all)
 - `createTask` / `updateTask`
 - `listTransitions` / `transitionTask`
+
+List sync / single-flight: `taskSyncCoordinator` + `TaskService.refreshFromProvider` — see `TASKS_SYNC_AND_SETTINGS.md`.
 
 Legacy UI client `src/services/yandex/tracker.ts` remains for TrackerPage; Tasks domain uses `trackerClient.ts`.
 

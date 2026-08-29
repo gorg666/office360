@@ -17,7 +17,7 @@
 - cache-first lists, offline/stale/error banners;
 - LinkedMailTasksBlock открывает **общий** `ProjectedTaskDetailModal`.
 
-Не создаёт второй Tasks backend и не делает TASKS-006 sync coordinator / transitions UI.
+Не создаёт второй Tasks backend. Sync coordinator / transitions / settings: см. `TASKS_SYNC_AND_SETTINGS.md` (TASKS-006).
 
 ## Entry
 
@@ -115,7 +115,11 @@ Empty RU:
 
 ## Out of scope (TASKS-006+)
 
-- Full sync coordinator / background poll
+- Full background poll / multi-account fan-out (coordinator covers manual/initial/reconnect)
+
+## Related
+
+- Sync/transitions/settings: `TASKS_SYNC_AND_SETTINGS.md`
 - Status transition / edit UI
 - FTS search
 - Mobile layout

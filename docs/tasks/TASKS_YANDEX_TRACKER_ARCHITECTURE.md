@@ -1,6 +1,6 @@
 # TASKS-001 — задачи из писем через Yandex Tracker
 
-Статус: TASKS-001 architecture complete; TASKS-002 domain/cache implemented; TASKS-003 provider implemented; TASKS-004 mail create UI implemented; TASKS-005 lists/detail implemented
+Статус: TASKS-001 architecture complete; TASKS-002 domain/cache implemented; TASKS-003 provider implemented; TASKS-004 mail create UI implemented; TASKS-005 lists/detail implemented; TASKS-006 sync/transitions/settings implemented
 
 Дата проверки: 2026-08-29
 

@@ -3,7 +3,14 @@ import type { PersonIdentity } from "@/services/people/domain";
 export type TaskProviderId = "local" | "yandex-tracker" | (string & Record<never, never>);
 export type TaskStatus = "open" | "in_progress" | "done" | "cancelled" | "unknown";
 export type TaskPriority = "low" | "normal" | "high" | "critical" | "unknown";
-export type TaskSyncState = "fresh" | "stale" | "syncing" | "error";
+export type TaskSyncState =
+  | "fresh"
+  | "stale"
+  | "syncing"
+  | "error"
+  | "unavailable"
+  | "removed"
+  | "permission-denied";
 export type TaskSourceType = "mail" | "calendar" | "manual" | "chat" | "document" | (string & Record<never, never>);
 
 export interface TaskProviderStatus {

@@ -30,6 +30,7 @@ import {
   Globe,
   Image,
   Palette,
+  CheckSquare,
   ChevronUp,
   ChevronDown,
   RotateCcw,
@@ -46,6 +47,7 @@ import { QuickStepEditor } from "./QuickStepEditor";
 import { SmartLabelEditor } from "./SmartLabelEditor";
 import { ImapCredentialsEditor } from "./ImapCredentialsEditor";
 import { Yandex360AccountHub } from "./yandex360/Yandex360AccountHub";
+import { TasksSettingsPanel } from "./TasksSettingsPanel";
 import { SHORTCUTS, getDefaultKeyMap } from "@/constants/shortcuts";
 import { useShortcutStore } from "@/stores/shortcutStore";
 import { COLOR_THEMES } from "@/constants/themes";
@@ -73,7 +75,7 @@ import {
   playConfiguredNewEmailSound,
 } from "@/services/notifications/notificationManager";
 
-type SettingsTab = "general" | "notifications" | "composing" | "mail-rules" | "people" | "accounts" | "yandex360" | "shortcuts" | "ai" | "about";
+type SettingsTab = "general" | "notifications" | "composing" | "mail-rules" | "people" | "accounts" | "yandex360" | "tasks" | "shortcuts" | "ai" | "about";
 
 const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: "general", label: "General", icon: Settings },
@@ -83,6 +85,7 @@ const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: "people", label: "People", icon: Users },
   { id: "accounts", label: "Accounts", icon: UserCircle },
   { id: "yandex360", label: "Яндекс 360", icon: Globe },
+  { id: "tasks", label: "Задачи", icon: CheckSquare },
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
   { id: "ai", label: "AI", icon: Sparkles },
   { id: "about", label: "About", icon: Info },
@@ -1401,6 +1404,12 @@ export function SettingsPage() {
               {activeTab === "yandex360" && (
                 <Section title="Рабочие аккаунты Яндекс 360">
                   <Yandex360AccountHub />
+                </Section>
+              )}
+
+              {activeTab === "tasks" && (
+                <Section title="Задачи">
+                  <TasksSettingsPanel />
                 </Section>
               )}
 

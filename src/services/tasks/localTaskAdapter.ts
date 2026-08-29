@@ -10,7 +10,15 @@ import type {
 } from "./domain";
 
 const TASK_STATUSES = new Set<TaskStatus>(["open", "in_progress", "done", "cancelled", "unknown"]);
-const SYNC_STATES = new Set<TaskSyncState>(["fresh", "stale", "syncing", "error"]);
+const SYNC_STATES = new Set<TaskSyncState>([
+  "fresh",
+  "stale",
+  "syncing",
+  "error",
+  "unavailable",
+  "removed",
+  "permission-denied",
+]);
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;

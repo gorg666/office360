@@ -77,7 +77,7 @@ Tasks использует следующий глобально уникаль�
 - normalized statuses `open`, `in_progress`, `done`, `cancelled`, `unknown`;
 - normalized priorities `low`, `normal`, `high`, `critical`, `unknown`;
 - raw provider status `{ id, key, displayLabel }` и raw provider priority;
-- `fresh`, `stale`, `syncing`, `error` cache states;
+- `fresh`, `stale`, `syncing`, `error`, `unavailable`, `removed`, `permission-denied` cache states;
 - assignee, creator, followers, organization and provider timestamps.
 
 Незнакомые provider status/priority не отбрасываются: normalized значение становится
@@ -155,5 +155,8 @@ Mail reading pane gains create action + linked tasks block; TaskSource written o
 Migration: **NONE**.
 
 TASKS-005: lists/detail/filters/mail source navigation —
-`docs/tasks/TASKS_LIST_AND_DETAIL.md`. Cache-first `TaskService.listSection`,
+`docs/tasks/TASKS_LIST_AND_DETAIL.md`.
+
+TASKS-006: sync coordinator, transitions, settings —
+`docs/tasks/TASKS_SYNC_AND_SETTINGS.md`. Cache-first `TaskService.listSection`,
 shared `ProjectedTaskDetailModal`. Migration: **NONE**.

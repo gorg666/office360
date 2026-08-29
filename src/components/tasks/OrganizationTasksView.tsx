@@ -52,6 +52,9 @@ export function OrganizationTasksView() {
   const [focusIndex, setFocusIndex] = useState(0);
   const [readOnly, setReadOnly] = useState(false);
 
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
+  const [didInitialSync, setDidInitialSync] = useState(false);
+
   const currentUser = useMemo(
     () => ({ email: userEmail, providerUid: null as string | null }),
     [userEmail],
@@ -87,6 +90,11 @@ export function OrganizationTasksView() {
         completed: completed.length,
       });
 
+      if (orgId) {
+        const snap = service.getSyncStatus(accountId, orgId);
+        setLastSyncAt(snap.lastSuccessAt);
+      }
+
       try {
         const provider = createDefaultTrackerProvider(accountId, new SqliteTaskRepository());
         if (orgId) {
@@ -108,7 +116,27 @@ export function OrganizationTasksView() {
   }, [loadCached]);
 
   useEffect(() => {
-    const onOnline = () => setOffline(false);
+    const onOnline = () => {
+      setOffline(false);
+      if (accountId && organizationId) {
+        void (async () => {
+          const result = await buildService().refreshFromProvider({
+            accountId,
+            organizationId,
+            trigger: "reconnect",
+          });
+          if (!result.ok) {
+            setSyncError("Не удалось обновить задачи");
+            setStaleHint(true);
+          } else {
+            setSyncError(null);
+            setStaleHint(false);
+            setLastSyncAt(result.lastSuccessAt);
+          }
+          await loadCached();
+        })();
+      }
+    };
     const onOffline = () => setOffline(true);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
@@ -116,31 +144,42 @@ export function OrganizationTasksView() {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
     };
-  }, []);
+  }, [accountId, organizationId, loadCached]);
 
   useEffect(() => {
     const handler = () => {
       void loadCached();
     };
     window.addEventListener("velo-task-created", handler);
-    return () => window.removeEventListener("velo-task-created", handler);
+    window.addEventListener("velo-task-updated", handler);
+    return () => {
+      window.removeEventListener("velo-task-created", handler);
+      window.removeEventListener("velo-task-updated", handler);
+    };
   }, [loadCached]);
 
-  const handleRefresh = useCallback(async () => {
+  const handleRefresh = useCallback(async (trigger: "manual" | "initial" = "manual") => {
     if (!accountId || !organizationId) return;
     setRefreshing(true);
     setSyncError(null);
     const service = buildService();
-    const result = await service.refreshFromProvider({ accountId, organizationId });
+    const result = await service.refreshFromProvider({ accountId, organizationId, trigger });
     if (!result.ok) {
       setSyncError("Не удалось обновить задачи");
       setStaleHint(true);
     } else {
       setStaleHint(false);
+      setLastSyncAt(result.lastSuccessAt);
     }
     await loadCached();
     setRefreshing(false);
   }, [accountId, organizationId, loadCached]);
+
+  useEffect(() => {
+    if (!accountId || !organizationId || offline || didInitialSync) return;
+    setDidInitialSync(true);
+    void handleRefresh("initial");
+  }, [accountId, organizationId, offline, didInitialSync, handleRefresh]);
 
   useEffect(() => {
     setFocusIndex(0);
@@ -200,12 +239,17 @@ export function OrganizationTasksView() {
             variant="secondary"
             size="xs"
             disabled={refreshing || !organizationId || offline}
-            onClick={() => void handleRefresh()}
+            onClick={() => void handleRefresh("manual")}
             aria-label="Обновить задачи"
           >
             {refreshing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-            <span className="ml-1">Обновить</span>
+            <span className="ml-1">{refreshing ? "Синхронизация…" : "Обновить"}</span>
           </Button>
+          {lastSyncAt ? (
+            <span className="text-[10px] text-text-tertiary" title="Последняя успешная синхронизация">
+              {new Date(lastSyncAt * 1000).toLocaleString("ru-RU")}
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -345,6 +389,11 @@ export function OrganizationTasksView() {
         task={selected}
         isOpen={Boolean(selected)}
         onClose={() => setSelected(null)}
+        accountId={accountId}
+        onTaskUpdated={(task) => {
+          setSelected(task);
+          void loadCached();
+        }}
       />
     </div>
   );

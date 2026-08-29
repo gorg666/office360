@@ -1,5 +1,8 @@
 import type { TaskRepository } from "./taskRepository";
 import { TaskService } from "./taskService";
+import { resetTaskSyncCoordinatorForTests } from "./taskSyncCoordinator";
+import type { Task } from "./domain";
+import type { TaskProvider } from "./taskProvider";
 
 function repository(): TaskRepository {
   return {
@@ -34,5 +37,70 @@ describe("TaskService offline boundary", () => {
     await expect(service.createRemoteTask("yandex-tracker")).rejects.toMatchObject({
       name: "TaskProviderUnavailableError",
     });
+  });
+});
+
+describe("TaskService sync + transitions", () => {
+  beforeEach(() => {
+    resetTaskSyncCoordinatorForTests();
+  });
+
+  it("refreshFromProvider uses coordinator and leaves cache on failure", async () => {
+    const repo = repository();
+    const provider: TaskProvider = {
+      id: "yandex-tracker",
+      capabilities: vi.fn(),
+      getTask: vi.fn(),
+      listTasks: vi.fn().mockRejectedValue(new Error("net")),
+      createTask: vi.fn(),
+      updateTask: vi.fn(),
+      transitionTask: vi.fn(),
+      resolveAssignee: vi.fn(),
+      listQueues: vi.fn(),
+    };
+    const service = new TaskService(repo, () => provider);
+    const result = await service.refreshFromProvider({
+      accountId: "a",
+      organizationId: "org",
+      trigger: "manual",
+    });
+    expect(result.ok).toBe(false);
+    expect(repo.removeProjection).not.toHaveBeenCalled();
+  });
+
+  it("transitionTask delegates to provider", async () => {
+    const repo = repository();
+    const next = {
+      id: "t1",
+      provider: "yandex-tracker",
+      status: "done",
+    } as Task;
+    const provider: TaskProvider = {
+      id: "yandex-tracker",
+      capabilities: vi.fn(),
+      getTask: vi.fn(),
+      listTasks: vi.fn(),
+      createTask: vi.fn(),
+      updateTask: vi.fn(),
+      transitionTask: vi.fn().mockResolvedValue(next),
+      listTransitions: vi.fn().mockResolvedValue([{ id: "close", display: "Закрыть" }]),
+      resolveAssignee: vi.fn(),
+      listQueues: vi.fn(),
+    };
+    const service = new TaskService(repo, () => provider);
+    const transitions = await service.listTransitions({
+      accountId: "a",
+      organizationId: "org",
+      providerTaskId: "KEY",
+    });
+    expect(transitions[0]?.id).toBe("close");
+    const updated = await service.transitionTask({
+      accountId: "a",
+      organizationId: "org",
+      providerTaskId: "KEY",
+      transitionId: "close",
+    });
+    expect(updated.status).toBe("done");
+    expect(provider.transitionTask).toHaveBeenCalled();
   });
 });

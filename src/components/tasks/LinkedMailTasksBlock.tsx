@@ -32,7 +32,16 @@ export function LinkedMailTasksBlock({ accountId, messageId, refreshKey = 0 }: L
     void load().catch(() => {
       if (!cancelled) setTasks([]);
     });
-    return () => { cancelled = true; };
+    const onUpdated = () => {
+      void load();
+    };
+    window.addEventListener("velo-task-created", onUpdated);
+    window.addEventListener("velo-task-updated", onUpdated);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("velo-task-created", onUpdated);
+      window.removeEventListener("velo-task-updated", onUpdated);
+    };
   }, [load, refreshKey]);
 
   if (tasks.length === 0) return null;
@@ -70,6 +79,11 @@ export function LinkedMailTasksBlock({ accountId, messageId, refreshKey = 0 }: L
         task={detail}
         isOpen={Boolean(detail)}
         onClose={() => setDetail(null)}
+        accountId={accountId}
+        onTaskUpdated={(task) => {
+          setDetail(task);
+          void load();
+        }}
       />
     </div>
   );

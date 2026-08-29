@@ -28,7 +28,7 @@ export const NO_TASK_PROVIDER_CAPABILITIES: TaskProviderCapabilities = {
 };
 
 export interface TaskListOptions {
-  scope?: "assigned-to-me" | "created-by-me" | "all";
+  scope?: "assigned-to-me" | "created-by-me" | "completed-recent" | "all";
   page?: number;
   perPage?: number;
 }
@@ -55,6 +55,12 @@ export interface TaskProvider {
   createTask(input: TaskProviderMutationInput): Promise<Task>;
   updateTask(input: TaskProviderMutationInput): Promise<Task>;
   transitionTask(input: TaskProviderMutationInput): Promise<Task>;
+  /** Optional: Yandex Tracker workflow transitions. */
+  listTransitions?(organizationId: string, providerTaskId: string): Promise<Array<{
+    id: string;
+    display: string;
+    to?: { key?: string; display?: string };
+  }>>;
   resolveAssignee(organizationId: string, principal: TaskPrincipalRef): Promise<TaskPrincipalRef | null>;
   listQueues(organizationId: string): Promise<Array<{ id: string; key: string; displayName: string }>>;
 }

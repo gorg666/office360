@@ -55,7 +55,10 @@ Retry of the **same** form keeps the same unique key. A new open of the form get
 `LinkedMailTasksBlock` lists tasks for `(accountId, messageId)`:
 
 - title, assignee, due, status, optional provider key
-- **Открыть** → shared `ProjectedTaskDetailModal` (TASKS-005), not a mail-only mini detail
+- **Открыть** → shared `ProjectedTaskDetailModal` (TASKS-005/006), not a mail-only mini detail
+- After create, list/mail block refresh via `velo-task-created`; status/due updates via `velo-task-updated` after sync/transition
+
+Default queue is configured in **Settings → Задачи** (TASKS-006).
 
 Empty list → block hidden. Offline: show cached projection only; create remains disabled.
 
