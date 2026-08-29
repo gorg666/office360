@@ -1,9 +1,17 @@
-import type { Task, TaskSource } from "./domain";
-import type { TaskRepository } from "./taskRepository";
+import type { Task, TaskPrincipalRef } from "./domain";
+import type { TaskProvider } from "./taskProvider";
 import { TaskProviderUnavailableError } from "./taskProvider";
+import type { TaskRepository } from "./taskRepository";
+import {
+  createTrackerTaskFromMail,
+  type CreateMailTaskInput,
+} from "./mailCreateFlow";
 
 export class TaskService {
-  constructor(private readonly repository: TaskRepository) {}
+  constructor(
+    private readonly repository: TaskRepository,
+    private readonly resolveProvider?: (accountId: string) => TaskProvider | null,
+  ) {}
 
   get(id: string): Promise<Task | null> {
     return this.repository.get(id);
@@ -17,7 +25,7 @@ export class TaskService {
     return this.repository.listBySource({ type: "mail", accountId, messageId });
   }
 
-  linkSource(source: Omit<TaskSource, "createdAt"> & { createdAt?: number }): Promise<void> {
+  linkSource(source: Parameters<TaskRepository["addSource"]>[0]): Promise<void> {
     return this.repository.addSource(source);
   }
 
@@ -31,5 +39,34 @@ export class TaskService {
 
   async transitionRemoteTask(provider: Task["provider"]): Promise<never> {
     throw new TaskProviderUnavailableError(provider, "transition");
+  }
+
+  async createFromMail(input: CreateMailTaskInput & { accountId: string }): Promise<Task> {
+    const provider = this.resolveProvider?.(input.accountId) ?? null;
+    if (!provider) {
+      throw new TaskProviderUnavailableError("yandex-tracker", "create");
+    }
+    return createTrackerTaskFromMail({
+      payload: input,
+      provider,
+      repository: this.repository,
+    });
+  }
+
+  async resolveMailAssignee(
+    accountId: string,
+    organizationId: string,
+    principal: TaskPrincipalRef,
+  ): Promise<TaskPrincipalRef> {
+    const provider = this.resolveProvider?.(accountId) ?? null;
+    if (!provider) {
+      throw new TaskProviderUnavailableError("yandex-tracker", "resolveAssignee");
+    }
+    const resolved = await provider.resolveAssignee(organizationId, principal);
+    if (!resolved?.providerUid) {
+      const { TaskError } = await import("./yandexTracker/errors");
+      throw new TaskError("assignee-unresolved", "Assignee could not be resolved to Tracker UID");
+    }
+    return resolved;
   }
 }

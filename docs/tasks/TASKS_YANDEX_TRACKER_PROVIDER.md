@@ -6,7 +6,7 @@ Production-ready `YandexTrackerTaskProvider` for Office360 Tasks.
 
 - Remote source of truth: Yandex Tracker API v3
 - Local projection: SQLite via `TaskRepository.upsertProjection`
-- Mail UI create button: **not** in this ticket (TASKS-004)
+- Mail UI create button: TASKS-004 — see `docs/tasks/TASKS_MAIL_CREATE_FLOW.md`
 
 ## API surface
 

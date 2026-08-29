@@ -148,4 +148,6 @@ TASKS-002 не содержит live Tracker calls. Remote adapter добавл�
 TASKS-003: Yandex Tracker provider, org/queue/assignee, idempotent create, projection.
 Migration: **NONE** (v41 unchanged).
 
-TASKS-004: Mail → Create Task UI only after TASKS-003 PASS. Not started here.
+TASKS-004: Mail → Create Task UI — see `docs/tasks/TASKS_MAIL_CREATE_FLOW.md`.
+Mail reading pane gains create action + linked tasks block; TaskSource written on create.
+Migration: **NONE**.

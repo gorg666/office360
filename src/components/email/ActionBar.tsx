@@ -10,7 +10,7 @@ import { snoozeThread } from "@/services/snooze/snoozeManager";
 import { getGmailClient } from "@/services/gmail/tokenManager";
 import { SnoozeDialog } from "./SnoozeDialog";
 import { FollowUpDialog } from "./FollowUpDialog";
-import { Archive, Trash2, MailOpen, Mail, Star, Clock, Ban, Pin, MailMinus, BellRing, VolumeX, Reply, ReplyAll, Forward, FolderInput, Printer, Download, ExternalLink, PanelRightClose, PanelRightOpen, ListTodo } from "lucide-react";
+import { Archive, Trash2, MailOpen, Mail, Star, Clock, Ban, Pin, MailMinus, BellRing, VolumeX, Reply, ReplyAll, Forward, FolderInput, Printer, Download, ExternalLink, PanelRightClose, PanelRightOpen, ListTodo, ClipboardPlus } from "lucide-react";
 import type { DbMessage } from "@/services/db/messages";
 import { insertFollowUpReminder, getFollowUpForThread, cancelFollowUpForThread } from "@/services/db/followUpReminders";
 import { Button } from "@/components/ui/Button";
@@ -30,13 +30,16 @@ interface ActionBarProps {
   onPopOut?: () => void;
   onToggleContactSidebar?: () => void;
   onToggleTaskSidebar?: () => void;
+  onCreateTrackerTask?: () => void;
+  createTrackerTaskDisabled?: boolean;
+  createTrackerTaskTitle?: string;
 }
 
 function Separator() {
   return <div className="w-px h-5 bg-border-secondary mx-1 shrink-0" />;
 }
 
-export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply", contactSidebarVisible, taskSidebarVisible, onReply, onReplyAll, onForward, onPrint, onExport, onPopOut, onToggleContactSidebar, onToggleTaskSidebar }: ActionBarProps) {
+export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply", contactSidebarVisible, taskSidebarVisible, onReply, onReplyAll, onForward, onPrint, onExport, onPopOut, onToggleContactSidebar, onToggleTaskSidebar, onCreateTrackerTask, createTrackerTaskDisabled, createTrackerTaskTitle }: ActionBarProps) {
   const updateThread = useThreadStore((s) => s.updateThread);
   const removeThread = useThreadStore((s) => s.removeThread);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
@@ -232,6 +235,19 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
               onClick={onForward}
               title="Forward (f)"
             />
+            {onCreateTrackerTask && (
+              <Button
+                variant="secondary"
+                iconOnly
+                icon={<ClipboardPlus size={15} />}
+                onClick={onCreateTrackerTask}
+                disabled={createTrackerTaskDisabled}
+                title={createTrackerTaskTitle ?? "Создать задачу"}
+                aria-label="Создать задачу"
+                data-testid="create-tracker-task-action"
+                className="disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+              />
+            )}
             <Separator />
           </>
         )}

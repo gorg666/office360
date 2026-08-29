@@ -42,6 +42,14 @@ vi.mock("@/components/tasks/AiTaskExtractDialog", () => ({
   AiTaskExtractDialog: () => <div data-testid="task-dialog" />,
 }));
 
+vi.mock("@/components/tasks/CreateTrackerTaskFromMailModal", () => ({
+  CreateTrackerTaskFromMailModal: () => null,
+}));
+
+vi.mock("@/components/tasks/LinkedMailTasksBlock", () => ({
+  LinkedMailTasksBlock: () => null,
+}));
+
 vi.mock("./RawMessageModal", () => ({
   RawMessageModal: () => <div data-testid="raw-message-modal" />,
 }));

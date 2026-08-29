@@ -1,6 +1,6 @@
 # TASKS-001 — задачи из писем через Yandex Tracker
 
-Статус: TASKS-001 architecture complete; TASKS-002 domain/cache implemented; TASKS-003 provider implemented
+Статус: TASKS-001 architecture complete; TASKS-002 domain/cache implemented; TASKS-003 provider implemented; TASKS-004 mail create UI implemented
 
 Дата проверки: 2026-08-29
 
@@ -10,7 +10,7 @@
 
 Cloud mutations: **NONE**
 
-Live Tracker mutations (TASKS-003): **NONE** (fixtures/tests only; see `docs/tasks/TASKS_YANDEX_TRACKER_PROVIDER.md`)
+Live Tracker mutations (TASKS-003/004): **NONE** (fixtures/tests only; see `docs/tasks/TASKS_YANDEX_TRACKER_PROVIDER.md` and `docs/tasks/TASKS_MAIL_CREATE_FLOW.md`)
 
 ## Executive summary
 
@@ -623,11 +623,12 @@ Tracker уже отправляет native notifications; create API имеет 
 
 ### TASKS-004 — Mail → Create Task UI
 
-- message-level action/form;
-- strict PeoplePicker mode;
-- capability/error states;
-- multi-task linkage list in reading pane;
-- privacy copy and no automatic body/attachment sharing.
+- implemented: ActionBar «Создать задачу», `CreateTrackerTaskFromMailModal`,
+  `OrganizationPeoplePicker` (PeoplePicker alias), `LinkedMailTasksBlock`;
+- gate: offline / org / settings / defaultQueue / read-only / write;
+- TaskSource + mail unique idempotency; multiple tasks per mail;
+- no automatic mail body/attachments to Tracker; live Tracker mutations: **NONE**;
+- docs: `docs/tasks/TASKS_MAIL_CREATE_FLOW.md`.
 
 ### TASKS-005 — Tasks list/detail
 

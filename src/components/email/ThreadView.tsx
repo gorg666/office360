@@ -21,6 +21,9 @@ import { InlineReply } from "./InlineReply";
 import { ContactSidebar } from "./ContactSidebar";
 import { TaskSidebar } from "@/components/tasks/TaskSidebar";
 import { AiTaskExtractDialog } from "@/components/tasks/AiTaskExtractDialog";
+import { CreateTrackerTaskFromMailModal } from "@/components/tasks/CreateTrackerTaskFromMailModal";
+import { LinkedMailTasksBlock } from "@/components/tasks/LinkedMailTasksBlock";
+import { evaluateCreateTaskGate, snapshotMailSource } from "@/services/tasks/mailCreateFlow";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { MessageSkeleton } from "@/components/ui/Skeleton";
 import { RawMessageModal } from "./RawMessageModal";
@@ -60,6 +63,10 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
   const toggleContactSidebar = useUIStore((s) => s.toggleContactSidebar);
   const taskSidebarVisible = useUIStore((s) => s.taskSidebarVisible);
   const [showTaskExtract, setShowTaskExtract] = useState(false);
+  const [showCreateTrackerTask, setShowCreateTrackerTask] = useState(false);
+  const [linkedTasksRefresh, setLinkedTasksRefresh] = useState(0);
+  const [createTaskDisabled, setCreateTaskDisabled] = useState(true);
+  const [createTaskTitle, setCreateTaskTitle] = useState("Создать задачу");
   const updateThread = useThreadStore((s) => s.updateThread);
   const [messages, setMessages] = useState<DbMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -504,6 +511,35 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
     }
   }, [taskExtractSignal]);
 
+  useEffect(() => {
+    if (!activeAccountId || messages.length === 0) {
+      setCreateTaskDisabled(true);
+      setCreateTaskTitle("Создать задачу");
+      return;
+    }
+    let cancelled = false;
+    const refreshGate = () => {
+      void evaluateCreateTaskGate({ accountId: activeAccountId }).then((gate) => {
+        if (cancelled) return;
+        if (gate.ok) {
+          setCreateTaskDisabled(false);
+          setCreateTaskTitle("Создать задачу");
+        } else {
+          setCreateTaskDisabled(true);
+          setCreateTaskTitle(gate.messageRu);
+        }
+      });
+    };
+    refreshGate();
+    window.addEventListener("online", refreshGate);
+    window.addEventListener("offline", refreshGate);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", refreshGate);
+      window.removeEventListener("offline", refreshGate);
+    };
+  }, [activeAccountId, messages.length]);
+
   const handleMessageContextMenu = useCallback((e: React.MouseEvent, msg: DbMessage) => {
     e.preventDefault();
     openMenu("message", { x: e.clientX, y: e.clientY }, {
@@ -624,6 +660,9 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
           }}
           onToggleContactSidebar={toggleContactSidebar}
           onToggleTaskSidebar={() => useUIStore.getState().toggleTaskSidebar()}
+          onCreateTrackerTask={() => setShowCreateTrackerTask(true)}
+          createTrackerTaskDisabled={createTaskDisabled}
+          createTrackerTaskTitle={createTaskTitle}
         />
 
         {/* Thread subject */}
@@ -640,6 +679,14 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
             {messages.length} message{messages.length !== 1 ? "s" : ""} in this thread
           </div>
         </div>
+
+        {activeAccountId && lastMessage && (
+          <LinkedMailTasksBlock
+            accountId={activeAccountId}
+            messageId={lastMessage.id}
+            refreshKey={linkedTasksRefresh}
+          />
+        )}
 
         {/* AI Summary */}
         {activeAccountId && (
@@ -748,6 +795,20 @@ export function ThreadView({ thread, taskExtractSignal = 0, renderTaskSidebar = 
           accountId={activeAccountId}
           messages={messages}
           onClose={() => setShowTaskExtract(false)}
+        />
+      )}
+
+      {/* Tracker create-from-mail */}
+      {showCreateTrackerTask && activeAccountId && lastMessage && (
+        <CreateTrackerTaskFromMailModal
+          isOpen={showCreateTrackerTask}
+          accountId={activeAccountId}
+          source={snapshotMailSource(lastMessage)}
+          onClose={() => setShowCreateTrackerTask(false)}
+          onCreated={() => {
+            setShowCreateTrackerTask(false);
+            setLinkedTasksRefresh((n) => n + 1);
+          }}
         />
       )}
     </div>
