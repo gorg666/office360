@@ -32,6 +32,18 @@ export interface DbTask {
   telemost_url: string | null;
   telemost_conference_id: string | null;
   telemost_live_url: string | null;
+  provider?: string;
+  provider_task_id?: string | null;
+  external_key?: string | null;
+  organization_id?: string | null;
+  status?: string;
+  provider_status?: string | null;
+  provider_priority?: string | null;
+  assignee_json?: string | null;
+  creator_json?: string | null;
+  followers_json?: string;
+  provider_updated_at?: number | null;
+  sync_state?: string;
   created_at: number;
   updated_at: number;
 }
@@ -350,7 +362,7 @@ export async function deleteTask(id: string): Promise<void> {
 export async function completeTask(id: string): Promise<void> {
   const db = await getDb();
   await db.execute(
-    "UPDATE tasks SET is_completed = 1, completed_at = unixepoch(), updated_at = unixepoch() WHERE id = $1",
+    "UPDATE tasks SET is_completed = 1, status = 'done', completed_at = unixepoch(), updated_at = unixepoch() WHERE id = $1",
     [id],
   );
 }
@@ -358,7 +370,7 @@ export async function completeTask(id: string): Promise<void> {
 export async function uncompleteTask(id: string): Promise<void> {
   const db = await getDb();
   await db.execute(
-    "UPDATE tasks SET is_completed = 0, completed_at = NULL, updated_at = unixepoch() WHERE id = $1",
+    "UPDATE tasks SET is_completed = 0, status = 'open', completed_at = NULL, updated_at = unixepoch() WHERE id = $1",
     [id],
   );
 }

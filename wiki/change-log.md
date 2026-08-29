@@ -401,3 +401,11 @@ Initial product correction:
 - При несовпадении владельца токен удаляется, а интерфейс предлагает выдать доступ выбранному аккаунту.
 - При смене активного аккаунта Chromium Телемоста очищает cookies и HTTP-авторизацию, затем открывает Яндекс ID с подсказкой email нового аккаунта.
 - При недоступном бизнес-API создание встречи автоматически продолжается во встроенной веб-версии Телемоста для обычного Яндекс ID.
+
+## 2026-08-29 - TASKS-002 domain and local cache foundation
+
+- Additive SQLite migration v41 расширяет существующие tasks без удаления legacy данных.
+- Добавлены provider-neutral Task, TaskPrincipalRef на базе PEOPLE-001, TaskSource и organization settings.
+- Mail linkage использует `accountId + messageId`, хранит только metadata/fallback и допускает несколько задач из одного письма.
+- SQLite является source of truth для local tasks и projection/cache для будущих remote providers.
+- Tracker mutations и новые offline write queues не добавлялись; неизвестные capabilities disabled.

@@ -1,6 +1,6 @@
 # TASKS-001 — задачи из писем через Yandex Tracker
 
-Статус: architecture/audit complete
+Статус: TASKS-001 architecture complete; TASKS-002 domain/cache implemented
 
 Дата проверки: 2026-08-29
 
@@ -22,10 +22,14 @@ Cloud mutations: **NONE**
 - Из одного письма разрешено несколько задач. Каждый create intent получает собственный `clientTaskId`; повторы одного intent дедуплицируются через Tracker `unique`.
 - Offline v1: cache readable; create/update/transition возвращают typed offline error. Существующая durable queue не расширяется на Tracker автоматически.
 
-Итог TASKS-001: **PASS**, но реализация заблокирована двумя явными gates:
+Итог TASKS-001: **PASS**. Migration gate для TASKS-002 одобрен 2026-08-29.
 
-1. **MIGRATION GATE REQUIRED** — нужна additive SQLite migration, описанная ниже, но не созданная в этом тикете.
-2. Нужен writable Tracker entitlement/ACL для end-to-end проверки. Существующий live baseline имеет read access, но Tracker writes возвращали режим просмотра 403.
+TASKS-002 реализует additive v41, общий Task domain, SQLite projection/cache, TaskSource,
+organization settings, provider/repository contracts и legacy local adapter. Подробности:
+`docs/tasks/TASKS_DOMAIN_AND_CACHE.md`.
+
+Для TASKS-003 всё ещё нужен writable Tracker entitlement/ACL для end-to-end create verification.
+Существующий live baseline имеет read access, но Tracker writes возвращали режим просмотра 403.
 
 ## 1. Audit существующего Office360
 
@@ -590,12 +594,14 @@ Tracker уже отправляет native notifications; create API имеет 
 
 ### TASKS-002 — Core domain + migration/cache
 
-- утвердить migration gate;
-- расширить существующий `tasks`, добавить `task_sources` и `organization_task_settings`;
-- provider-neutral domain/contracts/capabilities/typed errors;
-- адаптировать существующие local tasks без UX regression;
-- repository/service tests, migration fresh/existing/backfill tests;
-- без Tracker mutations.
+Статус: implemented on `feat/tasks-yandex-tracker`.
+
+- migration gate approved; additive v41 reserved after parallel v34–v40 work;
+- существующая `tasks` расширена, добавлены `task_sources` и `organization_task_settings`;
+- provider-neutral domain/contracts/capabilities/typed unavailable errors готовы;
+- legacy local tasks адаптируются как provider `local`, существующий UI/CRUD сохранён;
+- migration/domain/source/repository tests добавлены;
+- Tracker mutations отсутствуют.
 
 ### TASKS-003 — Yandex Tracker provider
 
@@ -644,7 +650,7 @@ Tracker уже отправляет native notifications; create API имеет 
 | Priority | Provider-discovered; known-key normalization only; custom values remain raw |
 | Offline writes | Нет в v1 |
 | Local cache | **YES** |
-| Migration | **YES — MIGRATION GATE REQUIRED** |
+| Migration | **YES — v41 additive, gate approved** |
 | Mail body copy | Нет по умолчанию |
 | Auto attachments | Нет |
 | Comments UI | Не блокирует v1 |

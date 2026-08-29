@@ -1109,6 +1109,65 @@ export const MIGRATIONS = [
     description: "Repair OAuth granted scopes column after branch migration collision",
     sql: `ALTER TABLE accounts ADD COLUMN oauth_granted_scopes TEXT;`,
   },
+  {
+    version: 41,
+    description: "Provider-neutral task projection, sources, and organization settings",
+    sql: `
+      ALTER TABLE tasks ADD COLUMN provider TEXT NOT NULL DEFAULT 'local';
+      ALTER TABLE tasks ADD COLUMN provider_task_id TEXT;
+      ALTER TABLE tasks ADD COLUMN external_key TEXT;
+      ALTER TABLE tasks ADD COLUMN organization_id TEXT;
+      ALTER TABLE tasks ADD COLUMN status TEXT NOT NULL DEFAULT 'open';
+      ALTER TABLE tasks ADD COLUMN provider_status TEXT;
+      ALTER TABLE tasks ADD COLUMN provider_priority TEXT;
+      ALTER TABLE tasks ADD COLUMN assignee_json TEXT;
+      ALTER TABLE tasks ADD COLUMN creator_json TEXT;
+      ALTER TABLE tasks ADD COLUMN followers_json TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE tasks ADD COLUMN provider_updated_at INTEGER;
+      ALTER TABLE tasks ADD COLUMN sync_state TEXT NOT NULL DEFAULT 'fresh';
+
+      UPDATE tasks
+        SET status = CASE WHEN is_completed = 1 THEN 'done' ELSE 'open' END
+        WHERE provider = 'local';
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_provider_task
+        ON tasks(provider, provider_task_id)
+        WHERE provider_task_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_external_key
+        ON tasks(provider, organization_id, external_key)
+        WHERE external_key IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_tasks_organization_status
+        ON tasks(organization_id, status);
+
+      CREATE TABLE IF NOT EXISTS task_sources (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        type TEXT NOT NULL,
+        account_id TEXT,
+        message_id TEXT,
+        thread_id TEXT,
+        rfc_message_id TEXT,
+        subject_snapshot TEXT,
+        sender_snapshot TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+      CREATE INDEX IF NOT EXISTS idx_task_sources_task ON task_sources(task_id);
+      CREATE INDEX IF NOT EXISTS idx_task_sources_mail
+        ON task_sources(account_id, message_id);
+
+      CREATE TABLE IF NOT EXISTS organization_task_settings (
+        organization_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        provider_organization_id TEXT,
+        default_queue TEXT,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        PRIMARY KEY (organization_id, provider)
+      );
+      CREATE INDEX IF NOT EXISTS idx_organization_task_settings_provider
+        ON organization_task_settings(provider, enabled);
+    `,
+  },
 ];
 
 /**

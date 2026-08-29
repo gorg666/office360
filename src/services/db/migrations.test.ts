@@ -1,4 +1,6 @@
+// @vitest-environment node
 import { describe, it, expect } from "vitest";
+import { DatabaseSync } from "node:sqlite";
 import { MIGRATIONS } from "./migrations";
 
 // Mirror of splitStatements from migrations.ts for testing
@@ -156,5 +158,119 @@ describe("full address book migration", () => {
     expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS contact_special_dates");
     expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS contact_lists");
     expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS contact_list_members");
+  });
+});
+
+function applyMigration(db: DatabaseSync, version: number): void {
+  const migration = MIGRATIONS.find((item) => item.version === version);
+  if (!migration) throw new Error(`Missing migration v${version}`);
+  for (const statement of splitStatements(migration.sql)) {
+    try {
+      db.exec(statement);
+    } catch (error) {
+      if (!String(error).toLowerCase().includes("duplicate column")) throw error;
+    }
+  }
+}
+
+function applyMigrationsBefore(db: DatabaseSync, version: number): void {
+  for (const migration of MIGRATIONS.filter((item) => item.version < version)) {
+    applyMigration(db, migration.version);
+  }
+}
+
+describe("v41 provider-neutral task projection migration", () => {
+  it("upgrades a legacy database without losing local tasks", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    applyMigrationsBefore(db, 41);
+    db.exec(`INSERT INTO tasks (id, title, priority, is_completed) VALUES ('legacy', 'Keep me', 'urgent', 1)`);
+
+    applyMigration(db, 41);
+
+    const task = db.prepare(
+      "SELECT id, title, provider, status, sync_state FROM tasks WHERE id = 'legacy'",
+    ).get() as Record<string, unknown>;
+    expect(task).toEqual(expect.objectContaining({
+      id: "legacy",
+      title: "Keep me",
+      provider: "local",
+      status: "done",
+      sync_state: "fresh",
+    }));
+  });
+
+  it("upgrades a database whose global migration ledger is already at v40", () => {
+    const db = new DatabaseSync(":memory:");
+    applyMigrationsBefore(db, 41);
+    for (let version = 34; version <= 40; version += 1) {
+      db.prepare("INSERT OR IGNORE INTO _migrations (version, description) VALUES (?, ?)")
+        .run(version, `reserved parallel migration v${version}`);
+    }
+    applyMigration(db, 41);
+    db.prepare("INSERT OR IGNORE INTO _migrations (version, description) VALUES (?, ?)")
+      .run(41, "Provider-neutral task projection");
+    expect(db.prepare("SELECT MAX(version) AS version FROM _migrations").get())
+      .toEqual(expect.objectContaining({ version: 41 }));
+  });
+
+  it("builds a fresh schema through v41 with required tables and indexes", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    for (const migration of MIGRATIONS) applyMigration(db, migration.version);
+
+    const tables = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('tasks', 'task_sources', 'organization_task_settings') ORDER BY name",
+    ).all().map((row) => String((row as { name: string }).name));
+    const indexes = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_task%' ORDER BY name",
+    ).all().map((row) => String((row as { name: string }).name));
+    expect(tables).toEqual(["organization_task_settings", "task_sources", "tasks"]);
+    expect(indexes).toEqual(expect.arrayContaining([
+      "idx_tasks_provider_task",
+      "idx_tasks_organization_status",
+      "idx_task_sources_task",
+      "idx_task_sources_mail",
+    ]));
+  });
+
+  it("allows one mail to link to multiple tasks and cascades sources on task delete", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    applyMigrationsBefore(db, 41);
+    applyMigration(db, 41);
+    db.exec(`
+      INSERT INTO tasks (id, title) VALUES ('t1', 'One'), ('t2', 'Two');
+      INSERT INTO task_sources (id, task_id, type, account_id, message_id)
+        VALUES ('s1', 't1', 'mail', 'a1', 'm1'), ('s2', 't2', 'mail', 'a1', 'm1');
+    `);
+    expect(db.prepare(
+      "SELECT COUNT(*) AS count FROM task_sources WHERE account_id = 'a1' AND message_id = 'm1'",
+    ).get()).toEqual(expect.objectContaining({ count: 2 }));
+
+    db.exec("DELETE FROM tasks WHERE id = 't1'");
+    expect(db.prepare("SELECT COUNT(*) AS count FROM task_sources WHERE task_id = 't1'").get())
+      .toEqual(expect.objectContaining({ count: 0 }));
+  });
+
+  it("keeps provider task and organization settings identities deterministic", () => {
+    const db = new DatabaseSync(":memory:");
+    applyMigrationsBefore(db, 41);
+    applyMigration(db, 41);
+    db.exec(`INSERT INTO tasks (id, title, provider, provider_task_id)
+      VALUES ('r1', 'Remote', 'yandex-tracker', 'TEST-1')`);
+    expect(() => db.exec(`INSERT INTO tasks (id, title, provider, provider_task_id)
+      VALUES ('r2', 'Duplicate', 'yandex-tracker', 'TEST-1')`)).toThrow();
+    db.exec(`INSERT INTO organization_task_settings (organization_id, provider)
+      VALUES ('org1', 'yandex-tracker')`);
+    expect(() => db.exec(`INSERT INTO organization_task_settings (organization_id, provider)
+      VALUES ('org1', 'yandex-tracker')`)).toThrow();
+  });
+
+  it("is safe when v41 is retried after a partial application", () => {
+    const db = new DatabaseSync(":memory:");
+    applyMigrationsBefore(db, 41);
+    applyMigration(db, 41);
+    expect(() => applyMigration(db, 41)).not.toThrow();
   });
 });
