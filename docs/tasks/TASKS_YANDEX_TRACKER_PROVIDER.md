@@ -31,6 +31,8 @@ Provider methods:
 
 List sync / single-flight: `taskSyncCoordinator` + `TaskService.refreshFromProvider` — see `TASKS_SYNC_AND_SETTINGS.md`.
 
+Assignee update path: `resolveAssignee` → `updateTask({ assignee })` → `project()` preserves `TaskSource`. UI: Task detail «Сменить исполнителя». Final audit: `TASKS_FINAL_AUDIT.md`.
+
 Legacy UI client `src/services/yandex/tracker.ts` remains for TrackerPage; Tasks domain uses `trackerClient.ts`.
 
 ## Organization binding

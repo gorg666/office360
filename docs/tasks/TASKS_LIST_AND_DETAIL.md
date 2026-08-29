@@ -117,8 +117,11 @@ Empty RU:
 
 - Full background poll / multi-account fan-out (coordinator covers manual/initial/reconnect)
 
+Detail supports status transitions, field edits, and **assignee change** via `OrganizationPeoplePicker` (TASKS-007). Sections recalculate on `velo-task-updated` without full app reload.
+
 ## Related
 
+- Final audit: `TASKS_FINAL_AUDIT.md`
 - Sync/transitions/settings: `TASKS_SYNC_AND_SETTINGS.md`
 - Status transition / edit UI
 - FTS search

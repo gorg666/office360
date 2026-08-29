@@ -194,15 +194,23 @@ export class TaskService {
     organizationId: string;
     providerTaskId: string;
     fields: Partial<Pick<Task, "title" | "description" | "priority" | "dueAt" | "assignee">>;
+    localTaskId?: string;
   }): Promise<Task> {
     const provider = this.requireProvider(input.accountId, "update");
-    return withLimitedRetry(() =>
+    const task = await withLimitedRetry(() =>
       provider.updateTask({
         organizationId: input.organizationId,
         providerTaskId: input.providerTaskId,
         fields: input.fields,
       }),
     );
+    const localId = input.localTaskId ?? task.id;
+    const prior = await this.repository.get(localId);
+    if (prior?.source?.length && (!task.source || task.source.length === 0)) {
+      task.source = prior.source;
+      await this.repository.upsertProjection(task);
+    }
+    return task;
   }
 
   getTasksForMail(accountId: string, messageId: string): Promise<Task[]> {

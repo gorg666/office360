@@ -103,4 +103,94 @@ describe("TaskService sync + transitions", () => {
     expect(updated.status).toBe("done");
     expect(provider.transitionTask).toHaveBeenCalled();
   });
+
+  it("updateTaskFields preserves TaskSource when provider returns empty source", async () => {
+    const prior = {
+      id: "t1",
+      provider: "yandex-tracker" as const,
+      providerTaskId: "1",
+      organizationId: "org",
+      title: "T",
+      description: null,
+      status: "open" as const,
+      providerStatus: null,
+      priority: "normal" as const,
+      providerPriority: null,
+      assignee: { email: "a@x.com", displayName: "A" },
+      createdBy: null,
+      followers: [],
+      dueAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      providerUpdatedAt: null,
+      syncState: "fresh" as const,
+      source: [
+        {
+          id: "src",
+          taskId: "t1",
+          type: "mail" as const,
+          accountId: "acc",
+          messageId: "m1",
+          threadId: null,
+          rfcMessageId: null,
+          subjectSnapshot: "S",
+          senderSnapshot: null,
+          createdAt: 1,
+        },
+      ],
+      externalKey: "KEY-1",
+    };
+    const repo = {
+      ...repository(),
+      get: vi.fn().mockResolvedValue(prior),
+      upsertProjection: vi.fn().mockResolvedValue(undefined),
+    };
+    const remote = {
+      ...prior,
+      assignee: { email: "b@x.com", displayName: "B", providerUid: "uid-b" },
+      source: [],
+    };
+    const provider: TaskProvider = {
+      id: "yandex-tracker",
+      capabilities: vi.fn(),
+      getTask: vi.fn(),
+      listTasks: vi.fn(),
+      createTask: vi.fn(),
+      updateTask: vi.fn().mockResolvedValue(remote),
+      transitionTask: vi.fn(),
+      resolveAssignee: vi.fn(),
+      listQueues: vi.fn(),
+    };
+    const service = new TaskService(repo as never, () => provider);
+    const out = await service.updateTaskFields({
+      accountId: "a",
+      organizationId: "org",
+      providerTaskId: "1",
+      localTaskId: "t1",
+      fields: {
+        assignee: { email: "b@x.com", displayName: "B", providerUid: "uid-b", organizationId: "org" },
+      },
+    });
+    expect(out.source).toHaveLength(1);
+    expect(out.source[0]?.messageId).toBe("m1");
+    expect(repo.upsertProjection).toHaveBeenCalled();
+  });
+
+  it("resolveMailAssignee rejects unresolved UID", async () => {
+    const provider: TaskProvider = {
+      id: "yandex-tracker",
+      capabilities: vi.fn(),
+      getTask: vi.fn(),
+      listTasks: vi.fn(),
+      createTask: vi.fn(),
+      updateTask: vi.fn(),
+      transitionTask: vi.fn(),
+      resolveAssignee: vi.fn().mockResolvedValue({ email: "x@y.com", displayName: "X" }),
+      listQueues: vi.fn(),
+    };
+    const service = new TaskService(repository(), () => provider);
+    await expect(
+      service.resolveMailAssignee("a", "org", { email: "x@y.com", displayName: "X" }),
+    ).rejects.toMatchObject({ code: "assignee-unresolved" });
+  });
 });

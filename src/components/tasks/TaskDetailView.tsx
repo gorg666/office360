@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { ExternalLink, Loader2, Mail, RefreshCw } from "lucide-react";
-import type { Task, TaskPriority } from "@/services/tasks/domain";
 import type { TaskProviderCapabilities } from "@/services/tasks/taskProvider";
 import {
   formatTaskDueDate,
@@ -12,14 +11,21 @@ import {
   OPEN_SOURCE_MAIL_COPY,
   openTaskSourceMail,
 } from "@/services/tasks/openTaskSourceMail";
-import { createDefaultTrackerProvider } from "@/services/tasks/mailCreateFlow";
+import {
+  CREATE_TASK_ERROR_COPY,
+  createDefaultTrackerProvider,
+  taskErrorMessageRu,
+} from "@/services/tasks/mailCreateFlow";
 import { SqliteTaskRepository } from "@/services/tasks/taskRepository";
 import { TaskService } from "@/services/tasks/taskService";
-import { taskErrorMessageRu } from "@/services/tasks/mailCreateFlow";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { TaskPersonCell, principalPrimaryLabel } from "./TaskPersonCell";
+import { OrganizationPeoplePicker } from "./OrganizationPeoplePicker";
+import type { PersonIdentity } from "@/services/people/domain";
+import type { Task, TaskPriority, TaskPrincipalRef } from "@/services/tasks/domain";
 import type { TrackerTransition } from "@/services/yandex/trackerClient";
+import { isTaskError } from "@/services/tasks/yandexTracker/errors";
 
 function formatTs(unix: number): string {
   return new Date(unix * 1000).toLocaleString("ru-RU");
@@ -81,11 +87,14 @@ export function TaskDetailView({
   const [dueDraft, setDueDraft] = useState(
     task.dueAt ? new Date(task.dueAt * 1000).toISOString().slice(0, 10) : "",
   );
+  const [editingAssignee, setEditingAssignee] = useState(false);
+  const [assigneeDraft, setAssigneeDraft] = useState<PersonIdentity | null>(null);
   const offline = typeof navigator !== "undefined" ? !navigator.onLine : false;
   const orgId = task.organizationId;
   const providerKey = task.providerTaskId ?? task.externalKey;
   const readOnly = Boolean(caps && caps.read && !caps.transitions && !caps.create && !caps.assign);
   const canMutate = Boolean(accountId && orgId && providerKey && caps && !offline && !readOnly);
+  const canAssign = Boolean(canMutate && caps?.assign);
 
   const applyTask = useCallback(
     (next: Task) => {
@@ -233,11 +242,59 @@ export function TaskDetailView({
         organizationId: orgId!,
         providerTaskId: providerKey!,
         fields,
+        localTaskId: task.id,
       });
       applyTask(next);
       setEditing(false);
     } catch (e) {
       setActionError(taskErrorMessageRu(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveAssignee = async () => {
+    if (!canAssign || !assigneeDraft || !accountId || !orgId || !providerKey) return;
+    if (assigneeDraft.source !== "organization-directory") {
+      setActionError("Можно выбрать только подтверждённого сотрудника организации");
+      return;
+    }
+    setBusy(true);
+    setActionError(null);
+    try {
+      const service = buildService();
+      const principal: TaskPrincipalRef = {
+        person: assigneeDraft,
+        email: assigneeDraft.email,
+        displayName: assigneeDraft.displayName,
+        organizationId: orgId,
+        providerUid: assigneeDraft.providerId,
+      };
+      const resolved = await service.resolveMailAssignee(accountId, orgId, principal);
+      if (!resolved.providerUid) {
+        setActionError(CREATE_TASK_ERROR_COPY["assignee-unresolved"]);
+        return;
+      }
+      const next = await service.updateTaskFields({
+        accountId,
+        organizationId: orgId,
+        providerTaskId: providerKey,
+        fields: { assignee: resolved },
+        localTaskId: task.id,
+      });
+      applyTask(next);
+      setEditingAssignee(false);
+      setAssigneeDraft(null);
+    } catch (e) {
+      if (isTaskError(e) && e.code === "assignee-unresolved") {
+        setActionError(CREATE_TASK_ERROR_COPY["assignee-unresolved"]);
+      } else if (isTaskError(e) && e.code === "offline") {
+        setActionError("Нет сети — смена исполнителя недоступна");
+      } else if (isTaskError(e) && e.code === "permission-denied") {
+        setActionError("Нет прав на смену исполнителя в Tracker");
+      } else {
+        setActionError(taskErrorMessageRu(e));
+      }
     } finally {
       setBusy(false);
     }
@@ -408,9 +465,6 @@ export function TaskDetailView({
               Отмена
             </Button>
           </div>
-          <p className="text-[11px] text-text-tertiary">
-            Смена исполнителя в v1 UI не включена (нужен org directory UID) — follow-up.
-          </p>
         </div>
       ) : (
         <div className="flex gap-2">
@@ -433,9 +487,79 @@ export function TaskDetailView({
       )}
 
       <div className="grid gap-2 sm:grid-cols-2">
-        <div>
+        <div className="space-y-2">
           <div className="text-xs text-text-tertiary mb-1">Исполнитель</div>
-          <TaskPersonCell principal={task.assignee} compact={false} />
+          {editingAssignee && accountId && orgId ? (
+            <div className="space-y-2">
+              <OrganizationPeoplePicker
+                accountId={accountId}
+                organizationId={orgId}
+                value={assigneeDraft}
+                onChange={setAssigneeDraft}
+                disabled={busy || !canAssign}
+                allowManual={false}
+                policy="confirmed-organization-member"
+                label="Новый исполнитель"
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="primary"
+                  disabled={busy || !canAssign || !assigneeDraft}
+                  onClick={() => void saveAssignee()}
+                >
+                  {busy ? "Сохранение…" : "Назначить"}
+                </Button>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    setEditingAssignee(false);
+                    setAssigneeDraft(null);
+                  }}
+                >
+                  Отмена
+                </Button>
+              </div>
+              {!canAssign ? (
+                <p className="text-[11px] text-text-tertiary" role="status">
+                  {offline
+                    ? "Нет сети — смена исполнителя недоступна"
+                    : readOnly
+                      ? "Только чтение: нет scope tracker:write"
+                      : "Смена исполнителя недоступна для текущих прав"}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <TaskPersonCell principal={task.assignee} compact={false} />
+              <Button
+                type="button"
+                size="xs"
+                variant="secondary"
+                disabled={!canAssign}
+                title={
+                  offline
+                    ? "Нет сети"
+                    : readOnly
+                      ? "Только чтение"
+                      : !caps?.assign
+                        ? "Нет права assign"
+                        : undefined
+                }
+                onClick={() => {
+                  setAssigneeDraft(null);
+                  setEditingAssignee(true);
+                }}
+              >
+                Сменить исполнителя
+              </Button>
+            </div>
+          )}
         </div>
         <div>
           <div className="text-xs text-text-tertiary mb-1">Автор</div>

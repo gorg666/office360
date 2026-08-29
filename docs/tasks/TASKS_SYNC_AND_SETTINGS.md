@@ -10,7 +10,9 @@
 - Typed remote availability: `unavailable` | `removed` | `permission-denied` (no silent delete)
 - Read-only / offline: lists readable; mutations disabled with RU reason
 
-Out of v1 UI: assignee picker (requires directory UID UX) — follow-up.
+Out of v1 UI: none remaining for assignee — see TASKS-007 / `TASKS_FINAL_AUDIT.md`.
+
+Assignee edit in Task detail uses `OrganizationPeoplePicker` → `resolveAssignee` → `updateTask` → projection + `velo-task-updated`.
 
 ## Sync coordinator
 

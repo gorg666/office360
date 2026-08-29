@@ -56,9 +56,9 @@ Retry of the **same** form keeps the same unique key. A new open of the form get
 
 - title, assignee, due, status, optional provider key
 - **Открыть** → shared `ProjectedTaskDetailModal` (TASKS-005/006), not a mail-only mini detail
-- After create, list/mail block refresh via `velo-task-created`; status/due updates via `velo-task-updated` after sync/transition
+- After create, list/mail block refresh via `velo-task-created`; status/due/**assignee** updates via `velo-task-updated` after sync/transition/detail edit
 
-Default queue is configured in **Settings → Задачи** (TASKS-006).
+Default queue is configured in **Settings → Задачи** (TASKS-006). Assignee change in shared detail preserves `TaskSource` (TASKS-007).
 
 Empty list → block hidden. Offline: show cached projection only; create remains disabled.
 
